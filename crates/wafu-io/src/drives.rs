@@ -1,4 +1,6 @@
-/// The letters of the local drives, in order. Network drives are left out.
+/// The letters of the local drives that are ready to be read, in order.
+/// Network drives and drives without media are left out, so that cycling
+/// through the drives never stops at one that cannot be entered.
 /// Always empty except on Windows.
 #[cfg(windows)]
 #[must_use]
@@ -24,7 +26,7 @@ pub fn drives() -> Vec<char> {
                 .collect();
             // SAFETY: `root` is a NUL-terminated UTF-16 string that outlives the call.
             let kind = unsafe { GetDriveTypeW(PCWSTR(root.as_ptr())) };
-            kind != DRIVE_REMOTE
+            kind != DRIVE_REMOTE && std::fs::metadata(format!("{letter}:\\")).is_ok()
         })
         .collect()
 }
