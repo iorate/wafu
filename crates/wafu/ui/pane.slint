@@ -1,0 +1,117 @@
+import { ListView, Palette } from "std-widgets.slint";
+
+export struct Row {
+    name: string,
+    extension: string,
+    size: string,
+    modified: string,
+}
+
+export struct PaneData {
+    path: string,
+    info: string,
+    active: bool,
+    cursor: int,
+}
+
+export global PaneMetrics {
+    out property <length> row-height: 20px;
+}
+
+component RowItem {
+    in property <Row> item;
+    in property <bool> cursor;
+
+    height: PaneMetrics.row-height;
+
+    HorizontalLayout {
+        padding-left: 4px;
+        padding-right: 4px;
+        spacing: 8px;
+
+        Text {
+            text: item.name;
+            overflow: elide;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+
+        Text {
+            text: item.extension;
+            width: 60px;
+            overflow: elide;
+            vertical-alignment: center;
+        }
+
+        Text {
+            text: item.size;
+            width: 90px;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+        }
+
+        Text {
+            text: item.modified;
+            width: 150px;
+            vertical-alignment: center;
+        }
+    }
+
+    if cursor: Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: Palette.foreground;
+    }
+}
+
+export component PaneWidget {
+    in property <PaneData> data;
+    in property <[Row]> rows;
+    in property <int> scroll-top;
+
+    callback viewport-rows-changed(rows: int);
+
+    changed scroll-top => {
+        list.content-y = -scroll-top * PaneMetrics.row-height;
+    }
+
+    VerticalLayout {
+        Text {
+            text: data.path;
+            overflow: elide;
+            height: PaneMetrics.row-height;
+            vertical-alignment: center;
+            horizontal-alignment: left;
+        }
+
+        Rectangle {
+            height: 1px;
+            background: Palette.border;
+        }
+
+        list := ListView {
+            vertical-stretch: 1;
+
+            changed visible-height => {
+                root.viewport-rows-changed(floor(self.visible-height / PaneMetrics.row-height));
+            }
+
+            for row[index] in root.rows: RowItem {
+                item: row;
+                cursor: index == root.data.cursor;
+            }
+        }
+
+        Rectangle {
+            height: 1px;
+            background: Palette.border;
+        }
+
+        Text {
+            text: data.info;
+            overflow: elide;
+            height: PaneMetrics.row-height;
+            vertical-alignment: center;
+        }
+    }
+}

@@ -15,6 +15,15 @@ repository = "https://github.com/iorate/wafu"
 authors = ["iorate"]
 publish = false
 
+[workspace.dependencies]
+chrono = "0.4.45"
+slint = "1.18.1"
+slint-build = "1.18.1"
+tempfile = "3.27.0"
+thiserror = "2.0.21"
+wafu-core = { path = "crates/wafu-core" }
+wafu-io = { path = "crates/wafu-io" }
+
 [workspace.lints.rust]
 unsafe_code = "warn"
 
