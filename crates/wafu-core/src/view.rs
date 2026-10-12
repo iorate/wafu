@@ -28,6 +28,8 @@ pub struct PaneView {
 pub struct RowView {
     pub name: String,
     pub extension: String,
+    /// `@` for symbolic links, otherwise empty.
+    pub marker: String,
     pub size: String,
     pub modified: String,
 }
@@ -57,6 +59,7 @@ impl RowView {
         Self {
             name: "..".to_owned(),
             extension: String::new(),
+            marker: String::new(),
             size: String::new(),
             modified: String::new(),
         }
@@ -69,19 +72,33 @@ impl RowView {
         } else {
             format!(".{extension}")
         };
-        let size = match entry.kind {
-            EntryKind::Dir => "<DIR>".to_owned(),
-            EntryKind::Symlink { .. } => "<LNK>".to_owned(),
-            EntryKind::File => entry.size.to_string(),
+        let is_link = matches!(entry.kind, EntryKind::Symlink { .. });
+        let broken = entry.kind == EntryKind::Symlink { target: None };
+        let size = if broken {
+            "?".to_owned()
+        } else if entry.kind.is_dir_like() {
+            "<DIR>".to_owned()
+        } else {
+            entry.size.to_string()
+        };
+        let modified = if broken {
+            "?".to_owned()
+        } else {
+            entry
+                .modified
+                .map(|t| t.local.to_string())
+                .unwrap_or_default()
         };
         Self {
             name,
             extension,
+            marker: if is_link {
+                "@".to_owned()
+            } else {
+                String::new()
+            },
             size,
-            modified: entry
-                .modified
-                .map(|t| t.local.to_string())
-                .unwrap_or_default(),
+            modified,
         }
     }
 }
