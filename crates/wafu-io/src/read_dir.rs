@@ -23,31 +23,43 @@ pub fn read_dir(path: &Path) -> io::Result<Vec<Entry>> {
 }
 
 fn entry(path: &Path, name: OsString, metadata: Option<&Metadata>) -> Entry {
-    let kind = metadata.map_or(EntryKind::File, |metadata| {
-        let file_type = metadata.file_type();
-        if file_type.is_symlink() {
-            let target = fs::metadata(path).ok().map(|target| {
-                if target.is_dir() {
+    let hidden = is_hidden(&name, metadata);
+    let Some(metadata) = metadata else {
+        return Entry {
+            name,
+            kind: EntryKind::File,
+            size: 0,
+            modified: None,
+            hidden,
+        };
+    };
+    let file_type = metadata.file_type();
+    // Size and time follow the link target; a broken link has neither.
+    let (kind, details) = if file_type.is_symlink() {
+        match fs::metadata(path) {
+            Ok(target) => {
+                let kind = if target.is_dir() {
                     TargetKind::Dir
                 } else {
                     TargetKind::File
-                }
-            });
-            EntryKind::Symlink { target }
-        } else if file_type.is_dir() {
-            EntryKind::Dir
-        } else {
-            EntryKind::File
+                };
+                (EntryKind::Symlink { target: Some(kind) }, Some(target))
+            }
+            Err(_) => (EntryKind::Symlink { target: None }, None),
         }
-    });
+    } else if file_type.is_dir() {
+        (EntryKind::Dir, Some(metadata.clone()))
+    } else {
+        (EntryKind::File, Some(metadata.clone()))
+    };
     Entry {
-        hidden: is_hidden(&name, metadata),
-        size: metadata.map_or(0, Metadata::len),
-        modified: metadata
-            .and_then(|metadata| metadata.modified().ok())
-            .map(timestamp),
         name,
         kind,
+        size: details.as_ref().map_or(0, Metadata::len),
+        modified: details
+            .and_then(|details| details.modified().ok())
+            .map(timestamp),
+        hidden,
     }
 }
 
@@ -113,7 +125,7 @@ mod tests {
         use std::os::unix::fs::symlink;
 
         let dir = TempDir::new().unwrap();
-        fs::File::create(dir.path().join("file")).unwrap();
+        fs::write(dir.path().join("file"), b"hello").unwrap();
         fs::create_dir(dir.path().join("sub")).unwrap();
         symlink("file", dir.path().join("to_file")).unwrap();
         symlink("sub", dir.path().join("to_dir")).unwrap();
@@ -121,22 +133,25 @@ mod tests {
 
         let entries = read_dir(dir.path()).unwrap();
 
+        let to_file = find(&entries, "to_file");
         assert_eq!(
-            find(&entries, "to_file").kind,
+            to_file.kind,
             EntryKind::Symlink {
                 target: Some(TargetKind::File)
             }
         );
+        assert_eq!(to_file.size, 5);
+        assert_eq!(to_file.modified, find(&entries, "file").modified);
         assert_eq!(
             find(&entries, "to_dir").kind,
             EntryKind::Symlink {
                 target: Some(TargetKind::Dir)
             }
         );
-        assert_eq!(
-            find(&entries, "broken").kind,
-            EntryKind::Symlink { target: None }
-        );
+        let broken = find(&entries, "broken");
+        assert_eq!(broken.kind, EntryKind::Symlink { target: None });
+        assert_eq!(broken.size, 0);
+        assert_eq!(broken.modified, None);
     }
 
     fn find<'a>(entries: &'a [Entry], name: &str) -> &'a Entry {

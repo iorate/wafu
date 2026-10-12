@@ -69,19 +69,27 @@ impl RowView {
         } else {
             format!(".{extension}")
         };
-        let size = match entry.kind {
-            EntryKind::Dir => "<DIR>".to_owned(),
-            EntryKind::Symlink { .. } => "<LNK>".to_owned(),
-            EntryKind::File => entry.size.to_string(),
+        let broken = entry.kind == EntryKind::Symlink { target: None };
+        let size = if broken {
+            "?".to_owned()
+        } else if entry.kind.is_dir_like() {
+            "<DIR>".to_owned()
+        } else {
+            entry.size.to_string()
+        };
+        let modified = if broken {
+            "?".to_owned()
+        } else {
+            entry
+                .modified
+                .map(|t| t.local.to_string())
+                .unwrap_or_default()
         };
         Self {
             name,
             extension,
             size,
-            modified: entry
-                .modified
-                .map(|t| t.local.to_string())
-                .unwrap_or_default(),
+            modified,
         }
     }
 }

@@ -249,6 +249,7 @@ impl Default for App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::entry::{EntryKind, TargetKind};
     use crate::test_support::{Harness, dir, file};
 
     #[test]
@@ -310,6 +311,47 @@ mod tests {
         assert_eq!(
             columns,
             [("..", ""), ("conf.d", ""), ("a.tar", ".gz"), ("noext", "")]
+        );
+    }
+
+    #[test]
+    fn size_and_time_columns_follow_symlink_targets() {
+        let mut harness = Harness::start("/home/user", "/tmp");
+        let to_dir = Entry {
+            kind: EntryKind::Symlink {
+                target: Some(TargetKind::Dir),
+            },
+            ..file("to_dir")
+        };
+        let to_file = Entry {
+            kind: EntryKind::Symlink {
+                target: Some(TargetKind::File),
+            },
+            size: 42,
+            ..file("to_file")
+        };
+        let broken = Entry {
+            kind: EntryKind::Symlink { target: None },
+            ..file("broken")
+        };
+
+        harness.load(Side::Left, vec![to_dir, to_file, broken]);
+
+        let view = harness.view();
+        let columns: Vec<(&str, &str, &str)> = view
+            .left
+            .rows
+            .iter()
+            .map(|row| (row.name.as_str(), row.size.as_str(), row.modified.as_str()))
+            .collect();
+        assert_eq!(
+            columns,
+            [
+                ("..", "", ""),
+                ("to_dir", "<DIR>", ""),
+                ("broken", "?", "?"),
+                ("to_file", "42", ""),
+            ]
         );
     }
 
