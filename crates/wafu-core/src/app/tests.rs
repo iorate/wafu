@@ -1513,10 +1513,13 @@ fn history_popup_lists_newest_first_and_picks_by_key() {
 
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "History");
-    assert_eq!(
-        harness.popup_labels(),
-        ["0  /", "1  /home", "2  /home/user"]
-    );
+    assert_eq!(harness.popup_labels(), ["/", "/home", "/home/user"]);
+    let keys: Vec<&str> = popup
+        .items
+        .iter()
+        .map(|item| item.detail.as_str())
+        .collect();
+    assert_eq!(keys, ["0", "1", "2"]);
     assert_eq!(popup.cursor, Some(0));
 
     // Picking the current place just closes the popup.
@@ -1633,12 +1636,10 @@ fn go_to_path_resolves_relative_input_from_the_pane() {
     harness.press("Enter");
     harness.load(Side::Left, vec![]);
 
+    // Compared as paths: folding rebuilds the path with the platform separator.
     assert_eq!(
-        harness.view().left.path,
-        PathBuf::from("/home/user")
-            .join("other")
-            .display()
-            .to_string()
+        harness.app().pane(Side::Left).location().base,
+        PathBuf::from("/home/user").join("other")
     );
 }
 
@@ -1856,7 +1857,7 @@ fn bookmarks_popup_expands_tilde_and_picks_by_key() {
     assert_eq!(popup.message, None);
     assert_eq!(
         harness.popup_labels(),
-        [format!("0  {}", docs.display()), "1  /var".to_owned()]
+        [docs.display().to_string(), "/var".to_owned()]
     );
     assert_eq!(popup.cursor, Some(0));
 
@@ -1920,7 +1921,7 @@ fn drives_popup_lists_the_letters_and_picks_by_letter() {
     harness.drives(DrivePurpose::Show, &['D', 'C']);
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Drives");
-    assert_eq!(harness.popup_labels(), ["c  C:\\", "d  D:\\"]);
+    assert_eq!(harness.popup_labels(), ["C:\\", "D:\\"]);
 
     harness.press("Shift+D");
     assert_eq!(harness.popup(), None);
@@ -1982,6 +1983,7 @@ fn drive_switching_wraps_and_remembers_the_last_place_on_each_drive() {
     // Already on C, so nothing happens.
     harness.press("L");
     harness.drives(DrivePurpose::Show, &['C', 'D']);
+    harness.take_effects();
     assert_eq!(harness.view().popup.unwrap().cursor, Some(0));
     harness.press("C");
     assert_eq!(harness.take_effects(), vec![]);

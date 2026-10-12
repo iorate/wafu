@@ -281,13 +281,17 @@ impl ListPopup {
         }
     }
 
+    /// The rows to show: the place, with its key at the end like the sort popup.
     #[must_use]
     pub fn items(&self) -> Vec<PopupItem> {
         self.items
             .iter()
             .map(|item| PopupItem {
-                label: format!("{}  {}", item.key.unwrap_or(' '), item.label),
-                detail: String::new(),
+                label: item.label.clone(),
+                detail: item
+                    .key
+                    .map(|key| key.to_ascii_uppercase().to_string())
+                    .unwrap_or_default(),
                 mark: ItemMark::None,
             })
             .collect()
@@ -469,7 +473,8 @@ mod tests {
         assert_eq!(popup.items[10].key, Some('a'));
         assert_eq!(popup.items[35].key, Some('z'));
         assert_eq!(popup.items[36].key, None);
-        assert_eq!(popup.items()[36].label, "   /36");
+        assert_eq!(popup.items()[35].detail, "Z");
+        assert_eq!(popup.items()[36].detail, "");
         assert_eq!(
             popup.item_for_key('Z').map(|item| item.label.as_str()),
             Some("/35")
@@ -500,7 +505,8 @@ mod tests {
 
         assert_eq!(popup.items[0].key, Some('c'));
         assert_eq!(popup.items[0].target, ListTarget::Drive('C'));
-        assert_eq!(popup.items()[1].label, "d  D:\\");
+        assert_eq!(popup.items()[1].label, "D:\\");
+        assert_eq!(popup.items()[1].detail, "D");
         assert_eq!(popup.cursor, 1);
         assert_eq!(popup.empty_message(), "No drives");
     }

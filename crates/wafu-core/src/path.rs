@@ -26,9 +26,16 @@ pub fn resolve_input(text: &str, home: &Path, base: &Path) -> PathBuf {
 }
 
 /// Folds `.` and `..` lexically. Symbolic links are not followed, so the
-/// result names the path the user typed rather than where it leads.
+/// result names the path the user typed rather than where it leads. A path
+/// with nothing to fold is returned as written.
 #[must_use]
 pub fn normalize(path: &Path) -> PathBuf {
+    let needs_folding = path
+        .components()
+        .any(|component| matches!(component, Component::CurDir | Component::ParentDir));
+    if !needs_folding {
+        return path.to_path_buf();
+    }
     let mut result = PathBuf::new();
     for component in path.components() {
         match component {
@@ -118,6 +125,11 @@ mod tests {
         assert_eq!(normalize(Path::new("/a/b/../../..")), PathBuf::from("/"));
         assert_eq!(normalize(Path::new("/..")), PathBuf::from("/"));
         assert_eq!(normalize(Path::new("a/../b")), PathBuf::from("b"));
+    }
+
+    #[test]
+    fn normalize_leaves_a_path_with_nothing_to_fold_as_written() {
+        assert_eq!(normalize(Path::new("/home/user")).as_os_str(), "/home/user");
     }
 
     #[test]
