@@ -347,15 +347,17 @@ mod tests {
         harness.press("Enter");
         harness.press("BS");
 
+        // `join` uses the platform separator, so the expected path is built the same way.
+        let docs = PathBuf::from("/home/user").join("docs");
         assert_eq!(
             harness.take_effects(),
             vec![
                 Effect::ReadDir {
                     side: Side::Left,
-                    location: Location::new(PathBuf::from("/home/user/docs")),
+                    location: Location::new(docs.clone()),
                     request: RequestId(3),
                 },
-                Effect::SetTitle("wafu - /home/user/docs".to_owned()),
+                Effect::SetTitle(format!("wafu - {}", docs.display())),
                 Effect::CancelRead {
                     request: RequestId(3)
                 },
@@ -489,7 +491,8 @@ mod tests {
 
         harness.press("Enter");
 
-        assert_eq!(harness.view().left.path, "/home/user/docs");
+        let docs = PathBuf::from("/home/user").join("docs");
+        assert_eq!(harness.view().left.path, docs.display().to_string());
         assert_eq!(harness.names(Side::Left), [".."]);
         assert_eq!(harness.view().left.cursor, Some(0));
     }
