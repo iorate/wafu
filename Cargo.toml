@@ -1,0 +1,25 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/wafu",
+    "crates/wafu-core",
+    "crates/wafu-io",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/iorate/wafu"
+repository = "https://github.com/iorate/wafu"
+authors = ["iorate"]
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"

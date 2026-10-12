@@ -1,0 +1,16 @@
+[package]
+name = "wafu-io"
+description = "Effect runtime of the wafu file manager: file system, archives, and OS integration"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+homepage.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+wafu-core = { path = "../wafu-core" }
+
+[lints]
+workspace = true
