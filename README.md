@@ -2,6 +2,8 @@
 
 A keyboard-driven dual-pane file manager for Windows, Linux, and macOS, built with Rust and Slint.
 
+[![Made with Slint](https://raw.githubusercontent.com/slint-ui/slint/master/logo/MadeWithSlint-logo-whitebg.png)](https://slint.dev)
+
 ## License
 
 Licensed under either of
