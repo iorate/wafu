@@ -17,6 +17,9 @@ publish = false
 
 [workspace.dependencies]
 chrono = "0.4.45"
+globset = "0.4.20"
+icu_collator = "2.3.1"
+notify = "8.2.0"
 slint = "1.18.1"
 slint-build = "1.18.1"
 tempfile = "3.27.0"

@@ -1,0 +1,179 @@
+import { CheckBox, ListView, Palette } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+export struct PopupItem {
+    label: string,
+    detail: string,
+    // 0: none, 1: radio button, 2: check box
+    mark: int,
+    on: bool,
+}
+
+export struct PopupData {
+    visible: bool,
+    title: string,
+    has-input: bool,
+    cursor: int,
+}
+
+export component PopupOverlay {
+    in property <PopupData> data;
+    in property <[PopupItem]> items;
+    in-out property <string> text;
+
+    callback key-input(text: string, control: bool, shift: bool, alt: bool, meta: bool);
+    callback input-edited(text: string);
+    callback input-accepted();
+
+    property <int> visible-items: min(items.length, 12);
+
+    // Dims the window and swallows clicks while the popup is open.
+    Rectangle {
+        background: Palette.background;
+        opacity: 0.6;
+    }
+
+    TouchArea { }
+
+    panel := Rectangle {
+        width: min(root.width - 40px, 480px);
+        height: content.preferred-height;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 3;
+        background: Palette.alternate-background;
+        border-width: 1px;
+        border-color: Palette.border;
+        border-radius: 4px;
+
+        content := VerticalLayout {
+            padding: 8px;
+            spacing: 6px;
+
+            Text {
+                text: data.title;
+                font-weight: 700;
+            }
+
+            if data.has-input: Rectangle {
+                height: Theme.row-height + 6px;
+                background: Palette.background;
+                border-width: 1px;
+                border-color: Palette.border;
+                border-radius: 2px;
+
+                TextInput {
+                    x: 4px;
+                    width: parent.width - 8px;
+                    height: parent.height;
+                    vertical-alignment: center;
+                    single-line: true;
+                    text <=> root.text;
+
+                    init => {
+                        self.focus();
+                    }
+
+                    edited => {
+                        root.input-edited(self.text);
+                    }
+
+                    accepted => {
+                        root.input-accepted();
+                    }
+
+                    // Navigation keys go to the core before the field can
+                    // interpret them; everything else edits the text.
+                    key-pressed(event) => {
+                        if event.text == Key.Escape || event.text == Key.UpArrow || event.text == Key.DownArrow {
+                            root.key-input(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt, event.modifiers.meta);
+                            return accept;
+                        }
+                        reject
+                    }
+                }
+            }
+
+            if items.length > 0: Rectangle {
+                property <int> cursor: root.data.cursor;
+
+                height: root.visible-items * Theme.row-height;
+                clip: true;
+
+                list := ListView {
+                    width: parent.width;
+                    height: parent.height;
+                    vertical-scrollbar-policy: ScrollBarPolicy.always-off;
+
+                    for item[index] in root.items: Rectangle {
+                        height: Theme.row-height;
+                        background: index == root.data.cursor ? Theme.selection-background : transparent;
+
+                        HorizontalLayout {
+                            padding-left: 4px;
+                            padding-right: 4px;
+                            spacing: 8px;
+
+                            if item.mark == 1: Rectangle {
+                                width: 18px;
+
+                                Rectangle {
+                                    width: 14px;
+                                    height: 14px;
+                                    x: 2px;
+                                    y: (parent.height - self.height) / 2;
+                                    border-radius: 7px;
+                                    border-width: 1px;
+                                    border-color: Palette.foreground;
+
+                                    if item.on: Rectangle {
+                                        width: 6px;
+                                        height: 6px;
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                        border-radius: 3px;
+                                        background: Palette.foreground;
+                                    }
+                                }
+                            }
+
+                            if item.mark == 2: CheckBox {
+                                width: 18px;
+                                checked: item.on;
+                            }
+
+                            Text {
+                                text: item.label;
+                                overflow: elide;
+                                vertical-alignment: center;
+                                horizontal-stretch: 1;
+                            }
+
+                            Text {
+                                text: item.detail;
+                                opacity: 0.7;
+                                vertical-alignment: center;
+                                horizontal-alignment: right;
+                                horizontal-stretch: 0;
+                                min-width: self.preferred-width;
+                            }
+                        }
+                    }
+                }
+
+                // The widgets only display the draft; clicks never reach them.
+                TouchArea { }
+
+                changed cursor => {
+                    if self.cursor < 0 {
+                        return;
+                    }
+                    if self.cursor * Theme.row-height < -list.content-y {
+                        list.content-y = -self.cursor * Theme.row-height;
+                    } else if (self.cursor + 1) * Theme.row-height > -list.content-y + list.visible-height {
+                        list.content-y = -((self.cursor + 1) * Theme.row-height - list.visible-height);
+                    }
+                }
+            }
+        }
+    }
+}

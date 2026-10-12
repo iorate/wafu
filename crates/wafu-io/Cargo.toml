@@ -11,6 +11,7 @@ publish.workspace = true
 
 [dependencies]
 chrono.workspace = true
+notify.workspace = true
 wafu-core.workspace = true
 
 [dev-dependencies]

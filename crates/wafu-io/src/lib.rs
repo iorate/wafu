@@ -7,6 +7,7 @@
 mod read_dir;
 mod runtime;
 mod time;
+mod watch;
 
 pub use read_dir::read_dir;
 pub use runtime::Runtime;

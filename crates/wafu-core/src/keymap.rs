@@ -37,11 +37,13 @@ const DEFAULT_FILELIST: &[(&str, &str)] = &[
     ("Shift+O", "sync_other_to_this"),
     ("Space", "mark_down"),
     ("Shift+Space", "mark_up"),
-    ("Ctrl+Space", "mark_range"),
+    ("Ctrl+Space", "mark_range_above"),
+    ("Ctrl+Shift+Space", "mark_range_below"),
     ("A", "invert_marks"),
     ("Shift+A", "invert_marks_all"),
     ("@", "mark_glob"),
     ("Ctrl+:", "next_mark"),
+    ("Ctrl+*", "prev_mark"),
     ("C", "copy"),
     ("M", "move"),
     ("D", "delete"),
@@ -79,6 +81,18 @@ impl KeyMap {
     #[must_use]
     pub fn lookup(&self, context: Context, key: &Key) -> Option<Command> {
         self.maps.get(&context)?.get(key).copied()
+    }
+
+    /// The keys bound to a command in a context, in display order.
+    #[must_use]
+    pub fn keys_for(&self, context: Context, command: Command) -> Vec<Key> {
+        let mut keys: Vec<Key> = self
+            .bindings(context)
+            .filter(|(_, bound)| *bound == command)
+            .map(|(key, _)| *key)
+            .collect();
+        keys.sort_by_key(ToString::to_string);
+        keys
     }
 
     /// The bindings of a context, in no particular order.
@@ -182,6 +196,22 @@ mod tests {
         assert_eq!(
             keymap.lookup(Context::FileList, &"Ctrl+7".parse().unwrap()),
             Some(Command::Jump('7'))
+        );
+    }
+
+    #[test]
+    fn keys_for_lists_bound_keys_in_display_order() {
+        let keymap = KeyMap::default();
+
+        let keys: Vec<String> = keymap
+            .keys_for(Context::FileList, Command::MarkRangeBelow)
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(keys, ["Ctrl+Shift+Space"]);
+        assert_eq!(
+            keymap.keys_for(Context::FileList, Command::SwapPanes),
+            Vec::new()
         );
     }
 

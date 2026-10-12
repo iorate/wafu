@@ -7,8 +7,20 @@ use crate::error::{AppError, IoError};
 use crate::key::{Key, KeyInput};
 use crate::keymap::KeyMap;
 use crate::location::Location;
+use crate::log::Log;
 use crate::pane::{Pane, RequestId};
-use crate::view::{PaneView, View};
+use crate::popup::{InputKind, Popup};
+use crate::view::{Ellipsis, LogView, PaneView, View};
+
+mod popups;
+#[cfg(test)]
+mod tests;
+
+const SPLIT_STEP: u8 = 5;
+const SPLIT_MIN: u8 = 10;
+const SPLIT_MAX: u8 = 90;
+const LOG_ROWS_MIN: usize = 1;
+const LOG_ROWS_MAX: usize = 30;
 
 /// An event delivered to the application.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,12 +31,40 @@ pub enum Msg {
         right: PathBuf,
     },
     Key(KeyInput),
+    Mouse(MouseInput),
+    /// The text of the popup's input field was edited.
+    InputChanged(String),
     /// The number of rows that fit in a pane's list.
     ViewportRows {
         side: Side,
         rows: usize,
     },
+    /// The number of rows that fit in the log.
+    LogViewportRows(usize),
     Io(IoEvent),
+}
+
+/// A mouse action on a pane. `row` is the display row under the pointer and
+/// may be past the last row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MouseInput {
+    Click {
+        side: Side,
+        row: usize,
+    },
+    DoubleClick {
+        side: Side,
+        row: usize,
+    },
+    RightClick {
+        side: Side,
+        row: usize,
+    },
+    /// Wheel movement in rows; positive scrolls down.
+    Wheel {
+        side: Side,
+        rows: i32,
+    },
 }
 
 /// A request from the application to the outside world.
@@ -38,6 +78,11 @@ pub enum Effect {
     CancelRead {
         request: RequestId,
     },
+    /// Watches a directory for changes, replacing the side's previous watch.
+    Watch {
+        side: Side,
+        path: PathBuf,
+    },
     SetTitle(String),
 }
 
@@ -48,6 +93,13 @@ pub enum IoEvent {
         side: Side,
         request: RequestId,
         result: Result<Vec<Entry>, IoError>,
+    },
+    /// Something changed in the watched directory.
+    LocationChanged { side: Side, path: PathBuf },
+    WatchFailed {
+        side: Side,
+        path: PathBuf,
+        error: IoError,
     },
 }
 
@@ -63,7 +115,11 @@ pub struct App {
     panes: [Pane; 2],
     active: Side,
     keymap: KeyMap,
-    log: Vec<String>,
+    log: Log,
+    popup: Option<Popup>,
+    split_percent: u8,
+    log_rows: usize,
+    ellipsis: Ellipsis,
     next_request: u64,
 }
 
@@ -94,7 +150,11 @@ impl App {
             ],
             active: Side::Left,
             keymap: KeyMap::default(),
-            log: Vec::new(),
+            log: Log::new(),
+            popup: None,
+            split_percent: 50,
+            log_rows: 6,
+            ellipsis: Ellipsis::End,
             next_request: 1,
         }
     }
@@ -115,18 +175,45 @@ impl App {
                 return effects;
             }
             Msg::Key(input) => {
-                if let Some(key) = Key::from_input(&input)
-                    && let Some(command) = self.keymap.lookup(Context::FileList, &key)
-                {
-                    self.run_command(command, &mut effects);
+                if let Some(key) = Key::from_input(&input) {
+                    if self.popup.is_some() {
+                        self.popup_key(key, &mut effects);
+                    } else {
+                        if let Some(command) = self.keymap.lookup(Context::FileList, &key) {
+                            self.run_command(command, &mut effects);
+                        }
+                        // A key after wheel scrolling brings the cursor back into view.
+                        self.active_pane_mut().ensure_cursor_visible();
+                    }
                 }
             }
+            Msg::Mouse(input) => {
+                if self.popup.is_none() {
+                    self.mouse(input, &mut effects);
+                }
+            }
+            Msg::InputChanged(text) => self.input_changed(text),
             Msg::ViewportRows { side, rows } => self.panes[side.index()].set_viewport_rows(rows),
+            Msg::LogViewportRows(rows) => self.log.set_viewport_rows(rows),
             Msg::Io(IoEvent::DirLoaded {
                 side,
                 request,
                 result,
-            }) => self.dir_loaded(side, request, result),
+            }) => self.dir_loaded(side, request, result, &mut effects),
+            Msg::Io(IoEvent::LocationChanged { side, path }) => {
+                if self.panes[side.index()].location.base == path {
+                    self.refresh(side, &mut effects);
+                }
+            }
+            Msg::Io(IoEvent::WatchFailed { path, error, .. }) => {
+                self.log.push(
+                    AppError::Watch {
+                        path,
+                        source: error,
+                    }
+                    .to_string(),
+                );
+            }
         }
         let title = self.title();
         if title != title_before {
@@ -141,7 +228,14 @@ impl App {
             title: self.title(),
             left: PaneView::from_pane(&self.panes[0], self.active == Side::Left),
             right: PaneView::from_pane(&self.panes[1], self.active == Side::Right),
-            log: self.log.clone(),
+            log: LogView {
+                lines: self.log.lines().map(str::to_owned).collect(),
+                scroll_top: self.log.scroll_top(),
+            },
+            popup: self.popup_view(),
+            split_percent: self.split_percent,
+            log_rows: self.log_rows,
+            ellipsis: self.ellipsis,
         }
     }
 
@@ -153,6 +247,19 @@ impl App {
     #[must_use]
     pub fn active(&self) -> Side {
         self.active
+    }
+
+    #[cfg(test)]
+    pub(crate) fn popup(&self) -> Option<&Popup> {
+        self.popup.as_ref()
+    }
+
+    fn active_pane(&self) -> &Pane {
+        &self.panes[self.active.index()]
+    }
+
+    fn active_pane_mut(&mut self) -> &mut Pane {
+        &mut self.panes[self.active.index()]
     }
 
     fn run_command(&mut self, command: Command, effects: &mut Vec<Effect>) {
@@ -177,7 +284,55 @@ impl App {
             Command::PageDown => pane.page_down(),
             Command::CursorTop => pane.cursor_top(),
             Command::CursorBottom => pane.cursor_bottom(),
+            Command::Search => self.open_search(),
+            Command::Jump(c) => pane.jump_to(c),
+            Command::MarkDown => pane.mark_down(),
+            Command::MarkUp => pane.mark_up(),
+            Command::MarkRangeAbove => pane.mark_range_above(),
+            Command::MarkRangeBelow => pane.mark_range_below(),
+            Command::InvertMarks => pane.invert_marks(false),
+            Command::InvertMarksAll => pane.invert_marks(true),
+            Command::MarkGlob => self.open_input(InputKind::MarkGlob),
+            Command::NextMark => pane.next_mark(),
+            Command::PrevMark => pane.prev_mark(),
+            Command::ClearMarks => pane.clear_marks(),
+            Command::Sort => self.open_sort(),
+            Command::ToggleHidden => pane.toggle_hidden(),
+            Command::Filter => self.open_input(InputKind::Filter),
+            Command::ClearFilter => {
+                pane.set_filter(None);
+            }
+            Command::Reload => self.refresh(side, effects),
+            Command::PaneShrinkLeft => {
+                self.split_percent = (self.split_percent - SPLIT_STEP).max(SPLIT_MIN);
+            }
+            Command::PaneGrowLeft => {
+                self.split_percent = (self.split_percent + SPLIT_STEP).min(SPLIT_MAX);
+            }
+            Command::LogShrink => self.log_rows = (self.log_rows - 1).max(LOG_ROWS_MIN),
+            Command::LogGrow => self.log_rows = (self.log_rows + 1).min(LOG_ROWS_MAX),
+            Command::LogScrollUp => self.log.scroll_up(),
+            Command::LogScrollDown => self.log.scroll_down(),
+            Command::LogPageUp => self.log.page_up(),
+            Command::LogPageDown => self.log.page_down(),
+            Command::ClearLog => self.log.clear(),
+            Command::Palette => self.open_palette(),
             _ => {}
+        }
+    }
+
+    fn mouse(&mut self, input: MouseInput, effects: &mut Vec<Effect>) {
+        match input {
+            MouseInput::Click { side, row } | MouseInput::RightClick { side, row } => {
+                self.active = side;
+                self.panes[side.index()].set_cursor(row);
+            }
+            MouseInput::DoubleClick { side, row } => {
+                self.active = side;
+                self.panes[side.index()].set_cursor(row);
+                self.run_command(Command::Open, effects);
+            }
+            MouseInput::Wheel { side, rows } => self.panes[side.index()].scroll_by(rows),
         }
     }
 
@@ -197,14 +352,33 @@ impl App {
         pending_cursor: Option<OsString>,
         effects: &mut Vec<Effect>,
     ) {
-        let request = RequestId(self.next_request);
-        self.next_request += 1;
         let pane = &mut self.panes[side.index()];
         if let Some(old) = pane.loading.take() {
             effects.push(Effect::CancelRead { request: old });
         }
         pane.set_location(location.clone(), pending_cursor);
-        pane.loading = Some(request);
+        // Watching before reading means a change during the read is not missed.
+        effects.push(Effect::Watch {
+            side,
+            path: location.base.clone(),
+        });
+        self.read(side, location, effects);
+    }
+
+    fn refresh(&mut self, side: Side, effects: &mut Vec<Effect>) {
+        let pane = &mut self.panes[side.index()];
+        if pane.loading.is_some() {
+            pane.reload_pending = true;
+            return;
+        }
+        let location = pane.location.clone();
+        self.read(side, location, effects);
+    }
+
+    fn read(&mut self, side: Side, location: Location, effects: &mut Vec<Effect>) {
+        let request = RequestId(self.next_request);
+        self.next_request += 1;
+        self.panes[side.index()].loading = Some(request);
         effects.push(Effect::ReadDir {
             side,
             location,
@@ -212,7 +386,13 @@ impl App {
         });
     }
 
-    fn dir_loaded(&mut self, side: Side, request: RequestId, result: Result<Vec<Entry>, IoError>) {
+    fn dir_loaded(
+        &mut self,
+        side: Side,
+        request: RequestId,
+        result: Result<Vec<Entry>, IoError>,
+        effects: &mut Vec<Effect>,
+    ) {
         let pane = &mut self.panes[side.index()];
         if pane.loading != Some(request) {
             return;
@@ -228,10 +408,15 @@ impl App {
                 self.log.push(error.to_string());
             }
         }
+        let pane = &mut self.panes[side.index()];
+        if pane.reload_pending {
+            pane.reload_pending = false;
+            self.refresh(side, effects);
+        }
     }
 
     fn title(&self) -> String {
-        let path = self.panes[self.active.index()].location.to_string();
+        let path = self.active_pane().location.to_string();
         if path.is_empty() {
             "wafu".to_owned()
         } else {
@@ -243,342 +428,5 @@ impl App {
 impl Default for App {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::entry::{EntryKind, TargetKind};
-    use crate::test_support::{Harness, dir, file};
-
-    #[test]
-    fn start_reads_both_panes_and_sets_title() {
-        let mut harness = Harness::start("/home/user", "/tmp");
-
-        let effects = harness.take_effects();
-
-        assert_eq!(
-            effects,
-            vec![
-                Effect::ReadDir {
-                    side: Side::Left,
-                    location: Location::new(PathBuf::from("/home/user")),
-                    request: RequestId(1),
-                },
-                Effect::ReadDir {
-                    side: Side::Right,
-                    location: Location::new(PathBuf::from("/tmp")),
-                    request: RequestId(2),
-                },
-                Effect::SetTitle("wafu - /home/user".to_owned()),
-            ]
-        );
-        assert_eq!(harness.view().title, "wafu - /home/user");
-    }
-
-    #[test]
-    fn loaded_entries_appear_after_the_parent_row() {
-        let mut harness = Harness::start("/home/user", "/tmp");
-
-        harness.load(Side::Left, vec![file("b.txt"), dir("a")]);
-
-        assert_eq!(harness.names(Side::Left), ["..", "a", "b.txt"]);
-        assert_eq!(harness.names(Side::Right), [".."]);
-        assert_eq!(harness.view().left.cursor, Some(0));
-        assert_eq!(
-            harness.view().left.info,
-            "2 items | sort: name | hidden: off"
-        );
-    }
-
-    #[test]
-    fn extension_column_includes_the_dot() {
-        let mut harness = Harness::start("/home/user", "/tmp");
-
-        harness.load(
-            Side::Left,
-            vec![file("a.tar.gz"), file("noext"), dir("conf.d")],
-        );
-
-        let view = harness.view();
-        let columns: Vec<(&str, &str, &str)> = view
-            .left
-            .rows
-            .iter()
-            .map(|row| {
-                (
-                    row.name.as_str(),
-                    row.extension.as_str(),
-                    row.marker.as_str(),
-                )
-            })
-            .collect();
-        assert_eq!(
-            columns,
-            [
-                ("..", "", ""),
-                ("conf.d", "", ""),
-                ("a.tar", ".gz", ""),
-                ("noext", "", ""),
-            ]
-        );
-    }
-
-    #[test]
-    fn size_and_time_columns_follow_symlink_targets() {
-        let mut harness = Harness::start("/home/user", "/tmp");
-        let to_dir = Entry {
-            kind: EntryKind::Symlink {
-                target: Some(TargetKind::Dir),
-            },
-            ..file("to_dir")
-        };
-        let to_file = Entry {
-            kind: EntryKind::Symlink {
-                target: Some(TargetKind::File),
-            },
-            size: 42,
-            ..file("to_file")
-        };
-        let broken = Entry {
-            kind: EntryKind::Symlink { target: None },
-            ..file("broken")
-        };
-
-        harness.load(Side::Left, vec![to_dir, to_file, broken]);
-
-        let view = harness.view();
-        let columns: Vec<(&str, &str, &str, &str)> = view
-            .left
-            .rows
-            .iter()
-            .map(|row| {
-                (
-                    row.name.as_str(),
-                    row.marker.as_str(),
-                    row.size.as_str(),
-                    row.modified.as_str(),
-                )
-            })
-            .collect();
-        assert_eq!(
-            columns,
-            [
-                ("..", "", "", ""),
-                ("to_dir", "@", "<DIR>", ""),
-                ("broken", "@", "?", "?"),
-                ("to_file", "@", "42", ""),
-            ]
-        );
-    }
-
-    #[test]
-    fn root_has_no_parent_row() {
-        let mut harness = Harness::start("/", "/tmp");
-
-        harness.load(Side::Left, vec![file("a")]);
-
-        assert_eq!(harness.names(Side::Left), ["a"]);
-    }
-
-    #[test]
-    fn stale_reply_is_discarded() {
-        let mut harness = Harness::start("/home/user", "/tmp");
-        let stale = harness.latest_request(Side::Left);
-        harness.press("Enter");
-
-        harness.send(Msg::Io(IoEvent::DirLoaded {
-            side: Side::Left,
-            request: stale,
-            result: Ok(vec![file("stale")]),
-        }));
-
-        assert_eq!(harness.names(Side::Left), [".."]);
-    }
-
-    #[test]
-    fn open_directory_navigates_and_cancels_pending_read() {
-        let mut harness = Harness::start("/home/user", "/tmp");
-        harness.load(Side::Left, vec![dir("docs")]);
-        harness.press("Down");
-        harness.take_effects();
-
-        harness.press("Enter");
-        harness.press("BS");
-
-        // `join` uses the platform separator, so the expected path is built the same way.
-        let docs = PathBuf::from("/home/user").join("docs");
-        assert_eq!(
-            harness.take_effects(),
-            vec![
-                Effect::ReadDir {
-                    side: Side::Left,
-                    location: Location::new(docs.clone()),
-                    request: RequestId(3),
-                },
-                Effect::SetTitle(format!("wafu - {}", docs.display())),
-                Effect::CancelRead {
-                    request: RequestId(3)
-                },
-                Effect::ReadDir {
-                    side: Side::Left,
-                    location: Location::new(PathBuf::from("/home/user")),
-                    request: RequestId(4),
-                },
-                Effect::SetTitle("wafu - /home/user".to_owned()),
-            ]
-        );
-        assert_eq!(harness.view().left.path, "/home/user");
-    }
-
-    #[test]
-    fn open_on_parent_row_goes_to_parent() {
-        let mut harness = Harness::start("/home/user", "/tmp");
-        harness.load(Side::Left, vec![file("a")]);
-
-        harness.press("Enter");
-
-        assert_eq!(harness.view().left.path, "/home");
-    }
-
-    #[test]
-    fn open_on_file_does_nothing() {
-        let mut harness = Harness::start("/home/user", "/tmp");
-        harness.load(Side::Left, vec![file("a")]);
-        harness.press("Down");
-        harness.take_effects();
-
-        harness.press("Enter");
-
-        assert_eq!(harness.take_effects(), vec![]);
-        assert_eq!(harness.view().left.path, "/home/user");
-    }
-
-    #[test]
-    fn go_parent_puts_cursor_on_the_directory_we_came_from() {
-        let mut harness = Harness::start("/home/user", "/tmp");
-        harness.load(Side::Left, vec![]);
-
-        harness.press("BS");
-        harness.load(Side::Left, vec![dir("other"), dir("user")]);
-
-        assert_eq!(harness.view().left.path, "/home");
-        assert_eq!(harness.cursor_name(Side::Left), "user");
-    }
-
-    #[test]
-    fn go_parent_at_root_does_nothing() {
-        let mut harness = Harness::start("/", "/tmp");
-        harness.load(Side::Left, vec![]);
-        harness.take_effects();
-
-        harness.press("BS");
-
-        assert_eq!(harness.take_effects(), vec![]);
-    }
-
-    #[test]
-    fn focus_left_when_already_left_does_nothing() {
-        let mut harness = Harness::start("/home/user", "/tmp");
-        harness.take_effects();
-
-        harness.press("Left");
-
-        assert_eq!(harness.take_effects(), vec![]);
-        assert_eq!(harness.app().active(), Side::Left);
-    }
-
-    #[test]
-    fn focus_and_switch_change_the_active_pane_and_title() {
-        let mut harness = Harness::start("/home/user", "/tmp");
-        harness.take_effects();
-
-        harness.press("Right");
-        assert_eq!(
-            harness.take_effects(),
-            vec![Effect::SetTitle("wafu - /tmp".to_owned())]
-        );
-        assert!(harness.view().right.active);
-
-        harness.press("Tab");
-        assert_eq!(
-            harness.take_effects(),
-            vec![Effect::SetTitle("wafu - /home/user".to_owned())]
-        );
-        assert!(harness.view().left.active);
-    }
-
-    #[test]
-    fn cursor_is_shown_only_in_the_active_pane() {
-        let mut harness = Harness::start("/home/user", "/tmp");
-        harness.load(Side::Right, vec![file("a")]);
-
-        let view = harness.view();
-
-        assert_eq!(view.left.cursor, Some(0));
-        assert_eq!(view.right.cursor, None);
-    }
-
-    #[test]
-    fn cursor_keys_move_the_cursor_of_the_active_pane() {
-        let mut harness = Harness::start("/home/user", "/tmp");
-        harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
-        harness.viewport(Side::Left, 2);
-
-        harness.press("Down");
-        assert_eq!(harness.cursor_name(Side::Left), "a");
-        harness.press("End");
-        assert_eq!(harness.cursor_name(Side::Left), "c");
-        harness.press("Down");
-        assert_eq!(harness.cursor_name(Side::Left), "..");
-        harness.press("Up");
-        assert_eq!(harness.cursor_name(Side::Left), "c");
-        harness.press("PageUp");
-        assert_eq!(harness.cursor_name(Side::Left), "a");
-        harness.press("Home");
-        assert_eq!(harness.cursor_name(Side::Left), "..");
-        harness.press("PageDown");
-        assert_eq!(harness.cursor_name(Side::Left), "b");
-        assert_eq!(harness.view().left.scroll_top, 2);
-    }
-
-    #[test]
-    fn navigating_empties_the_listing_until_the_new_one_arrives() {
-        let mut harness = Harness::start("/home/user", "/tmp");
-        harness.load(Side::Left, vec![dir("docs")]);
-        harness.press("Down");
-
-        harness.press("Enter");
-
-        let docs = PathBuf::from("/home/user").join("docs");
-        assert_eq!(harness.view().left.path, docs.display().to_string());
-        assert_eq!(harness.names(Side::Left), [".."]);
-        assert_eq!(harness.view().left.cursor, Some(0));
-    }
-
-    #[test]
-    fn read_error_is_logged_and_the_pane_stays_at_the_new_location() {
-        let mut harness = Harness::start("/home/user", "/tmp");
-        harness.load(Side::Left, vec![file("a")]);
-        harness.press("BS");
-
-        harness.fail_load(Side::Left, "permission denied");
-
-        let view = harness.view();
-        assert_eq!(view.log, vec!["cannot read /home: permission denied"]);
-        assert_eq!(view.left.path, "/home");
-        assert_eq!(harness.names(Side::Left), [".."]);
-        assert_eq!(harness.app().pane(Side::Left).loading, None);
-    }
-
-    #[test]
-    fn unbound_key_does_nothing() {
-        let mut harness = Harness::start("/home/user", "/tmp");
-        harness.take_effects();
-
-        harness.press("F1");
-
-        assert_eq!(harness.take_effects(), vec![]);
     }
 }
