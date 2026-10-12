@@ -64,6 +64,11 @@ impl RowView {
 
     pub(crate) fn from_entry(entry: &Entry) -> Self {
         let (name, extension) = entry.split_name();
+        let extension = if extension.is_empty() {
+            extension
+        } else {
+            format!(".{extension}")
+        };
         let size = match entry.kind {
             EntryKind::Dir => "<DIR>".to_owned(),
             EntryKind::Symlink { .. } => "<LNK>".to_owned(),

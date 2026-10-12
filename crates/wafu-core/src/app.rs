@@ -292,6 +292,28 @@ mod tests {
     }
 
     #[test]
+    fn extension_column_includes_the_dot() {
+        let mut harness = Harness::start("/home/user", "/tmp");
+
+        harness.load(
+            Side::Left,
+            vec![file("a.tar.gz"), file("noext"), dir("conf.d")],
+        );
+
+        let view = harness.view();
+        let columns: Vec<(&str, &str)> = view
+            .left
+            .rows
+            .iter()
+            .map(|row| (row.name.as_str(), row.extension.as_str()))
+            .collect();
+        assert_eq!(
+            columns,
+            [("..", ""), ("conf.d", ""), ("a.tar", ".gz"), ("noext", "")]
+        );
+    }
+
+    #[test]
     fn root_has_no_parent_row() {
         let mut harness = Harness::start("/", "/tmp");
 

@@ -105,13 +105,7 @@ impl Harness {
         };
         pane.rows
             .iter()
-            .map(|row| {
-                if row.extension.is_empty() {
-                    row.name.clone()
-                } else {
-                    format!("{}.{}", row.name, row.extension)
-                }
-            })
+            .map(|row| format!("{}{}", row.name, row.extension))
             .collect()
     }
 
