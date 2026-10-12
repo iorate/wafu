@@ -1,6 +1,6 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::Duration;
 
@@ -12,16 +12,16 @@ use crate::runtime::OnEvent;
 
 const DEBOUNCE: Duration = Duration::from_millis(200);
 
-// Each pane has its own watcher and debounce thread so that the callback knows
-// which pane and path it reports for. Dropping the watcher ends the thread.
+// Each pane has its own watchers and debounce thread so that the callback knows
+// which pane and path it reports for. Dropping the watchers ends the thread.
 pub(crate) struct Watcher {
-    sides: [Option<RecommendedWatcher>; 2],
+    sides: [Vec<RecommendedWatcher>; 2],
 }
 
 impl Watcher {
     pub(crate) fn new() -> Self {
         Self {
-            sides: [None, None],
+            sides: [Vec::new(), Vec::new()],
         }
     }
 
@@ -29,35 +29,64 @@ impl Watcher {
         self.unwatch(side);
         let (changes, receiver) = mpsc::channel::<()>();
         spawn_debouncer(side, path.clone(), Arc::clone(on_event), receiver);
-        // An error from the watcher counts as a change too: on Windows that is
-        // how the removal of the watched directory itself shows up.
-        let result = notify::recommended_watcher(move |result: notify::Result<Event>| {
-            let counts = match result {
-                Ok(event) => is_change(event.kind),
-                Err(_) => true,
-            };
-            if counts {
-                let _ = changes.send(());
+        match watch_contents(&path, changes.clone()) {
+            Ok(watcher) => self.sides[side.index()].push(watcher),
+            Err(error) => {
+                on_event(IoEvent::WatchFailed {
+                    side,
+                    path,
+                    error: IoError::new(error.to_string()),
+                });
+                return;
             }
-        })
-        .and_then(|mut watcher| {
-            watcher
-                .watch(&path, RecursiveMode::NonRecursive)
-                .map(|()| watcher)
-        });
-        match result {
-            Ok(watcher) => self.sides[side.index()] = Some(watcher),
-            Err(error) => on_event(IoEvent::WatchFailed {
-                side,
-                path,
-                error: IoError::new(error.to_string()),
-            }),
+        }
+        // The directory's own watch goes quiet when the directory is removed
+        // or renamed (Windows reports nothing at all), so the parent is
+        // watched for that one entry as well. Failing to is not worth a report.
+        if let Some(parent) = path.parent()
+            && let Ok(watcher) = watch_entry(parent, path.clone(), changes)
+        {
+            self.sides[side.index()].push(watcher);
         }
     }
 
     pub(crate) fn unwatch(&mut self, side: Side) {
-        self.sides[side.index()] = None;
+        self.sides[side.index()].clear();
     }
+}
+
+// Reports any change inside the directory. An error from the watcher counts
+// as a change too, since a failed read will sort out what happened.
+fn watch_contents(path: &Path, changes: Sender<()>) -> notify::Result<RecommendedWatcher> {
+    let mut watcher = notify::recommended_watcher(move |result: notify::Result<Event>| {
+        let counts = match result {
+            Ok(event) => is_change(event.kind),
+            Err(_) => true,
+        };
+        if counts {
+            let _ = changes.send(());
+        }
+    })?;
+    watcher.watch(path, RecursiveMode::NonRecursive)?;
+    Ok(watcher)
+}
+
+// Reports changes to one entry of a directory, such as its removal.
+fn watch_entry(
+    dir: &Path,
+    entry: PathBuf,
+    changes: Sender<()>,
+) -> notify::Result<RecommendedWatcher> {
+    let mut watcher = notify::recommended_watcher(move |result: notify::Result<Event>| {
+        if let Ok(event) = result
+            && is_change(event.kind)
+            && event.paths.contains(&entry)
+        {
+            let _ = changes.send(());
+        }
+    })?;
+    watcher.watch(dir, RecursiveMode::NonRecursive)?;
+    Ok(watcher)
 }
 
 // Opening or reading the directory is reported as an access on Linux, and the
