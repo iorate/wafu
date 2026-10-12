@@ -1,0 +1,91 @@
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::thread;
+use std::time::Duration;
+
+use notify::event::{AccessKind, AccessMode};
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher as _};
+use wafu_core::{IoError, IoEvent, Side};
+
+use crate::runtime::OnEvent;
+
+const DEBOUNCE: Duration = Duration::from_millis(200);
+
+// Each pane has its own watcher and debounce thread so that the callback knows
+// which pane and path it reports for. Dropping the watcher ends the thread.
+pub(crate) struct Watcher {
+    sides: [Option<RecommendedWatcher>; 2],
+}
+
+impl Watcher {
+    pub(crate) fn new() -> Self {
+        Self {
+            sides: [None, None],
+        }
+    }
+
+    pub(crate) fn watch(&mut self, side: Side, path: PathBuf, on_event: &OnEvent) {
+        let slot = &mut self.sides[index(side)];
+        *slot = None;
+        let (changes, receiver) = mpsc::channel::<()>();
+        spawn_debouncer(side, path.clone(), Arc::clone(on_event), receiver);
+        let result = notify::recommended_watcher(move |result: notify::Result<Event>| {
+            if let Ok(event) = result
+                && is_change(event.kind)
+            {
+                let _ = changes.send(());
+            }
+        })
+        .and_then(|mut watcher| {
+            watcher
+                .watch(&path, RecursiveMode::NonRecursive)
+                .map(|()| watcher)
+        });
+        match result {
+            Ok(watcher) => *slot = Some(watcher),
+            Err(error) => on_event(IoEvent::WatchFailed {
+                side,
+                path,
+                error: IoError::new(error.to_string()),
+            }),
+        }
+    }
+}
+
+// Opening or reading the directory is reported as an access on Linux, and the
+// listing itself does that, so accesses must not count as changes.
+fn is_change(kind: EventKind) -> bool {
+    match kind {
+        EventKind::Access(access) => access == AccessKind::Close(AccessMode::Write),
+        _ => true,
+    }
+}
+
+fn spawn_debouncer(side: Side, path: PathBuf, on_event: OnEvent, changes: mpsc::Receiver<()>) {
+    thread::Builder::new()
+        .name("wafu-io-watch".to_owned())
+        .spawn(move || {
+            while changes.recv().is_ok() {
+                loop {
+                    match changes.recv_timeout(DEBOUNCE) {
+                        Ok(()) => {}
+                        Err(RecvTimeoutError::Timeout) => break,
+                        Err(RecvTimeoutError::Disconnected) => return,
+                    }
+                }
+                on_event(IoEvent::LocationChanged {
+                    side,
+                    path: path.clone(),
+                });
+            }
+        })
+        .expect("the watch thread should start");
+}
+
+fn index(side: Side) -> usize {
+    match side {
+        Side::Left => 0,
+        Side::Right => 1,
+    }
+}

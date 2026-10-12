@@ -1,11 +1,12 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-use crate::app::{App, Effect, IoEvent, Msg, Side};
+use crate::app::{App, Effect, IoEvent, MouseInput, Msg, Side};
 use crate::entry::{Entry, EntryKind};
 use crate::error::IoError;
 use crate::key::{Key, KeyBase, KeyInput};
 use crate::pane::RequestId;
+use crate::popup::Popup;
 use crate::view::View;
 
 /// Drives an [`App`] with messages and records the effects, so that scenario
@@ -58,6 +59,24 @@ impl Harness {
         }));
     }
 
+    /// Edits the popup's input field, as the UI does after every keystroke.
+    pub(crate) fn edit(&mut self, text: &str) {
+        self.send(Msg::InputChanged(text.to_owned()));
+    }
+
+    pub(crate) fn click(&mut self, side: Side, row: usize) {
+        self.send(Msg::Mouse(MouseInput::Click { side, row }));
+    }
+
+    pub(crate) fn double_click(&mut self, side: Side, row: usize) {
+        self.send(Msg::Mouse(MouseInput::Click { side, row }));
+        self.send(Msg::Mouse(MouseInput::DoubleClick { side, row }));
+    }
+
+    pub(crate) fn wheel(&mut self, side: Side, rows: i32) {
+        self.send(Msg::Mouse(MouseInput::Wheel { side, rows }));
+    }
+
     pub(crate) fn viewport(&mut self, side: Side, rows: usize) {
         self.send(Msg::ViewportRows { side, rows });
     }
@@ -81,6 +100,12 @@ impl Harness {
         }));
     }
 
+    /// Reports a change in the directory a side is showing.
+    pub(crate) fn changed(&mut self, side: Side) {
+        let path = self.app.pane(side).location.base.clone();
+        self.send(Msg::Io(IoEvent::LocationChanged { side, path }));
+    }
+
     pub(crate) fn latest_request(&self, side: Side) -> RequestId {
         self.requests[index(side)].expect("a ReadDir request should have been issued")
     }
@@ -91,6 +116,10 @@ impl Harness {
 
     pub(crate) fn app(&self) -> &App {
         &self.app
+    }
+
+    pub(crate) fn popup(&self) -> Option<&Popup> {
+        self.app.popup()
     }
 
     pub(crate) fn view(&self) -> View {
@@ -105,7 +134,15 @@ impl Harness {
         };
         pane.rows
             .iter()
-            .map(|row| format!("{}{}", row.name, row.extension))
+            .map(|row| format!("{}{}{}", row.name, row.name_tail, row.extension))
+            .collect()
+    }
+
+    pub(crate) fn marks(&self, side: Side) -> Vec<String> {
+        self.app
+            .pane(side)
+            .marked_entries()
+            .map(|entry| entry.name.to_string_lossy().into_owned())
             .collect()
     }
 
@@ -115,6 +152,10 @@ impl Harness {
             || "..".to_owned(),
             |entry| entry.name.to_string_lossy().into_owned(),
         )
+    }
+
+    pub(crate) fn log(&self) -> Vec<String> {
+        self.view().log.lines
     }
 }
 

@@ -6,14 +6,18 @@ use std::thread;
 use wafu_core::{Effect, IoError, IoEvent, Location, RequestId, Side};
 
 use crate::read_dir::read_dir;
+use crate::watch::Watcher;
+
+pub(crate) type OnEvent = Arc<dyn Fn(IoEvent) + Send + Sync>;
 
 /// Executes effects on behalf of the application and reports the results
 /// through the callback given to [`Runtime::new`]. The callback is invoked on
-/// a worker thread.
-#[derive(Debug)]
+/// worker threads.
 pub struct Runtime {
     jobs: Sender<Job>,
     pending: Arc<Mutex<HashSet<RequestId>>>,
+    watcher: Mutex<Watcher>,
+    on_event: OnEvent,
 }
 
 #[derive(Debug)]
@@ -26,10 +30,12 @@ enum Job {
 }
 
 impl Runtime {
-    pub fn new(on_event: impl Fn(IoEvent) + Send + 'static) -> Self {
+    pub fn new(on_event: impl Fn(IoEvent) + Send + Sync + 'static) -> Self {
+        let on_event: OnEvent = Arc::new(on_event);
         let (jobs, receiver) = mpsc::channel::<Job>();
         let pending = Arc::new(Mutex::new(HashSet::new()));
         let worker_pending = Arc::clone(&pending);
+        let worker_event = Arc::clone(&on_event);
         thread::Builder::new()
             .name("wafu-io-reader".to_owned())
             .spawn(move || {
@@ -47,7 +53,7 @@ impl Runtime {
                     if !lock(&worker_pending).remove(&request) {
                         continue;
                     }
-                    on_event(IoEvent::DirLoaded {
+                    worker_event(IoEvent::DirLoaded {
                         side,
                         request,
                         result,
@@ -55,7 +61,12 @@ impl Runtime {
                 }
             })
             .expect("the reader thread should start");
-        Self { jobs, pending }
+        Self {
+            jobs,
+            pending,
+            watcher: Mutex::new(Watcher::new()),
+            on_event,
+        }
     }
 
     /// Runs an effect. Effects that are not for the I/O layer are ignored.
@@ -75,6 +86,12 @@ impl Runtime {
             }
             Effect::CancelRead { request } => {
                 lock(&self.pending).remove(&request);
+            }
+            Effect::Watch { side, path } => {
+                self.watcher
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .watch(side, path, &self.on_event);
             }
             Effect::SetTitle(_) => {}
         }
@@ -97,6 +114,7 @@ mod tests {
     use super::*;
 
     const TIMEOUT: Duration = Duration::from_secs(5);
+    const QUIET: Duration = Duration::from_millis(600);
 
     #[test]
     fn read_dir_reports_entries() {
@@ -111,7 +129,10 @@ mod tests {
             side,
             request,
             result,
-        } = event;
+        } = event
+        else {
+            panic!("expected DirLoaded, got {event:?}");
+        };
         assert_eq!(side, Side::Left);
         assert_eq!(request, RequestId(1));
         let entries = result.unwrap();
@@ -126,7 +147,9 @@ mod tests {
 
         runtime.run(read(&dir.path().join("missing"), 1));
 
-        let IoEvent::DirLoaded { result, .. } = events.recv_timeout(TIMEOUT).unwrap();
+        let IoEvent::DirLoaded { result, .. } = events.recv_timeout(TIMEOUT).unwrap() else {
+            panic!("expected DirLoaded");
+        };
         assert!(result.is_err());
     }
 
@@ -141,15 +164,105 @@ mod tests {
         });
         runtime.run(read(dir.path(), 2));
 
-        let IoEvent::DirLoaded { request, .. } = events.recv_timeout(TIMEOUT).unwrap();
+        let IoEvent::DirLoaded { request, .. } = events.recv_timeout(TIMEOUT).unwrap() else {
+            panic!("expected DirLoaded");
+        };
         assert_eq!(request, RequestId(2));
         assert!(events.recv_timeout(Duration::from_millis(100)).is_err());
     }
 
+    #[test]
+    fn change_in_a_watched_directory_is_reported_once_per_burst() {
+        let dir = TempDir::new().unwrap();
+        let (runtime, events) = runtime();
+        runtime.run(watch(dir.path()));
+        settle(&events);
+
+        File::create(dir.path().join("a")).unwrap();
+        File::create(dir.path().join("b")).unwrap();
+
+        let event = events.recv_timeout(TIMEOUT).unwrap();
+        assert_eq!(
+            event,
+            IoEvent::LocationChanged {
+                side: Side::Left,
+                path: dir.path().to_path_buf(),
+            }
+        );
+        assert!(events.recv_timeout(QUIET).is_err());
+    }
+
+    #[test]
+    fn replacing_a_watch_stops_reports_for_the_old_path() {
+        let old = TempDir::new().unwrap();
+        let new = TempDir::new().unwrap();
+        let (runtime, events) = runtime();
+        runtime.run(watch(old.path()));
+        runtime.run(watch(new.path()));
+        settle(&events);
+
+        File::create(old.path().join("a")).unwrap();
+        assert!(events.recv_timeout(QUIET).is_err());
+
+        File::create(new.path().join("b")).unwrap();
+        let event = events.recv_timeout(TIMEOUT).unwrap();
+        assert_eq!(
+            event,
+            IoEvent::LocationChanged {
+                side: Side::Left,
+                path: new.path().to_path_buf(),
+            }
+        );
+    }
+
+    #[test]
+    fn reading_the_watched_directory_is_not_a_change() {
+        let dir = TempDir::new().unwrap();
+        File::create(dir.path().join("a")).unwrap();
+        let (runtime, events) = runtime();
+        runtime.run(watch(dir.path()));
+        settle(&events);
+
+        runtime.run(read(dir.path(), 1));
+        let IoEvent::DirLoaded { .. } = events.recv_timeout(TIMEOUT).unwrap() else {
+            panic!("expected DirLoaded");
+        };
+
+        assert!(events.recv_timeout(QUIET).is_err());
+    }
+
+    #[test]
+    fn watching_a_missing_path_fails() {
+        let dir = TempDir::new().unwrap();
+        let missing = dir.path().join("missing");
+        let (runtime, events) = runtime();
+
+        runtime.run(watch(&missing));
+
+        let event = events.recv_timeout(TIMEOUT).unwrap();
+        let IoEvent::WatchFailed { side, path, .. } = event else {
+            panic!("expected WatchFailed, got {event:?}");
+        };
+        assert_eq!(side, Side::Left);
+        assert_eq!(path, missing);
+    }
+
+    // A watch takes a moment to become active, and FSEvents on macOS may then
+    // report changes made just before it started (such as creating the
+    // directory itself), so wait until nothing has arrived for a while.
+    fn settle(events: &Receiver<IoEvent>) {
+        std::thread::sleep(Duration::from_millis(200));
+        while events.recv_timeout(QUIET).is_ok() {}
+    }
+
     fn runtime() -> (Runtime, Receiver<IoEvent>) {
         let (sender, receiver) = mpsc::channel();
+        let sender = Mutex::new(sender);
         let runtime = Runtime::new(move |event| {
-            let _ = sender.send(event);
+            let _ = sender
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .send(event);
         });
         (runtime, receiver)
     }
@@ -159,6 +272,13 @@ mod tests {
             side: Side::Left,
             location: Location::new(path.to_path_buf()),
             request: RequestId(request),
+        }
+    }
+
+    fn watch(path: &Path) -> Effect {
+        Effect::Watch {
+            side: Side::Left,
+            path: path.to_path_buf(),
         }
     }
 }

@@ -1,6 +1,11 @@
 use std::cmp::Ordering;
 
+use icu_collator::options::{CollatorOptions, Strength};
+use icu_collator::preferences::CollationNumericOrdering;
+use icu_collator::{Collator, CollatorBorrowed, CollatorPreferences};
+
 use crate::entry::Entry;
+use crate::filter::Filter;
 
 /// The entries of a location, with the display order applied.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -30,22 +35,38 @@ pub enum SortKey {
 
 impl Listing {
     #[must_use]
-    pub fn new(entries: Vec<Entry>, sort: SortSpec, show_hidden: bool) -> Self {
+    pub fn new(
+        entries: Vec<Entry>,
+        sort: SortSpec,
+        show_hidden: bool,
+        filter: Option<&Filter>,
+    ) -> Self {
         let mut listing = Self {
             entries,
             visible: Vec::new(),
         };
-        listing.rebuild(sort, show_hidden);
+        listing.rebuild(sort, show_hidden, filter);
         listing
     }
 
-    pub fn rebuild(&mut self, sort: SortSpec, show_hidden: bool) {
-        self.visible = (0..self.entries.len())
-            .filter(|&index| show_hidden || !self.entries[index].hidden)
+    /// Recomputes the visible rows. The filter applies to files only.
+    pub fn rebuild(&mut self, sort: SortSpec, show_hidden: bool, filter: Option<&Filter>) {
+        let collator = collator(sort);
+        let mut items: Vec<(usize, Keys)> = self
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| show_hidden || !entry.hidden)
+            .filter(|(_, entry)| {
+                entry.kind.is_dir_like() || filter.is_none_or(|f| f.matches(&entry.name))
+            })
+            .map(|(index, entry)| (index, Keys::new(&collator, entry, sort.key)))
             .collect();
         let entries = &self.entries;
-        self.visible
-            .sort_by(|&a, &b| compare(sort, (a, &entries[a]), (b, &entries[b])));
+        items.sort_by(|(a, ka), (b, kb)| {
+            compare(sort, (*a, &entries[*a], ka), (*b, &entries[*b], kb))
+        });
+        self.visible = items.into_iter().map(|(index, _)| index).collect();
     }
 
     #[must_use]
@@ -88,10 +109,57 @@ impl Default for SortSpec {
     }
 }
 
+/// Collation keys of one entry, computed once per rebuild because comparing
+/// strings through the collator on every comparison is several times slower.
+struct Keys {
+    name: Vec<u8>,
+    extension: Vec<u8>,
+}
+
+impl Keys {
+    fn new(collator: &CollatorBorrowed<'_>, entry: &Entry, key: SortKey) -> Self {
+        let extension = if key == SortKey::Extension {
+            sort_key(collator, &entry.split_name().1)
+        } else {
+            Vec::new()
+        };
+        Self {
+            name: sort_key(collator, &entry.name.to_string_lossy()),
+            extension,
+        }
+    }
+}
+
+// The root locale keeps the order the same on every machine. Numeric ordering
+// is what makes "natural" sort compare digit runs by value.
+fn collator(sort: SortSpec) -> CollatorBorrowed<'static> {
+    let mut prefs = CollatorPreferences::default();
+    prefs.numeric_ordering = Some(if sort.key == SortKey::Natural {
+        CollationNumericOrdering::True
+    } else {
+        CollationNumericOrdering::False
+    });
+    let mut options = CollatorOptions::default();
+    options.strength = Some(if sort.ignore_case {
+        Strength::Secondary
+    } else {
+        Strength::Tertiary
+    });
+    Collator::try_new(prefs, options).expect("the compiled collation data should load")
+}
+
+fn sort_key(collator: &CollatorBorrowed<'_>, text: &str) -> Vec<u8> {
+    let mut key = Vec::new();
+    match collator.write_sort_key_to(text, &mut key) {
+        Ok(()) => key,
+        Err(never) => match never {},
+    }
+}
+
 fn compare(
     sort: SortSpec,
-    (index_a, a): (usize, &Entry),
-    (index_b, b): (usize, &Entry),
+    (index_a, a, keys_a): (usize, &Entry, &Keys),
+    (index_b, b, keys_b): (usize, &Entry, &Keys),
 ) -> Ordering {
     if sort.dirs_first {
         let order = b.kind.is_dir_like().cmp(&a.kind.is_dir_like());
@@ -101,30 +169,20 @@ fn compare(
     }
     let order = match sort.key {
         SortKey::None => return reverse_if(index_a.cmp(&index_b), sort.descending),
-        SortKey::Name | SortKey::Natural => compare_names(a, b, sort.ignore_case),
-        SortKey::Extension => compare_text(&a.split_name().1, &b.split_name().1, sort.ignore_case),
+        SortKey::Name | SortKey::Natural => compare_names((a, keys_a), (b, keys_b)),
+        SortKey::Extension => keys_a.extension.cmp(&keys_b.extension),
         SortKey::Size => sort_size(a).cmp(&sort_size(b)),
         SortKey::Time => a.modified.map(|t| t.at).cmp(&b.modified.map(|t| t.at)),
     };
     // Ties are broken by ascending name regardless of the direction.
-    reverse_if(order, sort.descending).then_with(|| compare_names(a, b, sort.ignore_case))
+    reverse_if(order, sort.descending).then_with(|| compare_names((a, keys_a), (b, keys_b)))
 }
 
-fn compare_names(a: &Entry, b: &Entry, ignore_case: bool) -> Ordering {
-    compare_text(
-        &a.name.to_string_lossy(),
-        &b.name.to_string_lossy(),
-        ignore_case,
-    )
-    .then_with(|| a.name.cmp(&b.name))
-}
-
-fn compare_text(a: &str, b: &str, ignore_case: bool) -> Ordering {
-    if ignore_case {
-        a.to_lowercase().cmp(&b.to_lowercase())
-    } else {
-        a.cmp(b)
-    }
+fn compare_names((a, keys_a): (&Entry, &Keys), (b, keys_b): (&Entry, &Keys)) -> Ordering {
+    keys_a
+        .name
+        .cmp(&keys_b.name)
+        .then_with(|| a.name.cmp(&b.name))
 }
 
 fn sort_size(entry: &Entry) -> u64 {
@@ -177,14 +235,71 @@ mod tests {
     }
 
     #[test]
-    fn case_sensitive_sort_orders_by_code_point() {
+    fn ignoring_case_breaks_ties_by_bytes() {
+        let listing = listing(
+            &[file("a", 0), file("A", 0), file("b", 0)],
+            SortSpec::default(),
+        );
+
+        assert_eq!(names(&listing), ["A", "a", "b"]);
+    }
+
+    #[test]
+    fn case_sensitive_sort_puts_lower_case_first() {
         let sort = SortSpec {
             ignore_case: false,
             ..SortSpec::default()
         };
         let listing = listing(&[file("b", 0), file("A", 0), file("a", 0)], sort);
 
-        assert_eq!(names(&listing), ["A", "a", "b"]);
+        assert_eq!(names(&listing), ["a", "A", "b"]);
+    }
+
+    #[test]
+    fn name_sort_follows_the_collation_order() {
+        let listing = listing(
+            &[
+                file("b", 0),
+                file("ä", 0),
+                file("a", 0),
+                file("い", 0),
+                file("あ", 0),
+                file("1", 0),
+            ],
+            SortSpec::default(),
+        );
+
+        assert_eq!(names(&listing), ["1", "a", "ä", "b", "あ", "い"]);
+    }
+
+    #[test]
+    fn name_sort_compares_digits_as_characters() {
+        let listing = listing(
+            &[file("a10", 0), file("a2", 0), file("a1", 0)],
+            SortSpec::default(),
+        );
+
+        assert_eq!(names(&listing), ["a1", "a10", "a2"]);
+    }
+
+    #[test]
+    fn natural_sort_compares_digit_runs_by_value() {
+        let sort = SortSpec {
+            key: SortKey::Natural,
+            ..SortSpec::default()
+        };
+        let listing = listing(
+            &[
+                file("a10", 0),
+                file("a2", 0),
+                file("a1", 0),
+                file("a02", 0),
+                file("b", 0),
+            ],
+            sort,
+        );
+
+        assert_eq!(names(&listing), ["a1", "a02", "a2", "a10", "b"]);
     }
 
     #[test]
@@ -298,15 +413,25 @@ mod tests {
     fn hidden_entries_are_excluded_unless_shown() {
         let entries = [file("a", 0), hidden(".b")];
 
-        let shown = Listing::new(entries.to_vec(), SortSpec::default(), true);
-        let not_shown = Listing::new(entries.to_vec(), SortSpec::default(), false);
+        let shown = Listing::new(entries.to_vec(), SortSpec::default(), true, None);
+        let not_shown = Listing::new(entries.to_vec(), SortSpec::default(), false, None);
 
         assert_eq!(names(&shown), [".b", "a"]);
         assert_eq!(names(&not_shown), ["a"]);
     }
 
+    #[test]
+    fn filter_applies_to_files_only() {
+        let filter = Filter::parse("*.png").unwrap().unwrap();
+        let entries = [file("a.png", 0), file("b.txt", 0), dir("c.txt")];
+
+        let listing = Listing::new(entries.to_vec(), SortSpec::default(), true, Some(&filter));
+
+        assert_eq!(names(&listing), ["c.txt", "a.png"]);
+    }
+
     fn listing(entries: &[Entry], sort: SortSpec) -> Listing {
-        Listing::new(entries.to_vec(), sort, true)
+        Listing::new(entries.to_vec(), sort, true, None)
     }
 
     fn names(listing: &Listing) -> Vec<String> {

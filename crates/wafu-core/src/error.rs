@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
+use crate::filter::FilterError;
+
 /// An error reported by the I/O layer, flattened to a message.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[error("{message}")]
@@ -22,4 +24,11 @@ impl IoError {
 pub enum AppError {
     #[error("cannot read {}: {source}", path.display())]
     ReadDir { path: PathBuf, source: IoError },
+    #[error("cannot watch {}: {source}", path.display())]
+    Watch { path: PathBuf, source: IoError },
+    #[error("invalid pattern {pattern}: {source}")]
+    InvalidPattern {
+        pattern: String,
+        source: FilterError,
+    },
 }

@@ -1,7 +1,9 @@
 import { ListView, Palette } from "std-widgets.slint";
+import { Theme } from "theme.slint";
 
 export struct Row {
     name: string,
+    name-tail: string,
     extension: string,
     marker: string,
     size: string,
@@ -15,30 +17,59 @@ export struct PaneData {
     cursor: int,
 }
 
-export global PaneMetrics {
-    out property <length> row-height: 20px;
-}
-
 component RowItem {
     in property <Row> item;
     in property <bool> cursor;
+    in property <bool> marked;
+    in property <bool> ellipsis-middle;
 
-    height: PaneMetrics.row-height;
+    property <brush> text-color: marked ? Theme.mark-color : Palette.foreground;
+
+    height: Theme.row-height;
 
     HorizontalLayout {
         padding-left: 4px;
         padding-right: 4px;
         spacing: 8px;
 
-        Text {
-            text: item.name;
+        if !root.ellipsis-middle: Text {
+            text: item.name + item.name-tail;
+            color: root.text-color;
             overflow: elide;
             vertical-alignment: center;
             horizontal-stretch: 1;
         }
 
+        // The head may shrink but never grows past its text, so that a name
+        // that fits is not split by a gap; the spacer takes the slack.
+        if root.ellipsis-middle: HorizontalLayout {
+            horizontal-stretch: 1;
+
+            Text {
+                text: item.name;
+                color: root.text-color;
+                overflow: elide;
+                vertical-alignment: center;
+                horizontal-stretch: 0;
+                max-width: self.preferred-width;
+            }
+
+            Text {
+                text: item.name-tail;
+                color: root.text-color;
+                vertical-alignment: center;
+                horizontal-stretch: 0;
+                min-width: self.preferred-width;
+            }
+
+            Rectangle {
+                horizontal-stretch: 1;
+            }
+        }
+
         Text {
             text: item.extension;
+            color: root.text-color;
             width: 60px;
             overflow: elide;
             vertical-alignment: center;
@@ -46,12 +77,14 @@ component RowItem {
 
         Text {
             text: item.marker;
+            color: root.text-color;
             width: 14px;
             vertical-alignment: center;
         }
 
         Text {
             text: item.size;
+            color: root.text-color;
             width: 90px;
             horizontal-alignment: right;
             vertical-alignment: center;
@@ -59,6 +92,7 @@ component RowItem {
 
         Text {
             text: item.modified;
+            color: root.text-color;
             width: 150px;
             vertical-alignment: center;
         }
@@ -74,19 +108,29 @@ component RowItem {
 export component PaneWidget {
     in property <PaneData> data;
     in property <[Row]> rows;
+    in property <[bool]> marks;
     in property <int> scroll-top;
+    in property <bool> ellipsis-middle;
 
     callback viewport-rows-changed(rows: int);
+    callback row-clicked(row: int);
+    callback row-double-clicked(row: int);
+    callback row-right-clicked(row: int);
+    callback wheel(delta: length);
 
     changed scroll-top => {
-        list.content-y = -scroll-top * PaneMetrics.row-height;
+        list.content-y = -scroll-top * Theme.row-height;
+    }
+
+    function row-at(y: length) -> int {
+        return root.scroll-top + floor(y / Theme.row-height);
     }
 
     VerticalLayout {
         Text {
             text: data.path;
             overflow: elide;
-            height: PaneMetrics.row-height;
+            height: Theme.row-height;
             vertical-alignment: center;
             horizontal-alignment: left;
         }
@@ -96,16 +140,50 @@ export component PaneWidget {
             background: Palette.border;
         }
 
-        list := ListView {
+        Rectangle {
             vertical-stretch: 1;
 
-            changed visible-height => {
-                root.viewport-rows-changed(floor(self.visible-height / PaneMetrics.row-height));
+            list := ListView {
+                width: parent.width;
+                height: parent.height;
+                vertical-scrollbar-policy: ScrollBarPolicy.always-off;
+
+                changed visible-height => {
+                    root.viewport-rows-changed(floor(self.visible-height / Theme.row-height));
+                }
+
+                for row[index] in root.rows: RowItem {
+                    item: row;
+                    cursor: index == root.data.cursor;
+                    marked: root.marks[index];
+                    ellipsis-middle: root.ellipsis-middle;
+                }
             }
 
-            for row[index] in root.rows: RowItem {
-                item: row;
-                cursor: index == root.data.cursor;
+            // Sits on top of the list so that the core, not the list, owns the
+            // scroll position; the list's own wheel handling never runs.
+            TouchArea {
+                width: parent.width;
+                height: parent.height;
+
+                clicked => {
+                    root.row-clicked(root.row-at(self.mouse-y));
+                }
+
+                double-clicked => {
+                    root.row-double-clicked(root.row-at(self.mouse-y));
+                }
+
+                pointer-event(event) => {
+                    if event.kind == PointerEventKind.down && event.button == PointerEventButton.right {
+                        root.row-right-clicked(root.row-at(self.mouse-y));
+                    }
+                }
+
+                scroll-event(event) => {
+                    root.wheel(event.delta-y);
+                    accept
+                }
             }
         }
 
@@ -117,7 +195,7 @@ export component PaneWidget {
         Text {
             text: data.info;
             overflow: elide;
-            height: PaneMetrics.row-height;
+            height: Theme.row-height;
             vertical-alignment: center;
         }
     }

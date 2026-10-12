@@ -1,7 +1,9 @@
-import { Palette } from "std-widgets.slint";
+import { ListView, Palette } from "std-widgets.slint";
 import { PaneData, PaneWidget, Row } from "pane.slint";
+import { PopupData, PopupItem, PopupOverlay } from "popup.slint";
+import { Theme } from "theme.slint";
 
-export { PaneData, Row }
+export { PaneData, PopupData, PopupItem, Row }
 
 export component AppWindow inherits Window {
     in property <string> window-title: "wafu";
@@ -9,17 +11,44 @@ export component AppWindow inherits Window {
     in property <PaneData> right;
     in property <[Row]> left-rows;
     in property <[Row]> right-rows;
+    in property <[bool]> left-marks;
+    in property <[bool]> right-marks;
     in property <int> left-scroll-top;
     in property <int> right-scroll-top;
+    in property <bool> ellipsis-middle;
+    in property <int> split-percent: 50;
+    in property <int> log-rows: 6;
     in property <[string]> log-lines;
+    in property <int> log-scroll-top;
+    in property <PopupData> popup;
+    in property <[PopupItem]> popup-items;
+    in-out property <string> popup-text;
 
     callback key-input(text: string, control: bool, shift: bool, alt: bool, meta: bool);
     callback viewport-rows-changed(side: int, rows: int);
+    callback log-viewport-rows-changed(rows: int);
+    callback row-clicked(side: int, row: int);
+    callback row-double-clicked(side: int, row: int);
+    callback row-right-clicked(side: int, row: int);
+    callback wheel(side: int, delta: length);
+    callback log-wheel(delta: length);
+    callback input-edited(text: string);
+    callback input-accepted();
 
     title: window-title;
     preferred-width: 960px;
     preferred-height: 640px;
     forward-focus: scope;
+
+    changed popup => {
+        if !root.popup.visible {
+            scope.focus();
+        }
+    }
+
+    changed log-scroll-top => {
+        log.content-y = -log-scroll-top * Theme.row-height;
+    }
 
     scope := FocusScope {
         key-pressed(event) => {
@@ -37,7 +66,7 @@ export component AppWindow inherits Window {
             panes := Rectangle {
                 vertical-stretch: 1;
 
-                property <length> left-width: (self.width - 1px) / 2;
+                property <length> left-width: (self.width - 1px) * root.split-percent / 100;
 
                 PaneWidget {
                     x: 0;
@@ -45,9 +74,23 @@ export component AppWindow inherits Window {
                     height: parent.height;
                     data: root.left;
                     rows: root.left-rows;
+                    marks: root.left-marks;
                     scroll-top: root.left-scroll-top;
+                    ellipsis-middle: root.ellipsis-middle;
                     viewport-rows-changed(rows) => {
                         root.viewport-rows-changed(0, rows);
+                    }
+                    row-clicked(row) => {
+                        root.row-clicked(0, row);
+                    }
+                    row-double-clicked(row) => {
+                        root.row-double-clicked(0, row);
+                    }
+                    row-right-clicked(row) => {
+                        root.row-right-clicked(0, row);
+                    }
+                    wheel(delta) => {
+                        root.wheel(0, delta);
                     }
                 }
 
@@ -64,9 +107,23 @@ export component AppWindow inherits Window {
                     height: parent.height;
                     data: root.right;
                     rows: root.right-rows;
+                    marks: root.right-marks;
                     scroll-top: root.right-scroll-top;
+                    ellipsis-middle: root.ellipsis-middle;
                     viewport-rows-changed(rows) => {
                         root.viewport-rows-changed(1, rows);
+                    }
+                    row-clicked(row) => {
+                        root.row-clicked(1, row);
+                    }
+                    row-double-clicked(row) => {
+                        root.row-double-clicked(1, row);
+                    }
+                    row-right-clicked(row) => {
+                        root.row-right-clicked(1, row);
+                    }
+                    wheel(delta) => {
+                        root.wheel(1, delta);
                     }
                 }
             }
@@ -77,19 +134,53 @@ export component AppWindow inherits Window {
             }
 
             Rectangle {
-                height: 120px;
+                height: root.log-rows * Theme.row-height + 8px;
                 clip: true;
 
-                VerticalLayout {
-                    alignment: start;
-                    padding: 4px;
+                log := ListView {
+                    x: 4px;
+                    y: 4px;
+                    width: parent.width - 8px;
+                    height: parent.height - 8px;
+                    vertical-scrollbar-policy: ScrollBarPolicy.always-off;
+
+                    changed visible-height => {
+                        root.log-viewport-rows-changed(floor(self.visible-height / Theme.row-height));
+                    }
 
                     for line in root.log-lines: Text {
                         text: line;
+                        height: Theme.row-height;
                         overflow: elide;
+                        vertical-alignment: center;
+                    }
+                }
+
+                // Same as the panes: the core owns the scroll position.
+                TouchArea {
+                    scroll-event(event) => {
+                        root.log-wheel(event.delta-y);
+                        accept
                     }
                 }
             }
+        }
+    }
+
+    if root.popup.visible: PopupOverlay {
+        width: parent.width;
+        height: parent.height;
+        data: root.popup;
+        items: root.popup-items;
+        text <=> root.popup-text;
+        key-input(text, control, shift, alt, meta) => {
+            root.key-input(text, control, shift, alt, meta);
+        }
+        input-edited(text) => {
+            root.input-edited(text);
+        }
+        input-accepted => {
+            root.input-accepted();
         }
     }
 }

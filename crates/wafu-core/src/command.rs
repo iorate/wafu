@@ -31,11 +31,13 @@ pub enum Command {
     Jump(char),
     MarkDown,
     MarkUp,
-    MarkRange,
+    MarkRangeAbove,
+    MarkRangeBelow,
     InvertMarks,
     InvertMarksAll,
     MarkGlob,
     NextMark,
+    PrevMark,
     ClearMarks,
     Sort,
     ToggleHidden,
@@ -121,11 +123,13 @@ const NAMES: &[(Command, &str)] = &[
     (Command::Search, "search"),
     (Command::MarkDown, "mark_down"),
     (Command::MarkUp, "mark_up"),
-    (Command::MarkRange, "mark_range"),
+    (Command::MarkRangeAbove, "mark_range_above"),
+    (Command::MarkRangeBelow, "mark_range_below"),
     (Command::InvertMarks, "invert_marks"),
     (Command::InvertMarksAll, "invert_marks_all"),
     (Command::MarkGlob, "mark_glob"),
     (Command::NextMark, "next_mark"),
+    (Command::PrevMark, "prev_mark"),
     (Command::ClearMarks, "clear_marks"),
     (Command::Sort, "sort"),
     (Command::ToggleHidden, "toggle_hidden"),
@@ -178,6 +182,36 @@ impl Command {
             .map(|(command, _)| *command)
             .chain(JUMP_CHARS.chars().map(Self::Jump))
             .chain(after.iter().map(|(command, _)| *command))
+    }
+
+    /// Whether the command can run in the context. Commands that do nothing on
+    /// some OS still count as available, so that a shared configuration loads
+    /// without errors everywhere.
+    #[must_use]
+    pub fn available_in(self, context: Context) -> bool {
+        match context {
+            Context::FileList => true,
+            Context::Image => matches!(
+                self,
+                Self::CursorUp
+                    | Self::CursorDown
+                    | Self::PageUp
+                    | Self::PageDown
+                    | Self::CursorTop
+                    | Self::CursorBottom
+                    | Self::MarkDown
+                    | Self::MarkUp
+                    | Self::MarkRangeAbove
+                    | Self::MarkRangeBelow
+                    | Self::InvertMarks
+                    | Self::InvertMarksAll
+                    | Self::MarkGlob
+                    | Self::NextMark
+                    | Self::PrevMark
+                    | Self::ClearMarks
+            ),
+            Context::Text | Context::Binary => false,
+        }
     }
 
     #[must_use]
@@ -235,6 +269,22 @@ mod tests {
         assert_eq!(Command::Jump('9').name(), "jump_9");
         assert_eq!(Command::from_name("jump_z"), Some(Command::Jump('z')));
         assert_eq!(Command::from_name("jump_A"), None);
+    }
+
+    #[test]
+    fn availability_follows_the_context() {
+        assert!(Command::Copy.available_in(Context::FileList));
+        assert!(Command::Drives.available_in(Context::FileList));
+        assert!(Command::CursorDown.available_in(Context::Image));
+        assert!(Command::MarkDown.available_in(Context::Image));
+        assert!(!Command::Copy.available_in(Context::Image));
+        assert!(!Command::CursorDown.available_in(Context::Text));
+        assert_eq!(
+            Command::all()
+                .filter(|c| c.available_in(Context::Image))
+                .count(),
+            16
+        );
     }
 
     #[test]
