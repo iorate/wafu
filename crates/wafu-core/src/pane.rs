@@ -6,6 +6,7 @@ use crate::entry::Entry;
 use crate::filter::Filter;
 use crate::listing::{Listing, SortSpec};
 use crate::location::Location;
+use crate::text::nfc;
 use crate::view::RowView;
 
 /// A unique number for an asynchronous request, used to discard stale replies.
@@ -339,7 +340,7 @@ impl Pane {
 
     /// Moves to the next row whose name starts with the character, wrapping around.
     pub fn jump_to(&mut self, c: char) {
-        let prefix = c.to_lowercase().to_string();
+        let prefix = nfc(&c.to_string()).to_lowercase();
         if let Some(row) = self.find_row_from(self.cursor + 1, |pane, row| {
             pane.row_starts_with(row, &prefix)
         }) {
@@ -366,7 +367,7 @@ impl Pane {
     }
 
     fn search_from(&mut self, start: usize, prefix: &str, forward: bool) -> bool {
-        let prefix = prefix.to_lowercase();
+        let prefix = nfc(prefix).to_lowercase();
         let found = if forward {
             self.find_row_from(start, |pane, row| pane.row_starts_with(row, &prefix))
         } else {
@@ -496,7 +497,7 @@ impl Pane {
 }
 
 fn name_starts_with(name: &OsStr, lower_prefix: &str) -> bool {
-    name.to_string_lossy()
+    nfc(&name.to_string_lossy())
         .to_lowercase()
         .starts_with(lower_prefix)
 }
@@ -992,6 +993,18 @@ mod tests {
         assert_eq!(cursor_name(&pane), "AD");
         assert!(!pane.search_first("x"));
         assert_eq!(cursor_name(&pane), "AD");
+    }
+
+    #[test]
+    fn search_and_jump_match_decomposed_names() {
+        let decomposed = "\u{30a2}\u{30d5}\u{309a}\u{30ea}";
+        let mut pane = pane_with("/home", &["a", decomposed]);
+
+        assert!(pane.search_first("\u{30a2}\u{30d7}"));
+        assert_eq!(pane.cursor, 2);
+        pane.cursor = 0;
+        pane.jump_to('\u{30a2}');
+        assert_eq!(pane.cursor, 2);
     }
 
     #[test]

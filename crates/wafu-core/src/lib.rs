@@ -20,6 +20,7 @@ mod pane;
 mod popup;
 #[cfg(test)]
 mod test_support;
+mod text;
 mod view;
 
 pub use app::{App, Effect, IoEvent, MouseInput, Msg, Side};

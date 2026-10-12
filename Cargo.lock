@@ -4867,6 +4867,7 @@ version = "0.1.0"
 dependencies = [
  "globset",
  "icu_collator",
+ "icu_normalizer",
  "thiserror 2.0.21",
 ]
 

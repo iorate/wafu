@@ -12,6 +12,7 @@ publish.workspace = true
 [dependencies]
 globset.workspace = true
 icu_collator.workspace = true
+icu_normalizer.workspace = true
 thiserror.workspace = true
 
 [lints]
