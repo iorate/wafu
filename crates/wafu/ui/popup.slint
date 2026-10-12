@@ -12,8 +12,11 @@ export struct PopupItem {
 export struct PopupData {
     visible: bool,
     title: string,
+    message: string,
     has-input: bool,
     cursor: int,
+    // Reports work going on in the background and may be shown late.
+    progress: bool,
 }
 
 export component PopupOverlay {
@@ -54,6 +57,11 @@ export component PopupOverlay {
                 font-weight: 700;
             }
 
+            if data.message != "": Text {
+                text: data.message;
+                overflow: elide;
+            }
+
             if data.has-input: Rectangle {
                 height: Theme.row-height + 6px;
                 background: Palette.background;
@@ -69,8 +77,10 @@ export component PopupOverlay {
                     single-line: true;
                     text <=> root.text;
 
+                    // Typing replaces the initial value; the arrows edit it.
                     init => {
                         self.focus();
+                        self.select-all();
                     }
 
                     edited => {

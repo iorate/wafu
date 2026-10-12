@@ -34,14 +34,31 @@ export component AppWindow inherits Window {
     callback input-edited(text: string);
     callback input-accepted();
 
+    // A progress popup is held back for a moment so that a quick read does not
+    // flash an overlay.
+    property <bool> progress-shown;
+
     title: window-title;
     preferred-width: 960px;
     preferred-height: 640px;
     forward-focus: scope;
 
+    // Focus returns to the scope whenever no input field can hold it, including
+    // when an input popup gives way to a progress popup.
     changed popup => {
         if !root.popup.visible {
+            root.progress-shown = false;
+        }
+        if !root.popup.has-input {
             scope.focus();
+        }
+    }
+
+    Timer {
+        interval: 200ms;
+        running: root.popup.visible && root.popup.progress && !root.progress-shown;
+        triggered => {
+            root.progress-shown = true;
         }
     }
 
@@ -162,7 +179,7 @@ export component AppWindow inherits Window {
         }
     }
 
-    if root.popup.visible: PopupOverlay {
+    if root.popup.visible && (!root.popup.progress || root.progress-shown): PopupOverlay {
         width: parent.width;
         height: parent.height;
         data: root.popup;

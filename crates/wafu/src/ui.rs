@@ -259,6 +259,14 @@ impl Ui {
             );
             rendered.log = Arc::clone(&view.log.lines);
         }
+        // The field keeps its own text while typing; it is only written back
+        // when the core refused an edit or opened the popup with a value. It is
+        // written before the popup appears so that the field opens with it.
+        if let Some(input) = view.popup.as_ref().and_then(|popup| popup.input.as_deref())
+            && self.window.get_popup_text() != input
+        {
+            self.window.set_popup_text(input.into());
+        }
         if rendered.popup != view.popup {
             self.window.set_popup(popup_data(view.popup.as_ref()));
             let items = view
@@ -268,13 +276,6 @@ impl Ui {
                 .unwrap_or_default();
             self.popup_items.set_vec(items);
             rendered.popup.clone_from(&view.popup);
-        }
-        // The field keeps its own text while typing; it is only written back
-        // when the core refused an edit or opened the popup with a value.
-        if let Some(input) = view.popup.as_ref().and_then(|popup| popup.input.as_deref())
-            && self.window.get_popup_text() != input
-        {
-            self.window.set_popup_text(input.into());
         }
     }
 }
@@ -328,17 +329,21 @@ fn popup_data(popup: Option<&PopupView>) -> PopupData {
         Some(popup) => PopupData {
             visible: true,
             title: popup.title.as_str().into(),
+            message: popup.message.as_deref().unwrap_or_default().into(),
             has_input: popup.input.is_some(),
             cursor: popup
                 .cursor
                 .and_then(|cursor| i32::try_from(cursor).ok())
                 .unwrap_or(-1),
+            progress: popup.progress,
         },
         None => PopupData {
             visible: false,
             title: SharedString::default(),
+            message: SharedString::default(),
             has_input: false,
             cursor: -1,
+            progress: false,
         },
     }
 }

@@ -1,0 +1,414 @@
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
+
+use super::{App, DrivePurpose, Effect, Os, Resolved, Side};
+use crate::command::Command;
+use crate::entry::Entry;
+use crate::error::{AppError, IoError};
+use crate::location::Location;
+use crate::pane::{HistoryMove, InFlight, Pane, RequestId};
+use crate::path::{drive_letter, root_of};
+
+impl App {
+    /// Whether a move is waiting for its listing. Such a move is modal.
+    pub(super) fn navigating(&self) -> bool {
+        self.panes.iter().any(|pane| {
+            matches!(
+                pane.loading(),
+                Some(InFlight::Resolve { .. } | InFlight::Navigate { .. })
+            )
+        })
+    }
+
+    /// The places being read, for the progress popup.
+    pub(super) fn navigation_targets(&self) -> Vec<String> {
+        self.panes
+            .iter()
+            .filter_map(|pane| match pane.loading() {
+                Some(InFlight::Resolve { path, .. }) => Some(path.display().to_string()),
+                Some(InFlight::Navigate { target, .. }) => Some(target.to_string()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    // The pane keeps showing where it is until the new listing arrives, so a
+    // failed or cancelled move leaves it where it was.
+    pub(super) fn navigate(
+        &mut self,
+        side: Side,
+        target: Location,
+        cursor: Option<OsString>,
+        history: HistoryMove,
+        effects: &mut Vec<Effect>,
+    ) {
+        if *self.panes[side.index()].location() == target {
+            return;
+        }
+        Self::cancel_loading(&mut self.panes[side.index()], effects);
+        // Watching before reading means a change during the read is not missed.
+        effects.push(Effect::Watch {
+            side,
+            path: target.base.clone(),
+        });
+        let request = self.next_request_id();
+        effects.push(Effect::ReadDir {
+            side,
+            location: target.clone(),
+            request,
+        });
+        self.panes[side.index()].set_loading(Some(InFlight::Navigate {
+            request,
+            target,
+            cursor,
+            history,
+        }));
+    }
+
+    /// Moves to the nearest existing directory at or above the path, with the
+    /// I/O layer deciding what exists.
+    pub(super) fn resolve(
+        &mut self,
+        side: Side,
+        path: PathBuf,
+        failed: Option<IoError>,
+        effects: &mut Vec<Effect>,
+    ) {
+        Self::cancel_loading(&mut self.panes[side.index()], effects);
+        let request = self.next_request_id();
+        effects.push(Effect::Resolve {
+            side,
+            path: path.clone(),
+            request,
+        });
+        self.panes[side.index()].set_loading(Some(InFlight::Resolve {
+            request,
+            path,
+            failed,
+        }));
+    }
+
+    pub(super) fn refresh(&mut self, side: Side, effects: &mut Vec<Effect>) {
+        let pane = &mut self.panes[side.index()];
+        if pane.loading().is_some() {
+            pane.set_reload_pending(true);
+            return;
+        }
+        let location = pane.location().clone();
+        if location.base.as_os_str().is_empty() {
+            return;
+        }
+        let request = self.next_request_id();
+        effects.push(Effect::ReadDir {
+            side,
+            location,
+            request,
+        });
+        self.panes[side.index()].set_loading(Some(InFlight::Refresh { request }));
+    }
+
+    pub(super) fn cancel_navigations(&mut self, effects: &mut Vec<Effect>) {
+        for side in [Side::Left, Side::Right] {
+            let pane = &mut self.panes[side.index()];
+            if matches!(
+                pane.loading(),
+                Some(InFlight::Resolve { .. } | InFlight::Navigate { .. })
+            ) {
+                Self::cancel_loading(pane, effects);
+                Self::rewatch(side, pane, effects);
+            }
+        }
+    }
+
+    pub(super) fn dir_loaded(
+        &mut self,
+        side: Side,
+        request: RequestId,
+        result: Result<Vec<Entry>, IoError>,
+        effects: &mut Vec<Effect>,
+    ) {
+        let pane = &mut self.panes[side.index()];
+        if pane.loading().map(InFlight::request) != Some(request) {
+            return;
+        }
+        match pane.take_loading() {
+            Some(InFlight::Navigate {
+                target,
+                cursor,
+                history,
+                ..
+            }) => match result {
+                Ok(entries) => pane.enter(target, cursor, entries, history),
+                Err(source) => {
+                    self.log.push(
+                        AppError::ReadDir {
+                            path: target.base,
+                            source,
+                        }
+                        .to_string(),
+                    );
+                    Self::rewatch(side, pane, effects);
+                }
+            },
+            Some(InFlight::Refresh { .. }) => match result {
+                Ok(entries) => pane.set_entries(entries),
+                Err(source) => {
+                    // The place may be gone; let the I/O layer find out.
+                    let path = pane.location().base.clone();
+                    self.resolve(side, path, Some(source), effects);
+                    return;
+                }
+            },
+            Some(InFlight::Resolve { .. }) | None => return,
+        }
+        let pane = &mut self.panes[side.index()];
+        if pane.reload_pending() {
+            pane.set_reload_pending(false);
+            self.refresh(side, effects);
+        }
+    }
+
+    pub(super) fn resolved(
+        &mut self,
+        side: Side,
+        request: RequestId,
+        result: Option<Resolved>,
+        effects: &mut Vec<Effect>,
+    ) {
+        let pane = &mut self.panes[side.index()];
+        if pane.loading().map(InFlight::request) != Some(request) {
+            return;
+        }
+        let Some(InFlight::Resolve { path, failed, .. }) = pane.take_loading() else {
+            return;
+        };
+        match result {
+            Some(Resolved { dir, .. }) if dir == pane.location().base => {
+                // Still here, so the read error was the whole story.
+                if let Some(source) = failed {
+                    self.log
+                        .push(AppError::ReadDir { path, source }.to_string());
+                }
+                Self::rewatch(side, pane, effects);
+            }
+            Some(Resolved { dir, file }) => {
+                if file.is_none() && dir != path {
+                    self.log.push(
+                        AppError::Fallback {
+                            path,
+                            fallback: dir.clone(),
+                        }
+                        .to_string(),
+                    );
+                }
+                self.navigate(side, Location::new(dir), file, HistoryMove::Visit, effects);
+            }
+            // Home is only for a pane with nowhere else to be; a pane that is
+            // somewhere stays there.
+            None if !pane.location().base.as_os_str().is_empty() => {
+                self.log.push(AppError::Unavailable { path }.to_string());
+                Self::rewatch(side, pane, effects);
+            }
+            None => {
+                let home = self.home.clone();
+                self.log.push(
+                    AppError::Fallback {
+                        path,
+                        fallback: home.clone(),
+                    }
+                    .to_string(),
+                );
+                self.navigate(side, Location::new(home), None, HistoryMove::Visit, effects);
+            }
+        }
+    }
+
+    pub(super) fn location_changed(&mut self, side: Side, path: &Path, effects: &mut Vec<Effect>) {
+        let pane = &mut self.panes[side.index()];
+        match pane.loading() {
+            Some(InFlight::Navigate { target, .. }) => {
+                if target.base == path {
+                    pane.set_reload_pending(true);
+                }
+            }
+            Some(InFlight::Resolve { .. }) => {}
+            Some(InFlight::Refresh { .. }) | None => {
+                if pane.location().base == path {
+                    self.refresh(side, effects);
+                }
+            }
+        }
+    }
+
+    pub(super) fn go_parent(&mut self, effects: &mut Vec<Effect>) {
+        let side = self.active;
+        let pane = &self.panes[side.index()];
+        if let Some(parent) = pane.location().parent() {
+            let came_from = pane.location().base.file_name().map(OsString::from);
+            self.navigate(side, parent, came_from, HistoryMove::Visit, effects);
+        }
+    }
+
+    pub(super) fn go_root(&mut self, effects: &mut Vec<Effect>) {
+        if let Some(root) = root_of(&self.active_pane().location().base) {
+            self.navigate(
+                self.active,
+                Location::new(root),
+                None,
+                HistoryMove::Visit,
+                effects,
+            );
+        }
+    }
+
+    pub(super) fn go_home(&mut self, effects: &mut Vec<Effect>) {
+        let home = self.home.clone();
+        self.navigate(
+            self.active,
+            Location::new(home),
+            None,
+            HistoryMove::Visit,
+            effects,
+        );
+    }
+
+    pub(super) fn history_back(&mut self, effects: &mut Vec<Effect>) {
+        let target = self.active_pane().history().back();
+        self.go_to_history(target.map(|(pos, path)| (pos, path.to_path_buf())), effects);
+    }
+
+    pub(super) fn history_forward(&mut self, effects: &mut Vec<Effect>) {
+        let target = self.active_pane().history().forward();
+        self.go_to_history(target.map(|(pos, path)| (pos, path.to_path_buf())), effects);
+    }
+
+    pub(super) fn go_to_history(
+        &mut self,
+        target: Option<(usize, PathBuf)>,
+        effects: &mut Vec<Effect>,
+    ) {
+        if let Some((pos, path)) = target {
+            self.navigate(
+                self.active,
+                Location::new(path),
+                None,
+                HistoryMove::Position(pos),
+                effects,
+            );
+        }
+    }
+
+    pub(super) fn sync_to_other(&mut self, effects: &mut Vec<Effect>) {
+        let target = self.panes[self.active.other().index()].location().clone();
+        self.navigate(self.active, target, None, HistoryMove::Visit, effects);
+    }
+
+    pub(super) fn sync_other_to_this(&mut self, effects: &mut Vec<Effect>) {
+        let target = self.active_pane().location().clone();
+        self.navigate(
+            self.active.other(),
+            target,
+            None,
+            HistoryMove::Visit,
+            effects,
+        );
+    }
+
+    pub(super) fn swap_panes(&mut self, effects: &mut Vec<Effect>) {
+        let left = self.panes[0].location().clone();
+        let right = self.panes[1].location().clone();
+        self.navigate(Side::Left, right, None, HistoryMove::Visit, effects);
+        self.navigate(Side::Right, left, None, HistoryMove::Visit, effects);
+    }
+
+    pub(super) fn list_drives(
+        &mut self,
+        purpose: DrivePurpose,
+        command: Command,
+        effects: &mut Vec<Effect>,
+    ) {
+        if self.os == Os::Windows {
+            effects.push(Effect::ListDrives { purpose });
+        } else {
+            self.log.push(
+                AppError::WindowsOnly {
+                    command: command.name(),
+                }
+                .to_string(),
+            );
+        }
+    }
+
+    pub(super) fn drives(
+        &mut self,
+        purpose: DrivePurpose,
+        mut letters: Vec<char>,
+        effects: &mut Vec<Effect>,
+    ) {
+        letters.sort_unstable();
+        letters.dedup();
+        match purpose {
+            DrivePurpose::Show => self.open_drives(&letters),
+            DrivePurpose::Prev | DrivePurpose::Next => {
+                if letters.is_empty() {
+                    return;
+                }
+                let current = drive_letter(&self.active_pane().location().base)
+                    .and_then(|letter| letters.iter().position(|&l| l == letter));
+                let last = letters.len() - 1;
+                let index = match (purpose, current) {
+                    (DrivePurpose::Prev, Some(0) | None) => last,
+                    (DrivePurpose::Prev, Some(index)) => index - 1,
+                    (_, Some(index)) if index == last => 0,
+                    (_, Some(index)) => index + 1,
+                    (_, None) => 0,
+                };
+                self.switch_drive(letters[index], effects);
+            }
+        }
+    }
+
+    pub(super) fn switch_drive(&mut self, letter: char, effects: &mut Vec<Effect>) {
+        let pane = self.active_pane();
+        if drive_letter(&pane.location().base) == Some(letter) {
+            return;
+        }
+        let path = pane
+            .drive_memory()
+            .get(&letter)
+            .cloned()
+            .unwrap_or_else(|| PathBuf::from(format!("{letter}:\\")));
+        self.resolve(self.active, path, None, effects);
+    }
+
+    pub(super) fn drive_of_active(&self) -> Option<char> {
+        drive_letter(&self.active_pane().location().base)
+    }
+
+    fn next_request_id(&mut self) -> RequestId {
+        let request = RequestId(self.next_request);
+        self.next_request += 1;
+        request
+    }
+
+    fn cancel_loading(pane: &mut Pane, effects: &mut Vec<Effect>) {
+        if let Some(in_flight) = pane.take_loading() {
+            effects.push(Effect::CancelRead {
+                request: in_flight.request(),
+            });
+        }
+        pane.set_reload_pending(false);
+    }
+
+    // The watch moved to the target before the read; a pane that stays put
+    // needs its own place watched again.
+    fn rewatch(side: Side, pane: &Pane, effects: &mut Vec<Effect>) {
+        let path = &pane.location().base;
+        if !path.as_os_str().is_empty() {
+            effects.push(Effect::Watch {
+                side,
+                path: path.clone(),
+            });
+        }
+    }
+}

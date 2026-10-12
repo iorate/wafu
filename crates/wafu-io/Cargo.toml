@@ -14,6 +14,9 @@ chrono.workspace = true
 notify.workspace = true
 wafu-core.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = ["Win32_Storage_FileSystem"] }
+
 [dev-dependencies]
 tempfile.workspace = true
 
