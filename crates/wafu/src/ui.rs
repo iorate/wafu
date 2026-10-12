@@ -138,13 +138,6 @@ impl Ui {
         });
 
         let weak = Rc::downgrade(ui);
-        ui.window.on_log_viewport_rows_changed(move |rows| {
-            if let Some(ui) = Weak::upgrade(&weak) {
-                ui.dispatch(Msg::LogViewportRows(usize::try_from(rows).unwrap_or(0)));
-            }
-        });
-
-        let weak = Rc::downgrade(ui);
         ui.window.on_row_clicked(move |side, row| {
             if let Some(ui) = Weak::upgrade(&weak) {
                 ui.dispatch(Msg::Mouse(MouseInput::Click {

@@ -950,9 +950,30 @@ fn palette_with_no_match_closes_on_enter_and_escape_closes_too() {
 // Log and layout
 
 #[test]
+fn log_scroll_range_follows_the_log_height_from_the_start() {
+    let mut harness = Harness::start("/a/b/c/d/e/f/g/h", "/tmp");
+    for _ in 0..7 {
+        harness.press("BS");
+        harness.fail_load(Side::Left, "boom");
+    }
+    assert_eq!(harness.view().log_rows, 6);
+    assert_eq!(harness.view().log.scroll_top, 1);
+
+    harness.press("Alt+Up");
+    assert_eq!(harness.view().log.scroll_top, 0);
+    harness.press("Alt+Down");
+    harness.press("Alt+Down");
+    assert_eq!(harness.view().log.scroll_top, 2);
+    harness.press("Shift+Up");
+    assert_eq!(harness.view().log.scroll_top, 1);
+}
+
+#[test]
 fn log_keys_scroll_and_clear() {
     let mut harness = Harness::start("/a/b/c/d/e", "/tmp");
-    harness.send(Msg::LogViewportRows(2));
+    for _ in 0..4 {
+        harness.press("Alt+Down");
+    }
     for _ in 0..4 {
         harness.press("BS");
         harness.fail_load(Side::Left, "boom");
@@ -1197,7 +1218,9 @@ fn wheel_on_the_inactive_pane_is_not_undone_by_keys() {
 #[test]
 fn wheel_over_the_log_scrolls_it() {
     let mut harness = Harness::start("/a/b/c/d/e", "/tmp");
-    harness.send(Msg::LogViewportRows(2));
+    for _ in 0..4 {
+        harness.press("Alt+Down");
+    }
     for _ in 0..4 {
         harness.press("BS");
         harness.fail_load(Side::Left, "boom");
