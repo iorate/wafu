@@ -67,8 +67,6 @@ fn is_hidden(name: &OsString, _metadata: Option<&Metadata>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::fs::File;
-
     use tempfile::TempDir;
 
     use super::*;
@@ -100,8 +98,8 @@ mod tests {
     #[test]
     fn dot_files_are_hidden() {
         let dir = TempDir::new().unwrap();
-        File::create(dir.path().join(".hidden")).unwrap();
-        File::create(dir.path().join("shown")).unwrap();
+        fs::File::create(dir.path().join(".hidden")).unwrap();
+        fs::File::create(dir.path().join("shown")).unwrap();
 
         let entries = read_dir(dir.path()).unwrap();
 
@@ -115,7 +113,7 @@ mod tests {
         use std::os::unix::fs::symlink;
 
         let dir = TempDir::new().unwrap();
-        File::create(dir.path().join("file")).unwrap();
+        fs::File::create(dir.path().join("file")).unwrap();
         fs::create_dir(dir.path().join("sub")).unwrap();
         symlink("file", dir.path().join("to_file")).unwrap();
         symlink("sub", dir.path().join("to_dir")).unwrap();
