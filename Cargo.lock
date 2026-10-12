@@ -4879,6 +4879,7 @@ dependencies = [
  "notify",
  "tempfile",
  "wafu-core",
+ "windows",
 ]
 
 [[package]]

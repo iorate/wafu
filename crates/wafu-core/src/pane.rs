@@ -1,11 +1,15 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::entry::Entry;
+use crate::error::IoError;
 use crate::filter::Filter;
+use crate::history::History;
 use crate::listing::{Listing, SortSpec};
 use crate::location::Location;
+use crate::path::drive_letter;
 use crate::text::nfc;
 use crate::view::RowView;
 
@@ -27,11 +31,56 @@ pub struct Pane {
     // Kept by name so that marks survive a reload.
     marks: HashSet<OsString>,
     pending_cursor: Option<OsString>,
-    loading: Option<RequestId>,
+    loading: Option<InFlight>,
     // A change was reported while a read was in flight; read again when it finishes.
     reload_pending: bool,
+    history: History,
+    // The last place visited on each drive, by letter. Not saved.
+    drive_memory: HashMap<char, PathBuf>,
     rows: Arc<[RowView]>,
     mark_flags: Arc<[bool]>,
+}
+
+/// A read the pane is waiting for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InFlight {
+    /// The I/O layer is finding an existing directory at or above `path`.
+    /// `failed` is the read error that led here, if any.
+    Resolve {
+        request: RequestId,
+        path: PathBuf,
+        failed: Option<IoError>,
+    },
+    /// A move to `target`. The pane keeps showing its current place until the
+    /// listing arrives.
+    Navigate {
+        request: RequestId,
+        target: Location,
+        cursor: Option<OsString>,
+        history: HistoryMove,
+    },
+    /// A re-read of the current place.
+    Refresh { request: RequestId },
+}
+
+impl InFlight {
+    #[must_use]
+    pub fn request(&self) -> RequestId {
+        match self {
+            Self::Resolve { request, .. }
+            | Self::Navigate { request, .. }
+            | Self::Refresh { request } => *request,
+        }
+    }
+}
+
+/// How a move is recorded in the history once it succeeds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HistoryMove {
+    /// A new visit, dropping anything after the current position.
+    Visit,
+    /// Moving within the history, as `history_back` does.
+    Position(usize),
 }
 
 /// How a command picks the entries it works on.
@@ -59,6 +108,8 @@ impl Pane {
             pending_cursor: None,
             loading: None,
             reload_pending: false,
+            history: History::new(),
+            drive_memory: HashMap::new(),
             rows: Arc::from([]),
             mark_flags: Arc::from([]),
         }
@@ -98,6 +149,16 @@ impl Pane {
     #[must_use]
     pub fn filter(&self) -> Option<&Filter> {
         self.filter.as_ref()
+    }
+
+    #[must_use]
+    pub fn history(&self) -> &History {
+        &self.history
+    }
+
+    #[must_use]
+    pub fn drive_memory(&self) -> &HashMap<char, PathBuf> {
+        &self.drive_memory
     }
 
     #[must_use]
@@ -182,7 +243,6 @@ impl Pane {
         self.scroll_top = 0;
         self.marks.clear();
         self.filter = None;
-        self.reload_pending = false;
         self.rebuild_rows();
     }
 
@@ -408,12 +468,36 @@ impl Pane {
         self.search_from(start, prefix, false)
     }
 
-    pub(crate) fn loading(&self) -> Option<RequestId> {
-        self.loading
+    pub(crate) fn loading(&self) -> Option<&InFlight> {
+        self.loading.as_ref()
     }
 
-    pub(crate) fn set_loading(&mut self, request: Option<RequestId>) {
-        self.loading = request;
+    pub(crate) fn set_loading(&mut self, in_flight: Option<InFlight>) {
+        self.loading = in_flight;
+    }
+
+    pub(crate) fn take_loading(&mut self) -> Option<InFlight> {
+        self.loading.take()
+    }
+
+    // Moves to a place whose listing has arrived. Everything that must stay in
+    // step with the location changes here and nowhere else.
+    pub(crate) fn enter(
+        &mut self,
+        target: Location,
+        cursor: Option<OsString>,
+        entries: Vec<Entry>,
+        history: HistoryMove,
+    ) {
+        if let Some(letter) = drive_letter(&target.base) {
+            self.drive_memory.insert(letter, target.base.clone());
+        }
+        match history {
+            HistoryMove::Visit => self.history.visit(target.base.clone()),
+            HistoryMove::Position(pos) => self.history.set_pos(pos),
+        }
+        self.set_location(target, cursor);
+        self.set_entries(entries);
     }
 
     pub(crate) fn reload_pending(&self) -> bool {

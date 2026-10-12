@@ -55,14 +55,18 @@ pub struct LogView {
     pub scroll_top: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PopupView {
     pub title: String,
+    /// A line shown under the title.
+    pub message: Option<String>,
     /// The text of the input field, if the popup has one.
     pub input: Option<String>,
     pub items: Vec<PopupItem>,
     /// The selected item, if the popup has a list.
     pub cursor: Option<usize>,
+    /// Reports work going on in the background; the UI may delay showing it.
+    pub progress: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

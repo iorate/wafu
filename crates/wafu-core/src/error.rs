@@ -31,4 +31,10 @@ pub enum AppError {
         pattern: String,
         source: FilterError,
     },
+    #[error("cannot open {}: the symbolic link is broken", path.display())]
+    BrokenLink { path: PathBuf },
+    #[error("{} is not available; moved to {}", path.display(), fallback.display())]
+    Fallback { path: PathBuf, fallback: PathBuf },
+    #[error("{command} is available only on Windows")]
+    WindowsOnly { command: &'static str },
 }

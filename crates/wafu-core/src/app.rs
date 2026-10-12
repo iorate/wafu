@@ -4,14 +4,15 @@ use std::path::PathBuf;
 use crate::command::{Command, Context};
 use crate::entry::Entry;
 use crate::error::{AppError, IoError};
-use crate::key::{Key, KeyInput};
+use crate::key::{Key, KeyBase, KeyInput, NamedKey};
 use crate::keymap::KeyMap;
 use crate::location::Location;
 use crate::log::Log;
-use crate::pane::{Pane, RequestId};
+use crate::pane::{HistoryMove, Pane, RequestId};
 use crate::popup::{InputKind, Popup};
 use crate::view::{Ellipsis, LogView, PaneView, View};
 
+mod navigation;
 mod popups;
 #[cfg(test)]
 mod tests;
@@ -26,10 +27,13 @@ const LOG_ROWS_MAX: usize = 30;
 /// An event delivered to the application.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Msg {
-    /// The application has started with the given initial pane locations.
+    /// The application has started. The pane paths need not exist yet; the
+    /// nearest existing directory is used.
     Start {
         left: PathBuf,
         right: PathBuf,
+        home: PathBuf,
+        os: Os,
     },
     Key(KeyInput),
     Mouse(MouseInput),
@@ -78,6 +82,13 @@ pub enum Effect {
         location: Location,
         request: RequestId,
     },
+    /// Finds an existing directory at or above the path.
+    Resolve {
+        side: Side,
+        path: PathBuf,
+        request: RequestId,
+    },
+    /// Cancels a `ReadDir` or `Resolve`.
     CancelRead {
         request: RequestId,
     },
@@ -86,7 +97,36 @@ pub enum Effect {
         side: Side,
         path: PathBuf,
     },
+    /// Lists the drive letters (Windows only).
+    ListDrives {
+        purpose: DrivePurpose,
+    },
     SetTitle(String),
+}
+
+/// What the drive list is for; it comes back with the reply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DrivePurpose {
+    Show,
+    Prev,
+    Next,
+}
+
+/// The answer to [`Effect::Resolve`]: the directory to open and, when the
+/// path named a file, the file to put the cursor on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Resolved {
+    pub dir: PathBuf,
+    pub file: Option<OsString>,
+}
+
+/// The operating system, passed in rather than detected so that the core
+/// stays independent of the environment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Os {
+    Windows,
+    MacOs,
+    Linux,
 }
 
 /// The result of an effect, reported by the I/O layer.
@@ -97,8 +137,19 @@ pub enum IoEvent {
         request: RequestId,
         result: Result<Vec<Entry>, IoError>,
     },
+    /// `None` when no directory exists anywhere above the path.
+    Resolved {
+        side: Side,
+        request: RequestId,
+        result: Option<Resolved>,
+    },
     /// Something changed in the watched directory.
     LocationChanged { side: Side, path: PathBuf },
+    /// Always empty except on Windows.
+    Drives {
+        purpose: DrivePurpose,
+        letters: Vec<char>,
+    },
     WatchFailed {
         side: Side,
         path: PathBuf,
@@ -123,6 +174,10 @@ pub struct App {
     split_percent: u8,
     ellipsis: Ellipsis,
     next_request: u64,
+    home: PathBuf,
+    os: Os,
+    // As configured, before `~` is expanded.
+    bookmarks: Vec<PathBuf>,
 }
 
 impl Side {
@@ -161,7 +216,14 @@ impl App {
             split_percent: 50,
             ellipsis: Ellipsis::End,
             next_request: 1,
+            home: PathBuf::new(),
+            os: Os::Linux,
+            bookmarks: Vec::new(),
         }
+    }
+
+    pub fn set_bookmarks(&mut self, paths: Vec<PathBuf>) {
+        self.bookmarks = paths;
     }
 
     /// Applies a message and returns the effects it produced.
@@ -169,13 +231,20 @@ impl App {
         let title_before = self.title();
         let mut effects = Vec::new();
         match msg {
-            Msg::Start { left, right } => {
+            Msg::Start {
+                left,
+                right,
+                home,
+                os,
+            } => {
+                self.home = home;
+                self.os = os;
                 self.panes = [
                     Pane::new(Location::new(PathBuf::new())),
                     Pane::new(Location::new(PathBuf::new())),
                 ];
-                self.navigate(Side::Left, Location::new(left), None, &mut effects);
-                self.navigate(Side::Right, Location::new(right), None, &mut effects);
+                self.resolve(Side::Left, left, None, &mut effects);
+                self.resolve(Side::Right, right, None, &mut effects);
                 effects.push(Effect::SetTitle(self.title()));
                 return effects;
             }
@@ -183,6 +252,11 @@ impl App {
                 if let Some(key) = Key::from_input(&input) {
                     if self.popup.is_some() {
                         self.popup_key(key, &mut effects);
+                    } else if self.navigating() {
+                        // A move in progress is modal: only Esc, which cancels it, gets through.
+                        if key.base == KeyBase::Named(NamedKey::Escape) {
+                            self.cancel_navigations(&mut effects);
+                        }
                     } else {
                         if let Some(command) = self.keymap.lookup(Context::FileList, &key) {
                             self.run_command(command, &mut effects);
@@ -193,7 +267,7 @@ impl App {
                 }
             }
             Msg::Mouse(input) => {
-                if self.popup.is_none() {
+                if self.popup.is_none() && !self.navigating() {
                     self.mouse(input, &mut effects);
                 }
             }
@@ -204,10 +278,16 @@ impl App {
                 request,
                 result,
             }) => self.dir_loaded(side, request, result, &mut effects),
+            Msg::Io(IoEvent::Resolved {
+                side,
+                request,
+                result,
+            }) => self.resolved(side, request, result, &mut effects),
             Msg::Io(IoEvent::LocationChanged { side, path }) => {
-                if self.panes[side.index()].location().base == path {
-                    self.refresh(side, &mut effects);
-                }
+                self.location_changed(side, &path, &mut effects);
+            }
+            Msg::Io(IoEvent::Drives { purpose, letters }) => {
+                self.drives(purpose, letters, &mut effects);
             }
             Msg::Io(IoEvent::WatchFailed { path, error, .. }) => {
                 self.log.push(
@@ -274,11 +354,25 @@ impl App {
                 None => self.go_parent(effects),
                 Some(entry) if entry.kind.is_dir_like() => {
                     let location = Location::new(pane.location().base.join(&entry.name));
-                    self.navigate(side, location, None, effects);
+                    self.navigate(side, location, None, HistoryMove::Visit, effects);
+                }
+                Some(entry) if entry.kind.is_broken_link() => {
+                    let path = pane.location().base.join(&entry.name);
+                    self.log.push(AppError::BrokenLink { path }.to_string());
                 }
                 Some(_) => {}
             },
             Command::GoParent => self.go_parent(effects),
+            Command::GoRoot => self.go_root(effects),
+            Command::GoHome => self.go_home(effects),
+            Command::HistoryBack => self.history_back(effects),
+            Command::HistoryForward => self.history_forward(effects),
+            Command::Drives => self.list_drives(DrivePurpose::Show, command, effects),
+            Command::DrivePrev => self.list_drives(DrivePurpose::Prev, command, effects),
+            Command::DriveNext => self.list_drives(DrivePurpose::Next, command, effects),
+            Command::SyncToOther => self.sync_to_other(effects),
+            Command::SyncOtherToThis => self.sync_other_to_this(effects),
+            Command::SwapPanes => self.swap_panes(effects),
             Command::FocusLeft => self.active = Side::Left,
             Command::FocusRight => self.active = Side::Right,
             Command::SwitchPane => self.active = side.other(),
@@ -327,20 +421,10 @@ impl App {
             Command::LogPageDown => self.log.page_down(),
             Command::ClearLog => self.log.clear(),
             Command::Palette => self.open_palette(),
+            Command::GoToPath => self.open_input(InputKind::GoToPath),
+            Command::Bookmarks => self.open_bookmarks(),
+            Command::History => self.open_history(),
             Command::OpenWithOs
-            | Command::GoRoot
-            | Command::GoHome
-            | Command::GoToPath
-            | Command::Bookmarks
-            | Command::History
-            | Command::HistoryBack
-            | Command::HistoryForward
-            | Command::Drives
-            | Command::DrivePrev
-            | Command::DriveNext
-            | Command::SyncToOther
-            | Command::SyncOtherToThis
-            | Command::SwapPanes
             | Command::Copy
             | Command::Move
             | Command::Delete
@@ -377,85 +461,6 @@ impl App {
             }
             MouseInput::Wheel { side, rows } => self.panes[side.index()].scroll_by(rows),
             MouseInput::LogWheel { rows } => self.log.scroll_by(i64::from(rows)),
-        }
-    }
-
-    fn go_parent(&mut self, effects: &mut Vec<Effect>) {
-        let side = self.active;
-        let pane = &self.panes[side.index()];
-        if let Some(parent) = pane.location().parent() {
-            let came_from = pane.location().base.file_name().map(OsString::from);
-            self.navigate(side, parent, came_from, effects);
-        }
-    }
-
-    fn navigate(
-        &mut self,
-        side: Side,
-        location: Location,
-        pending_cursor: Option<OsString>,
-        effects: &mut Vec<Effect>,
-    ) {
-        let pane = &mut self.panes[side.index()];
-        if let Some(old) = pane.loading() {
-            effects.push(Effect::CancelRead { request: old });
-        }
-        pane.set_location(location.clone(), pending_cursor);
-        // Watching before reading means a change during the read is not missed.
-        effects.push(Effect::Watch {
-            side,
-            path: location.base.clone(),
-        });
-        self.read(side, location, effects);
-    }
-
-    fn refresh(&mut self, side: Side, effects: &mut Vec<Effect>) {
-        let pane = &mut self.panes[side.index()];
-        if pane.loading().is_some() {
-            pane.set_reload_pending(true);
-            return;
-        }
-        let location = pane.location().clone();
-        self.read(side, location, effects);
-    }
-
-    fn read(&mut self, side: Side, location: Location, effects: &mut Vec<Effect>) {
-        let request = RequestId(self.next_request);
-        self.next_request += 1;
-        self.panes[side.index()].set_loading(Some(request));
-        effects.push(Effect::ReadDir {
-            side,
-            location,
-            request,
-        });
-    }
-
-    fn dir_loaded(
-        &mut self,
-        side: Side,
-        request: RequestId,
-        result: Result<Vec<Entry>, IoError>,
-        effects: &mut Vec<Effect>,
-    ) {
-        let pane = &mut self.panes[side.index()];
-        if pane.loading() != Some(request) {
-            return;
-        }
-        pane.set_loading(None);
-        match result {
-            Ok(entries) => pane.set_entries(entries),
-            Err(source) => {
-                let error = AppError::ReadDir {
-                    path: pane.location().base.clone(),
-                    source,
-                };
-                self.log.push(error.to_string());
-            }
-        }
-        let pane = &mut self.panes[side.index()];
-        if pane.reload_pending() {
-            pane.set_reload_pending(false);
-            self.refresh(side, effects);
         }
     }
 

@@ -1,7 +1,7 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-use crate::app::{App, Effect, IoEvent, MouseInput, Msg, Side};
+use crate::app::{App, DrivePurpose, Effect, IoEvent, MouseInput, Msg, Os, Resolved, Side};
 use crate::entry::{Entry, EntryKind};
 use crate::error::IoError;
 use crate::key::{Key, KeyBase, KeyInput};
@@ -9,24 +9,51 @@ use crate::pane::RequestId;
 use crate::popup::Popup;
 use crate::view::View;
 
+pub(crate) const HOME: &str = "/home/user";
+
 /// Drives an [`App`] with messages and records the effects, so that scenario
 /// tests read like a script: press a key, answer an I/O request, look at the view.
 pub(crate) struct Harness {
     app: App,
     effects: Vec<Effect>,
     requests: [Option<RequestId>; 2],
+    resolves: [Option<RequestId>; 2],
 }
 
 impl Harness {
+    /// Starts on Linux with both panes loaded empty, so that keys work at once.
     pub(crate) fn start(left: &str, right: &str) -> Self {
+        Self::start_on(Os::Linux, left, right)
+    }
+
+    pub(crate) fn start_on(os: Os, left: &str, right: &str) -> Self {
+        let mut harness = Self::start_both_pending(os, left, right);
+        harness.load(Side::Left, Vec::new());
+        harness.load(Side::Right, Vec::new());
+        harness
+    }
+
+    /// Starts with both panes waiting for their listings.
+    pub(crate) fn start_both_pending(os: Os, left: &str, right: &str) -> Self {
+        let mut harness = Self::start_unresolved(os, left, right);
+        harness.resolve(Side::Left, left, None);
+        harness.resolve(Side::Right, right, None);
+        harness
+    }
+
+    /// Starts without answering the resolves, for tests of the start-up itself.
+    pub(crate) fn start_unresolved(os: Os, left: &str, right: &str) -> Self {
         let mut harness = Self {
             app: App::new(),
             effects: Vec::new(),
             requests: [None, None],
+            resolves: [None, None],
         };
         harness.send(Msg::Start {
             left: PathBuf::from(left),
             right: PathBuf::from(right),
+            home: PathBuf::from(HOME),
+            os,
         });
         harness
     }
@@ -34,11 +61,22 @@ impl Harness {
     pub(crate) fn send(&mut self, msg: Msg) {
         let effects = self.app.update(msg);
         for effect in &effects {
-            if let Effect::ReadDir { side, request, .. } = effect {
-                self.requests[side.index()] = Some(*request);
+            match effect {
+                Effect::ReadDir { side, request, .. } => {
+                    self.requests[side.index()] = Some(*request);
+                }
+                Effect::Resolve { side, request, .. } => {
+                    self.resolves[side.index()] = Some(*request);
+                }
+                _ => {}
             }
         }
         self.effects.extend(effects);
+    }
+
+    pub(crate) fn bookmarks(&mut self, paths: &[&str]) {
+        self.app
+            .set_bookmarks(paths.iter().map(PathBuf::from).collect());
     }
 
     /// Presses a key written as in the configuration, simulating what the UI would deliver.
@@ -81,8 +119,12 @@ impl Harness {
         self.send(Msg::ViewportRows { side, rows });
     }
 
-    /// Answers the latest `ReadDir` request of a side.
+    /// Delivers a listing to a side: answers its pending read, or, when none
+    /// is pending, reports a change first so that the side reads again.
     pub(crate) fn load(&mut self, side: Side, entries: Vec<Entry>) {
+        if self.app.pane(side).loading().is_none() {
+            self.changed(side);
+        }
         let request = self.latest_request(side);
         self.send(Msg::Io(IoEvent::DirLoaded {
             side,
@@ -100,6 +142,37 @@ impl Harness {
         }));
     }
 
+    /// Answers the latest `Resolve` request of a side with a directory and,
+    /// optionally, a file to put the cursor on.
+    pub(crate) fn resolve(&mut self, side: Side, dir: &str, file: Option<&str>) {
+        let request = self.latest_resolve(side);
+        self.send(Msg::Io(IoEvent::Resolved {
+            side,
+            request,
+            result: Some(Resolved {
+                dir: PathBuf::from(dir),
+                file: file.map(OsString::from),
+            }),
+        }));
+    }
+
+    /// Answers the latest `Resolve` request of a side with "nothing exists".
+    pub(crate) fn fail_resolve(&mut self, side: Side) {
+        let request = self.latest_resolve(side);
+        self.send(Msg::Io(IoEvent::Resolved {
+            side,
+            request,
+            result: None,
+        }));
+    }
+
+    pub(crate) fn drives(&mut self, purpose: DrivePurpose, letters: &[char]) {
+        self.send(Msg::Io(IoEvent::Drives {
+            purpose,
+            letters: letters.to_vec(),
+        }));
+    }
+
     /// Reports a change in the directory a side is showing.
     pub(crate) fn changed(&mut self, side: Side) {
         let path = self.app.pane(side).location().base.clone();
@@ -108,6 +181,10 @@ impl Harness {
 
     pub(crate) fn latest_request(&self, side: Side) -> RequestId {
         self.requests[side.index()].expect("a ReadDir request should have been issued")
+    }
+
+    pub(crate) fn latest_resolve(&self, side: Side) -> RequestId {
+        self.resolves[side.index()].expect("a Resolve request should have been issued")
     }
 
     pub(crate) fn take_effects(&mut self) -> Vec<Effect> {
@@ -156,6 +233,23 @@ impl Harness {
 
     pub(crate) fn log(&self) -> Vec<String> {
         self.view().log.lines.to_vec()
+    }
+
+    pub(crate) fn history(&self, side: Side) -> Vec<String> {
+        self.app
+            .pane(side)
+            .history()
+            .items()
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect()
+    }
+
+    pub(crate) fn popup_labels(&self) -> Vec<String> {
+        self.view()
+            .popup
+            .map(|popup| popup.items.into_iter().map(|item| item.label).collect())
+            .unwrap_or_default()
     }
 }
 

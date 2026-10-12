@@ -3,6 +3,8 @@ use std::fs::{self, Metadata};
 use std::io;
 use std::path::Path;
 
+const CANCEL_CHECK_INTERVAL: usize = 256;
+
 use wafu_core::{Entry, EntryKind, TargetKind};
 
 use crate::time::timestamp;
@@ -12,8 +14,18 @@ use crate::time::timestamp;
 /// An entry whose metadata cannot be read is kept as a plain file with no size
 /// or time, so that it still shows up in the listing.
 pub fn read_dir(path: &Path) -> io::Result<Vec<Entry>> {
+    read_dir_with(path, || false)
+}
+
+/// Like [`read_dir`], but gives up with [`io::ErrorKind::Interrupted`] once
+/// `cancelled` returns `true`. It is asked every few hundred entries, so a
+/// large directory can be abandoned part way through.
+pub fn read_dir_with(path: &Path, cancelled: impl Fn() -> bool) -> io::Result<Vec<Entry>> {
     let mut entries = Vec::new();
-    for dir_entry in fs::read_dir(path)? {
+    for (index, dir_entry) in fs::read_dir(path)?.enumerate() {
+        if index % CANCEL_CHECK_INTERVAL == 0 && cancelled() {
+            return Err(io::Error::from(io::ErrorKind::Interrupted));
+        }
         let dir_entry = dir_entry?;
         let name = dir_entry.file_name();
         let metadata = dir_entry.metadata().ok();
@@ -97,6 +109,16 @@ mod tests {
         assert!(file.modified.is_some());
         assert_eq!(find(&entries, "sub").kind, EntryKind::Dir);
         assert_eq!(entries.len(), 2);
+    }
+
+    #[test]
+    fn cancelled_read_is_interrupted() {
+        let dir = TempDir::new().unwrap();
+        fs::File::create(dir.path().join("a")).unwrap();
+
+        let error = read_dir_with(dir.path(), || true).unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::Interrupted);
     }
 
     #[test]

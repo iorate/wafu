@@ -26,14 +26,17 @@ impl Watcher {
     }
 
     pub(crate) fn watch(&mut self, side: Side, path: PathBuf, on_event: &OnEvent) {
-        let slot = &mut self.sides[side.index()];
-        *slot = None;
+        self.unwatch(side);
         let (changes, receiver) = mpsc::channel::<()>();
         spawn_debouncer(side, path.clone(), Arc::clone(on_event), receiver);
+        // An error from the watcher counts as a change too: on Windows that is
+        // how the removal of the watched directory itself shows up.
         let result = notify::recommended_watcher(move |result: notify::Result<Event>| {
-            if let Ok(event) = result
-                && is_change(event.kind)
-            {
+            let counts = match result {
+                Ok(event) => is_change(event.kind),
+                Err(_) => true,
+            };
+            if counts {
                 let _ = changes.send(());
             }
         })
@@ -43,13 +46,17 @@ impl Watcher {
                 .map(|()| watcher)
         });
         match result {
-            Ok(watcher) => *slot = Some(watcher),
+            Ok(watcher) => self.sides[side.index()] = Some(watcher),
             Err(error) => on_event(IoEvent::WatchFailed {
                 side,
                 path,
                 error: IoError::new(error.to_string()),
             }),
         }
+    }
+
+    pub(crate) fn unwatch(&mut self, side: Side) {
+        self.sides[side.index()] = None;
     }
 }
 

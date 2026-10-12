@@ -70,6 +70,11 @@ impl Entry {
 
 impl EntryKind {
     #[must_use]
+    pub fn is_broken_link(self) -> bool {
+        self == Self::Symlink { target: None }
+    }
+
+    #[must_use]
     pub fn is_dir_like(self) -> bool {
         matches!(
             self,
