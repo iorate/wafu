@@ -19,6 +19,7 @@ mod tests;
 const SPLIT_STEP: u8 = 5;
 const SPLIT_MIN: u8 = 10;
 const SPLIT_MAX: u8 = 90;
+const LOG_ROWS_DEFAULT: usize = 6;
 const LOG_ROWS_MIN: usize = 1;
 const LOG_ROWS_MAX: usize = 30;
 
@@ -39,8 +40,6 @@ pub enum Msg {
         side: Side,
         rows: usize,
     },
-    /// The number of rows that fit in the log.
-    LogViewportRows(usize),
     Io(IoEvent),
 }
 
@@ -122,7 +121,6 @@ pub struct App {
     log: Log,
     popup: Option<Popup>,
     split_percent: u8,
-    log_rows: usize,
     ellipsis: Ellipsis,
     next_request: u64,
 }
@@ -149,6 +147,8 @@ impl Side {
 impl App {
     #[must_use]
     pub fn new() -> Self {
+        let mut log = Log::new();
+        log.set_viewport_rows(LOG_ROWS_DEFAULT);
         Self {
             panes: [
                 Pane::new(Location::new(PathBuf::new())),
@@ -156,10 +156,9 @@ impl App {
             ],
             active: Side::Left,
             keymap: KeyMap::default(),
-            log: Log::new(),
+            log,
             popup: None,
             split_percent: 50,
-            log_rows: 6,
             ellipsis: Ellipsis::End,
             next_request: 1,
         }
@@ -200,7 +199,6 @@ impl App {
             }
             Msg::InputChanged(text) => self.input_changed(text),
             Msg::ViewportRows { side, rows } => self.panes[side.index()].set_viewport_rows(rows),
-            Msg::LogViewportRows(rows) => self.log.set_viewport_rows(rows),
             Msg::Io(IoEvent::DirLoaded {
                 side,
                 request,
@@ -240,7 +238,7 @@ impl App {
             },
             popup: self.popup_view(),
             split_percent: self.split_percent,
-            log_rows: self.log_rows,
+            log_rows: self.log.viewport_rows(),
             ellipsis: self.ellipsis,
         }
     }
@@ -315,8 +313,14 @@ impl App {
             Command::PaneGrowLeft => {
                 self.split_percent = (self.split_percent + SPLIT_STEP).min(SPLIT_MAX);
             }
-            Command::LogShrink => self.log_rows = (self.log_rows - 1).max(LOG_ROWS_MIN),
-            Command::LogGrow => self.log_rows = (self.log_rows + 1).min(LOG_ROWS_MAX),
+            Command::LogShrink => {
+                let rows = (self.log.viewport_rows() - 1).max(LOG_ROWS_MIN);
+                self.log.set_viewport_rows(rows);
+            }
+            Command::LogGrow => {
+                let rows = (self.log.viewport_rows() + 1).min(LOG_ROWS_MAX);
+                self.log.set_viewport_rows(rows);
+            }
             Command::LogScrollUp => self.log.scroll_up(),
             Command::LogScrollDown => self.log.scroll_down(),
             Command::LogPageUp => self.log.page_up(),

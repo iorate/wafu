@@ -61,6 +61,11 @@ impl Log {
         }
     }
 
+    #[must_use]
+    pub fn viewport_rows(&self) -> usize {
+        self.viewport_rows
+    }
+
     pub fn set_viewport_rows(&mut self, rows: usize) {
         self.viewport_rows = rows.max(1);
     }

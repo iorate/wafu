@@ -26,7 +26,6 @@ export component AppWindow inherits Window {
 
     callback key-input(text: string, control: bool, shift: bool, alt: bool, meta: bool);
     callback viewport-rows-changed(side: int, rows: int);
-    callback log-viewport-rows-changed(rows: int);
     callback row-clicked(side: int, row: int);
     callback row-double-clicked(side: int, row: int);
     callback row-right-clicked(side: int, row: int);
@@ -143,10 +142,6 @@ export component AppWindow inherits Window {
                     width: parent.width - 8px;
                     height: parent.height - 8px;
                     vertical-scrollbar-policy: ScrollBarPolicy.always-off;
-
-                    changed visible-height => {
-                        root.log-viewport-rows-changed(floor(self.visible-height / Theme.row-height));
-                    }
 
                     for line in root.log-lines: Text {
                         text: line;
