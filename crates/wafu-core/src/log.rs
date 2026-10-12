@@ -1,11 +1,11 @@
-use std::collections::VecDeque;
+use std::sync::Arc;
 
 const MAX_LINES: usize = 1000;
 
 /// The log shown at the bottom of the window.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Log {
-    lines: VecDeque<String>,
+    lines: Arc<[String]>,
     /// The first visible line when not following the tail.
     scroll_top: usize,
     /// Whether new lines keep the tail in view.
@@ -17,7 +17,7 @@ impl Log {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            lines: VecDeque::new(),
+            lines: Arc::from([]),
             scroll_top: 0,
             follow: true,
             viewport_rows: 1,
@@ -25,16 +25,20 @@ impl Log {
     }
 
     pub fn push(&mut self, line: String) {
-        if self.lines.len() == MAX_LINES {
-            self.lines.pop_front();
+        let mut kept = &self.lines[..];
+        if kept.len() == MAX_LINES {
+            kept = &kept[1..];
             // Keep the same lines in view after the oldest one is dropped.
             self.scroll_top = self.scroll_top.saturating_sub(1);
         }
-        self.lines.push_back(line);
+        self.lines = kept.iter().cloned().chain([line]).collect();
     }
 
-    pub fn lines(&self) -> impl Iterator<Item = &str> {
-        self.lines.iter().map(String::as_str)
+    /// The lines in order. The same allocation is returned until a line is
+    /// added or the log is cleared.
+    #[must_use]
+    pub fn lines(&self) -> Arc<[String]> {
+        Arc::clone(&self.lines)
     }
 
     #[must_use]
@@ -78,7 +82,7 @@ impl Log {
     }
 
     pub fn clear(&mut self) {
-        self.lines.clear();
+        self.lines = Arc::from([]);
         self.scroll_top = 0;
         self.follow = true;
     }
@@ -179,7 +183,20 @@ mod tests {
         }
 
         assert_eq!(log.len(), MAX_LINES);
-        assert_eq!(log.lines().next(), Some("2"));
+        assert_eq!(log.lines()[0], "2");
+    }
+
+    #[test]
+    fn lines_are_shared_until_they_change() {
+        let mut log = log_with(2, 3);
+        let before = log.lines();
+
+        log.scroll_up();
+        assert!(Arc::ptr_eq(&before, &log.lines()));
+
+        log.push("c".to_owned());
+        assert!(!Arc::ptr_eq(&before, &log.lines()));
+        assert_eq!(log.lines().as_ref(), ["0", "1", "c"]);
     }
 
     #[test]
@@ -190,14 +207,11 @@ mod tests {
             log.push(i.to_string());
         }
         log.scroll_up();
-        let first_visible = log.lines().nth(log.scroll_top()).unwrap().to_owned();
+        let first_visible = log.lines()[log.scroll_top()].clone();
 
         log.push("new".to_owned());
 
-        assert_eq!(
-            log.lines().nth(log.scroll_top()),
-            Some(first_visible.as_str())
-        );
+        assert_eq!(log.lines()[log.scroll_top()], first_visible);
     }
 
     #[test]

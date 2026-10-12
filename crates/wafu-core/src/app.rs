@@ -136,7 +136,9 @@ impl Side {
         }
     }
 
-    fn index(self) -> usize {
+    /// `0` for the left side and `1` for the right, for indexing a pair.
+    #[must_use]
+    pub fn index(self) -> usize {
         match self {
             Self::Left => 0,
             Self::Right => 1,
@@ -205,7 +207,7 @@ impl App {
                 result,
             }) => self.dir_loaded(side, request, result, &mut effects),
             Msg::Io(IoEvent::LocationChanged { side, path }) => {
-                if self.panes[side.index()].location.base == path {
+                if self.panes[side.index()].location().base == path {
                     self.refresh(side, &mut effects);
                 }
             }
@@ -233,7 +235,7 @@ impl App {
             left: PaneView::from_pane(&self.panes[0], self.active == Side::Left),
             right: PaneView::from_pane(&self.panes[1], self.active == Side::Right),
             log: LogView {
-                lines: self.log.lines().map(str::to_owned).collect(),
+                lines: self.log.lines(),
                 scroll_top: self.log.scroll_top(),
             },
             popup: self.popup_view(),
@@ -273,7 +275,7 @@ impl App {
             Command::Open => match pane.cursor_entry() {
                 None => self.go_parent(effects),
                 Some(entry) if entry.kind.is_dir_like() => {
-                    let location = Location::new(pane.location.base.join(&entry.name));
+                    let location = Location::new(pane.location().base.join(&entry.name));
                     self.navigate(side, location, None, effects);
                 }
                 Some(_) => {}
@@ -321,7 +323,40 @@ impl App {
             Command::LogPageDown => self.log.page_down(),
             Command::ClearLog => self.log.clear(),
             Command::Palette => self.open_palette(),
-            _ => {}
+            Command::OpenWithOs
+            | Command::GoRoot
+            | Command::GoHome
+            | Command::GoToPath
+            | Command::Bookmarks
+            | Command::History
+            | Command::HistoryBack
+            | Command::HistoryForward
+            | Command::Drives
+            | Command::DrivePrev
+            | Command::DriveNext
+            | Command::SyncToOther
+            | Command::SyncOtherToThis
+            | Command::SwapPanes
+            | Command::Copy
+            | Command::Move
+            | Command::Delete
+            | Command::Trash
+            | Command::Rename
+            | Command::Mkdir
+            | Command::NewFile
+            | Command::NewText
+            | Command::Edit
+            | Command::CopyPath
+            | Command::CopyName
+            | Command::ShellMenu
+            | Command::EnterAsArchive
+            | Command::Extract
+            | Command::Compress
+            | Command::EditConfig
+            | Command::NewWindow
+            | Command::Quit
+            | Command::QuitWithoutSaving
+            | Command::Nop => {}
         }
     }
 
@@ -344,8 +379,8 @@ impl App {
     fn go_parent(&mut self, effects: &mut Vec<Effect>) {
         let side = self.active;
         let pane = &self.panes[side.index()];
-        if let Some(parent) = pane.location.parent() {
-            let came_from = pane.location.base.file_name().map(OsString::from);
+        if let Some(parent) = pane.location().parent() {
+            let came_from = pane.location().base.file_name().map(OsString::from);
             self.navigate(side, parent, came_from, effects);
         }
     }
@@ -358,7 +393,7 @@ impl App {
         effects: &mut Vec<Effect>,
     ) {
         let pane = &mut self.panes[side.index()];
-        if let Some(old) = pane.loading.take() {
+        if let Some(old) = pane.loading() {
             effects.push(Effect::CancelRead { request: old });
         }
         pane.set_location(location.clone(), pending_cursor);
@@ -372,18 +407,18 @@ impl App {
 
     fn refresh(&mut self, side: Side, effects: &mut Vec<Effect>) {
         let pane = &mut self.panes[side.index()];
-        if pane.loading.is_some() {
-            pane.reload_pending = true;
+        if pane.loading().is_some() {
+            pane.set_reload_pending(true);
             return;
         }
-        let location = pane.location.clone();
+        let location = pane.location().clone();
         self.read(side, location, effects);
     }
 
     fn read(&mut self, side: Side, location: Location, effects: &mut Vec<Effect>) {
         let request = RequestId(self.next_request);
         self.next_request += 1;
-        self.panes[side.index()].loading = Some(request);
+        self.panes[side.index()].set_loading(Some(request));
         effects.push(Effect::ReadDir {
             side,
             location,
@@ -399,29 +434,29 @@ impl App {
         effects: &mut Vec<Effect>,
     ) {
         let pane = &mut self.panes[side.index()];
-        if pane.loading != Some(request) {
+        if pane.loading() != Some(request) {
             return;
         }
-        pane.loading = None;
+        pane.set_loading(None);
         match result {
             Ok(entries) => pane.set_entries(entries),
             Err(source) => {
                 let error = AppError::ReadDir {
-                    path: pane.location.base.clone(),
+                    path: pane.location().base.clone(),
                     source,
                 };
                 self.log.push(error.to_string());
             }
         }
         let pane = &mut self.panes[side.index()];
-        if pane.reload_pending {
-            pane.reload_pending = false;
+        if pane.reload_pending() {
+            pane.set_reload_pending(false);
             self.refresh(side, effects);
         }
     }
 
     fn title(&self) -> String {
-        let path = self.active_pane().location.to_string();
+        let path = self.active_pane().location().to_string();
         if path.is_empty() {
             "wafu".to_owned()
         } else {

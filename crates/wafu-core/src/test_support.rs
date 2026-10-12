@@ -35,7 +35,7 @@ impl Harness {
         let effects = self.app.update(msg);
         for effect in &effects {
             if let Effect::ReadDir { side, request, .. } = effect {
-                self.requests[index(*side)] = Some(*request);
+                self.requests[side.index()] = Some(*request);
             }
         }
         self.effects.extend(effects);
@@ -102,12 +102,12 @@ impl Harness {
 
     /// Reports a change in the directory a side is showing.
     pub(crate) fn changed(&mut self, side: Side) {
-        let path = self.app.pane(side).location.base.clone();
+        let path = self.app.pane(side).location().base.clone();
         self.send(Msg::Io(IoEvent::LocationChanged { side, path }));
     }
 
     pub(crate) fn latest_request(&self, side: Side) -> RequestId {
-        self.requests[index(side)].expect("a ReadDir request should have been issued")
+        self.requests[side.index()].expect("a ReadDir request should have been issued")
     }
 
     pub(crate) fn take_effects(&mut self) -> Vec<Effect> {
@@ -155,7 +155,7 @@ impl Harness {
     }
 
     pub(crate) fn log(&self) -> Vec<String> {
-        self.view().log.lines
+        self.view().log.lines.to_vec()
     }
 }
 
@@ -173,12 +173,5 @@ pub(crate) fn dir(name: &str) -> Entry {
     Entry {
         kind: EntryKind::Dir,
         ..file(name)
-    }
-}
-
-fn index(side: Side) -> usize {
-    match side {
-        Side::Left => 0,
-        Side::Right => 1,
     }
 }

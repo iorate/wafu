@@ -85,8 +85,6 @@ pub enum Context {
     Binary,
 }
 
-const JUMP_CHARS: &str = "abcdefghijklmnopqrstuvwxyz0123456789";
-
 const JUMP_NAMES: [&str; 36] = [
     "jump_a", "jump_b", "jump_c", "jump_d", "jump_e", "jump_f", "jump_g", "jump_h", "jump_i",
     "jump_j", "jump_k", "jump_l", "jump_m", "jump_n", "jump_o", "jump_p", "jump_q", "jump_r",
@@ -180,7 +178,7 @@ impl Command {
         before
             .iter()
             .map(|(command, _)| *command)
-            .chain(JUMP_CHARS.chars().map(Self::Jump))
+            .chain(JUMP_NAMES.iter().map(|name| Self::Jump(jump_char(name))))
             .chain(after.iter().map(|(command, _)| *command))
     }
 
@@ -216,8 +214,8 @@ impl Command {
 
     #[must_use]
     pub fn from_name(name: &str) -> Option<Self> {
-        if let Some(index) = JUMP_NAMES.iter().position(|&n| n == name) {
-            return JUMP_CHARS.chars().nth(index).map(Self::Jump);
+        if let Some(name) = JUMP_NAMES.iter().find(|&&n| n == name) {
+            return Some(Self::Jump(jump_char(name)));
         }
         NAMES
             .iter()
@@ -228,15 +226,20 @@ impl Command {
     #[must_use]
     pub fn name(self) -> &'static str {
         match self {
-            Self::Jump(c) => JUMP_CHARS
-                .find(c)
-                .map_or("jump_?", |index| JUMP_NAMES[index]),
+            Self::Jump(c) => JUMP_NAMES
+                .iter()
+                .find(|name| jump_char(name) == c)
+                .map_or("jump_?", |name| name),
             _ => NAMES
                 .iter()
                 .find(|(command, _)| *command == self)
                 .map_or("?", |(_, name)| name),
         }
     }
+}
+
+fn jump_char(name: &str) -> char {
+    name.chars().next_back().unwrap_or('?')
 }
 
 #[cfg(test)]
@@ -259,7 +262,7 @@ mod tests {
         unique.sort_by_key(|command| command.name());
         unique.dedup();
 
-        assert_eq!(commands.len(), NAMES.len() + 36);
+        assert_eq!(commands.len(), NAMES.len() + JUMP_NAMES.len());
         assert_eq!(unique.len(), commands.len());
     }
 

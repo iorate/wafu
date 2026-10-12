@@ -348,10 +348,10 @@ fn read_error_is_logged_and_the_pane_stays_at_the_new_location() {
     harness.fail_load(Side::Left, "permission denied");
 
     let view = harness.view();
-    assert_eq!(view.log.lines, vec!["cannot read /home: permission denied"]);
+    assert_eq!(harness.log(), ["cannot read /home: permission denied"]);
     assert_eq!(view.left.path, "/home");
     assert_eq!(harness.names(Side::Left), [".."]);
-    assert_eq!(harness.app().pane(Side::Left).loading, None);
+    assert_eq!(harness.app().pane(Side::Left).loading(), None);
 }
 
 #[test]
@@ -646,7 +646,7 @@ fn clear_filter_restores_the_listing_and_clears_marks() {
 
     assert_eq!(harness.names(Side::Left), ["..", "a.png", "b.txt"]);
     assert_eq!(harness.marks(Side::Left), Vec::<String>::new());
-    assert_eq!(harness.app().pane(Side::Left).filter, None);
+    assert_eq!(harness.app().pane(Side::Left).filter(), None);
 }
 
 #[test]
@@ -676,7 +676,7 @@ fn invalid_pattern_is_logged_and_leaves_the_filter_alone() {
     assert_eq!(harness.popup(), None);
     assert_eq!(harness.log().len(), 1);
     assert!(harness.log()[0].starts_with("invalid pattern [: "));
-    assert_eq!(harness.app().pane(Side::Left).filter, None);
+    assert_eq!(harness.app().pane(Side::Left).filter(), None);
 }
 
 #[test]
@@ -690,7 +690,7 @@ fn filter_is_dropped_on_navigation() {
     harness.press("Down");
     harness.press("Enter");
 
-    assert_eq!(harness.app().pane(Side::Left).filter, None);
+    assert_eq!(harness.app().pane(Side::Left).filter(), None);
 }
 
 #[test]
@@ -725,7 +725,10 @@ fn sort_popup_shows_the_draft_and_letters_confirm_immediately() {
     harness.press("E");
 
     assert_eq!(harness.popup(), None);
-    assert_eq!(harness.app().pane(Side::Left).sort.key, SortKey::Extension);
+    assert_eq!(
+        harness.app().pane(Side::Left).sort().key,
+        SortKey::Extension
+    );
     assert_eq!(harness.names(Side::Left), ["..", "b.txt", "a.zip"]);
 }
 
@@ -780,7 +783,7 @@ fn sort_popup_escape_discards_and_keys_do_not_reach_the_list() {
     harness.press("Esc");
 
     assert_eq!(harness.popup(), None);
-    assert!(!harness.app().pane(Side::Left).sort.descending);
+    assert!(!harness.app().pane(Side::Left).sort().descending);
     assert_eq!(harness.marks(Side::Left), Vec::<String>::new());
     assert_eq!(harness.cursor_name(Side::Left), "a");
 }
@@ -858,16 +861,19 @@ fn search_escape_restores_the_cursor_and_scroll() {
 }
 
 #[test]
-fn search_emptied_returns_to_the_origin() {
+fn search_emptied_returns_to_the_origin_cursor_and_scroll() {
     let mut harness = Harness::start("/home/user", "/tmp");
-    harness.load(Side::Left, vec![file("a"), file("b")]);
+    harness.load(Side::Left, vec![file("a"), file("b"), file("c"), file("d")]);
+    harness.viewport(Side::Left, 2);
     harness.press("Down");
 
     harness.press("F");
-    harness.edit("b");
+    harness.edit("d");
+    assert_eq!(harness.view().left.scroll_top, 3);
     harness.edit("");
 
     assert_eq!(harness.cursor_name(Side::Left), "a");
+    assert_eq!(harness.view().left.scroll_top, 0);
 }
 
 #[test]
@@ -1075,7 +1081,7 @@ fn change_during_a_read_is_applied_after_it_finishes() {
 
     harness.changed(Side::Left);
     assert_eq!(harness.take_effects(), vec![]);
-    assert!(harness.app().pane(Side::Left).reload_pending);
+    assert!(harness.app().pane(Side::Left).reload_pending());
 
     harness.load(Side::Left, vec![file("a")]);
     assert_eq!(
@@ -1086,7 +1092,7 @@ fn change_during_a_read_is_applied_after_it_finishes() {
             request: RequestId(3),
         }]
     );
-    assert!(!harness.app().pane(Side::Left).reload_pending);
+    assert!(!harness.app().pane(Side::Left).reload_pending());
     assert_eq!(harness.names(Side::Left), ["..", "a"]);
 }
 

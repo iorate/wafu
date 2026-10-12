@@ -106,9 +106,10 @@ impl KeyMap {
 
 impl Default for KeyMap {
     fn default() -> Self {
-        let jumps = "abcdefghijklmnopqrstuvwxyz0123456789"
-            .chars()
-            .map(|c| (format!("Ctrl+{}", c.to_ascii_uppercase()), Command::Jump(c)));
+        let jumps = Command::all().filter_map(|command| match command {
+            Command::Jump(c) => Some((format!("Ctrl+{}", c.to_ascii_uppercase()), command)),
+            _ => None,
+        });
         let filelist = DEFAULT_FILELIST
             .iter()
             .map(|(key, name)| {

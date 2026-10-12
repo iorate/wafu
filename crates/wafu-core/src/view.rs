@@ -50,7 +50,8 @@ pub struct RowView {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LogView {
-    pub lines: Vec<String>,
+    /// Shared with the log; the same allocation is returned until the lines change.
+    pub lines: Arc<[String]>,
     pub scroll_top: usize,
 }
 
@@ -91,22 +92,21 @@ impl PaneView {
         let rows = pane.rows();
         let (marked, bytes) = pane.marked_summary();
         let filter = pane
-            .filter
-            .as_ref()
+            .filter()
             .map(|filter| format!(" | filter: {filter}"))
             .unwrap_or_default();
-        let descending = if pane.sort.descending { " desc" } else { "" };
-        let hidden = if pane.show_hidden { "on" } else { "off" };
+        let descending = if pane.sort().descending { " desc" } else { "" };
+        let hidden = if pane.show_hidden() { "on" } else { "off" };
         Self {
-            path: pane.location.to_string(),
-            cursor: (active && pane.cursor < rows.len()).then_some(pane.cursor),
+            path: pane.location().to_string(),
+            cursor: (active && pane.cursor() < rows.len()).then_some(pane.cursor()),
             rows,
             marks: pane.mark_flags(),
-            scroll_top: pane.scroll_top,
+            scroll_top: pane.scroll_top(),
             info: format!(
                 "{} items | {marked} marked ({bytes} bytes){filter} | sort: {}{descending} | hidden: {hidden}",
-                pane.listing.visible_len(),
-                pane.sort.key.name(),
+                pane.listing().visible_len(),
+                pane.sort().key.name(),
             ),
             active,
         }

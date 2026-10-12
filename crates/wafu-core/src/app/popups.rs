@@ -8,7 +8,7 @@ use crate::view::{ItemMark, PopupItem, PopupView};
 
 impl App {
     pub(super) fn open_sort(&mut self) {
-        let sort = self.active_pane().sort;
+        let sort = self.active_pane().sort();
         self.popup = Some(Popup::Sort(SortPopup::new(sort)));
     }
 
@@ -16,8 +16,7 @@ impl App {
         let text = match kind {
             InputKind::Filter => self
                 .active_pane()
-                .filter
-                .as_ref()
+                .filter()
                 .map(|filter| filter.pattern().to_owned())
                 .unwrap_or_default(),
             InputKind::MarkGlob => String::new(),
@@ -29,8 +28,8 @@ impl App {
         let pane = self.active_pane();
         self.popup = Some(Popup::Search(SearchPopup {
             query: String::new(),
-            origin_cursor: pane.cursor,
-            origin_scroll_top: pane.scroll_top,
+            origin_cursor: pane.cursor(),
+            origin_scroll_top: pane.scroll_top(),
         }));
     }
 
@@ -54,10 +53,9 @@ impl App {
             Some(Popup::Input(popup)) => popup.text = text,
             Some(Popup::Palette(popup)) => popup.set_query(text),
             Some(Popup::Search(popup)) => {
-                let origin = popup.origin_cursor;
                 let pane = &mut self.panes[self.active.index()];
                 if text.is_empty() {
-                    pane.set_cursor(origin);
+                    pane.restore_position(popup.origin_cursor, popup.origin_scroll_top);
                     popup.query = text;
                 } else if pane.search_first(&text) {
                     popup.query = text;
@@ -174,9 +172,7 @@ impl App {
         let pane = &mut self.panes[self.active.index()];
         match key.base {
             KeyBase::Named(NamedKey::Escape) => {
-                pane.set_cursor(popup.origin_cursor);
-                pane.scroll_top = popup.origin_scroll_top;
-                pane.ensure_cursor_visible();
+                pane.restore_position(popup.origin_cursor, popup.origin_scroll_top);
                 return;
             }
             KeyBase::Named(NamedKey::Enter) => return,
