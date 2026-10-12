@@ -84,6 +84,11 @@ export component PaneWidget {
             horizontal-alignment: left;
         }
 
+        Rectangle {
+            height: 1px;
+            background: Palette.border;
+        }
+
         list := ListView {
             vertical-stretch: 1;
 
@@ -95,6 +100,11 @@ export component PaneWidget {
                 item: row;
                 cursor: index == root.data.cursor;
             }
+        }
+
+        Rectangle {
+            height: 1px;
+            background: Palette.border;
         }
 
         Text {
