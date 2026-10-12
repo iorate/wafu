@@ -26,7 +26,7 @@ impl Watcher {
     }
 
     pub(crate) fn watch(&mut self, side: Side, path: PathBuf, on_event: &OnEvent) {
-        let slot = &mut self.sides[index(side)];
+        let slot = &mut self.sides[side.index()];
         *slot = None;
         let (changes, receiver) = mpsc::channel::<()>();
         spawn_debouncer(side, path.clone(), Arc::clone(on_event), receiver);
@@ -81,11 +81,4 @@ fn spawn_debouncer(side: Side, path: PathBuf, on_event: OnEvent, changes: mpsc::
             }
         })
         .expect("the watch thread should start");
-}
-
-fn index(side: Side) -> usize {
-    match side {
-        Side::Left => 0,
-        Side::Right => 1,
-    }
 }

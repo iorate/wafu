@@ -41,7 +41,7 @@ struct Rendered {
     right_rows: Arc<[RowView]>,
     left_marks: Arc<[bool]>,
     right_marks: Arc<[bool]>,
-    log: Vec<String>,
+    log: Arc<[String]>,
     popup: Option<PopupView>,
 }
 
@@ -52,7 +52,7 @@ impl Default for Rendered {
             right_rows: Arc::from([]),
             left_marks: Arc::from([]),
             right_marks: Arc::from([]),
-            log: Vec::new(),
+            log: Arc::from([]),
             popup: None,
         }
     }
@@ -256,7 +256,7 @@ impl Ui {
             update_marks(&self.right_marks, &rendered.right_marks, &view.right.marks);
             rendered.right_marks = Arc::clone(&view.right.marks);
         }
-        if rendered.log != view.log.lines {
+        if !Arc::ptr_eq(&rendered.log, &view.log.lines) {
             self.log_lines.set_vec(
                 view.log
                     .lines
@@ -264,7 +264,7 @@ impl Ui {
                     .map(SharedString::from)
                     .collect::<Vec<_>>(),
             );
-            rendered.log.clone_from(&view.log.lines);
+            rendered.log = Arc::clone(&view.log.lines);
         }
         if rendered.popup != view.popup {
             self.window.set_popup(popup_data(view.popup.as_ref()));

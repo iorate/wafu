@@ -16,22 +16,20 @@ pub struct RequestId(pub u64);
 /// One of the two panes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pane {
-    pub location: Location,
-    pub listing: Listing,
-    /// Index into the rows, where row 0 is `..` when the location has a parent.
-    pub cursor: usize,
-    pub scroll_top: usize,
-    pub viewport_rows: usize,
-    pub sort: SortSpec,
-    pub show_hidden: bool,
-    pub filter: Option<Filter>,
-    /// Marked names. Kept by name so that marks survive a reload.
-    pub marks: HashSet<OsString>,
-    /// The name to put the cursor on once the next listing arrives.
-    pub pending_cursor: Option<OsString>,
-    pub loading: Option<RequestId>,
-    /// A change was reported while a read was in flight; read again when it finishes.
-    pub reload_pending: bool,
+    location: Location,
+    listing: Listing,
+    cursor: usize,
+    scroll_top: usize,
+    viewport_rows: usize,
+    sort: SortSpec,
+    show_hidden: bool,
+    filter: Option<Filter>,
+    // Kept by name so that marks survive a reload.
+    marks: HashSet<OsString>,
+    pending_cursor: Option<OsString>,
+    loading: Option<RequestId>,
+    // A change was reported while a read was in flight; read again when it finishes.
+    reload_pending: bool,
     rows: Arc<[RowView]>,
     mark_flags: Arc<[bool]>,
 }
@@ -64,6 +62,42 @@ impl Pane {
             rows: Arc::from([]),
             mark_flags: Arc::from([]),
         }
+    }
+
+    #[must_use]
+    pub fn location(&self) -> &Location {
+        &self.location
+    }
+
+    #[must_use]
+    pub fn listing(&self) -> &Listing {
+        &self.listing
+    }
+
+    /// Index into the rows, where row 0 is `..` when the location has a parent.
+    #[must_use]
+    pub fn cursor(&self) -> usize {
+        self.cursor
+    }
+
+    #[must_use]
+    pub fn scroll_top(&self) -> usize {
+        self.scroll_top
+    }
+
+    #[must_use]
+    pub fn sort(&self) -> SortSpec {
+        self.sort
+    }
+
+    #[must_use]
+    pub fn show_hidden(&self) -> bool {
+        self.show_hidden
+    }
+
+    #[must_use]
+    pub fn filter(&self) -> Option<&Filter> {
+        self.filter.as_ref()
     }
 
     #[must_use]
@@ -195,6 +229,14 @@ impl Pane {
             self.cursor = row;
             self.ensure_cursor_visible();
         }
+    }
+
+    /// Moves the cursor and the view back to a position taken earlier, clamped
+    /// to the current rows.
+    pub fn restore_position(&mut self, cursor: usize, scroll_top: usize) {
+        self.cursor = cursor.min(self.row_count().saturating_sub(1));
+        self.scroll_top = scroll_top.min(self.max_scroll_top());
+        self.ensure_cursor_visible();
     }
 
     pub fn cursor_up(&mut self) {
@@ -366,6 +408,22 @@ impl Pane {
         self.search_from(start, prefix, false)
     }
 
+    pub(crate) fn loading(&self) -> Option<RequestId> {
+        self.loading
+    }
+
+    pub(crate) fn set_loading(&mut self, request: Option<RequestId>) {
+        self.loading = request;
+    }
+
+    pub(crate) fn reload_pending(&self) -> bool {
+        self.reload_pending
+    }
+
+    pub(crate) fn set_reload_pending(&mut self, pending: bool) {
+        self.reload_pending = pending;
+    }
+
     fn search_from(&mut self, start: usize, prefix: &str, forward: bool) -> bool {
         let prefix = nfc(prefix).to_lowercase();
         let found = if forward {
@@ -534,13 +592,15 @@ mod tests {
 
     #[test]
     fn set_entries_puts_cursor_on_pending_name() {
-        let mut pane = Pane::new(Location::new(PathBuf::from("/home")));
-        pane.pending_cursor = Some(OsString::from("b"));
+        let mut pane = Pane::new(Location::new(PathBuf::from("/")));
+        pane.set_location(
+            Location::new(PathBuf::from("/home")),
+            Some(OsString::from("b")),
+        );
 
         pane.set_entries(entries(&["a", "b", "c"]));
 
-        assert_eq!(pane.cursor, 2);
-        assert_eq!(pane.pending_cursor, None);
+        assert_eq!(pane.cursor(), 2);
     }
 
     #[test]
@@ -554,47 +614,46 @@ mod tests {
 
         pane.set_entries(entries(&["a", "b", "c"]));
 
-        assert_eq!(pane.cursor, 0);
+        assert_eq!(pane.cursor(), 0);
     }
 
     #[test]
     fn set_entries_on_reload_follows_the_cursor_entry() {
         let mut pane = pane_with("/", &["a", "b", "c"]);
-        pane.cursor = 1;
+        pane.set_cursor(1);
 
         pane.set_entries(entries(&["b", "c", "d"]));
 
-        assert_eq!(pane.cursor, 0);
+        assert_eq!(pane.cursor(), 0);
         assert_eq!(cursor_name(&pane), "b");
     }
 
     #[test]
     fn set_entries_on_reload_keeps_the_row_when_the_entry_is_gone() {
         let mut pane = pane_with("/", &["a", "b", "c", "d"]);
-        pane.cursor = 1;
+        pane.set_cursor(1);
 
         pane.set_entries(entries(&["a", "c", "d"]));
-        assert_eq!(pane.cursor, 1);
+        assert_eq!(pane.cursor(), 1);
         assert_eq!(cursor_name(&pane), "c");
 
-        pane.cursor = 2;
+        pane.set_cursor(2);
         pane.set_entries(entries(&["a"]));
-        assert_eq!(pane.cursor, 0);
+        assert_eq!(pane.cursor(), 0);
     }
 
     #[test]
     fn set_entries_on_reload_keeps_the_scroll_and_marks_of_remaining_entries() {
         let mut pane = pane_with("/", &["a", "b", "c", "d", "e"]);
         pane.set_viewport_rows(2);
-        pane.cursor = 3;
-        pane.ensure_cursor_visible();
+        pane.set_cursor(3);
         pane.mark_down();
         pane.mark_down();
-        assert_eq!(pane.scroll_top, 3);
+        assert_eq!(pane.scroll_top(), 3);
 
         pane.set_entries(entries(&["a", "b", "c", "e", "f"]));
 
-        assert_eq!(pane.scroll_top, 3);
+        assert_eq!(pane.scroll_top(), 3);
         assert_eq!(marked(&pane), ["e"]);
     }
 
@@ -640,10 +699,9 @@ mod tests {
 
         assert_eq!(pane.row_count(), 1);
         assert_eq!(pane.rows().len(), 1);
-        assert_eq!(pane.cursor, 0);
-        assert_eq!(pane.pending_cursor, Some(OsString::from("b")));
-        assert_eq!(pane.marks, HashSet::new());
-        assert_eq!(pane.filter, None);
+        assert_eq!(pane.cursor(), 0);
+        assert_eq!(marked(&pane), Vec::<String>::new());
+        assert_eq!(pane.filter(), None);
     }
 
     #[test]
@@ -652,17 +710,17 @@ mod tests {
 
         pane.cursor_up();
 
-        assert_eq!(pane.cursor, 2);
+        assert_eq!(pane.cursor(), 2);
     }
 
     #[test]
     fn cursor_down_wraps_to_first_row() {
         let mut pane = pane_with("/", &["a", "b", "c"]);
-        pane.cursor = 2;
+        pane.set_cursor(2);
 
         pane.cursor_down();
 
-        assert_eq!(pane.cursor, 0);
+        assert_eq!(pane.cursor(), 0);
     }
 
     #[test]
@@ -681,8 +739,8 @@ mod tests {
         pane.prev_mark();
         pane.jump_to('a');
 
-        assert_eq!(pane.cursor, 0);
-        assert_eq!(pane.scroll_top, 0);
+        assert_eq!(pane.cursor(), 0);
+        assert_eq!(pane.scroll_top(), 0);
     }
 
     #[test]
@@ -691,11 +749,11 @@ mod tests {
         pane.set_viewport_rows(3);
 
         pane.page_down();
-        assert_eq!(pane.cursor, 3);
+        assert_eq!(pane.cursor(), 3);
         pane.page_down();
-        assert_eq!(pane.cursor, 4);
+        assert_eq!(pane.cursor(), 4);
         pane.page_down();
-        assert_eq!(pane.cursor, 4);
+        assert_eq!(pane.cursor(), 4);
     }
 
     #[test]
@@ -705,11 +763,11 @@ mod tests {
         pane.cursor_bottom();
 
         pane.page_up();
-        assert_eq!(pane.cursor, 1);
+        assert_eq!(pane.cursor(), 1);
         pane.page_up();
-        assert_eq!(pane.cursor, 0);
+        assert_eq!(pane.cursor(), 0);
         pane.page_up();
-        assert_eq!(pane.cursor, 0);
+        assert_eq!(pane.cursor(), 0);
     }
 
     #[test]
@@ -719,13 +777,13 @@ mod tests {
         pane.cursor_down();
 
         pane.page_down();
-        assert_eq!((pane.scroll_top, pane.cursor), (4, 5));
+        assert_eq!((pane.scroll_top(), pane.cursor()), (4, 5));
         pane.page_down();
-        assert_eq!((pane.scroll_top, pane.cursor), (6, 9));
+        assert_eq!((pane.scroll_top(), pane.cursor()), (6, 9));
         pane.page_up();
-        assert_eq!((pane.scroll_top, pane.cursor), (2, 5));
+        assert_eq!((pane.scroll_top(), pane.cursor()), (2, 5));
         pane.page_up();
-        assert_eq!((pane.scroll_top, pane.cursor), (0, 1));
+        assert_eq!((pane.scroll_top(), pane.cursor()), (0, 1));
     }
 
     #[test]
@@ -734,13 +792,13 @@ mod tests {
         pane.set_viewport_rows(2);
 
         pane.cursor_down();
-        assert_eq!(pane.scroll_top, 0);
+        assert_eq!(pane.scroll_top(), 0);
         pane.cursor_down();
-        assert_eq!(pane.scroll_top, 1);
+        assert_eq!(pane.scroll_top(), 1);
         pane.cursor_bottom();
-        assert_eq!(pane.scroll_top, 3);
+        assert_eq!(pane.scroll_top(), 3);
         pane.cursor_top();
-        assert_eq!(pane.scroll_top, 0);
+        assert_eq!(pane.scroll_top(), 0);
     }
 
     #[test]
@@ -751,7 +809,7 @@ mod tests {
 
         pane.set_viewport_rows(2);
 
-        assert_eq!(pane.scroll_top, 3);
+        assert_eq!(pane.scroll_top(), 3);
     }
 
     #[test]
@@ -760,11 +818,11 @@ mod tests {
         pane.set_viewport_rows(2);
 
         pane.scroll_by(2);
-        assert_eq!((pane.scroll_top, pane.cursor), (2, 0));
+        assert_eq!((pane.scroll_top(), pane.cursor()), (2, 0));
         pane.scroll_by(10);
-        assert_eq!(pane.scroll_top, 3);
+        assert_eq!(pane.scroll_top(), 3);
         pane.scroll_by(-10);
-        assert_eq!(pane.scroll_top, 0);
+        assert_eq!(pane.scroll_top(), 0);
     }
 
     #[test]
@@ -772,9 +830,9 @@ mod tests {
         let mut pane = pane_with("/", &["a", "b", "c"]);
 
         pane.set_cursor(2);
-        assert_eq!(pane.cursor, 2);
+        assert_eq!(pane.cursor(), 2);
         pane.set_cursor(3);
-        assert_eq!(pane.cursor, 2);
+        assert_eq!(pane.cursor(), 2);
     }
 
     #[test]
@@ -783,26 +841,26 @@ mod tests {
 
         pane.mark_down();
         assert_eq!(marked(&pane), ["a"]);
-        assert_eq!(pane.cursor, 1);
+        assert_eq!(pane.cursor(), 1);
         pane.mark_down();
         assert_eq!(marked(&pane), ["a", "b"]);
-        assert_eq!(pane.cursor, 1);
+        assert_eq!(pane.cursor(), 1);
         pane.mark_down();
         assert_eq!(marked(&pane), ["a"]);
-        assert_eq!(pane.cursor, 1);
+        assert_eq!(pane.cursor(), 1);
     }
 
     #[test]
     fn mark_up_toggles_and_stops_at_the_top() {
         let mut pane = pane_with("/", &["a", "b"]);
-        pane.cursor = 1;
+        pane.set_cursor(1);
 
         pane.mark_up();
         assert_eq!(marked(&pane), ["b"]);
-        assert_eq!(pane.cursor, 0);
+        assert_eq!(pane.cursor(), 0);
         pane.mark_up();
         assert_eq!(marked(&pane), ["a", "b"]);
-        assert_eq!(pane.cursor, 0);
+        assert_eq!(pane.cursor(), 0);
     }
 
     #[test]
@@ -811,29 +869,29 @@ mod tests {
 
         pane.mark_down();
 
-        assert_eq!(pane.marks, HashSet::new());
-        assert_eq!(pane.cursor, 1);
+        assert_eq!(marked(&pane), Vec::<String>::new());
+        assert_eq!(pane.cursor(), 1);
     }
 
     #[test]
     fn mark_range_above_marks_from_the_nearest_mark_above() {
         let mut pane = pane_with("/home", &["a", "b", "c", "d", "e"]);
-        pane.cursor = 1;
+        pane.set_cursor(1);
         pane.mark_down();
-        pane.cursor = 4;
+        pane.set_cursor(4);
 
         pane.mark_range_above();
 
         assert_eq!(marked(&pane), ["a", "b", "c", "d"]);
-        assert_eq!(pane.cursor, 4);
+        assert_eq!(pane.cursor(), 4);
     }
 
     #[test]
     fn mark_range_above_does_nothing_without_a_mark_above() {
         let mut pane = pane_with("/home", &["a", "b", "c"]);
-        pane.cursor = 3;
+        pane.set_cursor(3);
         pane.mark_up();
-        pane.cursor = 1;
+        pane.set_cursor(1);
 
         pane.mark_range_above();
 
@@ -843,24 +901,24 @@ mod tests {
     #[test]
     fn mark_range_below_marks_down_to_the_nearest_mark_below() {
         let mut pane = pane_with("/home", &["a", "b", "c", "d", "e"]);
-        pane.cursor = 4;
+        pane.set_cursor(4);
         pane.mark_up();
-        pane.cursor = 0;
+        pane.set_cursor(0);
 
         pane.mark_range_below();
         assert_eq!(marked(&pane), ["a", "b", "c", "d"]);
 
-        pane.marks.clear();
-        pane.cursor = 2;
+        pane.clear_marks();
+        pane.set_cursor(2);
         pane.mark_range_below();
-        assert_eq!(pane.marks, HashSet::new());
+        assert_eq!(marked(&pane), Vec::<String>::new());
     }
 
     #[test]
     fn invert_marks_skips_directories_unless_asked() {
         let mut pane = Pane::new(Location::new(PathBuf::from("/")));
         pane.set_entries(vec![dir("d"), file("a"), file("b")]);
-        pane.cursor = 1;
+        pane.set_cursor(1);
         pane.mark_down();
 
         pane.invert_marks(false);
@@ -874,7 +932,7 @@ mod tests {
     fn mark_matching_adds_files_only() {
         let mut pane = Pane::new(Location::new(PathBuf::from("/")));
         pane.set_entries(vec![dir("d.png"), file("a.png"), file("b.txt")]);
-        pane.cursor = 2;
+        pane.set_cursor(2);
         pane.mark_down();
 
         pane.mark_matching(&Filter::parse("*.png").unwrap().unwrap());
@@ -885,41 +943,41 @@ mod tests {
     #[test]
     fn next_mark_wraps_around() {
         let mut pane = pane_with("/home", &["a", "b", "c"]);
-        pane.cursor = 1;
+        pane.set_cursor(1);
         pane.mark_down();
-        pane.cursor = 3;
+        pane.set_cursor(3);
         pane.mark_down();
-        pane.cursor = 2;
+        pane.set_cursor(2);
 
         pane.next_mark();
-        assert_eq!(pane.cursor, 3);
+        assert_eq!(pane.cursor(), 3);
         pane.next_mark();
-        assert_eq!(pane.cursor, 1);
+        assert_eq!(pane.cursor(), 1);
     }
 
     #[test]
     fn prev_mark_wraps_around() {
         let mut pane = pane_with("/home", &["a", "b", "c"]);
-        pane.cursor = 1;
+        pane.set_cursor(1);
         pane.mark_down();
-        pane.cursor = 3;
+        pane.set_cursor(3);
         pane.mark_down();
-        pane.cursor = 2;
+        pane.set_cursor(2);
 
         pane.prev_mark();
-        assert_eq!(pane.cursor, 1);
+        assert_eq!(pane.cursor(), 1);
         pane.prev_mark();
-        assert_eq!(pane.cursor, 3);
+        assert_eq!(pane.cursor(), 3);
     }
 
     #[test]
     fn next_mark_without_marks_does_nothing() {
         let mut pane = pane_with("/home", &["a", "b"]);
-        pane.cursor = 1;
+        pane.set_cursor(1);
 
         pane.next_mark();
 
-        assert_eq!(pane.cursor, 1);
+        assert_eq!(pane.cursor(), 1);
     }
 
     #[test]
@@ -951,14 +1009,14 @@ mod tests {
         assert_eq!(pane.targets(TargetRule::Single), Vec::<&Entry>::new());
         assert_eq!(pane.targets(TargetRule::Multiple), Vec::<&Entry>::new());
 
-        pane.cursor = 1;
+        pane.set_cursor(1);
         assert_eq!(names(pane.targets(TargetRule::Single)), ["a"]);
         assert_eq!(names(pane.targets(TargetRule::Multiple)), ["a"]);
 
-        pane.cursor = 3;
+        pane.set_cursor(3);
         pane.mark_up();
         pane.mark_up();
-        pane.cursor = 1;
+        pane.set_cursor(1);
         assert_eq!(names(pane.targets(TargetRule::Single)), ["a"]);
         assert_eq!(names(pane.targets(TargetRule::Multiple)), ["b", "c"]);
     }
@@ -1001,16 +1059,16 @@ mod tests {
         let mut pane = pane_with("/home", &["a", decomposed]);
 
         assert!(pane.search_first("\u{30a2}\u{30d7}"));
-        assert_eq!(pane.cursor, 2);
-        pane.cursor = 0;
+        assert_eq!(pane.cursor(), 2);
+        pane.set_cursor(0);
         pane.jump_to('\u{30a2}');
-        assert_eq!(pane.cursor, 2);
+        assert_eq!(pane.cursor(), 2);
     }
 
     #[test]
     fn set_sort_keeps_marks_and_follows_the_cursor_entry() {
         let mut pane = pane_with("/", &["a", "b", "c"]);
-        pane.cursor = 1;
+        pane.set_cursor(1);
         pane.mark_down();
 
         pane.set_sort(SortSpec {
@@ -1019,7 +1077,7 @@ mod tests {
         });
 
         assert_eq!(
-            names(pane.listing.visible_entries().collect()),
+            names(pane.listing().visible_entries().collect()),
             ["c", "b", "a"]
         );
         assert_eq!(cursor_name(&pane), "c");
@@ -1040,9 +1098,9 @@ mod tests {
 
         pane.toggle_hidden();
 
-        assert!(pane.show_hidden);
+        assert!(pane.show_hidden());
         assert_eq!(pane.row_count(), 2);
-        assert_eq!(pane.marks, HashSet::new());
+        assert_eq!(marked(&pane), Vec::<String>::new());
     }
 
     #[test]
@@ -1052,7 +1110,7 @@ mod tests {
 
         assert!(pane.set_filter(Filter::parse("*.png").unwrap()));
         assert_eq!(pane.row_count(), 1);
-        assert_eq!(pane.marks, HashSet::new());
+        assert_eq!(marked(&pane), Vec::<String>::new());
 
         pane.mark_down();
         assert!(!pane.set_filter(Filter::parse("*.png").unwrap()));
@@ -1060,7 +1118,7 @@ mod tests {
 
         assert!(pane.set_filter(None));
         assert_eq!(pane.row_count(), 2);
-        assert_eq!(pane.marks, HashSet::new());
+        assert_eq!(marked(&pane), Vec::<String>::new());
         assert!(!pane.set_filter(None));
     }
 
