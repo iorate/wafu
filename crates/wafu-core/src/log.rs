@@ -83,7 +83,8 @@ impl Log {
         self.follow = true;
     }
 
-    fn scroll_by(&mut self, delta: i64) {
+    /// Scrolls by a number of lines; positive moves towards the tail.
+    pub fn scroll_by(&mut self, delta: i64) {
         let top = i64::try_from(self.scroll_top()).unwrap_or(i64::MAX);
         let max_top = self.max_top();
         let target = usize::try_from(top.saturating_add(delta)).unwrap_or(0);

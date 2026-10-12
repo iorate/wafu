@@ -31,6 +31,7 @@ export component AppWindow inherits Window {
     callback row-double-clicked(side: int, row: int);
     callback row-right-clicked(side: int, row: int);
     callback wheel(side: int, delta: length);
+    callback log-wheel(delta: length);
     callback input-edited(text: string);
     callback input-accepted();
 
@@ -155,9 +156,10 @@ export component AppWindow inherits Window {
                     }
                 }
 
-                // The log scrolls only through its commands.
+                // Same as the panes: the core owns the scroll position.
                 TouchArea {
                     scroll-event(event) => {
+                        root.log-wheel(event.delta-y);
                         accept
                     }
                 }

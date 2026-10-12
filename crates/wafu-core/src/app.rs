@@ -65,6 +65,10 @@ pub enum MouseInput {
         side: Side,
         rows: i32,
     },
+    /// Wheel movement over the log, in rows.
+    LogWheel {
+        rows: i32,
+    },
 }
 
 /// A request from the application to the outside world.
@@ -333,6 +337,7 @@ impl App {
                 self.run_command(Command::Open, effects);
             }
             MouseInput::Wheel { side, rows } => self.panes[side.index()].scroll_by(rows),
+            MouseInput::LogWheel { rows } => self.log.scroll_by(i64::from(rows)),
         }
     }
 

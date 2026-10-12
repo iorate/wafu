@@ -32,7 +32,8 @@ pub struct Ui {
     log_lines: Rc<VecModel<SharedString>>,
     popup_items: Rc<VecModel<PopupItem>>,
     rendered: RefCell<Rendered>,
-    wheel_remainder: RefCell<[f32; 2]>,
+    // Left pane, right pane, log.
+    wheel_remainder: RefCell<[f32; 3]>,
 }
 
 struct Rendered {
@@ -79,7 +80,7 @@ impl Ui {
             log_lines: Rc::new(VecModel::default()),
             popup_items: Rc::new(VecModel::default()),
             rendered: RefCell::new(Rendered::default()),
-            wheel_remainder: RefCell::new([0.0; 2]),
+            wheel_remainder: RefCell::new([0.0; 3]),
         });
         ui.window
             .set_left_rows(ModelRc::from(Rc::clone(&ui.left_rows)));
@@ -176,7 +177,19 @@ impl Ui {
         let weak = Rc::downgrade(ui);
         ui.window.on_wheel(move |side, delta| {
             if let Some(ui) = Weak::upgrade(&weak) {
-                ui.wheel(side_of(side), delta);
+                let side = side_of(side);
+                if let Some(rows) = ui.wheel_rows(usize::from(side == Side::Right), delta) {
+                    ui.dispatch(Msg::Mouse(MouseInput::Wheel { side, rows }));
+                }
+            }
+        });
+
+        let weak = Rc::downgrade(ui);
+        ui.window.on_log_wheel(move |delta| {
+            if let Some(ui) = Weak::upgrade(&weak)
+                && let Some(rows) = ui.wheel_rows(2, delta)
+            {
+                ui.dispatch(Msg::Mouse(MouseInput::LogWheel { rows }));
             }
         });
 
@@ -196,22 +209,16 @@ impl Ui {
     }
 
     // Wheel deltas arrive in pixels and in fractions of a notch; whole rows are
-    // sent to the core and the rest is carried over to the next event.
-    fn wheel(&self, side: Side, delta: f32) {
-        let index = usize::from(side == Side::Right);
-        let rows = {
-            let mut remainder = self.wheel_remainder.borrow_mut();
-            let total = remainder[index] - delta / WHEEL_PIXELS_PER_NOTCH * WHEEL_ROWS_PER_NOTCH;
-            let rows = total.trunc();
-            remainder[index] = total - rows;
-            rows
-        };
-        if rows != 0.0 {
-            // The truncated value is a small integer, so the cast is exact.
-            #[allow(clippy::cast_possible_truncation)]
-            let rows = rows as i32;
-            self.dispatch(Msg::Mouse(MouseInput::Wheel { side, rows }));
-        }
+    // returned and the rest is carried over to the next event of the same area.
+    fn wheel_rows(&self, index: usize, delta: f32) -> Option<i32> {
+        let mut remainder = self.wheel_remainder.borrow_mut();
+        let total = remainder[index] - delta / WHEEL_PIXELS_PER_NOTCH * WHEEL_ROWS_PER_NOTCH;
+        let rows = total.trunc();
+        remainder[index] = total - rows;
+        // The truncated value is a small integer, so the cast is exact.
+        #[allow(clippy::cast_possible_truncation)]
+        let rows = rows as i32;
+        (rows != 0).then_some(rows)
     }
 
     fn render(&self, view: &View) {

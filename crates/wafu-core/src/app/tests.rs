@@ -1189,6 +1189,23 @@ fn wheel_on_the_inactive_pane_is_not_undone_by_keys() {
 }
 
 #[test]
+fn wheel_over_the_log_scrolls_it() {
+    let mut harness = Harness::start("/a/b/c/d/e", "/tmp");
+    harness.send(Msg::LogViewportRows(2));
+    for _ in 0..4 {
+        harness.press("BS");
+        harness.fail_load(Side::Left, "boom");
+    }
+    assert_eq!(harness.view().log.scroll_top, 2);
+
+    harness.send(Msg::Mouse(MouseInput::LogWheel { rows: -3 }));
+    assert_eq!(harness.view().log.scroll_top, 0);
+    harness.send(Msg::Mouse(MouseInput::LogWheel { rows: 1 }));
+    assert_eq!(harness.view().log.scroll_top, 1);
+    assert_eq!(harness.view().left.scroll_top, 0);
+}
+
+#[test]
 fn mouse_is_ignored_while_a_popup_is_open() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a"), file("b")]);
