@@ -3,6 +3,7 @@ import { ListView, Palette } from "std-widgets.slint";
 export struct Row {
     name: string,
     extension: string,
+    marker: string,
     size: string,
     modified: string,
 }
@@ -40,6 +41,12 @@ component RowItem {
             text: item.extension;
             width: 60px;
             overflow: elide;
+            vertical-alignment: center;
+        }
+
+        Text {
+            text: item.marker;
+            width: 10px;
             vertical-alignment: center;
         }
 

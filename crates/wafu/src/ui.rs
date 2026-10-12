@@ -148,6 +148,7 @@ fn row(row: &RowView) -> Row {
     Row {
         name: row.name.as_str().into(),
         extension: row.extension.as_str().into(),
+        marker: row.marker.as_str().into(),
         size: row.size.as_str().into(),
         modified: row.modified.as_str().into(),
     }

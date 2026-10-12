@@ -28,6 +28,8 @@ pub struct PaneView {
 pub struct RowView {
     pub name: String,
     pub extension: String,
+    /// `@` for symbolic links, otherwise empty.
+    pub marker: String,
     pub size: String,
     pub modified: String,
 }
@@ -57,6 +59,7 @@ impl RowView {
         Self {
             name: "..".to_owned(),
             extension: String::new(),
+            marker: String::new(),
             size: String::new(),
             modified: String::new(),
         }
@@ -69,6 +72,7 @@ impl RowView {
         } else {
             format!(".{extension}")
         };
+        let is_link = matches!(entry.kind, EntryKind::Symlink { .. });
         let broken = entry.kind == EntryKind::Symlink { target: None };
         let size = if broken {
             "?".to_owned()
@@ -88,6 +92,11 @@ impl RowView {
         Self {
             name,
             extension,
+            marker: if is_link {
+                "@".to_owned()
+            } else {
+                String::new()
+            },
             size,
             modified,
         }
