@@ -1,7 +1,95 @@
+import { Palette } from "std-widgets.slint";
+import { PaneData, PaneWidget, Row } from "pane.slint";
+
+export { PaneData, Row }
+
 export component AppWindow inherits Window {
     in property <string> window-title: "wafu";
+    in property <PaneData> left;
+    in property <PaneData> right;
+    in property <[Row]> left-rows;
+    in property <[Row]> right-rows;
+    in property <int> left-scroll-top;
+    in property <int> right-scroll-top;
+    in property <[string]> log-lines;
+
+    callback key-input(text: string, control: bool, shift: bool, alt: bool, meta: bool);
+    callback viewport-rows-changed(side: int, rows: int);
 
     title: window-title;
     preferred-width: 960px;
     preferred-height: 640px;
+    forward-focus: scope;
+
+    scope := FocusScope {
+        key-pressed(event) => {
+            root.key-input(
+                event.text,
+                event.modifiers.control,
+                event.modifiers.shift,
+                event.modifiers.alt,
+                event.modifiers.meta
+            );
+            accept
+        }
+
+        VerticalLayout {
+            panes := Rectangle {
+                vertical-stretch: 1;
+
+                property <length> left-width: (self.width - 1px) / 2;
+
+                PaneWidget {
+                    x: 0;
+                    width: panes.left-width;
+                    height: parent.height;
+                    data: root.left;
+                    rows: root.left-rows;
+                    scroll-top: root.left-scroll-top;
+                    viewport-rows-changed(rows) => {
+                        root.viewport-rows-changed(0, rows);
+                    }
+                }
+
+                Rectangle {
+                    x: panes.left-width;
+                    width: 1px;
+                    height: parent.height;
+                    background: Palette.border;
+                }
+
+                PaneWidget {
+                    x: panes.left-width + 1px;
+                    width: parent.width - panes.left-width - 1px;
+                    height: parent.height;
+                    data: root.right;
+                    rows: root.right-rows;
+                    scroll-top: root.right-scroll-top;
+                    viewport-rows-changed(rows) => {
+                        root.viewport-rows-changed(1, rows);
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 1px;
+                background: Palette.border;
+            }
+
+            Rectangle {
+                height: 120px;
+                clip: true;
+
+                VerticalLayout {
+                    alignment: start;
+                    padding: 4px;
+
+                    for line in root.log-lines: Text {
+                        text: line;
+                        overflow: elide;
+                    }
+                }
+            }
+        }
+    }
 }

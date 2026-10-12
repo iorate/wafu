@@ -6,84 +6,26 @@
 
 #![forbid(unsafe_code)]
 
-use std::path::PathBuf;
-
-/// An event delivered to the application.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Msg {
-    /// The application has started with the given initial pane locations.
-    Start { left: PathBuf, right: PathBuf },
-}
-
-/// A request from the application to the outside world.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Effect {
-    /// Set the window title.
-    SetTitle(String),
-}
-
-/// A read-only snapshot of the state for rendering.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct View {
-    pub title: String,
-}
-
-/// The whole application state.
-#[derive(Debug, Default)]
-pub struct App {
-    left: Option<PathBuf>,
-    right: Option<PathBuf>,
-}
-
-impl App {
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Applies a message and returns the effects it produced.
-    pub fn update(&mut self, msg: Msg) -> Vec<Effect> {
-        match msg {
-            Msg::Start { left, right } => {
-                self.left = Some(left);
-                self.right = Some(right);
-                vec![Effect::SetTitle(self.title())]
-            }
-        }
-    }
-
-    #[must_use]
-    pub fn view(&self) -> View {
-        View {
-            title: self.title(),
-        }
-    }
-
-    fn title(&self) -> String {
-        match &self.left {
-            Some(path) => format!("wafu - {}", path.display()),
-            None => "wafu".to_owned(),
-        }
-    }
-}
-
+mod app;
+mod command;
+mod entry;
+mod error;
+mod key;
+mod keymap;
+mod listing;
+mod location;
+mod pane;
 #[cfg(test)]
-mod tests {
-    use super::*;
+mod test_support;
+mod view;
 
-    #[test]
-    fn start_sets_title_to_left_pane_path() {
-        let mut app = App::new();
-
-        let effects = app.update(Msg::Start {
-            left: PathBuf::from("/home/user"),
-            right: PathBuf::from("/tmp"),
-        });
-
-        assert_eq!(
-            effects,
-            vec![Effect::SetTitle("wafu - /home/user".to_owned())]
-        );
-        assert_eq!(app.view().title, "wafu - /home/user");
-    }
-}
+pub use app::{App, Effect, IoEvent, Msg, Side};
+pub use command::{Command, Context};
+pub use entry::{Entry, EntryKind, LocalDateTime, TargetKind, Timestamp};
+pub use error::{AppError, IoError};
+pub use key::{Key, KeyBase, KeyInput, KeyParseError, NamedKey};
+pub use keymap::KeyMap;
+pub use listing::{Listing, SortKey, SortSpec};
+pub use location::{ArchivePath, Location};
+pub use pane::{Pane, RequestId};
+pub use view::{PaneView, RowView, View};

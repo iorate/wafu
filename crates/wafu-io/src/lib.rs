@@ -1,15 +1,12 @@
 //! Effect runtime of the wafu file manager.
 //!
 //! Executes [`wafu_core::Effect`]s that touch the outside world and reports the
-//! results back to the application. Nothing here knows about the UI.
+//! results back to the application as [`wafu_core::IoEvent`]s. Nothing here
+//! knows about the UI.
 
-/// Executes effects on behalf of the application.
-#[derive(Debug, Default)]
-pub struct Runtime;
+mod read_dir;
+mod runtime;
+mod time;
 
-impl Runtime {
-    #[must_use]
-    pub fn new() -> Self {
-        Self
-    }
-}
+pub use read_dir::read_dir;
+pub use runtime::Runtime;

@@ -10,7 +10,11 @@ authors.workspace = true
 publish.workspace = true
 
 [dependencies]
-wafu-core = { path = "../wafu-core" }
+chrono.workspace = true
+wafu-core.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true
