@@ -1407,6 +1407,29 @@ fn start_with_nothing_existing_falls_back_to_home() {
 }
 
 #[test]
+fn a_move_to_a_drive_with_nothing_on_it_stays_put() {
+    let mut harness = Harness::start_on(Os::Windows, "/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a")]);
+    harness.press("Ctrl+Right");
+    harness.drives(DrivePurpose::Next, &['D']);
+    harness.take_effects();
+
+    harness.fail_resolve(Side::Left);
+
+    assert_eq!(harness.log(), ["D:\\ is not available"]);
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Watch {
+            side: Side::Left,
+            path: PathBuf::from("/home/user"),
+        }]
+    );
+    assert_eq!(harness.view().left.path, "/home/user");
+    assert_eq!(harness.names(Side::Left), ["..", "a"]);
+    assert!(harness.view().popup.is_none());
+}
+
+#[test]
 fn loading_popup_names_every_pane_being_read() {
     let harness = Harness::start_both_pending(Os::Linux, "/home/user", "/tmp");
 

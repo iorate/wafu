@@ -35,6 +35,8 @@ pub enum AppError {
     BrokenLink { path: PathBuf },
     #[error("{} is not available; moved to {}", path.display(), fallback.display())]
     Fallback { path: PathBuf, fallback: PathBuf },
+    #[error("{} is not available", path.display())]
+    Unavailable { path: PathBuf },
     #[error("{command} is available only on Windows")]
     WindowsOnly { command: &'static str },
 }

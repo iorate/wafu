@@ -203,6 +203,12 @@ impl App {
                 }
                 self.navigate(side, Location::new(dir), file, HistoryMove::Visit, effects);
             }
+            // Home is only for a pane with nowhere else to be; a pane that is
+            // somewhere stays there.
+            None if !pane.location().base.as_os_str().is_empty() => {
+                self.log.push(AppError::Unavailable { path }.to_string());
+                Self::rewatch(side, pane, effects);
+            }
             None => {
                 let home = self.home.clone();
                 self.log.push(
