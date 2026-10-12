@@ -176,8 +176,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let (runtime, events) = runtime();
         runtime.run(watch(dir.path()));
-        // Give the watch time to become active before changing anything.
-        std::thread::sleep(Duration::from_millis(200));
+        settle(&events);
 
         File::create(dir.path().join("a")).unwrap();
         File::create(dir.path().join("b")).unwrap();
@@ -200,7 +199,7 @@ mod tests {
         let (runtime, events) = runtime();
         runtime.run(watch(old.path()));
         runtime.run(watch(new.path()));
-        std::thread::sleep(Duration::from_millis(200));
+        settle(&events);
 
         File::create(old.path().join("a")).unwrap();
         assert!(events.recv_timeout(QUIET).is_err());
@@ -222,7 +221,7 @@ mod tests {
         File::create(dir.path().join("a")).unwrap();
         let (runtime, events) = runtime();
         runtime.run(watch(dir.path()));
-        std::thread::sleep(Duration::from_millis(200));
+        settle(&events);
 
         runtime.run(read(dir.path(), 1));
         let IoEvent::DirLoaded { .. } = events.recv_timeout(TIMEOUT).unwrap() else {
@@ -246,6 +245,14 @@ mod tests {
         };
         assert_eq!(side, Side::Left);
         assert_eq!(path, missing);
+    }
+
+    // A watch takes a moment to become active, and FSEvents on macOS may then
+    // report changes made just before it started (such as creating the
+    // directory itself), so wait until nothing has arrived for a while.
+    fn settle(events: &Receiver<IoEvent>) {
+        std::thread::sleep(Duration::from_millis(200));
+        while events.recv_timeout(QUIET).is_ok() {}
     }
 
     fn runtime() -> (Runtime, Receiver<IoEvent>) {
