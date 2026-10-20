@@ -4,22 +4,35 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 
-use wafu_core::{Effect, IoError, IoEvent, Location, RequestId, Side};
+use notify::RecommendedWatcher;
+use wafu_core::{Effect, IoError, IoEvent, Location, RequestId, Side, SpawnKind};
 
 use crate::drives::drives;
 use crate::read_dir::read_dir_with;
 use crate::resolve::resolve;
-use crate::watch::Watcher;
+use crate::spawn::{spawn, spawn_new_window};
+use crate::state::{write_handoff, write_state};
+use crate::watch::{Watcher, watch_config};
 
 pub(crate) type OnEvent = Arc<dyn Fn(IoEvent) + Send + Sync>;
 
+/// Where the runtime writes the state, and the configuration path to pass on
+/// to a new instance when it was given on the command line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Paths {
+    pub state: PathBuf,
+    pub config_override: Option<PathBuf>,
+}
+
 /// Executes effects on behalf of the application and reports the results
 /// through the callback given to [`Runtime::new`]. The callback is invoked on
-/// worker threads.
+/// worker threads, or on the caller's thread for effects that finish at once.
 pub struct Runtime {
+    paths: Paths,
     jobs: Sender<Job>,
     pending: Arc<Mutex<HashSet<RequestId>>>,
     watcher: Mutex<Watcher>,
+    config_watcher: Mutex<Option<RecommendedWatcher>>,
     on_event: OnEvent,
 }
 
@@ -38,7 +51,7 @@ enum Job {
 }
 
 impl Runtime {
-    pub fn new(on_event: impl Fn(IoEvent) + Send + Sync + 'static) -> Self {
+    pub fn new(paths: Paths, on_event: impl Fn(IoEvent) + Send + Sync + 'static) -> Self {
         let on_event: OnEvent = Arc::new(on_event);
         let (jobs, receiver) = mpsc::channel::<Job>();
         let pending = Arc::new(Mutex::new(HashSet::new()));
@@ -79,9 +92,11 @@ impl Runtime {
             })
             .expect("the reader thread should start");
         Self {
+            paths,
             jobs,
             pending,
             watcher: Mutex::new(Watcher::new()),
+            config_watcher: Mutex::new(None),
             on_event,
         }
     }
@@ -132,7 +147,47 @@ impl Runtime {
                 purpose,
                 letters: drives(),
             }),
-            Effect::SetTitle(_) => {}
+            Effect::WatchConfig(path) => {
+                let watcher = match watch_config(&path, &self.on_event) {
+                    Ok(watcher) => Some(watcher),
+                    Err(error) => {
+                        (self.on_event)(IoEvent::ConfigWatchFailed {
+                            error: IoError::new(error.to_string()),
+                        });
+                        None
+                    }
+                };
+                *self
+                    .config_watcher
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner) = watcher;
+            }
+            Effect::Spawn { program, args, cwd } => {
+                let error = spawn(&program, &args, &cwd)
+                    .err()
+                    .map(|error| IoError::new(error.to_string()));
+                (self.on_event)(IoEvent::Spawned {
+                    kind: SpawnKind::External { program },
+                    error,
+                });
+            }
+            // A failure here has nowhere to go: the application is quitting.
+            Effect::SaveState(state) => {
+                let _ = write_state(&self.paths.state, &state);
+            }
+            Effect::SpawnNewWindow(state) => {
+                let error = write_handoff(&state)
+                    .and_then(|handoff| {
+                        spawn_new_window(&handoff, self.paths.config_override.as_deref())
+                    })
+                    .err()
+                    .map(|error| IoError::new(error.to_string()));
+                (self.on_event)(IoEvent::Spawned {
+                    kind: SpawnKind::NewWindow,
+                    error,
+                });
+            }
+            Effect::SetTitle(_) | Effect::Quit => {}
         }
     }
 }
@@ -349,6 +404,85 @@ mod tests {
     }
 
     #[test]
+    fn config_changes_are_reported_with_the_new_text() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(&path, "a = 1\n").unwrap();
+        let (runtime, events) = runtime();
+        runtime.run(Effect::WatchConfig(path.clone()));
+        settle(&events);
+
+        // Written the way editors do it: a new file moved over the old one.
+        let temp = dir.path().join("config.toml.tmp");
+        fs::write(&temp, "a = 2\n").unwrap();
+        fs::rename(&temp, &path).unwrap();
+
+        let event = events.recv_timeout(TIMEOUT).unwrap();
+        assert_eq!(
+            event,
+            IoEvent::ConfigLoaded {
+                result: Ok("a = 2\n".to_owned()),
+            }
+        );
+        assert!(events.recv_timeout(QUIET).is_err());
+
+        fs::write(dir.path().join("other"), "x").unwrap();
+        assert!(events.recv_timeout(QUIET).is_err());
+    }
+
+    #[test]
+    fn save_state_writes_the_state_file() {
+        let dir = TempDir::new().unwrap();
+        let (sender, _events) = mpsc::channel();
+        let sender = Mutex::new(sender);
+        let state_path = dir.path().join("sub").join("state.toml");
+        let runtime = Runtime::new(
+            Paths {
+                state: state_path.clone(),
+                config_override: None,
+            },
+            move |event| {
+                let _ = sender
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .send(event);
+            },
+        );
+        let state = wafu_core::StateFile {
+            log_rows: Some(3),
+            ..wafu_core::StateFile::default()
+        };
+
+        runtime.run(Effect::SaveState(state.clone()));
+
+        assert_eq!(crate::state::read_state(&state_path), Ok(Some(state)));
+    }
+
+    #[test]
+    fn a_spawn_that_fails_is_reported() {
+        let dir = TempDir::new().unwrap();
+        let (runtime, events) = runtime();
+
+        runtime.run(Effect::Spawn {
+            program: "wafu-no-such-program".to_owned(),
+            args: Vec::new(),
+            cwd: dir.path().to_path_buf(),
+        });
+
+        let event = events.recv_timeout(TIMEOUT).unwrap();
+        let IoEvent::Spawned { kind, error } = event else {
+            panic!("expected Spawned, got {event:?}");
+        };
+        assert_eq!(
+            kind,
+            SpawnKind::External {
+                program: "wafu-no-such-program".to_owned()
+            }
+        );
+        assert!(error.is_some());
+    }
+
+    #[test]
     fn watching_a_missing_path_fails() {
         let dir = TempDir::new().unwrap();
         let missing = dir.path().join("missing");
@@ -375,7 +509,11 @@ mod tests {
     fn runtime() -> (Runtime, Receiver<IoEvent>) {
         let (sender, receiver) = mpsc::channel();
         let sender = Mutex::new(sender);
-        let runtime = Runtime::new(move |event| {
+        let paths = Paths {
+            state: std::env::temp_dir().join("wafu-test-state.toml"),
+            config_override: None,
+        };
+        let runtime = Runtime::new(paths, move |event| {
             let _ = sender
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)

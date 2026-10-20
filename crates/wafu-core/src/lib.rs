@@ -8,8 +8,10 @@
 
 mod app;
 mod command;
+mod config;
 mod entry;
 mod error;
+mod external;
 mod filter;
 mod history;
 mod key;
@@ -20,15 +22,24 @@ mod log;
 mod pane;
 mod path;
 mod popup;
+mod state;
 #[cfg(test)]
 mod test_support;
 mod text;
 mod view;
 
-pub use app::{App, DrivePurpose, Effect, IoEvent, MouseInput, Msg, Os, Resolved, Side};
+pub use app::{
+    App, ConfigSource, DrivePurpose, Effect, IoEvent, MouseInput, Msg, Os, Resolved, Side,
+    SpawnKind, Start,
+};
 pub use command::{Command, Context};
+pub use config::{
+    Appearance, CONFIG_TEMPLATE, Color, ColorSet, Colors, Config, Diagnostic, DiagnosticKind, Font,
+    FontSet, General, Initial, SyntaxError, Theme, parse_config,
+};
 pub use entry::{Entry, EntryKind, LocalDateTime, TargetKind, Timestamp};
 pub use error::{AppError, IoError};
+pub use external::{CommandLine, CommandLineError, Expansion, Placeholder};
 pub use filter::{Filter, FilterError};
 pub use history::History;
 pub use key::{Key, KeyBase, KeyInput, KeyParseError, NamedKey};
@@ -37,4 +48,8 @@ pub use listing::{Listing, SortKey, SortSpec};
 pub use location::{ArchivePath, Location};
 pub use log::Log;
 pub use pane::{HistoryMove, InFlight, Pane, RequestId, TargetRule};
-pub use view::{Ellipsis, ItemMark, LogView, PaneView, PopupItem, PopupView, RowView, View};
+pub use state::{PaneState, StateError, StateFile, WindowState};
+pub use view::{
+    Ellipsis, Fonts, ItemMark, LogView, PaneView, PopupItem, PopupView, ResolvedFont, RowKind,
+    RowView, Style, View,
+};

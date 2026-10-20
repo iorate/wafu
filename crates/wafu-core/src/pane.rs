@@ -268,6 +268,17 @@ impl Pane {
         self.refresh_view();
     }
 
+    /// Sets the hidden-file display without touching the marks, as when
+    /// restoring the saved state.
+    pub fn set_show_hidden(&mut self, show_hidden: bool) {
+        self.show_hidden = show_hidden;
+        self.refresh_view();
+    }
+
+    pub fn restore_history(&mut self, history: History) {
+        self.history = history;
+    }
+
     /// Returns `false` when the filter is unchanged, in which case nothing happens.
     pub fn set_filter(&mut self, filter: Option<Filter>) -> bool {
         if self.filter == filter {

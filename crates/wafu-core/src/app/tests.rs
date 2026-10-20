@@ -1,10 +1,14 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::*;
+use crate::config::Theme;
 use crate::entry::{EntryKind, TargetKind};
-use crate::listing::SortKey;
-use crate::test_support::{HOME, Harness, dir, file};
-use crate::view::ItemMark;
+use crate::external::CommandLine;
+use crate::listing::{SortKey, SortSpec};
+use crate::pane::InFlight;
+use crate::state::{PaneState, StateFile};
+use crate::test_support::{CONFIG_PATH, HOME, Harness, dir, file, start_msg_with};
+use crate::view::{Ellipsis, ItemMark, RowKind};
 
 #[test]
 fn start_resolves_both_panes_then_watches_and_reads_them() {
@@ -13,6 +17,7 @@ fn start_resolves_both_panes_then_watches_and_reads_them() {
     assert_eq!(
         harness.take_effects(),
         vec![
+            Effect::WatchConfig(PathBuf::from(CONFIG_PATH)),
             Effect::Resolve {
                 side: Side::Left,
                 path: PathBuf::from("/home/user"),
@@ -112,7 +117,7 @@ fn long_names_are_split_for_middle_ellipsis() {
     harness.load(Side::Left, vec![file("a_rather_long_name.txt")]);
 
     let view = harness.view();
-    assert_eq!(view.ellipsis, Ellipsis::End);
+    assert_eq!(view.style.ellipsis, Ellipsis::End);
     assert_eq!(view.left.rows[1].name, "a_rather_l");
     assert_eq!(view.left.rows[1].name_tail, "ong_name");
 }
@@ -1869,7 +1874,7 @@ fn opening_a_broken_link_logs_an_error() {
 #[test]
 fn bookmarks_popup_expands_tilde_and_picks_by_key() {
     let mut harness = Harness::start("/home/user", "/tmp");
-    harness.bookmarks(&["~/docs", "/var"]);
+    harness.config("[[bookmarks]]\npath = \"~/docs\"\n[[bookmarks]]\npath = \"/var\"\n");
     harness.take_effects();
 
     harness.press("J");
@@ -2024,4 +2029,476 @@ fn drive_switching_wraps_and_remembers_the_last_place_on_each_drive() {
         harness.take_effects().as_slice(),
         [Effect::ListDrives { .. }, Effect::Resolve { path, .. }] if path == &PathBuf::from(r"C:\Users\me")
     ));
+}
+
+#[test]
+fn rows_carry_their_kind_for_coloring() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+
+    harness.load(
+        Side::Left,
+        vec![
+            file("a"),
+            dir("d"),
+            Entry {
+                kind: EntryKind::Symlink {
+                    target: Some(TargetKind::Dir),
+                },
+                ..file("l")
+            },
+            Entry {
+                kind: EntryKind::Symlink { target: None },
+                ..file("x")
+            },
+        ],
+    );
+
+    let kinds: Vec<RowKind> = harness
+        .view()
+        .left
+        .rows
+        .iter()
+        .map(|row| row.kind)
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            RowKind::Parent,
+            RowKind::Dir,
+            RowKind::Link,
+            RowKind::File,
+            RowKind::Link
+        ]
+    );
+}
+
+#[test]
+fn start_takes_paths_from_the_arguments_then_the_state_then_home() {
+    let state = StateFile {
+        left: PaneState {
+            path: Some(PathBuf::from("/saved/left")),
+            ..PaneState::default()
+        },
+        right: PaneState::default(),
+        ..StateFile::default()
+    };
+    let harness = Harness::start_from(start_msg_with(
+        Os::Linux,
+        Some("/arg"),
+        None,
+        ConfigSource::Text(String::new()),
+        Ok(Some(state.clone())),
+    ));
+
+    let resolves: Vec<PathBuf> = harness
+        .app()
+        .pane(Side::Left)
+        .loading()
+        .into_iter()
+        .chain(harness.app().pane(Side::Right).loading())
+        .filter_map(|in_flight| match in_flight {
+            InFlight::Resolve { path, .. } => Some(path.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(resolves, [PathBuf::from("/arg"), PathBuf::from(HOME)]);
+
+    let mut saved = Harness::start_from(start_msg_with(
+        Os::Linux,
+        None,
+        None,
+        ConfigSource::Text(String::new()),
+        Ok(Some(state)),
+    ));
+    assert!(matches!(
+        saved.app().pane(Side::Left).loading(),
+        Some(InFlight::Resolve { path, .. }) if path == &PathBuf::from("/saved/left")
+    ));
+    saved.resolve(Side::Left, "/saved/left", None);
+    saved.load(Side::Left, vec![]);
+    assert_eq!(saved.history(Side::Left), ["/saved/left"]);
+}
+
+#[test]
+fn start_restores_the_saved_display_state_and_ignores_initial() {
+    let state = StateFile {
+        left: PaneState {
+            sort: Some("size".to_owned()),
+            descending: Some(true),
+            dirs_first: Some(false),
+            ignore_case: Some(false),
+            show_hidden: Some(true),
+            history: vec![PathBuf::from("/a"), PathBuf::from("/b")],
+            history_pos: Some(0),
+            ..PaneState::default()
+        },
+        right: PaneState {
+            sort: Some("no such key".to_owned()),
+            ..PaneState::default()
+        },
+        window: None,
+        split_percent: Some(95),
+        log_rows: Some(0),
+    };
+    let mut harness = Harness::start_from(start_msg_with(
+        Os::Linux,
+        Some("/home/user"),
+        Some("/tmp"),
+        ConfigSource::Text("[initial]\nsort = \"time\"\nshow_hidden = true\n".to_owned()),
+        Ok(Some(state)),
+    ));
+    harness.resolve(Side::Left, "/home/user", None);
+    harness.resolve(Side::Right, "/tmp", None);
+    harness.load(Side::Left, vec![]);
+    harness.load(Side::Right, vec![]);
+
+    let left = harness.app().pane(Side::Left);
+    assert_eq!(
+        left.sort(),
+        SortSpec {
+            key: SortKey::Size,
+            descending: true,
+            dirs_first: false,
+            ignore_case: false,
+        }
+    );
+    assert!(left.show_hidden());
+    // The start-up visit follows the restored position.
+    assert_eq!(harness.history(Side::Left), ["/a", "/home/user"]);
+    let right = harness.app().pane(Side::Right);
+    assert_eq!(right.sort().key, SortKey::Time);
+    assert!(right.show_hidden());
+    let view = harness.view();
+    assert_eq!(view.split_percent, 90);
+    assert_eq!(view.log_rows, 1);
+    assert_eq!(harness.log(), Vec::<String>::new());
+}
+
+#[test]
+fn start_without_a_state_file_uses_initial() {
+    let mut harness = Harness::start_from(start_msg_with(
+        Os::Linux,
+        Some("/home/user"),
+        Some("/tmp"),
+        ConfigSource::Text(
+            "[initial]\nsort = \"extension\"\ndescending = true\nshow_hidden = true\n".to_owned(),
+        ),
+        Ok(None),
+    ));
+    harness.resolve(Side::Left, "/home/user", None);
+    harness.load(Side::Left, vec![]);
+
+    let pane = harness.app().pane(Side::Left);
+    assert_eq!(pane.sort().key, SortKey::Extension);
+    assert!(pane.sort().descending);
+    assert!(pane.show_hidden());
+    assert_eq!(
+        harness.view().left.info,
+        "0 items | 0 marked (0 bytes) | sort: extension desc | hidden: on"
+    );
+}
+
+#[test]
+fn start_logs_how_the_configuration_and_state_were_found() {
+    let created = Harness::start_from(start_msg_with(
+        Os::Linux,
+        Some("/home/user"),
+        Some("/tmp"),
+        ConfigSource::Created,
+        Ok(None),
+    ));
+    assert_eq!(created.log(), [format!("created {CONFIG_PATH}")]);
+
+    let unreadable = Harness::start_from(start_msg_with(
+        Os::Linux,
+        Some("/home/user"),
+        Some("/tmp"),
+        ConfigSource::Unreadable(IoError::new("permission denied")),
+        Err(StateFile::from_toml("[left\n").unwrap_err()),
+    ));
+    let log = unreadable.log();
+    assert_eq!(log.len(), 2);
+    assert_eq!(
+        log[0],
+        format!("cannot read {CONFIG_PATH}: permission denied")
+    );
+    assert!(log[1].starts_with("cannot read the state file: "));
+
+    let broken = Harness::start_from(start_msg_with(
+        Os::Linux,
+        Some("/home/user"),
+        Some("/tmp"),
+        ConfigSource::Text("[general]\nmkdir_then_enter =\n".to_owned()),
+        Ok(None),
+    ));
+    let log = broken.log();
+    assert_eq!(log.len(), 1);
+    assert!(log[0].starts_with(&format!("config: {CONFIG_PATH}:2: ")));
+    assert!(broken.app().config().general.mkdir_then_enter);
+
+    let warned = Harness::start_from(start_msg_with(
+        Os::Linux,
+        Some("/home/user"),
+        Some("/tmp"),
+        ConfigSource::Text("[general]\nfoo = 1\n".to_owned()),
+        Ok(None),
+    ));
+    assert_eq!(warned.log(), ["config: unknown item general.foo"]);
+}
+
+#[test]
+fn reloading_the_configuration_changes_keys_and_style_but_not_initial() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a")]);
+    harness.press("Down");
+    harness.press("Space");
+    harness.take_effects();
+
+    harness.config(
+        "[appearance]\ntheme = \"dark\"\nellipsis = \"middle\"\nbogus = 1\n[appearance.font]\nsize = 16\n[initial]\nshow_hidden = true\n[keys.filelist]\n\"Q\" = \"nop\"\n\"F2\" = \"go_root\"\n",
+    );
+
+    assert_eq!(
+        harness.log(),
+        ["config: unknown item appearance.bogus", "config reloaded",]
+    );
+    let style = harness.view().style;
+    assert_eq!(style.theme, Theme::Dark);
+    assert_eq!(style.ellipsis, Ellipsis::Middle);
+    assert_eq!(style.fonts.filelist.size, 16);
+    assert!(!harness.app().pane(Side::Left).show_hidden());
+    assert_eq!(harness.marks(Side::Left), ["a"]);
+
+    harness.press("Q");
+    assert_eq!(harness.take_effects(), vec![]);
+    harness.press("F2");
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::Watch { .. }, Effect::ReadDir { location, .. }] if location.base == Path::new("/")
+    ));
+}
+
+#[test]
+fn a_syntax_error_on_reload_keeps_the_previous_configuration() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.config("[appearance]\ntheme = \"light\"\n");
+    harness.take_effects();
+
+    harness.config("[appearance\n");
+
+    let log = harness.log();
+    assert_eq!(log.len(), 2);
+    assert_eq!(log[0], "config reloaded");
+    assert!(log[1].starts_with(&format!("config: {CONFIG_PATH}:1: ")));
+    assert_eq!(harness.view().style.theme, Theme::Light);
+
+    harness.send(Msg::Io(IoEvent::ConfigLoaded {
+        result: Err(IoError::new("gone")),
+    }));
+    assert_eq!(harness.log()[2], format!("cannot read {CONFIG_PATH}: gone"));
+    assert_eq!(harness.view().style.theme, Theme::Light);
+}
+
+#[test]
+fn quit_saves_the_state_and_shift_q_does_not() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a")]);
+    harness.press("Space");
+    harness.press("S");
+    harness.press("S");
+    harness.press("Alt+Right");
+    harness.press("Alt+Up");
+    harness.take_effects();
+
+    harness.press("Q");
+
+    let state = StateFile {
+        left: PaneState {
+            path: Some(PathBuf::from("/home/user")),
+            sort: Some("size".to_owned()),
+            descending: Some(false),
+            dirs_first: Some(true),
+            ignore_case: Some(true),
+            show_hidden: Some(false),
+            history: vec![PathBuf::from("/home/user")],
+            history_pos: Some(0),
+        },
+        right: PaneState {
+            path: Some(PathBuf::from("/tmp")),
+            sort: Some("name".to_owned()),
+            descending: Some(false),
+            dirs_first: Some(true),
+            ignore_case: Some(true),
+            show_hidden: Some(false),
+            history: vec![PathBuf::from("/tmp")],
+            history_pos: Some(0),
+        },
+        window: None,
+        split_percent: Some(55),
+        log_rows: Some(7),
+    };
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::SaveState(state), Effect::Quit]
+    );
+
+    harness.press("Shift+Q");
+    assert_eq!(harness.take_effects(), vec![Effect::Quit]);
+
+    harness.send(Msg::CloseRequested);
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::SaveState(_), Effect::Quit]
+    ));
+}
+
+#[test]
+fn a_pane_without_a_place_saves_no_path() {
+    let mut harness = Harness::start_unresolved(Os::Linux, "/home/user", "/tmp");
+    harness.press("Esc");
+    harness.take_effects();
+
+    harness.send(Msg::CloseRequested);
+
+    let effects = harness.take_effects();
+    let [Effect::SaveState(state), Effect::Quit] = effects.as_slice() else {
+        panic!("expected SaveState and Quit");
+    };
+    assert_eq!(state.left.path, None);
+    assert_eq!(state.left.history, Vec::<PathBuf>::new());
+}
+
+#[test]
+fn new_window_hands_over_the_state_and_logs_a_failure() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a")]);
+    harness.press("Space");
+    harness.take_effects();
+
+    harness.press("Alt+Z");
+
+    let effects = harness.take_effects();
+    let [Effect::SpawnNewWindow(state)] = effects.as_slice() else {
+        panic!("expected SpawnNewWindow");
+    };
+    assert_eq!(state.left.path, Some(PathBuf::from("/home/user")));
+    assert_eq!(state.right.path, Some(PathBuf::from("/tmp")));
+    assert_eq!(state.window, None);
+
+    harness.send(Msg::Io(IoEvent::Spawned {
+        kind: SpawnKind::NewWindow,
+        error: None,
+    }));
+    assert_eq!(harness.log(), Vec::<String>::new());
+    harness.send(Msg::Io(IoEvent::Spawned {
+        kind: SpawnKind::NewWindow,
+        error: Some(IoError::new("no exe")),
+    }));
+    assert_eq!(harness.log(), ["cannot start a new window: no exe"]);
+}
+
+#[test]
+fn external_commands_expand_placeholders_and_report_their_start() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.config(
+        "[commands.term]\nrun = \"wt -d {dir} {paths} --other {other_dir} {cursor_path}\"\n[keys.filelist]\n\"F2\" = \"$term\"\n",
+    );
+    harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
+    harness.press("Down");
+    harness.press("Space");
+    harness.press("Space");
+    harness.take_effects();
+
+    harness.press("F2");
+
+    let home = PathBuf::from(HOME);
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Spawn {
+            program: "wt".to_owned(),
+            args: vec![
+                OsString::from("-d"),
+                home.as_os_str().to_owned(),
+                home.join("a").into_os_string(),
+                home.join("b").into_os_string(),
+                OsString::from("--other"),
+                OsString::from("/tmp"),
+                home.join("c").into_os_string(),
+            ],
+            cwd: home.clone(),
+        }]
+    );
+
+    harness.send(Msg::Io(IoEvent::Spawned {
+        kind: SpawnKind::External {
+            program: "wt".to_owned(),
+        },
+        error: None,
+    }));
+    harness.send(Msg::Io(IoEvent::Spawned {
+        kind: SpawnKind::External {
+            program: "wt".to_owned(),
+        },
+        error: Some(IoError::new("not found")),
+    }));
+    assert_eq!(
+        harness.log()[1..],
+        ["started wt", "cannot start wt: not found"]
+    );
+}
+
+#[test]
+fn external_commands_run_from_the_palette_with_no_targets() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.config("[commands.term]\nrun = \"wt {paths}\"\n");
+    harness.take_effects();
+
+    harness.press("B");
+    harness.edit("$te");
+    assert_eq!(harness.popup_labels(), ["$term"]);
+    harness.press("Enter");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Spawn {
+            program: "wt".to_owned(),
+            args: vec![],
+            cwd: PathBuf::from(HOME),
+        }]
+    );
+}
+
+#[test]
+fn edit_config_opens_the_configuration_in_the_editor() {
+    let mut harness = Harness::start_from(start_msg_with(
+        Os::Linux,
+        Some("/home/user"),
+        Some("/tmp"),
+        ConfigSource::Text(
+            "[general]\neditor = \"code -w {paths}\"\n[os.macos.general]\neditor = \"open -t {paths}\"\n".to_owned(),
+        ),
+        Ok(None),
+    ));
+    harness.resolve(Side::Left, "/home/user", None);
+    harness.resolve(Side::Right, "/tmp", None);
+    harness.load(Side::Left, vec![]);
+    harness.load(Side::Right, vec![]);
+    harness.take_effects();
+
+    harness.press("Z");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Spawn {
+            program: "code".to_owned(),
+            args: vec![OsString::from("-w"), OsString::from(CONFIG_PATH)],
+            cwd: PathBuf::from(HOME),
+        }]
+    );
+
+    let default = Harness::start_on(Os::MacOs, "/home/user", "/tmp");
+    assert_eq!(
+        default.app().config().general.editor,
+        CommandLine::parse("open -t {paths}").unwrap()
+    );
 }

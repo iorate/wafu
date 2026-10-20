@@ -2,7 +2,9 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
+use crate::command::Command;
 use crate::filter::FilterError;
+use crate::state::StateError;
 
 /// An error reported by the I/O layer, flattened to a message.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -38,5 +40,21 @@ pub enum AppError {
     #[error("{} is not available", path.display())]
     Unavailable { path: PathBuf },
     #[error("{command} is available only on Windows")]
-    WindowsOnly { command: &'static str },
+    WindowsOnly { command: Command },
+    #[error("config: {}:{line}: {message}", path.display())]
+    ConfigSyntax {
+        path: PathBuf,
+        line: usize,
+        message: String,
+    },
+    #[error("cannot read {}: {source}", path.display())]
+    ConfigUnreadable { path: PathBuf, source: IoError },
+    #[error("cannot read the state file: {source}")]
+    StateUnreadable { source: StateError },
+    #[error("unknown command {command}")]
+    UnknownCommand { command: Command },
+    #[error("cannot start {program}: {source}")]
+    SpawnFailed { program: String, source: IoError },
+    #[error("cannot start a new window: {source}")]
+    NewWindowFailed { source: IoError },
 }

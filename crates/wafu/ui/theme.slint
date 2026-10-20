@@ -1,8 +1,31 @@
 import { Palette } from "std-widgets.slint";
 
+export struct ThemeColors {
+    fg: color,
+    bg: color,
+    mark: color,
+    cursor: color,
+    dir: color,
+    link: color,
+}
+
+// Colors and fonts come from the configuration through Rust; the defaults
+// here only cover the moment before the first render.
 export global Theme {
-    out property <length> row-height: 20px;
-    out property <bool> dark: Palette.color-scheme == ColorScheme.dark;
-    out property <brush> mark-color: dark ? #e74c3c : #c0392b;
+    in property <ThemeColors> light: { fg: #1e1e1e, bg: #ffffff, mark: #c0392b, cursor: #1e1e1e, dir: #1f5fbf, link: #0f8a6a };
+    in property <ThemeColors> dark: { fg: #d4d4d4, bg: #1e1e1e, mark: #e74c3c, cursor: #d4d4d4, dir: #6fa8ff, link: #4fd1a5 };
+    in property <string> ui-font-family;
+    in property <length> ui-font-size: 12px;
+    in property <string> filelist-font-family;
+    in property <length> filelist-font-size: 12px;
+    in property <string> log-font-family;
+    in property <length> log-font-size: 12px;
+
+    // `Palette.color-scheme` reads back as `unknown` while following the OS,
+    // so the scheme in force is taken from the palette's own colors.
+    out property <bool> dark-scheme: Palette.background.to-hsv().value < 0.5;
+    out property <ThemeColors> colors: dark-scheme ? dark : light;
+    out property <length> row-height: round(filelist-font-size * 5 / 3 / 1px) * 1px;
+    out property <length> log-row-height: round(log-font-size * 5 / 3 / 1px) * 1px;
     out property <brush> selection-background: Palette.accent-background.with-alpha(0.3);
 }

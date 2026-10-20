@@ -13,7 +13,9 @@ publish.workspace = true
 globset.workspace = true
 icu_collator.workspace = true
 icu_normalizer.workspace = true
+serde = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
+toml.workspace = true
 
 [lints]
 workspace = true

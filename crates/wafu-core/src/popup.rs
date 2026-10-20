@@ -49,6 +49,8 @@ pub struct PalettePopup {
     pub query: String,
     pub matches: Vec<Command>,
     pub cursor: usize,
+    /// The names of the external commands, listed after the built-in ones.
+    externals: Vec<String>,
 }
 
 /// A list of places to pick from: history, bookmarks, or drives.
@@ -328,24 +330,25 @@ fn item_keys() -> impl Iterator<Item = Option<char>> {
 
 impl PalettePopup {
     #[must_use]
-    pub fn new(context: Context) -> Self {
+    pub fn new(context: Context, externals: Vec<String>) -> Self {
         Self {
             context,
             query: String::new(),
-            matches: matches(context, ""),
+            matches: matches(context, &externals, ""),
             cursor: 0,
+            externals,
         }
     }
 
     pub fn set_query(&mut self, query: String) {
-        self.matches = matches(self.context, &query);
+        self.matches = matches(self.context, &self.externals, &query);
         self.query = query;
         self.cursor = 0;
     }
 
     #[must_use]
     pub fn selected(&self) -> Option<Command> {
-        self.matches.get(self.cursor).copied()
+        self.matches.get(self.cursor).cloned()
     }
 
     pub fn cursor_up(&mut self) {
@@ -361,11 +364,12 @@ impl PalettePopup {
     }
 }
 
-fn matches(context: Context, query: &str) -> Vec<Command> {
+fn matches(context: Context, externals: &[String], query: &str) -> Vec<Command> {
     let query = query.to_lowercase();
     Command::all()
+        .chain(externals.iter().map(|name| Command::External(name.clone())))
         .filter(|command| command.available_in(context))
-        .filter(|command| command.name().contains(&query))
+        .filter(|command| command.to_string().contains(&query))
         .collect()
 }
 
@@ -442,7 +446,7 @@ mod tests {
 
     #[test]
     fn palette_filters_by_substring_ignoring_case() {
-        let mut popup = PalettePopup::new(Context::FileList);
+        let mut popup = PalettePopup::new(Context::FileList, Vec::new());
         assert_eq!(popup.matches.len(), Command::all().count());
 
         popup.set_query("MARK_R".to_owned());
@@ -456,10 +460,25 @@ mod tests {
 
     #[test]
     fn palette_shows_only_commands_available_in_the_context() {
-        let popup = PalettePopup::new(Context::Image);
+        let popup = PalettePopup::new(Context::Image, vec!["x".to_owned()]);
 
         assert_eq!(popup.matches.len(), 16);
         assert!(!popup.matches.contains(&Command::Copy));
+    }
+
+    #[test]
+    fn palette_lists_external_commands_after_the_built_in_ones() {
+        let mut popup = PalettePopup::new(Context::FileList, vec!["open_terminal".to_owned()]);
+
+        assert_eq!(
+            popup.matches.last(),
+            Some(&Command::External("open_terminal".to_owned()))
+        );
+        popup.set_query("$open".to_owned());
+        assert_eq!(
+            popup.matches,
+            [Command::External("open_terminal".to_owned())]
+        );
     }
 
     #[test]
@@ -527,7 +546,7 @@ mod tests {
 
     #[test]
     fn palette_cursor_wraps_and_handles_no_matches() {
-        let mut popup = PalettePopup::new(Context::FileList);
+        let mut popup = PalettePopup::new(Context::FileList, Vec::new());
         popup.set_query("jump_".to_owned());
         assert_eq!(popup.matches.len(), 36);
 

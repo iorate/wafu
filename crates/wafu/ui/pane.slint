@@ -2,6 +2,8 @@ import { ListView, Palette } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 
 export struct Row {
+    // 0: the parent row, 1: directory, 2: file, 3: symbolic link
+    kind: int,
     name: string,
     name-tail: string,
     extension: string,
@@ -17,13 +19,31 @@ export struct PaneData {
     cursor: int,
 }
 
+export struct ColumnWidths {
+    extension: length,
+    marker: length,
+    size: length,
+    modified: length,
+}
+
+component Cell inherits Text {
+    font-family: Theme.filelist-font-family;
+    font-size: Theme.filelist-font-size;
+    color: Theme.colors.fg;
+    vertical-alignment: center;
+}
+
 component RowItem {
     in property <Row> item;
     in property <bool> cursor;
     in property <bool> marked;
     in property <bool> ellipsis-middle;
+    in property <ColumnWidths> columns;
 
-    property <brush> text-color: marked ? Theme.mark-color : Palette.foreground;
+    property <brush> text-color: marked ? Theme.colors.mark
+        : item.kind == 3 ? Theme.colors.link
+        : item.kind == 1 ? Theme.colors.dir
+        : Theme.colors.fg;
 
     height: Theme.row-height;
 
@@ -32,11 +52,10 @@ component RowItem {
         padding-right: 4px;
         spacing: 8px;
 
-        if !root.ellipsis-middle: Text {
+        if !root.ellipsis-middle: Cell {
             text: item.name + item.name-tail;
             color: root.text-color;
             overflow: elide;
-            vertical-alignment: center;
             horizontal-stretch: 1;
         }
 
@@ -45,19 +64,17 @@ component RowItem {
         if root.ellipsis-middle: HorizontalLayout {
             horizontal-stretch: 1;
 
-            Text {
+            Cell {
                 text: item.name;
                 color: root.text-color;
                 overflow: elide;
-                vertical-alignment: center;
                 horizontal-stretch: 0;
                 max-width: self.preferred-width;
             }
 
-            Text {
+            Cell {
                 text: item.name-tail;
                 color: root.text-color;
-                vertical-alignment: center;
                 horizontal-stretch: 0;
                 min-width: self.preferred-width;
             }
@@ -67,41 +84,37 @@ component RowItem {
             }
         }
 
-        Text {
+        Cell {
             text: item.extension;
             color: root.text-color;
-            width: 60px;
+            width: root.columns.extension;
             overflow: elide;
-            vertical-alignment: center;
         }
 
-        Text {
+        Cell {
             text: item.marker;
             color: root.text-color;
-            width: 14px;
-            vertical-alignment: center;
+            width: root.columns.marker;
         }
 
-        Text {
+        Cell {
             text: item.size;
             color: root.text-color;
-            width: 90px;
+            width: root.columns.size;
             horizontal-alignment: right;
-            vertical-alignment: center;
         }
 
-        Text {
+        Cell {
             text: item.modified;
             color: root.text-color;
-            width: 150px;
-            vertical-alignment: center;
+            width: root.columns.modified;
         }
     }
 
     if cursor: Rectangle {
         y: parent.height - 1px;
         height: 1px;
-        background: Palette.foreground;
+        background: Theme.colors.cursor;
     }
 }
 
@@ -118,6 +131,15 @@ export component PaneWidget {
     callback row-right-clicked(row: int);
     callback wheel(delta: length);
 
+    // The fixed columns are as wide as a sample of their widest content in
+    // the current font.
+    property <ColumnWidths> columns: {
+        extension: measure-extension.preferred-width,
+        marker: measure-marker.preferred-width,
+        size: measure-size.preferred-width,
+        modified: measure-modified.preferred-width,
+    };
+
     changed scroll-top => {
         list.content-y = -scroll-top * Theme.row-height;
     }
@@ -126,12 +148,31 @@ export component PaneWidget {
         return root.scroll-top + floor(y / Theme.row-height);
     }
 
+    measure-extension := Cell {
+        text: ".0000000";
+        visible: false;
+    }
+
+    measure-marker := Cell {
+        text: "@";
+        visible: false;
+    }
+
+    measure-size := Cell {
+        text: "000000000000";
+        visible: false;
+    }
+
+    measure-modified := Cell {
+        text: "0000/00/00 00:00:00";
+        visible: false;
+    }
+
     VerticalLayout {
-        Text {
+        Cell {
             text: data.path;
             overflow: elide;
             height: Theme.row-height;
-            vertical-alignment: center;
             horizontal-alignment: left;
         }
 
@@ -140,8 +181,11 @@ export component PaneWidget {
             background: Palette.border;
         }
 
+        // A pane narrower than its fixed columns cuts the rows off at its
+        // edge instead of drawing over the other pane.
         Rectangle {
             vertical-stretch: 1;
+            clip: true;
 
             list := ListView {
                 width: parent.width;
@@ -157,6 +201,7 @@ export component PaneWidget {
                     cursor: index == root.data.cursor;
                     marked: root.marks[index];
                     ellipsis-middle: root.ellipsis-middle;
+                    columns: root.columns;
                 }
             }
 
@@ -192,11 +237,10 @@ export component PaneWidget {
             background: Palette.border;
         }
 
-        Text {
+        Cell {
             text: data.info;
             overflow: elide;
             height: Theme.row-height;
-            vertical-alignment: center;
         }
     }
 }

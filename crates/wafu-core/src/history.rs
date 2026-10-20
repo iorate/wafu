@@ -15,6 +15,18 @@ impl History {
         Self::default()
     }
 
+    /// Rebuilds a saved history. The position is clamped to the items and the
+    /// oldest items beyond the limit are dropped.
+    #[must_use]
+    pub fn restore(mut items: Vec<PathBuf>, pos: usize) -> Self {
+        let excess = items.len().saturating_sub(MAX_ITEMS);
+        items.drain(..excess);
+        let pos = pos
+            .saturating_sub(excess)
+            .min(items.len().saturating_sub(1));
+        Self { items, pos }
+    }
+
     #[must_use]
     pub fn items(&self) -> &[PathBuf] {
         &self.items
@@ -139,6 +151,21 @@ mod tests {
         history.set_pos(5);
         assert_eq!(history.pos(), 0);
         assert_eq!(history.items().len(), 2);
+    }
+
+    #[test]
+    fn restore_clamps_the_position_and_the_length() {
+        let history = History::restore(vec![PathBuf::from("/a"), PathBuf::from("/b")], 5);
+        assert_eq!(history.pos(), 1);
+        assert_eq!(History::restore(Vec::new(), 3).pos(), 0);
+
+        let items: Vec<PathBuf> = (0..MAX_ITEMS + 2)
+            .map(|i| PathBuf::from(format!("/{i}")))
+            .collect();
+        let history = History::restore(items, 1);
+        assert_eq!(history.items().len(), MAX_ITEMS);
+        assert_eq!(history.items()[0], PathBuf::from("/2"));
+        assert_eq!(history.pos(), 0);
     }
 
     #[test]
