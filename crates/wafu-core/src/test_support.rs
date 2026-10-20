@@ -1,15 +1,19 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-use crate::app::{App, DrivePurpose, Effect, IoEvent, MouseInput, Msg, Os, Resolved, Side};
+use crate::app::{
+    App, ConfigSource, DrivePurpose, Effect, IoEvent, MouseInput, Msg, Os, Resolved, Side, Start,
+};
 use crate::entry::{Entry, EntryKind};
 use crate::error::IoError;
 use crate::key::{Key, KeyBase, KeyInput};
 use crate::pane::RequestId;
 use crate::popup::Popup;
+use crate::state::{StateError, StateFile};
 use crate::view::View;
 
 pub(crate) const HOME: &str = "/home/user";
+pub(crate) const CONFIG_PATH: &str = "/home/user/.config/wafu/config.toml";
 
 /// Drives an [`App`] with messages and records the effects, so that scenario
 /// tests read like a script: press a key, answer an I/O request, look at the view.
@@ -43,18 +47,19 @@ impl Harness {
 
     /// Starts without answering the resolves, for tests of the start-up itself.
     pub(crate) fn start_unresolved(os: Os, left: &str, right: &str) -> Self {
+        Self::start_from(start_msg(os, Some(left), Some(right)))
+    }
+
+    /// Starts from a `Start` message built by [`start_msg`] and changed as the
+    /// test needs, without answering anything.
+    pub(crate) fn start_from(msg: Msg) -> Self {
         let mut harness = Self {
             app: App::new(),
             effects: Vec::new(),
             requests: [None, None],
             resolves: [None, None],
         };
-        harness.send(Msg::Start {
-            left: PathBuf::from(left),
-            right: PathBuf::from(right),
-            home: PathBuf::from(HOME),
-            os,
-        });
+        harness.send(msg);
         harness
     }
 
@@ -74,9 +79,11 @@ impl Harness {
         self.effects.extend(effects);
     }
 
-    pub(crate) fn bookmarks(&mut self, paths: &[&str]) {
-        self.app
-            .set_bookmarks(paths.iter().map(PathBuf::from).collect());
+    /// Reloads the configuration from text, as the watch does after an edit.
+    pub(crate) fn config(&mut self, text: &str) {
+        self.send(Msg::Io(IoEvent::ConfigLoaded {
+            result: Ok(text.to_owned()),
+        }));
     }
 
     /// Presses a key written as in the configuration, simulating what the UI would deliver.
@@ -251,6 +258,29 @@ impl Harness {
             .map(|popup| popup.items.into_iter().map(|item| item.label).collect())
             .unwrap_or_default()
     }
+}
+
+/// A `Start` on the given OS with an empty configuration and no state file.
+pub(crate) fn start_msg(os: Os, left: Option<&str>, right: Option<&str>) -> Msg {
+    start_msg_with(os, left, right, ConfigSource::Text(String::new()), Ok(None))
+}
+
+pub(crate) fn start_msg_with(
+    os: Os,
+    left: Option<&str>,
+    right: Option<&str>,
+    config: ConfigSource,
+    state: Result<Option<StateFile>, StateError>,
+) -> Msg {
+    Msg::Start(Box::new(Start {
+        left: left.map(PathBuf::from),
+        right: right.map(PathBuf::from),
+        home: PathBuf::from(HOME),
+        os,
+        config_path: PathBuf::from(CONFIG_PATH),
+        config,
+        state,
+    }))
 }
 
 pub(crate) fn file(name: &str) -> Entry {

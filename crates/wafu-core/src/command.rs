@@ -1,5 +1,7 @@
+use std::fmt;
+
 /// A named operation. Keys, the mouse, and the palette all invoke these.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Command {
     Open,
     OpenWithOs,
@@ -74,6 +76,8 @@ pub enum Command {
     Quit,
     QuitWithoutSaving,
     Nop,
+    /// A command defined in the configuration, named `$name` in key bindings.
+    External(String),
 }
 
 /// Where a key press is interpreted.
@@ -167,7 +171,7 @@ const NAMES: &[(Command, &str)] = &[
 ];
 
 impl Command {
-    /// All commands in their canonical order, with the jump commands after `search`.
+    /// All built-in commands in their canonical order, with the jump commands after `search`.
     pub fn all() -> impl Iterator<Item = Self> {
         let (before, after) = NAMES.split_at(
             NAMES
@@ -177,16 +181,16 @@ impl Command {
         );
         before
             .iter()
-            .map(|(command, _)| *command)
+            .map(|(command, _)| command.clone())
             .chain(JUMP_NAMES.iter().map(|name| Self::Jump(jump_char(name))))
-            .chain(after.iter().map(|(command, _)| *command))
+            .chain(after.iter().map(|(command, _)| command.clone()))
     }
 
     /// Whether the command can run in the context. Commands that do nothing on
     /// some OS still count as available, so that a shared configuration loads
     /// without errors everywhere.
     #[must_use]
-    pub fn available_in(self, context: Context) -> bool {
+    pub fn available_in(&self, context: Context) -> bool {
         match context {
             Context::FileList => true,
             Context::Image => matches!(
@@ -212,28 +216,41 @@ impl Command {
         }
     }
 
+    /// The command for a name as written in the configuration. `$name` is an
+    /// external command; whether it is defined is checked elsewhere.
     #[must_use]
     pub fn from_name(name: &str) -> Option<Self> {
+        if let Some(external) = name.strip_prefix('$') {
+            return (!external.is_empty()).then(|| Self::External(external.to_owned()));
+        }
         if let Some(name) = JUMP_NAMES.iter().find(|&&n| n == name) {
             return Some(Self::Jump(jump_char(name)));
         }
         NAMES
             .iter()
             .find(|(_, n)| *n == name)
-            .map(|(command, _)| *command)
+            .map(|(command, _)| command.clone())
     }
+}
 
-    #[must_use]
-    pub fn name(self) -> &'static str {
+impl fmt::Display for Command {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Jump(c) => JUMP_NAMES
-                .iter()
-                .find(|name| jump_char(name) == c)
-                .map_or("jump_?", |name| name),
-            _ => NAMES
-                .iter()
-                .find(|(command, _)| *command == self)
-                .map_or("?", |(_, name)| name),
+            Self::Jump(c) => {
+                let name = JUMP_NAMES
+                    .iter()
+                    .find(|name| jump_char(name) == *c)
+                    .map_or("jump_?", |name| name);
+                f.write_str(name)
+            }
+            Self::External(name) => write!(f, "${name}"),
+            _ => {
+                let name = NAMES
+                    .iter()
+                    .find(|(command, _)| command == self)
+                    .map_or("?", |(_, name)| name);
+                f.write_str(name)
+            }
         }
     }
 }
@@ -249,9 +266,9 @@ mod tests {
     #[test]
     fn names_round_trip_for_every_command() {
         for command in Command::all() {
-            let name = command.name();
+            let name = command.to_string();
             assert_ne!(name, "?", "{command:?} has no name");
-            assert_eq!(Command::from_name(name), Some(command), "{name}");
+            assert_eq!(Command::from_name(&name), Some(command), "{name}");
         }
     }
 
@@ -259,7 +276,7 @@ mod tests {
     fn all_lists_every_command_once() {
         let commands: Vec<Command> = Command::all().collect();
         let mut unique = commands.clone();
-        unique.sort_by_key(|command| command.name());
+        unique.sort_by_key(ToString::to_string);
         unique.dedup();
 
         assert_eq!(commands.len(), NAMES.len() + JUMP_NAMES.len());
@@ -268,8 +285,8 @@ mod tests {
 
     #[test]
     fn jump_names_follow_the_character() {
-        assert_eq!(Command::Jump('a').name(), "jump_a");
-        assert_eq!(Command::Jump('9').name(), "jump_9");
+        assert_eq!(Command::Jump('a').to_string(), "jump_a");
+        assert_eq!(Command::Jump('9').to_string(), "jump_9");
         assert_eq!(Command::from_name("jump_z"), Some(Command::Jump('z')));
         assert_eq!(Command::from_name("jump_A"), None);
     }
@@ -291,9 +308,20 @@ mod tests {
     }
 
     #[test]
+    fn external_names_start_with_a_dollar() {
+        let command = Command::External("open_terminal".to_owned());
+
+        assert_eq!(Command::from_name("$open_terminal"), Some(command.clone()));
+        assert_eq!(command.to_string(), "$open_terminal");
+        assert!(command.available_in(Context::FileList));
+        assert!(!command.available_in(Context::Image));
+        assert!(!Command::all().any(|c| matches!(c, Command::External(_))));
+    }
+
+    #[test]
     fn unknown_names_are_rejected() {
         assert_eq!(Command::from_name(""), None);
         assert_eq!(Command::from_name("Open"), None);
-        assert_eq!(Command::from_name("$open_terminal"), None);
+        assert_eq!(Command::from_name("$"), None);
     }
 }

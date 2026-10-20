@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::config::{ColorSet, Config, Theme};
 use crate::entry::{Entry, EntryKind};
 use crate::pane::Pane;
 
@@ -17,7 +18,35 @@ pub struct View {
     /// Width of the left pane as a percentage of the window.
     pub split_percent: u8,
     pub log_rows: usize,
+    /// Shared with the application; the same allocation is returned until the
+    /// configuration changes.
+    pub style: Arc<Style>,
+}
+
+/// How the window looks, taken from the configuration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Style {
+    pub theme: Theme,
     pub ellipsis: Ellipsis,
+    pub fonts: Fonts,
+    pub colors: ColorSet,
+}
+
+/// The fonts of each area, with every fallback already applied.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fonts {
+    pub ui: ResolvedFont,
+    pub filelist: ResolvedFont,
+    pub log: ResolvedFont,
+    pub preview: ResolvedFont,
+}
+
+/// A font to use. An empty family means the system font.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedFont {
+    pub family: String,
+    /// In pixels.
+    pub size: u16,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,6 +65,7 @@ pub struct PaneView {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RowView {
+    pub kind: RowKind,
     /// The name without its last characters, which are in `name_tail`.
     pub name: String,
     /// The last characters of the name, kept visible when eliding in the middle.
@@ -84,11 +114,42 @@ pub enum ItemMark {
     Check(bool),
 }
 
+/// What a row shows, for its color.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RowKind {
+    Parent,
+    Dir,
+    File,
+    /// Any symbolic link, whatever it points to.
+    Link,
+}
+
 /// Where a name is cut when it does not fit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ellipsis {
     End,
     Middle,
+}
+
+impl Style {
+    pub(crate) fn from_config(config: &Config) -> Self {
+        let font = &config.appearance.font;
+        let resolve = |area: &crate::config::Font| {
+            let (family, size) = area.resolve(&font.default);
+            ResolvedFont { family, size }
+        };
+        Self {
+            theme: config.appearance.theme,
+            ellipsis: config.appearance.ellipsis,
+            fonts: Fonts {
+                ui: resolve(&font.default),
+                filelist: resolve(&font.filelist),
+                log: resolve(&font.log),
+                preview: resolve(&font.preview),
+            },
+            colors: config.colors.clone(),
+        }
+    }
 }
 
 impl PaneView {
@@ -120,6 +181,7 @@ impl PaneView {
 impl RowView {
     pub(crate) fn parent() -> Self {
         Self {
+            kind: RowKind::Parent,
             name: "..".to_owned(),
             name_tail: String::new(),
             extension: String::new(),
@@ -137,7 +199,12 @@ impl RowView {
         } else {
             format!(".{extension}")
         };
-        let is_link = matches!(entry.kind, EntryKind::Symlink { .. });
+        let kind = match entry.kind {
+            EntryKind::Dir => RowKind::Dir,
+            EntryKind::File => RowKind::File,
+            EntryKind::Symlink { .. } => RowKind::Link,
+        };
+        let is_link = kind == RowKind::Link;
         let broken = entry.kind == EntryKind::Symlink { target: None };
         let size = if broken {
             "?".to_owned()
@@ -155,6 +222,7 @@ impl RowView {
                 .unwrap_or_default()
         };
         Self {
+            kind,
             name,
             name_tail,
             extension,

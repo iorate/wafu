@@ -1,9 +1,9 @@
 import { ListView, Palette } from "std-widgets.slint";
 import { PaneData, PaneWidget, Row } from "pane.slint";
 import { PopupData, PopupItem, PopupOverlay } from "popup.slint";
-import { Theme } from "theme.slint";
+import { Theme, ThemeColors } from "theme.slint";
 
-export { PaneData, PopupData, PopupItem, Row }
+export { PaneData, PopupData, PopupItem, Row, Theme, ThemeColors }
 
 export component AppWindow inherits Window {
     in property <string> window-title: "wafu";
@@ -23,8 +23,12 @@ export component AppWindow inherits Window {
     in property <PopupData> popup;
     in property <[PopupItem]> popup-items;
     in-out property <string> popup-text;
+    // 0: follow the OS, 1: light, 2: dark
+    in property <int> theme;
+    in property <bool> menu-bar-visible;
 
     callback key-input(text: string, control: bool, shift: bool, alt: bool, meta: bool);
+    callback quit-requested();
     callback viewport-rows-changed(side: int, rows: int);
     callback row-clicked(side: int, row: int);
     callback row-double-clicked(side: int, row: int);
@@ -42,6 +46,51 @@ export component AppWindow inherits Window {
     preferred-width: 960px;
     preferred-height: 640px;
     forward-focus: scope;
+    default-font-family: Theme.ui-font-family;
+    default-font-size: Theme.ui-font-size;
+    background: Theme.colors.bg;
+
+    function apply-theme() {
+        Palette.color-scheme = root.theme == 1 ? ColorScheme.light
+            : root.theme == 2 ? ColorScheme.dark
+            : ColorScheme.unknown;
+    }
+
+    init => {
+        root.apply-theme();
+    }
+
+    changed theme => {
+        root.apply-theme();
+    }
+
+    // Only macOS shows the bar (it is native there), but a hidden bar still
+    // handles its shortcuts, so the shortcuts come and go with it. Quit is in
+    // the application menu that the platform adds on its own; closing the
+    // only window is the same as quitting.
+    MenuBar {
+        visible: root.menu-bar-visible;
+
+        Menu {
+            title: "Window";
+
+            MenuItem {
+                title: "Minimize";
+                shortcut: root.menu-bar-visible ? @keys(Control + M) : @keys();
+                activated => {
+                    root.minimized = true;
+                }
+            }
+
+            MenuItem {
+                title: "Close Window";
+                shortcut: root.menu-bar-visible ? @keys(Control + W) : @keys();
+                activated => {
+                    root.quit-requested();
+                }
+            }
+        }
+    }
 
     // Focus returns to the scope whenever no input field can hold it, including
     // when an input popup gives way to a progress popup.
@@ -63,7 +112,7 @@ export component AppWindow inherits Window {
     }
 
     changed log-scroll-top => {
-        log.content-y = -log-scroll-top * Theme.row-height;
+        log.content-y = -log-scroll-top * Theme.log-row-height;
     }
 
     scope := FocusScope {
@@ -150,7 +199,7 @@ export component AppWindow inherits Window {
             }
 
             Rectangle {
-                height: root.log-rows * Theme.row-height + 8px;
+                height: root.log-rows * Theme.log-row-height + 8px;
                 clip: true;
 
                 log := ListView {
@@ -162,7 +211,10 @@ export component AppWindow inherits Window {
 
                     for line in root.log-lines: Text {
                         text: line;
-                        height: Theme.row-height;
+                        height: Theme.log-row-height;
+                        font-family: Theme.log-font-family;
+                        font-size: Theme.log-font-size;
+                        color: Theme.colors.fg;
                         overflow: elide;
                         vertical-alignment: center;
                     }

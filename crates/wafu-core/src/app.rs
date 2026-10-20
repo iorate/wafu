@@ -1,19 +1,22 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::command::{Command, Context};
+use crate::config::Config;
 use crate::entry::Entry;
 use crate::error::{AppError, IoError};
 use crate::key::{Key, KeyBase, KeyInput, NamedKey};
-use crate::keymap::KeyMap;
 use crate::location::Location;
 use crate::log::Log;
 use crate::pane::{HistoryMove, Pane, RequestId};
 use crate::popup::{InputKind, Popup};
-use crate::view::{Ellipsis, LogView, PaneView, View};
+use crate::state::{StateError, StateFile};
+use crate::view::{LogView, PaneView, Style, View};
 
 mod navigation;
 mod popups;
+mod session;
 #[cfg(test)]
 mod tests;
 
@@ -27,14 +30,10 @@ const LOG_ROWS_MAX: usize = 30;
 /// An event delivered to the application.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Msg {
-    /// The application has started. The pane paths need not exist yet; the
-    /// nearest existing directory is used.
-    Start {
-        left: PathBuf,
-        right: PathBuf,
-        home: PathBuf,
-        os: Os,
-    },
+    /// The application has started.
+    Start(Box<Start>),
+    /// The window's close button, or the Quit item of the menu bar.
+    CloseRequested,
     Key(KeyInput),
     Mouse(MouseInput),
     /// The text of the popup's input field was edited.
@@ -74,6 +73,30 @@ pub enum MouseInput {
     },
 }
 
+/// What the application starts from. The pane paths need not exist yet; the
+/// nearest existing directory is used. A pane without a path on the command
+/// line takes the saved one, or home.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Start {
+    pub left: Option<PathBuf>,
+    pub right: Option<PathBuf>,
+    pub home: PathBuf,
+    pub os: Os,
+    pub config_path: PathBuf,
+    pub config: ConfigSource,
+    /// `Ok(None)` when there is no state file.
+    pub state: Result<Option<StateFile>, StateError>,
+}
+
+/// How the configuration file was found at start-up.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConfigSource {
+    Text(String),
+    /// There was none, so the template was written.
+    Created,
+    Unreadable(IoError),
+}
+
 /// A request from the application to the outside world.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
@@ -102,6 +125,28 @@ pub enum Effect {
         purpose: DrivePurpose,
     },
     SetTitle(String),
+    /// Watches the configuration file and reports its new text on every change.
+    WatchConfig(PathBuf),
+    /// Starts a program without a shell and without waiting for it.
+    Spawn {
+        program: String,
+        args: Vec<OsString>,
+        cwd: PathBuf,
+    },
+    /// Writes the state file. The window geometry is filled in by the UI,
+    /// which is the only layer that knows it.
+    SaveState(StateFile),
+    /// Starts another instance that takes over the state. The window
+    /// geometry is filled in by the UI, as for `SaveState`.
+    SpawnNewWindow(StateFile),
+    Quit,
+}
+
+/// What `Effect::Spawn` or `Effect::SpawnNewWindow` started.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SpawnKind {
+    External { program: String },
+    NewWindow,
 }
 
 /// What the drive list is for; it comes back with the reply.
@@ -144,7 +189,10 @@ pub enum IoEvent {
         result: Option<Resolved>,
     },
     /// Something changed in the watched directory.
-    LocationChanged { side: Side, path: PathBuf },
+    LocationChanged {
+        side: Side,
+        path: PathBuf,
+    },
     /// Always empty except on Windows.
     Drives {
         purpose: DrivePurpose,
@@ -154,6 +202,17 @@ pub enum IoEvent {
         side: Side,
         path: PathBuf,
         error: IoError,
+    },
+    /// The configuration file changed and was read again.
+    ConfigLoaded {
+        result: Result<String, IoError>,
+    },
+    ConfigWatchFailed {
+        error: IoError,
+    },
+    Spawned {
+        kind: SpawnKind,
+        error: Option<IoError>,
     },
 }
 
@@ -168,16 +227,15 @@ pub enum Side {
 pub struct App {
     panes: [Pane; 2],
     active: Side,
-    keymap: KeyMap,
+    config: Config,
+    config_path: PathBuf,
+    style: Arc<Style>,
     log: Log,
     popup: Option<Popup>,
     split_percent: u8,
-    ellipsis: Ellipsis,
     next_request: u64,
     home: PathBuf,
     os: Os,
-    // As configured, before `~` is expanded.
-    bookmarks: Vec<PathBuf>,
 }
 
 impl Side {
@@ -204,26 +262,23 @@ impl App {
     pub fn new() -> Self {
         let mut log = Log::new();
         log.set_viewport_rows(LOG_ROWS_DEFAULT);
+        let config = Config::default_for(Os::Linux);
         Self {
             panes: [
                 Pane::new(Location::new(PathBuf::new())),
                 Pane::new(Location::new(PathBuf::new())),
             ],
             active: Side::Left,
-            keymap: KeyMap::default(),
+            style: Arc::new(Style::from_config(&config)),
+            config,
+            config_path: PathBuf::new(),
             log,
             popup: None,
             split_percent: 50,
-            ellipsis: Ellipsis::End,
             next_request: 1,
             home: PathBuf::new(),
             os: Os::Linux,
-            bookmarks: Vec::new(),
         }
-    }
-
-    pub fn set_bookmarks(&mut self, paths: Vec<PathBuf>) {
-        self.bookmarks = paths;
     }
 
     /// Applies a message and returns the effects it produced.
@@ -231,23 +286,28 @@ impl App {
         let title_before = self.title();
         let mut effects = Vec::new();
         match msg {
-            Msg::Start {
-                left,
-                right,
-                home,
-                os,
-            } => {
+            Msg::Start(start) => {
+                let Start {
+                    left,
+                    right,
+                    home,
+                    os,
+                    config_path,
+                    config,
+                    state,
+                } = *start;
                 self.home = home;
                 self.os = os;
+                self.config_path = config_path;
                 self.panes = [
                     Pane::new(Location::new(PathBuf::new())),
                     Pane::new(Location::new(PathBuf::new())),
                 ];
-                self.resolve(Side::Left, left, None, &mut effects);
-                self.resolve(Side::Right, right, None, &mut effects);
+                self.start(left, right, config, state, &mut effects);
                 effects.push(Effect::SetTitle(self.title()));
                 return effects;
             }
+            Msg::CloseRequested => self.quit(true, &mut effects),
             Msg::Key(input) => {
                 if let Some(key) = Key::from_input(&input) {
                     if self.popup.is_some() {
@@ -258,7 +318,7 @@ impl App {
                             self.cancel_navigations(&mut effects);
                         }
                     } else {
-                        if let Some(command) = self.keymap.lookup(Context::FileList, &key) {
+                        if let Some(command) = self.config.keys.lookup(Context::FileList, &key) {
                             self.run_command(command, &mut effects);
                         }
                         // A key after wheel scrolling brings the cursor back into view.
@@ -298,6 +358,17 @@ impl App {
                     .to_string(),
                 );
             }
+            Msg::Io(IoEvent::ConfigLoaded { result }) => self.config_loaded(result),
+            Msg::Io(IoEvent::ConfigWatchFailed { error }) => {
+                self.log.push(
+                    AppError::Watch {
+                        path: self.config_path.clone(),
+                        source: error,
+                    }
+                    .to_string(),
+                );
+            }
+            Msg::Io(IoEvent::Spawned { kind, error }) => self.spawned(kind, error),
         }
         let title = self.title();
         if title != title_before {
@@ -319,7 +390,7 @@ impl App {
             popup: self.popup_view(),
             split_percent: self.split_percent,
             log_rows: self.log.viewport_rows(),
-            ellipsis: self.ellipsis,
+            style: Arc::clone(&self.style),
         }
     }
 
@@ -331,6 +402,11 @@ impl App {
     #[must_use]
     pub fn active(&self) -> Side {
         self.active
+    }
+
+    #[must_use]
+    pub fn config(&self) -> &Config {
+        &self.config
     }
 
     #[cfg(test)]
@@ -424,6 +500,11 @@ impl App {
             Command::GoToPath => self.open_input(InputKind::GoToPath),
             Command::Bookmarks => self.open_bookmarks(),
             Command::History => self.open_history(),
+            Command::EditConfig => self.edit_config(effects),
+            Command::NewWindow => self.new_window(effects),
+            Command::Quit => self.quit(true, effects),
+            Command::QuitWithoutSaving => self.quit(false, effects),
+            Command::External(name) => self.run_external(&name, effects),
             Command::OpenWithOs
             | Command::Copy
             | Command::Move
@@ -440,10 +521,6 @@ impl App {
             | Command::EnterAsArchive
             | Command::Extract
             | Command::Compress
-            | Command::EditConfig
-            | Command::NewWindow
-            | Command::Quit
-            | Command::QuitWithoutSaving
             | Command::Nop => {}
         }
     }

@@ -96,6 +96,20 @@ impl SortKey {
             Self::Natural => "natural",
         }
     }
+
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Self> {
+        [
+            Self::None,
+            Self::Name,
+            Self::Extension,
+            Self::Size,
+            Self::Time,
+            Self::Natural,
+        ]
+        .into_iter()
+        .find(|key| key.name() == name)
+    }
 }
 
 impl Default for SortSpec {

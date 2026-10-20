@@ -1,30 +1,75 @@
 #![windows_subsystem = "windows"]
 
+mod cli;
 mod keys;
 mod ui;
 
 use std::path::PathBuf;
+use std::process::ExitCode;
 
-use wafu_core::{Msg, Os};
+use clap::Parser;
+use wafu_core::{CONFIG_TEMPLATE, Msg, Os, Start};
+use wafu_io::Paths;
 
+use crate::cli::Cli;
 use crate::ui::Ui;
 
 slint::include_modules!();
 
-fn main() -> Result<(), slint::PlatformError> {
-    let mut args = std::env::args_os().skip(1);
+fn main() -> ExitCode {
+    let cli = Cli::parse();
     let home = home_dir();
-    let left = args.next().map_or_else(|| home.clone(), resolve);
-    let right = args.next().map_or_else(|| home.clone(), resolve);
+    let config_override = cli.config.map(absolute);
+    let Some(config_path) = config_override.clone().or_else(wafu_io::config_path) else {
+        eprintln!("wafu: cannot find the configuration directory; pass --config");
+        return ExitCode::FAILURE;
+    };
+    let Some(state_path) = wafu_io::state_path() else {
+        eprintln!("wafu: cannot find the state directory");
+        return ExitCode::FAILURE;
+    };
+    let config = wafu_io::read_or_create(&config_path, CONFIG_TEMPLATE);
+    let state = match &cli.inherit {
+        Some(handoff) => wafu_io::read_handoff(handoff),
+        None => wafu_io::read_state(&state_path),
+    };
+    let window = state
+        .as_ref()
+        .ok()
+        .and_then(|state| state.as_ref())
+        .and_then(|state| state.window.clone());
 
-    let ui = Ui::install(AppWindow::new()?);
-    ui.dispatch(Msg::Start {
-        left,
-        right,
+    let app_window = match AppWindow::new() {
+        Ok(window) => window,
+        Err(error) => {
+            eprintln!("wafu: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let ui = Ui::install(
+        app_window,
+        Paths {
+            state: state_path,
+            config_override,
+        },
+    );
+    ui.restore_window(window.as_ref());
+    ui.dispatch(Msg::Start(Box::new(Start {
+        left: cli.left.map(absolute),
+        right: cli.right.map(absolute),
         home,
         os: os(),
-    });
-    ui.window().run()
+        config_path,
+        config,
+        state,
+    })));
+    match ui.window().run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("wafu: {error}");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 fn os() -> Os {
@@ -43,7 +88,6 @@ fn home_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-fn resolve(arg: std::ffi::OsString) -> PathBuf {
-    let path = PathBuf::from(arg);
+fn absolute(path: PathBuf) -> PathBuf {
     std::path::absolute(&path).unwrap_or(path)
 }

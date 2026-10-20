@@ -41,7 +41,11 @@ impl App {
     }
 
     pub(super) fn open_palette(&mut self) {
-        self.popup = Some(Popup::Palette(PalettePopup::new(Context::FileList)));
+        let externals = self.config.commands.keys().cloned().collect();
+        self.popup = Some(Popup::Palette(PalettePopup::new(
+            Context::FileList,
+            externals,
+        )));
     }
 
     pub(super) fn open_history(&mut self) {
@@ -51,6 +55,7 @@ impl App {
 
     pub(super) fn open_bookmarks(&mut self) {
         let paths = self
+            .config
             .bookmarks
             .iter()
             .map(|path| expand_tilde(&path.to_string_lossy(), &self.home))
@@ -121,10 +126,11 @@ impl App {
                     .matches
                     .iter()
                     .map(|command| PopupItem {
-                        label: command.name().to_owned(),
+                        label: command.to_string(),
                         detail: self
-                            .keymap
-                            .keys_for(popup.context, *command)
+                            .config
+                            .keys
+                            .keys_for(popup.context, command)
                             .iter()
                             .map(ToString::to_string)
                             .collect::<Vec<_>>()

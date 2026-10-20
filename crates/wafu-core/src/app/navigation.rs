@@ -330,12 +330,7 @@ impl App {
         if self.os == Os::Windows {
             effects.push(Effect::ListDrives { purpose });
         } else {
-            self.log.push(
-                AppError::WindowsOnly {
-                    command: command.name(),
-                }
-                .to_string(),
-            );
+            self.log.push(AppError::WindowsOnly { command }.to_string());
         }
     }
 

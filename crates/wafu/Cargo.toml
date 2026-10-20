@@ -11,6 +11,7 @@ authors.workspace = true
 publish.workspace = true
 
 [dependencies]
+clap = { workspace = true, features = ["derive"] }
 slint.workspace = true
 wafu-core.workspace = true
 wafu-io.workspace = true

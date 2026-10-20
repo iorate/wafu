@@ -80,12 +80,12 @@ const DEFAULT_FILELIST: &[(&str, &str)] = &[
 impl KeyMap {
     #[must_use]
     pub fn lookup(&self, context: Context, key: &Key) -> Option<Command> {
-        self.maps.get(&context)?.get(key).copied()
+        self.maps.get(&context)?.get(key).cloned()
     }
 
     /// The keys bound to a command in a context, in display order.
     #[must_use]
-    pub fn keys_for(&self, context: Context, command: Command) -> Vec<Key> {
+    pub fn keys_for(&self, context: Context, command: &Command) -> Vec<Key> {
         let mut keys: Vec<Key> = self
             .bindings(context)
             .filter(|(_, bound)| *bound == command)
@@ -96,21 +96,36 @@ impl KeyMap {
     }
 
     /// The bindings of a context, in no particular order.
-    pub fn bindings(&self, context: Context) -> impl Iterator<Item = (&Key, Command)> {
+    pub fn bindings(&self, context: Context) -> impl Iterator<Item = (&Key, &Command)> {
         self.maps
             .get(&context)
             .into_iter()
-            .flat_map(|map| map.iter().map(|(key, command)| (key, *command)))
+            .flat_map(|map| map.iter())
+    }
+
+    /// Binds a key, replacing what it was bound to, or unbinds it with `None`.
+    pub fn bind(&mut self, context: Context, key: Key, command: Option<Command>) {
+        let map = self.maps.entry(context).or_default();
+        match command {
+            Some(command) => {
+                map.insert(key, command);
+            }
+            None => {
+                map.remove(&key);
+            }
+        }
     }
 }
 
 impl Default for KeyMap {
+    // The image preview reuses the file list's cursor and mark keys; the text
+    // and binary previews have fixed keys and no bindings.
     fn default() -> Self {
         let jumps = Command::all().filter_map(|command| match command {
             Command::Jump(c) => Some((format!("Ctrl+{}", c.to_ascii_uppercase()), command)),
             _ => None,
         });
-        let filelist = DEFAULT_FILELIST
+        let filelist: HashMap<Key, Command> = DEFAULT_FILELIST
             .iter()
             .map(|(key, name)| {
                 let command = Command::from_name(name)
@@ -125,8 +140,18 @@ impl Default for KeyMap {
                 (key, command)
             })
             .collect();
+        let image = filelist
+            .iter()
+            .filter(|(_, command)| command.available_in(Context::Image))
+            .map(|(key, command)| (*key, command.clone()))
+            .collect();
         Self {
-            maps: HashMap::from([(Context::FileList, filelist)]),
+            maps: HashMap::from([
+                (Context::FileList, filelist),
+                (Context::Image, image),
+                (Context::Text, HashMap::new()),
+                (Context::Binary, HashMap::new()),
+            ]),
         }
     }
 }
@@ -163,12 +188,12 @@ mod tests {
         let keymap = KeyMap::default();
         let bound: HashSet<Command> = keymap
             .bindings(Context::FileList)
-            .map(|(_, command)| command)
+            .map(|(_, command)| command.clone())
             .collect();
 
         for command in Command::all() {
             let expected = !UNBOUND.contains(&command);
-            assert_eq!(bound.contains(&command), expected, "{}", command.name());
+            assert_eq!(bound.contains(&command), expected, "{command}");
         }
     }
 
@@ -180,6 +205,39 @@ mod tests {
             keymap.bindings(Context::FileList).count(),
             DEFAULT_FILELIST.len() + 36
         );
+    }
+
+    #[test]
+    fn image_context_has_the_cursor_and_mark_keys_only() {
+        let keymap = KeyMap::default();
+
+        // The sixteen commands minus clear_marks, which has no key.
+        assert_eq!(keymap.bindings(Context::Image).count(), 15);
+        assert_eq!(
+            keymap.lookup(Context::Image, &"Up".parse().unwrap()),
+            Some(Command::CursorUp)
+        );
+        assert_eq!(keymap.lookup(Context::Image, &"C".parse().unwrap()), None);
+        assert_eq!(keymap.bindings(Context::Text).count(), 0);
+    }
+
+    #[test]
+    fn bind_replaces_and_unbinds() {
+        let mut keymap = KeyMap::default();
+        let key: Key = "Ctrl+C".parse().unwrap();
+
+        keymap.bind(Context::FileList, key, Some(Command::CopyPath));
+        assert_eq!(
+            keymap.lookup(Context::FileList, &key),
+            Some(Command::CopyPath)
+        );
+        assert_eq!(
+            keymap.keys_for(Context::FileList, &Command::Jump('c')),
+            Vec::new()
+        );
+
+        keymap.bind(Context::FileList, key, None);
+        assert_eq!(keymap.lookup(Context::FileList, &key), None);
     }
 
     #[test]
@@ -205,13 +263,13 @@ mod tests {
         let keymap = KeyMap::default();
 
         let keys: Vec<String> = keymap
-            .keys_for(Context::FileList, Command::MarkRangeBelow)
+            .keys_for(Context::FileList, &Command::MarkRangeBelow)
             .iter()
             .map(ToString::to_string)
             .collect();
         assert_eq!(keys, ["Ctrl+Shift+Space"]);
         assert_eq!(
-            keymap.keys_for(Context::FileList, Command::SwapPanes),
+            keymap.keys_for(Context::FileList, &Command::SwapPanes),
             Vec::new()
         );
     }
@@ -224,6 +282,6 @@ mod tests {
             keymap.lookup(Context::FileList, &"F1".parse().unwrap()),
             None
         );
-        assert_eq!(keymap.lookup(Context::Image, &"Up".parse().unwrap()), None);
+        assert_eq!(keymap.lookup(Context::Text, &"Up".parse().unwrap()), None);
     }
 }
