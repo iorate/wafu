@@ -148,6 +148,15 @@ pub(crate) fn list_dir(
     Ok(listed)
 }
 
+/// The index of the entry named `name` directly inside the directory `inner`.
+pub(crate) fn find_entry(entries: &[ArchiveEntry], inner: &[String], name: &str) -> Option<usize> {
+    entries.iter().position(|entry| {
+        entry.components.len() == inner.len() + 1
+            && entry.components[..inner.len()] == *inner
+            && entry.components[inner.len()] == name
+    })
+}
+
 fn listed_entry(name: &str, entry: &ArchiveEntry) -> Entry {
     let kind = match entry.kind {
         ArchiveEntryKind::Dir => EntryKind::Dir,
@@ -248,6 +257,16 @@ mod tests {
 
         assert!(root[0].hidden);
         assert!(!root[1].hidden);
+    }
+
+    #[test]
+    fn find_entry_matches_the_whole_name() {
+        let entries = [file(&["d", "a.txt"], 1), file(&["a.txt"], 2), dir(&["d"])];
+
+        assert_eq!(find_entry(&entries, &[], "a.txt"), Some(1));
+        assert_eq!(find_entry(&entries, &["d".to_owned()], "a.txt"), Some(0));
+        assert_eq!(find_entry(&entries, &[], "d"), Some(2));
+        assert_eq!(find_entry(&entries, &[], "b.txt"), None);
     }
 
     #[test]

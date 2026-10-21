@@ -7,17 +7,19 @@ use crate::config::Config;
 use crate::entry::Entry;
 use crate::error::{AppError, IoError};
 use crate::key::{Key, KeyBase, KeyInput, NamedKey};
-use crate::location::Location;
+use crate::location::{ArchivePath, Location};
 use crate::log::Log;
 use crate::operation::{OperationEvent, OperationSpec, Reply};
 use crate::pane::{Pane, RequestId};
 use crate::popup::{InputKind, Popup};
+use crate::preview::{Document, ImageData};
 use crate::state::{StateError, StateFile};
 use crate::view::{LogView, PaneView, Style, View};
 
 mod navigation;
 mod operations;
 mod popups;
+mod preview;
 mod session;
 #[cfg(test)]
 mod tests;
@@ -48,6 +50,10 @@ pub enum Msg {
         side: Side,
         rows: usize,
     },
+    /// The number of unwrapped lines that fit in the preview.
+    PreviewRows {
+        rows: usize,
+    },
     Io(IoEvent),
 }
 
@@ -74,6 +80,10 @@ pub enum MouseInput {
     },
     /// Wheel movement over the log, in rows.
     LogWheel {
+        rows: i32,
+    },
+    /// Wheel movement over a text or binary preview, in rows.
+    PreviewWheel {
         rows: i32,
     },
 }
@@ -116,8 +126,19 @@ pub enum Effect {
         path: PathBuf,
         request: RequestId,
     },
-    /// Cancels a `ReadDir` or `Resolve`.
+    /// Cancels any request on the reading thread: a `ReadDir`, `Resolve`,
+    /// `LoadPreview`, or `LoadImage`.
     CancelRead {
+        request: RequestId,
+    },
+    /// Reads the start of a file and decodes it for the preview.
+    LoadPreview {
+        source: PreviewSource,
+        request: RequestId,
+    },
+    /// Decodes an image file for the preview.
+    LoadImage {
+        source: PreviewSource,
         request: RequestId,
     },
     /// Watches a directory for changes, replacing the side's previous watch.
@@ -161,6 +182,27 @@ pub enum Effect {
     Clipboard(String),
     /// Opens the path with whatever the OS associates with it.
     OpenWithOs(PathBuf),
+}
+
+/// What to read for a preview: a file, or one entry of an archive.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreviewSource {
+    /// The file, or the archive holding the entry.
+    pub path: PathBuf,
+    /// The directory inside the archive and the entry's name in it.
+    pub entry: Option<(ArchivePath, String)>,
+    /// The password the pane knows, for an encrypted entry.
+    pub password: Option<String>,
+}
+
+/// Why a preview could not be read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PreviewError {
+    /// The entry is encrypted. `retry` means the password given was wrong.
+    PasswordRequired {
+        retry: bool,
+    },
+    Failed(IoError),
 }
 
 /// What `Effect::Rename`, `Effect::Mkdir`, or `Effect::CreateFile` did.
@@ -216,6 +258,14 @@ pub enum IoEvent {
         side: Side,
         request: RequestId,
         result: Option<Resolved>,
+    },
+    PreviewLoaded {
+        request: RequestId,
+        result: Result<Document, PreviewError>,
+    },
+    ImageLoaded {
+        request: RequestId,
+        result: Result<ImageData, PreviewError>,
     },
     /// Something changed in the watched directory.
     LocationChanged {
@@ -273,6 +323,10 @@ pub struct App {
     style: Arc<Style>,
     log: Log,
     popup: Option<Popup>,
+    preview: Option<preview::Preview>,
+    // What the UI last reported; kept across previews so that a new one
+    // starts with a sensible page size.
+    preview_rows: usize,
     operation: Option<operations::Operation>,
     // A file made for `new_text`, to open in the editor once it exists.
     edit_after_create: Option<PathBuf>,
@@ -318,6 +372,8 @@ impl App {
             config_path: PathBuf::new(),
             log,
             popup: None,
+            preview: None,
+            preview_rows: 1,
             operation: None,
             edit_after_create: None,
             split_percent: 50,
@@ -366,6 +422,8 @@ impl App {
                         self.operation_key(key, &mut effects);
                     } else if self.popup.is_some() {
                         self.popup_key(key, &mut effects);
+                    } else if self.preview.is_some() {
+                        self.preview_key(key, &mut effects);
                     } else if self.navigating() {
                         // A move in progress is modal: only Esc, which cancels it, gets through.
                         if key.base == KeyBase::Named(NamedKey::Escape) {
@@ -381,14 +439,19 @@ impl App {
                 }
             }
             Msg::Mouse(input) => {
-                if self.popup.is_none() && self.operation.is_none() && !self.navigating() {
+                if self.preview.is_some() {
+                    self.preview_mouse(input);
+                } else if self.popup.is_none() && self.operation.is_none() && !self.navigating() {
                     self.mouse(input, &mut effects);
                 }
             }
             Msg::InputChanged { field, text } => self.input_changed(field, text),
             Msg::ViewportRows { side, rows } => self.panes[side.index()].set_viewport_rows(rows),
+            Msg::PreviewRows { rows } => self.preview_rows = rows.max(1),
             Msg::Io(event) => self.io_event(event, &mut effects),
         }
+        // Whatever moved the cursor, the image preview follows it.
+        self.sync_image_preview(&mut effects);
         let title = self.title();
         if title != title_before {
             effects.push(Effect::SetTitle(title));
@@ -408,6 +471,10 @@ impl App {
                 request,
                 result,
             } => self.resolved(side, request, result, effects),
+            IoEvent::PreviewLoaded { request, result } => {
+                self.preview_loaded(request, result, effects);
+            }
+            IoEvent::ImageLoaded { request, result } => self.image_loaded(request, result),
             IoEvent::LocationChanged { side, path } => {
                 self.location_changed(side, &path, effects);
             }
@@ -464,6 +531,8 @@ impl App {
                 scroll_top: self.log.scroll_top(),
             },
             popup: self.popup_view(),
+            preview: self.preview_view(),
+            hide_log: self.hide_log(),
             split_percent: self.split_percent,
             log_rows: self.log.viewport_rows(),
             style: Arc::clone(&self.style),
@@ -603,6 +672,7 @@ impl App {
             }
             MouseInput::Wheel { side, rows } => self.panes[side.index()].scroll_by(rows),
             MouseInput::LogWheel { rows } => self.log.scroll_by(i64::from(rows)),
+            MouseInput::PreviewWheel { .. } => {}
         }
     }
 

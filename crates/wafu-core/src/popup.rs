@@ -51,15 +51,23 @@ pub enum InputKind {
         dest: PathBuf,
         all: bool,
     },
-    /// An operation met an encrypted entry. `retry` means the last password was wrong.
+    /// An encrypted entry was met. `retry` means the last password was wrong.
     ArchivePassword {
         archive: PathBuf,
         retry: bool,
+        purpose: PasswordPurpose,
     },
     /// The name of the archive to make and its password, for the entries named.
     Compress {
         names: Vec<OsString>,
     },
+}
+
+/// Who asked for the password, and so who gets it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PasswordPurpose {
+    Operation,
+    Preview,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -277,9 +285,13 @@ impl InputPopup {
 
     /// Asks for the password of an archive.
     #[must_use]
-    pub fn password(archive: PathBuf, retry: bool) -> Self {
+    pub fn password(archive: PathBuf, retry: bool, purpose: PasswordPurpose) -> Self {
         Self {
-            kind: InputKind::ArchivePassword { archive, retry },
+            kind: InputKind::ArchivePassword {
+                archive,
+                retry,
+                purpose,
+            },
             fields: vec![InputField {
                 secret: true,
                 ..InputField::new(String::new())
@@ -327,7 +339,7 @@ impl InputPopup {
     #[must_use]
     pub fn message(&self) -> Option<String> {
         match &self.kind {
-            InputKind::ArchivePassword { archive, retry } => {
+            InputKind::ArchivePassword { archive, retry, .. } => {
                 let name = archive.file_name().unwrap_or_default().to_string_lossy();
                 Some(if *retry {
                     format!("Wrong password for {name}")

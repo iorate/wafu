@@ -8,14 +8,15 @@ use std::thread;
 
 use notify::RecommendedWatcher;
 use wafu_core::{
-    ArchivePath, Change, Effect, Entry, IoError, IoEvent, Location, Reply, RequestId, Side,
-    SpawnKind,
+    ArchivePath, Change, Effect, Entry, IoError, IoEvent, Location, PreviewSource, Reply,
+    RequestId, Side, SpawnKind,
 };
 
 use crate::archive::{ArchiveEntry, list_dir, open_archive};
 use crate::drives::drives;
 use crate::fs_ops::{create_file, mkdir, open_with_os, rename, set_clipboard};
 use crate::operation::run_operation;
+use crate::preview::{load_image, load_preview};
 use crate::read_dir::read_dir_with;
 use crate::resolve::resolve;
 use crate::spawn::{spawn, spawn_new_window};
@@ -59,6 +60,14 @@ enum Job {
         path: PathBuf,
         request: RequestId,
     },
+    LoadPreview {
+        source: PreviewSource,
+        request: RequestId,
+    },
+    LoadImage {
+        source: PreviewSource,
+        request: RequestId,
+    },
 }
 
 impl Runtime {
@@ -74,7 +83,10 @@ impl Runtime {
                 let mut cache: Option<CachedArchive> = None;
                 for job in receiver {
                     let request = match &job {
-                        Job::ReadDir { request, .. } | Job::Resolve { request, .. } => *request,
+                        Job::ReadDir { request, .. }
+                        | Job::Resolve { request, .. }
+                        | Job::LoadPreview { request, .. }
+                        | Job::LoadImage { request, .. } => *request,
                     };
                     if !lock(&worker_pending).contains(&request) {
                         continue;
@@ -99,6 +111,14 @@ impl Runtime {
                             side,
                             request,
                             result: resolve(&path),
+                        },
+                        Job::LoadPreview { source, .. } => IoEvent::PreviewLoaded {
+                            request,
+                            result: load_preview(&source),
+                        },
+                        Job::LoadImage { source, .. } => IoEvent::ImageLoaded {
+                            request,
+                            result: load_image(&source),
                         },
                     };
                     if !lock(&worker_pending).remove(&request) {
@@ -155,6 +175,14 @@ impl Runtime {
             }
             Effect::CancelRead { request } => {
                 lock(&self.pending).remove(&request);
+            }
+            Effect::LoadPreview { source, request } => {
+                lock(&self.pending).insert(request);
+                let _ = self.jobs.send(Job::LoadPreview { source, request });
+            }
+            Effect::LoadImage { source, request } => {
+                lock(&self.pending).insert(request);
+                let _ = self.jobs.send(Job::LoadImage { source, request });
             }
             Effect::Watch { side, path } => {
                 self.watcher
@@ -430,6 +458,63 @@ mod tests {
         });
 
         assert!(events.recv_timeout(Duration::from_millis(100)).is_err());
+    }
+
+    #[test]
+    fn a_preview_is_read_on_the_worker_and_can_be_cancelled() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.txt");
+        fs::write(&path, b"hello\n").unwrap();
+        let (runtime, events) = runtime();
+        let source = PreviewSource {
+            path,
+            entry: None,
+            password: None,
+        };
+
+        runtime.run(Effect::LoadPreview {
+            source: source.clone(),
+            request: RequestId(1),
+        });
+        runtime.run(Effect::CancelRead {
+            request: RequestId(1),
+        });
+        runtime.run(Effect::LoadPreview {
+            source,
+            request: RequestId(2),
+        });
+
+        let event = events.recv_timeout(TIMEOUT).unwrap();
+        let IoEvent::PreviewLoaded { request, result } = event else {
+            panic!("expected PreviewLoaded, got {event:?}");
+        };
+        assert_eq!(request, RequestId(2));
+        assert_eq!(result.unwrap().lines[0].text, "hello");
+        assert!(events.recv_timeout(Duration::from_millis(100)).is_err());
+    }
+
+    #[test]
+    fn an_image_that_cannot_be_decoded_is_reported() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.png");
+        fs::write(&path, b"nope").unwrap();
+        let (runtime, events) = runtime();
+
+        runtime.run(Effect::LoadImage {
+            source: PreviewSource {
+                path,
+                entry: None,
+                password: None,
+            },
+            request: RequestId(1),
+        });
+
+        let event = events.recv_timeout(TIMEOUT).unwrap();
+        let IoEvent::ImageLoaded { request, result } = event else {
+            panic!("expected ImageLoaded, got {event:?}");
+        };
+        assert_eq!(request, RequestId(1));
+        assert!(matches!(result, Err(wafu_core::PreviewError::Failed(_))));
     }
 
     #[test]

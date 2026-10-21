@@ -12,6 +12,7 @@ use crate::view::{Ellipsis, ItemMark, RowKind};
 
 mod archives;
 mod operations;
+mod preview;
 
 #[test]
 fn start_resolves_both_panes_then_watches_and_reads_them() {
@@ -246,19 +247,6 @@ fn open_on_parent_row_goes_to_parent() {
     harness.load(Side::Left, vec![]);
 
     assert_eq!(harness.view().left.path, "/home");
-}
-
-#[test]
-fn open_on_file_does_nothing() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-    harness.load(Side::Left, vec![file("a")]);
-    harness.press("Down");
-    harness.take_effects();
-
-    harness.press("Enter");
-
-    assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(harness.view().left.path, "/home/user");
 }
 
 #[test]

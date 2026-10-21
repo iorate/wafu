@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::config::{ColorSet, Config, Theme};
 use crate::entry::{Entry, EntryKind};
 use crate::pane::Pane;
+use crate::preview::ImageData;
 
 /// How many characters of a name stay visible at the end when it is elided in the middle.
 const TAIL_CHARS: usize = 8;
@@ -15,6 +16,9 @@ pub struct View {
     pub right: PaneView,
     pub log: LogView,
     pub popup: Option<PopupView>,
+    pub preview: Option<PreviewView>,
+    /// Whether the log is hidden for the preview.
+    pub hide_log: bool,
     /// Width of the left pane as a percentage of the window.
     pub split_percent: u8,
     pub log_rows: usize,
@@ -123,6 +127,63 @@ impl InputField {
         }
     }
 }
+
+/// An open preview.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreviewView {
+    pub placement: PreviewPlacement,
+    pub content: PreviewContent,
+    /// The file's name, for the overlay in the corner.
+    pub name: String,
+    /// What the overlay says beside the name: the encoding and kind of a
+    /// document, or whether the image's entry is marked.
+    pub detail: String,
+}
+
+/// Where a preview is drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreviewPlacement {
+    /// In place of both panes.
+    Full,
+    /// In place of the right pane, with the left pane still shown.
+    RightPane,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PreviewContent {
+    /// The visible lines of a text or binary preview, from the scroll
+    /// position. Empty while the file is being read. `digits` is the width
+    /// of the line number column; zero when there are no numbers.
+    Lines {
+        lines: Vec<PreviewLine>,
+        digits: usize,
+    },
+    /// An image, or nothing when the cursor is not on an image.
+    Image(Option<SharedImage>),
+    /// Why an image could not be shown.
+    Message(String),
+}
+
+/// One visible line of a document preview.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreviewLine {
+    /// The line number, or empty for a continued line and for the hex dump.
+    pub number: String,
+    pub text: String,
+}
+
+/// An image shared with the application. Equality is by identity, so that
+/// comparing two views never compares pixels.
+#[derive(Debug, Clone)]
+pub struct SharedImage(pub Arc<ImageData>);
+
+impl PartialEq for SharedImage {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for SharedImage {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PopupItem {
