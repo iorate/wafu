@@ -19,18 +19,121 @@ export struct PopupData {
     progress: bool,
 }
 
+// One input field. The part to select when it opens is given as byte
+// offsets; all of it when they are equal.
+export struct PopupField {
+    label: string,
+    secret: bool,
+    select-start: int,
+    select-end: int,
+}
+
+component PopupInput {
+    in property <PopupField> field;
+    in property <bool> labelled;
+    in property <bool> single;
+    // Which field holds the focus is the overlay's state; the field follows it.
+    in property <bool> active;
+    in-out property <string> text;
+
+    callback key-input(text: string, control: bool, shift: bool, alt: bool, meta: bool);
+    callback edited(text: string);
+    callback accepted();
+    callback move-focus();
+
+    height: Theme.row-height + 6px;
+
+    changed active => {
+        if root.active {
+            input.focus();
+        }
+    }
+
+    HorizontalLayout {
+        spacing: 8px;
+
+        if root.labelled: Text {
+            text: root.field.label;
+            vertical-alignment: center;
+            width: 72px;
+        }
+
+        Rectangle {
+            background: Palette.background;
+            border-width: 1px;
+            border-color: Palette.border;
+            border-radius: 2px;
+
+            input := TextInput {
+                x: 4px;
+                width: parent.width - 8px;
+                height: parent.height;
+                vertical-alignment: center;
+                single-line: true;
+                input-type: root.field.secret ? InputType.password : InputType.text;
+                text <=> root.text;
+
+                // Typing replaces the selected part (the whole value
+                // unless the core says otherwise); the arrows edit it.
+                init => {
+                    if root.active {
+                        self.focus();
+                    }
+                    if root.field.select-end > root.field.select-start {
+                        self.set-selection-offsets(root.field.select-start, root.field.select-end);
+                    } else {
+                        self.select-all();
+                    }
+                }
+
+                edited => {
+                    root.edited(self.text);
+                }
+
+                accepted => {
+                    root.accepted();
+                }
+
+                // Esc goes to the core. With one field the arrows do too;
+                // with more they and Tab move between the fields, which is
+                // the UI's business alone.
+                key-pressed(event) => {
+                    if event.text == Key.Escape {
+                        root.key-input(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt, event.modifiers.meta);
+                        return accept;
+                    }
+                    if event.text == Key.UpArrow || event.text == Key.DownArrow || event.text == Key.Tab || event.text == Key.Backtab {
+                        if root.single {
+                            if event.text != Key.Tab && event.text != Key.Backtab {
+                                root.key-input(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt, event.modifiers.meta);
+                            }
+                        } else {
+                            root.move-focus();
+                        }
+                        return accept;
+                    }
+                    reject
+                }
+            }
+        }
+    }
+}
+
 export component PopupOverlay {
     in property <PopupData> data;
     in property <[PopupItem]> items;
+    in property <[PopupField]> fields;
     in-out property <string> text;
-    in property <int> select-start;
-    in property <int> select-end;
+    in-out property <string> text-2;
 
     callback key-input(text: string, control: bool, shift: bool, alt: bool, meta: bool);
-    callback input-edited(text: string);
+    callback input-edited(field: int, text: string);
     callback input-accepted();
 
     property <int> visible-items: min(items.length, 12);
+    // The field with the focus, counted from the top. The overlay is made
+    // anew for each popup that has more than one field, so it starts at 0.
+    property <int> focused-field: 0;
 
     // Dims the window and swallows clicks while the popup is open.
     Rectangle {
@@ -64,49 +167,43 @@ export component PopupOverlay {
                 overflow: elide;
             }
 
-            if data.has-input: Rectangle {
-                height: Theme.row-height + 6px;
-                background: Palette.background;
-                border-width: 1px;
-                border-color: Palette.border;
-                border-radius: 2px;
+            if root.fields.length >= 1: PopupInput {
+                field: root.fields[0];
+                labelled: root.fields.length >= 2;
+                single: root.fields.length == 1;
+                active: root.focused-field == 0;
+                text <=> root.text;
+                key-input(text, control, shift, alt, meta) => {
+                    root.key-input(text, control, shift, alt, meta);
+                }
+                edited(text) => {
+                    root.input-edited(0, text);
+                }
+                accepted => {
+                    root.input-accepted();
+                }
+                move-focus => {
+                    root.focused-field = 1;
+                }
+            }
 
-                TextInput {
-                    x: 4px;
-                    width: parent.width - 8px;
-                    height: parent.height;
-                    vertical-alignment: center;
-                    single-line: true;
-                    text <=> root.text;
-
-                    // Typing replaces the selected part (the whole value
-                    // unless the core says otherwise); the arrows edit it.
-                    init => {
-                        self.focus();
-                        if root.select-end > root.select-start {
-                            self.set-selection-offsets(root.select-start, root.select-end);
-                        } else {
-                            self.select-all();
-                        }
-                    }
-
-                    edited => {
-                        root.input-edited(self.text);
-                    }
-
-                    accepted => {
-                        root.input-accepted();
-                    }
-
-                    // Navigation keys go to the core before the field can
-                    // interpret them; everything else edits the text.
-                    key-pressed(event) => {
-                        if event.text == Key.Escape || event.text == Key.UpArrow || event.text == Key.DownArrow {
-                            root.key-input(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt, event.modifiers.meta);
-                            return accept;
-                        }
-                        reject
-                    }
+            if root.fields.length >= 2: PopupInput {
+                field: root.fields[1];
+                labelled: true;
+                single: false;
+                active: root.focused-field == 1;
+                text <=> root.text-2;
+                key-input(text, control, shift, alt, meta) => {
+                    root.key-input(text, control, shift, alt, meta);
+                }
+                edited(text) => {
+                    root.input-edited(1, text);
+                }
+                accepted => {
+                    root.input-accepted();
+                }
+                move-focus => {
+                    root.focused-field = 0;
                 }
             }
 

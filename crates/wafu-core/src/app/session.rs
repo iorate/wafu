@@ -77,10 +77,10 @@ impl App {
     pub(super) fn state_file(&self) -> StateFile {
         let pane_state = |side: Side| {
             let pane = self.pane(side);
-            let base = &pane.location().base;
+            let dir = pane.location().dir();
             let sort = pane.sort();
             PaneState {
-                path: (!base.as_os_str().is_empty()).then(|| base.clone()),
+                path: (!dir.as_os_str().is_empty()).then(|| dir.to_path_buf()),
                 sort: Some(sort.key.name().to_owned()),
                 descending: Some(sort.descending),
                 dirs_first: Some(sort.dirs_first),
@@ -120,6 +120,10 @@ impl App {
             );
             return;
         };
+        if self.active_pane().location().in_archive() {
+            self.run_external_in_archive(name, effects);
+            return;
+        }
         let expansion = self.expansion();
         Self::spawn(line, &expansion, effects);
     }
@@ -220,6 +224,7 @@ impl App {
         ));
     }
 
+    /// The placeholder values for the active pane, outside an archive.
     pub(super) fn expansion(&self) -> Expansion {
         let pane = self.active_pane();
         let base = &pane.location().base;
@@ -232,8 +237,12 @@ impl App {
                 .into_iter()
                 .map(full)
                 .collect(),
-            dir: base.clone(),
-            other_dir: self.pane(self.active.other()).location().base.clone(),
+            dir: pane.location().dir().to_path_buf(),
+            other_dir: self
+                .pane(self.active.other())
+                .location()
+                .dir()
+                .to_path_buf(),
         }
     }
 

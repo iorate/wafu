@@ -37,8 +37,10 @@ impl Watcher {
                 path: reported.clone(),
             });
         });
-        match watch_contents(&path, changes.clone()) {
-            Ok(watcher) => self.sides[side.index()].push(watcher),
+        // A file (an archive being shown) has no contents to watch; its
+        // changes come through its directory.
+        let is_dir = match fs::metadata(&path) {
+            Ok(meta) => meta.is_dir(),
             Err(error) => {
                 on_event(IoEvent::WatchFailed {
                     side,
@@ -47,14 +49,35 @@ impl Watcher {
                 });
                 return;
             }
+        };
+        if is_dir {
+            match watch_contents(&path, changes.clone()) {
+                Ok(watcher) => self.sides[side.index()].push(watcher),
+                Err(error) => {
+                    on_event(IoEvent::WatchFailed {
+                        side,
+                        path,
+                        error: IoError::new(error.to_string()),
+                    });
+                    return;
+                }
+            }
         }
         // The directory's own watch goes quiet when the directory is removed
         // or renamed (Windows reports nothing at all), so the parent is
-        // watched for that one entry as well. Failing to is not worth a report.
-        if let Some(parent) = path.parent()
-            && let Ok(watcher) = watch_entry(parent, &path, changes)
+        // watched for that one entry as well. For a directory, failing to is
+        // not worth a report; for a file it is the only watch there is.
+        match path
+            .parent()
+            .map(|parent| watch_entry(parent, &path, changes))
         {
-            self.sides[side.index()].push(watcher);
+            Some(Ok(watcher)) => self.sides[side.index()].push(watcher),
+            Some(Err(error)) if !is_dir => on_event(IoEvent::WatchFailed {
+                side,
+                path,
+                error: IoError::new(error.to_string()),
+            }),
+            _ => {}
         }
     }
 

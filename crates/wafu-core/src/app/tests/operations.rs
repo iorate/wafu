@@ -2,7 +2,7 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 use crate::app::{Change, ConfigSource, Effect, Msg, Os, Side};
-use crate::operation::{OperationEvent, OperationKind, OperationSpec, Outcome, Reply};
+use crate::operation::{OperationEvent, OperationKind, OperationSpec, Outcome, Reply, Sources};
 use crate::popup::Popup;
 use crate::test_support::{Harness, dir, file, start_msg_with};
 use crate::view::ItemMark;
@@ -25,8 +25,9 @@ fn copy_starts_an_operation_on_the_marked_entries_in_display_order() {
         harness.take_effects(),
         vec![Effect::StartOperation(OperationSpec {
             kind: OperationKind::Copy,
-            sources: vec![path(LEFT, "a"), path(LEFT, "c")],
+            sources: Sources::Paths(vec![path(LEFT, "a"), path(LEFT, "c")]),
             dest: Some(PathBuf::from(RIGHT)),
+            output: None,
         })]
     );
     assert_eq!(harness.marks(Side::Left), ["a", "c"]);
@@ -48,8 +49,9 @@ fn move_without_marks_takes_the_cursor_entry() {
         harness.take_effects(),
         vec![Effect::StartOperation(OperationSpec {
             kind: OperationKind::Move,
-            sources: vec![path(LEFT, "b")],
+            sources: Sources::Paths(vec![path(LEFT, "b")]),
             dest: Some(PathBuf::from(RIGHT)),
+            output: None,
         })]
     );
     assert_eq!(harness.view().popup.unwrap().title, "Moving");
@@ -275,7 +277,7 @@ fn rename_in_a_conflict_asks_for_a_name() {
         dest: path(RIGHT, "a.tar.gz"),
     });
     harness.press("R");
-    assert_eq!(harness.view().popup.unwrap().select, Some((0, 5)));
+    assert_eq!(harness.view().popup.unwrap().fields[0].select, Some((0, 5)));
     harness.press("Esc");
     harness.press("S");
     harness.take_effects();
@@ -289,8 +291,11 @@ fn rename_in_a_conflict_asks_for_a_name() {
 
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Rename");
-    assert_eq!(popup.input.as_deref(), Some("a"));
-    assert_eq!(popup.select, None);
+    assert_eq!(
+        popup.fields.first().map(|field| field.text.as_str()),
+        Some("a")
+    );
+    assert_eq!(popup.fields[0].select, None);
 
     harness.press("Esc");
     let popup = harness.view().popup.unwrap();
@@ -397,8 +402,9 @@ fn delete_asks_once_and_names_a_single_target() {
         harness.take_effects(),
         vec![Effect::StartOperation(OperationSpec {
             kind: OperationKind::Delete,
-            sources: vec![path(LEFT, "a")],
+            sources: Sources::Paths(vec![path(LEFT, "a")]),
             dest: None,
+            output: None,
         })]
     );
     assert_eq!(harness.view().popup.unwrap().title, "Deleting");
@@ -423,8 +429,9 @@ fn delete_counts_several_targets_and_enter_confirms() {
         harness.take_effects(),
         vec![Effect::StartOperation(OperationSpec {
             kind: OperationKind::Delete,
-            sources: vec![path(LEFT, "a"), path(LEFT, "b")],
+            sources: Sources::Paths(vec![path(LEFT, "a"), path(LEFT, "b")]),
             dest: None,
+            output: None,
         })]
     );
 
@@ -457,8 +464,9 @@ fn trash_starts_at_once() {
         harness.take_effects(),
         vec![Effect::StartOperation(OperationSpec {
             kind: OperationKind::Trash,
-            sources: vec![path(LEFT, "a")],
+            sources: Sources::Paths(vec![path(LEFT, "a")]),
             dest: None,
+            output: None,
         })]
     );
     assert_eq!(harness.view().popup.unwrap().title, "Moving to trash");
@@ -487,22 +495,31 @@ fn rename_opens_with_the_name_and_selects_everything_but_the_extension() {
     harness.press("R");
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Rename");
-    assert_eq!(popup.input.as_deref(), Some("conf.d"));
-    assert_eq!(popup.select, None);
+    assert_eq!(
+        popup.fields.first().map(|field| field.text.as_str()),
+        Some("conf.d")
+    );
+    assert_eq!(popup.fields[0].select, None);
     harness.press("Esc");
 
     harness.press("Down");
     harness.press("R");
     let popup = harness.view().popup.unwrap();
-    assert_eq!(popup.input.as_deref(), Some(".bashrc"));
-    assert_eq!(popup.select, None);
+    assert_eq!(
+        popup.fields.first().map(|field| field.text.as_str()),
+        Some(".bashrc")
+    );
+    assert_eq!(popup.fields[0].select, None);
     harness.press("Esc");
 
     harness.press("Down");
     harness.press("R");
     let popup = harness.view().popup.unwrap();
-    assert_eq!(popup.input.as_deref(), Some("a.tar.gz"));
-    assert_eq!(popup.select, Some((0, 5)));
+    assert_eq!(
+        popup.fields.first().map(|field| field.text.as_str()),
+        Some("a.tar.gz")
+    );
+    assert_eq!(popup.fields[0].select, Some((0, 5)));
 
     harness.edit("a.tar.gz");
     harness.press("Enter");

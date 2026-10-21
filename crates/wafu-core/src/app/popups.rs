@@ -9,9 +9,9 @@ use crate::pane::HistoryMove;
 use crate::path::{expand_tilde, resolve_input};
 use crate::popup::{
     ChoiceKind, ChoicePopup, ConflictPopup, ConflictRow, InputKind, InputPopup, ListItem,
-    ListPopup, ListTarget, PalettePopup, Popup, SearchPopup, SortPopup,
+    ListPopup, ListTarget, PalettePopup, Popup, SearchPopup, SortPopup, stem_selection,
 };
-use crate::view::{ItemMark, PopupItem, PopupView};
+use crate::view::{InputField, ItemMark, PopupItem, PopupView};
 
 impl App {
     pub(super) fn open_sort(&mut self) {
@@ -32,13 +32,11 @@ impl App {
             | InputKind::Mkdir
             | InputKind::NewFile
             | InputKind::NewText
-            | InputKind::ConflictRename { .. } => String::new(),
+            | InputKind::ConflictRename { .. }
+            | InputKind::ArchivePassword { .. }
+            | InputKind::Compress { .. } => String::new(),
         };
-        self.popup = Some(Popup::Input(InputPopup {
-            kind,
-            text,
-            select: None,
-        }));
+        self.popup = Some(Popup::Input(InputPopup::single(kind, text, None)));
     }
 
     pub(super) fn open_search(&mut self) {
@@ -92,11 +90,11 @@ impl App {
         }
     }
 
-    pub(super) fn input_changed(&mut self, text: String) {
+    pub(super) fn input_changed(&mut self, field: usize, text: String) {
         match &mut self.popup {
-            Some(Popup::Input(popup)) => popup.text = text,
-            Some(Popup::Palette(popup)) => popup.set_query(text),
-            Some(Popup::Search(popup)) => {
+            Some(Popup::Input(popup)) => popup.set_text(field, text),
+            Some(Popup::Palette(popup)) if field == 0 => popup.set_query(text),
+            Some(Popup::Search(popup)) if field == 0 => {
                 let pane = &mut self.panes[self.active.index()];
                 if text.is_empty() {
                     pane.restore_position(popup.origin_cursor, popup.origin_scroll_top);
@@ -106,7 +104,14 @@ impl App {
                 }
                 // Otherwise the text is refused and the view keeps the old query.
             }
-            Some(Popup::Sort(_) | Popup::List(_) | Popup::Choice(_) | Popup::Conflict(_))
+            Some(
+                Popup::Sort(_)
+                | Popup::List(_)
+                | Popup::Choice(_)
+                | Popup::Conflict(_)
+                | Popup::Palette(_)
+                | Popup::Search(_),
+            )
             | None => {}
         }
     }
@@ -124,18 +129,18 @@ impl App {
             },
             Popup::Input(popup) => PopupView {
                 title: popup.kind.title().to_owned(),
-                input: Some(popup.text.clone()),
-                select: popup.select,
+                message: popup.message(),
+                fields: popup.fields.clone(),
                 ..PopupView::default()
             },
             Popup::Search(popup) => PopupView {
                 title: "Search".to_owned(),
-                input: Some(popup.query.clone()),
+                fields: vec![InputField::new(popup.query.clone())],
                 ..PopupView::default()
             },
             Popup::Palette(popup) => PopupView {
                 title: "Palette".to_owned(),
-                input: Some(popup.query.clone()),
+                fields: vec![InputField::new(popup.query.clone())],
                 items: popup
                     .matches
                     .iter()
@@ -218,21 +223,26 @@ impl App {
 
     fn input_popup_key(&mut self, popup: InputPopup, key: Key, effects: &mut Vec<Effect>) {
         match key.base {
-            KeyBase::Named(NamedKey::Escape) => {
+            KeyBase::Named(NamedKey::Escape) => match popup.kind {
                 // The conflict is still waiting for its answer.
-                if let InputKind::ConflictRename { source, dest, all } = popup.kind {
+                InputKind::ConflictRename { source, dest, all } => {
                     self.popup = Some(Popup::Conflict(ConflictPopup::new(source, dest, all)));
                 }
-            }
+                // So is the worker, and without a password it cannot go on.
+                InputKind::ArchivePassword { .. } => self.cancel_operation(effects),
+                _ => {}
+            },
             KeyBase::Named(NamedKey::Enter) => self.confirm_input(popup, effects),
             _ => self.popup = Some(Popup::Input(popup)),
         }
     }
 
     fn confirm_input(&mut self, popup: InputPopup, effects: &mut Vec<Effect>) {
+        let text = popup.text(0).to_owned();
+        let password = popup.text(1).to_owned();
         match popup.kind {
             InputKind::GoToPath => {
-                let text = popup.text.trim();
+                let text = text.trim();
                 if text.is_empty() {
                     return;
                 }
@@ -245,11 +255,19 @@ impl App {
             | InputKind::Mkdir
             | InputKind::NewFile
             | InputKind::NewText => {
-                self.confirm_name(popup.kind, &popup.text, effects);
+                self.confirm_name(popup.kind, &text, effects);
+                return;
+            }
+            InputKind::ArchivePassword { .. } => {
+                self.confirm_password(popup, effects);
+                return;
+            }
+            InputKind::Compress { names } => {
+                self.confirm_compress(names, &text, &password, effects);
                 return;
             }
             InputKind::ConflictRename { source, dest, all } => {
-                let name = popup.text;
+                let name = text;
                 let same = dest
                     .file_name()
                     .is_some_and(|current| current == name.as_str());
@@ -262,12 +280,12 @@ impl App {
             }
             InputKind::Filter | InputKind::MarkGlob => {}
         }
-        let filter = match Filter::parse(&popup.text) {
+        let filter = match Filter::parse(&text) {
             Ok(filter) => filter,
             Err(source) => {
                 self.log.push(
                     AppError::InvalidPattern {
-                        pattern: popup.text,
+                        pattern: text,
                         source,
                     }
                     .to_string(),
@@ -358,15 +376,16 @@ impl App {
                     .file_name()
                     .map(|name| name.to_string_lossy().into_owned())
                     .unwrap_or_default();
-                self.popup = Some(Popup::Input(InputPopup {
-                    kind: InputKind::ConflictRename {
+                let select = stem_selection(&text);
+                self.popup = Some(Popup::Input(InputPopup::single(
+                    InputKind::ConflictRename {
                         source: popup.source,
                         dest: popup.dest,
                         all,
                     },
-                    select: super::operations::stem_selection(&text),
                     text,
-                }));
+                    select,
+                )));
             }
             Some(ConflictRow::ApplyToAll) => {
                 popup.all = !popup.all;

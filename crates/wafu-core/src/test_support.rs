@@ -8,7 +8,7 @@ use crate::app::{
 use crate::entry::{Entry, EntryKind};
 use crate::error::IoError;
 use crate::key::{Key, KeyBase, KeyInput};
-use crate::operation::{OperationEvent, Outcome};
+use crate::operation::{OperationEvent, OperationSpec, Outcome};
 use crate::pane::RequestId;
 use crate::popup::Popup;
 use crate::state::{StateError, StateFile};
@@ -106,9 +106,16 @@ impl Harness {
         }));
     }
 
-    /// Edits the popup's input field, as the UI does after every keystroke.
+    /// Edits the popup's first input field, as the UI does after every keystroke.
     pub(crate) fn edit(&mut self, text: &str) {
-        self.send(Msg::InputChanged(text.to_owned()));
+        self.edit_field(0, text);
+    }
+
+    pub(crate) fn edit_field(&mut self, field: usize, text: &str) {
+        self.send(Msg::InputChanged {
+            field,
+            text: text.to_owned(),
+        });
     }
 
     pub(crate) fn click(&mut self, side: Side, row: usize) {
@@ -182,6 +189,23 @@ impl Harness {
 
     pub(crate) fn finish(&mut self, outcome: Outcome) {
         self.operation(OperationEvent::Finished(outcome));
+    }
+
+    /// Enters the archive under the cursor with Enter and answers the read
+    /// with the given entries.
+    pub(crate) fn enter_archive(&mut self, side: Side, entries: Vec<Entry>) {
+        self.press("Enter");
+        self.load(side, entries);
+    }
+
+    /// Takes the `StartOperation` out of the recorded effects.
+    pub(crate) fn start_operation(&mut self) -> Option<OperationSpec> {
+        self.take_effects()
+            .into_iter()
+            .find_map(|effect| match effect {
+                Effect::StartOperation(spec) => Some(spec),
+                _ => None,
+            })
     }
 
     /// Reports the result of a rename or a creation.
@@ -269,6 +293,14 @@ impl Harness {
             .iter()
             .map(|path| path.display().to_string())
             .collect()
+    }
+
+    /// The texts of the popup's input fields.
+    pub(crate) fn popup_fields(&self) -> Vec<String> {
+        self.view()
+            .popup
+            .map(|popup| popup.fields.into_iter().map(|field| field.text).collect())
+            .unwrap_or_default()
     }
 
     pub(crate) fn popup_labels(&self) -> Vec<String> {
