@@ -123,7 +123,7 @@ fn progress_is_shown_in_the_popup() {
 
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Copying");
-    assert_eq!(popup.message.as_deref(), Some("2 done: /home/user/b"));
+    assert_eq!(popup.message, Some(format!("2 done: {}", shown(LEFT, "b"))));
     assert!(popup.progress);
 }
 
@@ -178,8 +178,11 @@ fn a_failure_is_logged_with_the_path() {
     });
 
     assert_eq!(
-        harness.log().last().map(String::as_str),
-        Some("cannot copy /home/user/a: permission denied")
+        harness.log().last().cloned(),
+        Some(format!(
+            "cannot copy {}: permission denied",
+            shown(LEFT, "a")
+        ))
     );
 }
 
@@ -194,7 +197,7 @@ fn a_conflict_opens_the_choices_and_letters_answer_them() {
 
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "File exists");
-    assert_eq!(popup.message.as_deref(), Some("/tmp/a"));
+    assert_eq!(popup.message, Some(shown(RIGHT, "a")));
     assert_eq!(
         harness.popup_labels(),
         ["Overwrite", "Skip", "Rename", "Apply to all", "Abort"]
@@ -575,8 +578,8 @@ fn a_rename_puts_the_cursor_on_the_new_name() {
         Some("busy"),
     );
     assert_eq!(
-        harness.log().last().map(String::as_str),
-        Some("cannot rename /home/user/z: busy")
+        harness.log().last().cloned(),
+        Some(format!("cannot rename {}: busy", shown(LEFT, "z")))
     );
     assert_eq!(harness.take_effects(), vec![]);
 }
@@ -661,14 +664,20 @@ fn mkdir_without_entering_puts_the_cursor_on_the_first_component() {
     harness.load(Side::Left, vec![dir("a"), file("x")]);
     assert_eq!(harness.cursor_name(Side::Left), "a");
     assert_eq!(
-        harness.log().last().map(String::as_str),
-        Some("created /home/user/a/b")
+        harness.log().last().cloned(),
+        Some(format!(
+            "created {}",
+            PathBuf::from(LEFT).join("a/b").display()
+        ))
     );
 
     harness.changed_result(Change::DirCreated(path(LEFT, "x")), Some("already exists"));
     assert_eq!(
-        harness.log().last().map(String::as_str),
-        Some("cannot create /home/user/x: already exists")
+        harness.log().last().cloned(),
+        Some(format!(
+            "cannot create {}: already exists",
+            shown(LEFT, "x")
+        ))
     );
 }
 
@@ -694,8 +703,8 @@ fn new_file_creates_an_empty_file_and_puts_the_cursor_on_it() {
     harness.load(Side::Left, vec![file("a"), file("n.txt")]);
     assert_eq!(harness.cursor_name(Side::Left), "n.txt");
     assert_eq!(
-        harness.log().last().map(String::as_str),
-        Some("created /home/user/n.txt")
+        harness.log().last().cloned(),
+        Some(format!("created {}", shown(LEFT, "n.txt")))
     );
 }
 
@@ -744,8 +753,11 @@ fn new_text_on_an_existing_name_only_logs() {
 
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(
-        harness.log().last().map(String::as_str),
-        Some("cannot create /home/user/a: already exists")
+        harness.log().last().cloned(),
+        Some(format!(
+            "cannot create {}: already exists",
+            shown(LEFT, "a")
+        ))
     );
     harness.changed_result(Change::FileCreated(path(LEFT, "a")), None);
     assert!(matches!(
@@ -803,8 +815,8 @@ fn open_with_os_opens_the_cursor_entry_only() {
         error: Some(crate::error::IoError::new("no application")),
     }));
     assert_eq!(
-        harness.log().last().map(String::as_str),
-        Some("cannot open /home/user/c: no application")
+        harness.log().last().cloned(),
+        Some(format!("cannot open {}: no application", shown(LEFT, "c")))
     );
 }
 
@@ -822,7 +834,11 @@ fn copy_path_and_copy_name_join_the_targets_with_newlines() {
     harness.press("Enter");
     assert_eq!(
         harness.take_effects(),
-        vec![Effect::Clipboard("/home/user/a\n/home/user/c".to_owned())]
+        vec![Effect::Clipboard(format!(
+            "{}\n{}",
+            shown(LEFT, "a"),
+            shown(LEFT, "c")
+        ))]
     );
 
     harness.press("B");
@@ -900,4 +916,9 @@ fn conflicting() -> Harness {
 
 fn path(dir: &str, name: &str) -> PathBuf {
     PathBuf::from(dir).join(name)
+}
+
+// The path as the log shows it, with the separator of the OS running the test.
+fn shown(dir: &str, name: &str) -> String {
+    path(dir, name).display().to_string()
 }
