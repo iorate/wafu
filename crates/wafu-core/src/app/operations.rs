@@ -7,11 +7,17 @@ use crate::entry::Entry;
 use crate::error::{AppError, IoError};
 use crate::external::Expansion;
 use crate::key::{Key, KeyBase, NamedKey};
-use crate::location::Location;
-use crate::operation::{OperationEvent, OperationKind, OperationSpec, Outcome, OutcomeLine, Reply};
+use crate::location::{ArchiveFormat, Location};
+use crate::operation::{
+    ArchiveEntries, ArchiveOutput, OperationEvent, OperationKind, OperationSpec, Outcome,
+    OutcomeLine, Reply, Sources,
+};
 use crate::pane::{HistoryMove, TargetRule};
 use crate::popup::{ChoiceKind, ChoicePopup, ConflictPopup, InputKind, InputPopup, Popup};
 use crate::view::PopupView;
+
+/// The name of an archive made from several entries when the directory has no name.
+const DEFAULT_ARCHIVE_STEM: &str = "archive";
 
 /// A file operation in progress on the worker.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,6 +27,7 @@ pub(crate) struct Operation {
     side: Side,
     /// The names of the sources, in the same order.
     names: Vec<OsString>,
+    /// The directory of the sources, or the archive they are in.
     source_dir: PathBuf,
     dest: Option<PathBuf>,
     current: Option<PathBuf>,
@@ -29,10 +36,38 @@ pub(crate) struct Operation {
     cancelling: bool,
     /// Quit once the operation has finished.
     quit_after: bool,
+    /// What to do with the entries once they are in the temporary directory.
+    temp: Option<Temp>,
+    temp_dir: Option<PathBuf>,
+    /// A password typed for this operation is kept by the pane, which is
+    /// inside the archive.
+    remember_password: bool,
+}
+
+/// A program to hand the extracted entries to, with the entries each
+/// placeholder stands for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Temp {
+    action: TempAction,
+    cursor: Option<OsString>,
+    marked: Vec<OsString>,
+    /// The entries `{paths}` stands for.
+    targets: Vec<OsString>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TempAction {
+    Edit,
+    OpenWithOs,
+    External(String),
 }
 
 impl App {
     pub(super) fn run_file_command(&mut self, command: Command, effects: &mut Vec<Effect>) {
+        if self.active_pane().location().in_archive() && !allowed_in_archive(&command) {
+            self.log.push(AppError::InArchive { command }.to_string());
+            return;
+        }
         match command {
             Command::OpenWithOs => self.open_with_os(effects),
             Command::Copy => self.start_transfer(OperationKind::Copy, effects),
@@ -49,19 +84,81 @@ impl App {
             Command::ShellMenu if self.os != Os::Windows => {
                 self.log.push(AppError::WindowsOnly { command }.to_string());
             }
+            Command::EnterAsArchive => self.enter_as_archive(effects),
+            Command::Extract => self.start_extract(effects),
+            Command::Compress => self.open_compress(),
             _ => {}
         }
     }
 
     fn start_transfer(&mut self, kind: OperationKind, effects: &mut Vec<Effect>) {
-        let dest = self.pane(self.active.other()).location().base.clone();
-        if dest.as_os_str().is_empty() {
-            self.log
-                .push(AppError::NoOtherLocation { verb: kind.noun() }.to_string());
+        let Some(dest) = self.other_dest(kind.noun()) else {
+            return;
+        };
+        let names = self.target_names();
+        if self.active_pane().location().in_archive() {
+            let entries = self.archive_entries(&names);
+            self.start_operation(kind, names, Sources::Entries(entries), Some(dest), effects);
+        } else {
+            let sources = self.source_paths(&names);
+            self.start_operation(kind, names, sources, Some(dest), effects);
+        }
+    }
+
+    fn start_extract(&mut self, effects: &mut Vec<Effect>) {
+        let Some(dest) = self.other_dest("extract") else {
+            return;
+        };
+        let names = self.target_names();
+        let sources = self.source_paths(&names);
+        self.start_operation(OperationKind::Extract, names, sources, Some(dest), effects);
+    }
+
+    fn open_compress(&mut self) {
+        let names = self.target_names();
+        if names.is_empty() || self.other_dest("compress").is_none() {
             return;
         }
-        let names = self.target_names();
-        self.start_operation(kind, names, Some(dest), effects);
+        let base = &self.active_pane().location().base;
+        let stem = match names.as_slice() {
+            [name] => name.to_string_lossy().into_owned(),
+            _ => base.file_name().map_or_else(
+                || DEFAULT_ARCHIVE_STEM.to_owned(),
+                |name| name.to_string_lossy().into_owned(),
+            ),
+        };
+        let initial = format!("{stem}.{}", ArchiveFormat::Zip.extension());
+        self.popup = Some(Popup::Input(InputPopup::compress(names, initial)));
+    }
+
+    pub(super) fn confirm_compress(
+        &mut self,
+        names: Vec<OsString>,
+        name: &str,
+        password: &str,
+        effects: &mut Vec<Effect>,
+    ) {
+        if name.is_empty() {
+            return;
+        }
+        let Some(dest) = self.other_dest("compress") else {
+            return;
+        };
+        let output = ArchiveOutput {
+            format: ArchiveFormat::from_name(OsStr::new(name)).unwrap_or(ArchiveFormat::Zip),
+            name: OsString::from(name),
+            password: (!password.is_empty()).then(|| password.to_owned()),
+        };
+        let sources = self.source_paths(&names);
+        self.begin_operation(
+            OperationKind::Compress,
+            names,
+            sources,
+            Some(dest),
+            Some(output),
+            None,
+            effects,
+        );
     }
 
     pub(super) fn confirm_delete(&mut self) {
@@ -80,7 +177,8 @@ impl App {
         effects: &mut Vec<Effect>,
     ) {
         let names = names.unwrap_or_else(|| self.target_names());
-        self.start_operation(kind, names, None, effects);
+        let sources = self.source_paths(&names);
+        self.start_operation(kind, names, sources, None, effects);
     }
 
     pub(super) fn confirm_quit(&mut self) {
@@ -140,6 +238,21 @@ impl App {
         }
     }
 
+    /// Answers a password request. An empty password keeps the question open.
+    pub(super) fn confirm_password(&mut self, popup: InputPopup, effects: &mut Vec<Effect>) {
+        let password = popup.text(0).to_owned();
+        if password.is_empty() {
+            self.popup = Some(Popup::Input(popup));
+            return;
+        }
+        if let Some(operation) = &self.operation
+            && operation.remember_password
+        {
+            self.panes[operation.side.index()].set_archive_password(Some(password.clone()));
+        }
+        self.reply(Reply::Password(password), effects);
+    }
+
     pub(super) fn operation_event(&mut self, event: OperationEvent, effects: &mut Vec<Effect>) {
         let Some(operation) = &mut self.operation else {
             return;
@@ -157,6 +270,13 @@ impl App {
             OperationEvent::Conflict { source, dest } => {
                 self.popup = Some(Popup::Conflict(ConflictPopup::new(source, dest, false)));
             }
+            OperationEvent::NeedPassword { archive, retry } => {
+                if retry && operation.remember_password {
+                    self.panes[operation.side.index()].set_archive_password(None);
+                }
+                self.popup = Some(Popup::Input(InputPopup::password(archive, retry)));
+            }
+            OperationEvent::TempDir(path) => operation.temp_dir = Some(path),
             OperationEvent::Finished(outcome) => self.finished(&outcome, effects),
         }
     }
@@ -191,11 +311,11 @@ impl App {
         };
         let original = entry.name.clone();
         let text = original.to_string_lossy().into_owned();
-        self.popup = Some(Popup::Input(InputPopup {
-            kind: InputKind::Rename { original },
-            select: rename_selection(entry),
+        self.popup = Some(Popup::Input(InputPopup::single(
+            InputKind::Rename { original },
             text,
-        }));
+            rename_selection(entry),
+        )));
     }
 
     pub(super) fn confirm_name(&mut self, kind: InputKind, text: &str, effects: &mut Vec<Effect>) {
@@ -227,7 +347,9 @@ impl App {
             InputKind::ConflictRename { .. }
             | InputKind::Filter
             | InputKind::MarkGlob
-            | InputKind::GoToPath => {}
+            | InputKind::GoToPath
+            | InputKind::ArchivePassword { .. }
+            | InputKind::Compress { .. } => {}
         }
     }
 
@@ -294,6 +416,17 @@ impl App {
     }
 
     pub(super) fn edit(&mut self, effects: &mut Vec<Effect>) {
+        if self.active_pane().location().in_archive() {
+            let names = self.target_names();
+            let temp = Temp {
+                action: TempAction::Edit,
+                cursor: None,
+                marked: Vec::new(),
+                targets: names.clone(),
+            };
+            self.start_temp(temp, names, effects);
+            return;
+        }
         let expansion = self.expansion();
         if expansion.paths.is_empty() {
             return;
@@ -303,20 +436,58 @@ impl App {
 
     pub(super) fn open_with_os(&mut self, effects: &mut Vec<Effect>) {
         let pane = self.active_pane();
-        if let Some(entry) = pane.cursor_entry() {
+        let Some(entry) = pane.cursor_entry() else {
+            return;
+        };
+        if pane.location().in_archive() {
+            let name = entry.name.clone();
+            let temp = Temp {
+                action: TempAction::OpenWithOs,
+                cursor: Some(name.clone()),
+                marked: Vec::new(),
+                targets: vec![name.clone()],
+            };
+            self.start_temp(temp, vec![name], effects);
+        } else {
             effects.push(Effect::OpenWithOs(pane.location().base.join(&entry.name)));
         }
     }
 
+    /// Runs an external command on entries inside an archive, once they are
+    /// extracted. Every placeholder may be used, so the cursor entry and the
+    /// marked entries are all extracted.
+    pub(super) fn run_external_in_archive(&mut self, name: &str, effects: &mut Vec<Effect>) {
+        let pane = self.active_pane();
+        let cursor = pane.cursor_entry().map(|entry| entry.name.clone());
+        let marked: Vec<OsString> = pane
+            .marked_entries()
+            .map(|entry| entry.name.clone())
+            .collect();
+        let targets = self.target_names();
+        let mut names = marked.clone();
+        if let Some(cursor) = &cursor
+            && !names.contains(cursor)
+        {
+            names.push(cursor.clone());
+        }
+        let temp = Temp {
+            action: TempAction::External(name.to_owned()),
+            cursor,
+            marked,
+            targets,
+        };
+        self.start_temp(temp, names, effects);
+    }
+
     pub(super) fn copy_to_clipboard(&mut self, full_paths: bool, effects: &mut Vec<Effect>) {
         let pane = self.active_pane();
-        let base = &pane.location().base;
+        let location = pane.location();
         let lines: Vec<String> = pane
             .targets(TargetRule::Multiple)
             .into_iter()
             .map(|entry| {
                 if full_paths {
-                    base.join(&entry.name).to_string_lossy().into_owned()
+                    location.child_display(&entry.name)
                 } else {
                     entry.name.to_string_lossy().into_owned()
                 }
@@ -335,11 +506,79 @@ impl App {
             .collect()
     }
 
+    // The other pane's directory as a destination, or `None` with the reason logged.
+    fn other_dest(&mut self, verb: &'static str) -> Option<PathBuf> {
+        let other = self.pane(self.active.other()).location();
+        if other.base.as_os_str().is_empty() {
+            self.log
+                .push(AppError::NoOtherLocation { verb }.to_string());
+            return None;
+        }
+        if other.in_archive() {
+            self.log.push(AppError::IntoArchive { verb }.to_string());
+            return None;
+        }
+        Some(other.base.clone())
+    }
+
+    fn source_paths(&self, names: &[OsString]) -> Sources {
+        let base = &self.active_pane().location().base;
+        Sources::Paths(names.iter().map(|name| base.join(name)).collect())
+    }
+
+    fn archive_entries(&self, names: &[OsString]) -> ArchiveEntries {
+        let pane = self.active_pane();
+        let location = pane.location();
+        ArchiveEntries {
+            archive: location.base.clone(),
+            path: location
+                .archive
+                .clone()
+                .expect("archive entries are only made inside an archive"),
+            names: names
+                .iter()
+                .map(|name| name.to_string_lossy().into_owned())
+                .collect(),
+            password: pane.archive_password().map(ToOwned::to_owned),
+        }
+    }
+
+    fn start_temp(&mut self, temp: Temp, names: Vec<OsString>, effects: &mut Vec<Effect>) {
+        if names.is_empty() {
+            return;
+        }
+        let entries = self.archive_entries(&names);
+        self.begin_operation(
+            OperationKind::ExtractToTemp,
+            names,
+            Sources::Entries(entries),
+            None,
+            None,
+            Some(temp),
+            effects,
+        );
+    }
+
     fn start_operation(
         &mut self,
         kind: OperationKind,
         names: Vec<OsString>,
+        sources: Sources,
         dest: Option<PathBuf>,
+        effects: &mut Vec<Effect>,
+    ) {
+        self.begin_operation(kind, names, sources, dest, None, None, effects);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn begin_operation(
+        &mut self,
+        kind: OperationKind,
+        names: Vec<OsString>,
+        sources: Sources,
+        dest: Option<PathBuf>,
+        output: Option<ArchiveOutput>,
+        temp: Option<Temp>,
         effects: &mut Vec<Effect>,
     ) {
         if names.is_empty() {
@@ -349,11 +588,12 @@ impl App {
         if source_dir.as_os_str().is_empty() {
             return;
         }
-        let sources = names.iter().map(|name| source_dir.join(name)).collect();
+        let remember_password = matches!(sources, Sources::Entries(_));
         effects.push(Effect::StartOperation(OperationSpec {
             kind,
             sources,
             dest: dest.clone(),
+            output,
         }));
         self.operation = Some(Operation {
             kind,
@@ -365,6 +605,9 @@ impl App {
             done: 0,
             cancelling: false,
             quit_after: false,
+            temp,
+            temp_dir: None,
+            remember_password,
         });
     }
 
@@ -373,21 +616,62 @@ impl App {
             return;
         };
         self.popup = None;
-        self.log.push(
-            OutcomeLine {
-                kind: operation.kind,
-                outcome,
-            }
-            .to_string(),
-        );
+        let completed = matches!(outcome, Outcome::Completed { .. });
+        if !(completed && operation.temp.is_some()) {
+            self.log.push(
+                OutcomeLine {
+                    kind: operation.kind,
+                    outcome,
+                }
+                .to_string(),
+            );
+        }
         self.refresh_showing(&operation.source_dir, effects);
         if let Some(dest) = &operation.dest
             && *dest != operation.source_dir
         {
             self.refresh_showing(dest, effects);
         }
+        if completed
+            && let Some(temp) = operation.temp
+            && let Some(dir) = operation.temp_dir
+        {
+            self.run_temp_action(temp, &dir, effects);
+        }
         if operation.quit_after {
             self.quit(true, effects);
+        }
+    }
+
+    fn run_temp_action(&mut self, temp: Temp, dir: &Path, effects: &mut Vec<Effect>) {
+        let to_temp = |name: &OsString| dir.join(name);
+        let expansion = Expansion {
+            cursor_path: temp.cursor.as_ref().map(to_temp),
+            marked_paths: temp.marked.iter().map(to_temp).collect(),
+            paths: temp.targets.iter().map(to_temp).collect(),
+            dir: self.active_pane().location().dir().to_path_buf(),
+            other_dir: self
+                .pane(self.active.other())
+                .location()
+                .dir()
+                .to_path_buf(),
+        };
+        match temp.action {
+            TempAction::Edit => Self::spawn(&self.config.general.editor, &expansion, effects),
+            TempAction::OpenWithOs => {
+                if let Some(path) = expansion.paths.first() {
+                    effects.push(Effect::OpenWithOs(path.clone()));
+                }
+            }
+            TempAction::External(name) => match self.config.commands.get(&name) {
+                Some(line) => Self::spawn(line, &expansion, effects),
+                None => self.log.push(
+                    AppError::UnknownCommand {
+                        command: Command::External(name),
+                    }
+                    .to_string(),
+                ),
+            },
         }
     }
 
@@ -409,21 +693,23 @@ impl App {
     }
 }
 
+// The commands that work on the entries of an archive without changing it.
+fn allowed_in_archive(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::OpenWithOs
+            | Command::Copy
+            | Command::Edit
+            | Command::CopyPath
+            | Command::CopyName
+            | Command::EnterAsArchive
+    )
+}
+
 // Everything but the extension, so that typing replaces the name and keeps the extension.
 fn rename_selection(entry: &Entry) -> Option<(usize, usize)> {
     let (stem, extension) = entry.split_name();
     (!extension.is_empty()).then_some((0, stem.len()))
-}
-
-/// The part of a file name to select when renaming it: everything but the
-/// extension, or nothing special when there is none.
-pub(super) fn stem_selection(name: &str) -> Option<(usize, usize)> {
-    name.char_indices()
-        .skip(1)
-        .filter(|&(_, c)| c == '.')
-        .map(|(index, _)| index)
-        .last()
-        .map(|index| (0, index))
 }
 
 // The first path component of `path` below `base`, which is where the cursor

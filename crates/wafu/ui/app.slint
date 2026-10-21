@@ -1,9 +1,9 @@
 import { ListView, Palette } from "std-widgets.slint";
 import { PaneData, PaneWidget, Row } from "pane.slint";
-import { PopupData, PopupItem, PopupOverlay } from "popup.slint";
+import { PopupData, PopupField, PopupItem, PopupOverlay } from "popup.slint";
 import { Theme, ThemeColors } from "theme.slint";
 
-export { PaneData, PopupData, PopupItem, Row, Theme, ThemeColors }
+export { PaneData, PopupData, PopupField, PopupItem, Row, Theme, ThemeColors }
 
 export component AppWindow inherits Window {
     in property <string> window-title: "wafu";
@@ -22,10 +22,10 @@ export component AppWindow inherits Window {
     in property <int> log-scroll-top;
     in property <PopupData> popup;
     in property <[PopupItem]> popup-items;
+    // The input fields of the popup, at most two, and their texts.
+    in property <[PopupField]> popup-fields;
     in-out property <string> popup-text;
-    // The part of the input to select when the popup opens; all of it when empty.
-    in property <int> popup-select-start;
-    in property <int> popup-select-end;
+    in-out property <string> popup-text-2;
     // 0: follow the OS, 1: light, 2: dark
     in property <int> theme;
     in property <bool> menu-bar-visible;
@@ -38,7 +38,7 @@ export component AppWindow inherits Window {
     callback row-right-clicked(side: int, row: int);
     callback wheel(side: int, delta: length);
     callback log-wheel(delta: length);
-    callback input-edited(text: string);
+    callback input-edited(field: int, text: string);
     callback input-accepted();
 
     // A progress popup is held back for a moment so that a quick read does not
@@ -239,14 +239,14 @@ export component AppWindow inherits Window {
         height: parent.height;
         data: root.popup;
         items: root.popup-items;
+        fields: root.popup-fields;
         text <=> root.popup-text;
-        select-start: root.popup-select-start;
-        select-end: root.popup-select-end;
+        text-2 <=> root.popup-text-2;
         key-input(text, control, shift, alt, meta) => {
             root.key-input(text, control, shift, alt, meta);
         }
-        input-edited(text) => {
-            root.input-edited(text);
+        input-edited(field, text) => {
+            root.input-edited(field, text);
         }
         input-accepted => {
             root.input-accepted();

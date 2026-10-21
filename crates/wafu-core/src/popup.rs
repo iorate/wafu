@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use crate::command::{Command, Context};
 use crate::history::History;
 use crate::listing::{SortKey, SortSpec};
-use crate::view::{ItemMark, PopupItem};
+use crate::view::{InputField, ItemMark, PopupItem};
 
 /// A modal that takes all keys while it is open.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,12 +26,12 @@ pub struct SortPopup {
     pub cursor: usize,
 }
 
+/// One or more input fields. Which field has the focus is the UI's business;
+/// the core only keeps their texts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InputPopup {
     pub kind: InputKind,
-    pub text: String,
-    /// The part of the text to select when the field opens; all of it when `None`.
-    pub select: Option<(usize, usize)>,
+    pub fields: Vec<InputField>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,6 +50,15 @@ pub enum InputKind {
         source: PathBuf,
         dest: PathBuf,
         all: bool,
+    },
+    /// An operation met an encrypted entry. `retry` means the last password was wrong.
+    ArchivePassword {
+        archive: PathBuf,
+        retry: bool,
+    },
+    /// The name of the archive to make and its password, for the entries named.
+    Compress {
+        names: Vec<OsString>,
     },
 }
 
@@ -253,6 +262,87 @@ impl SortPopup {
     }
 }
 
+impl InputPopup {
+    /// A popup with one field.
+    #[must_use]
+    pub fn single(kind: InputKind, text: String, select: Option<(usize, usize)>) -> Self {
+        Self {
+            kind,
+            fields: vec![InputField {
+                select,
+                ..InputField::new(text)
+            }],
+        }
+    }
+
+    /// Asks for the password of an archive.
+    #[must_use]
+    pub fn password(archive: PathBuf, retry: bool) -> Self {
+        Self {
+            kind: InputKind::ArchivePassword { archive, retry },
+            fields: vec![InputField {
+                secret: true,
+                ..InputField::new(String::new())
+            }],
+        }
+    }
+
+    /// Asks for the name of a new archive, with the part before the extension
+    /// selected, and an optional password.
+    #[must_use]
+    pub fn compress(names: Vec<OsString>, initial_name: String) -> Self {
+        let select = stem_selection(&initial_name);
+        Self {
+            kind: InputKind::Compress { names },
+            fields: vec![
+                InputField {
+                    label: "Name",
+                    select,
+                    ..InputField::new(initial_name)
+                },
+                InputField {
+                    label: "Password",
+                    secret: true,
+                    ..InputField::new(String::new())
+                },
+            ],
+        }
+    }
+
+    /// The text of a field; empty when there is no such field.
+    #[must_use]
+    pub fn text(&self, field: usize) -> &str {
+        self.fields
+            .get(field)
+            .map_or("", |field| field.text.as_str())
+    }
+
+    pub fn set_text(&mut self, field: usize, text: String) {
+        if let Some(field) = self.fields.get_mut(field) {
+            field.text = text;
+        }
+    }
+
+    /// What to show under the title, if anything.
+    #[must_use]
+    pub fn message(&self) -> Option<String> {
+        match &self.kind {
+            InputKind::ArchivePassword { archive, retry } => {
+                let name = archive.file_name().unwrap_or_default().to_string_lossy();
+                Some(if *retry {
+                    format!("Wrong password for {name}")
+                } else {
+                    name.into_owned()
+                })
+            }
+            InputKind::Compress { .. } => {
+                Some("Leave the password empty for no encryption".to_owned())
+            }
+            _ => None,
+        }
+    }
+}
+
 impl InputKind {
     #[must_use]
     pub fn title(&self) -> &'static str {
@@ -264,8 +354,22 @@ impl InputKind {
             Self::Mkdir => "Make directory",
             Self::NewFile => "New file",
             Self::NewText => "New text",
+            Self::ArchivePassword { .. } => "Password",
+            Self::Compress { .. } => "Compress",
         }
     }
+}
+
+/// The part of a file name to select when editing it: everything but the
+/// extension, or nothing special when there is none.
+#[must_use]
+pub fn stem_selection(name: &str) -> Option<(usize, usize)> {
+    name.char_indices()
+        .skip(1)
+        .filter(|&(_, c)| c == '.')
+        .map(|(index, _)| index)
+        .last()
+        .map(|index| (0, index))
 }
 
 const DELETE_CHOICES: [Choice; 2] = [

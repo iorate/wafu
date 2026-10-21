@@ -5,7 +5,9 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Duration, Instant};
 
-use wafu_core::{IoError, OperationEvent, OperationKind, OperationSpec, Outcome, Reply};
+use wafu_core::{IoError, OperationEvent, OperationKind, OperationSpec, Outcome, Reply, Sources};
+
+mod archives;
 
 const CHUNK_SIZE: usize = 64 * 1024;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
@@ -89,8 +91,31 @@ impl Worker<'_> {
     }
 
     fn run_all(&mut self, spec: &OperationSpec) -> Result<(), Stop> {
-        for (index, source) in spec.sources.iter().enumerate() {
-            let complete = match spec.kind {
+        match (&spec.sources, spec.kind) {
+            (Sources::Paths(paths), OperationKind::Extract) => self.extract_archives(paths, spec),
+            (Sources::Paths(paths), OperationKind::Compress) => self.compress(paths, spec),
+            (Sources::Paths(paths), kind) => self.run_paths(paths, kind, spec),
+            (Sources::Entries(entries), OperationKind::ExtractToTemp) => {
+                self.extract_to_temp(entries)
+            }
+            (Sources::Entries(entries), _) => {
+                let dest = spec
+                    .dest
+                    .as_deref()
+                    .ok_or_else(|| failure(&entries.archive, "no destination"))?;
+                self.extract_entries(entries, dest)
+            }
+        }
+    }
+
+    fn run_paths(
+        &mut self,
+        paths: &[PathBuf],
+        kind: OperationKind,
+        spec: &OperationSpec,
+    ) -> Result<(), Stop> {
+        for (index, source) in paths.iter().enumerate() {
+            let complete = match kind {
                 OperationKind::Copy => {
                     let dest = Self::destination(spec, source)?;
                     self.transfer_item(source, &dest, Transfer::Copy)?
@@ -101,6 +126,9 @@ impl Worker<'_> {
                 }
                 OperationKind::Delete => self.delete_item(source)?,
                 OperationKind::Trash => self.trash_item(source)?,
+                OperationKind::Extract | OperationKind::Compress | OperationKind::ExtractToTemp => {
+                    return Err(failure(source, "unsupported operation"));
+                }
             };
             if complete {
                 (self.report)(OperationEvent::ItemDone { index });
@@ -256,21 +284,25 @@ impl Worker<'_> {
             source: src.to_path_buf(),
             dest: dst.to_path_buf(),
         });
-        match self.replies.recv() {
-            Ok(Reply::Overwrite { all }) => {
-                if all {
-                    self.policy = Some(Policy::Overwrite);
+        loop {
+            match self.replies.recv() {
+                Ok(Reply::Overwrite { all }) => {
+                    if all {
+                        self.policy = Some(Policy::Overwrite);
+                    }
+                    return Ok(Resolution::Overwrite);
                 }
-                Ok(Resolution::Overwrite)
-            }
-            Ok(Reply::Skip { all }) => {
-                if all {
-                    self.policy = Some(Policy::Skip);
+                Ok(Reply::Skip { all }) => {
+                    if all {
+                        self.policy = Some(Policy::Skip);
+                    }
+                    return Ok(Resolution::Skip);
                 }
-                Ok(Resolution::Skip)
+                Ok(Reply::Rename(name)) => return Ok(Resolution::Rename(name)),
+                Ok(Reply::Cancel) | Err(_) => return Err(Stop::Cancelled),
+                // Not an answer to this question.
+                Ok(Reply::Password(_)) => {}
             }
-            Ok(Reply::Rename(name)) => Ok(Resolution::Rename(name)),
-            Ok(Reply::Cancel) | Err(_) => Err(Stop::Cancelled),
         }
     }
 
@@ -1001,8 +1033,9 @@ mod tests {
         let (outcome, _) = run(
             &OperationSpec {
                 kind: OperationKind::Trash,
-                sources: vec![dir.path().join("t")],
+                sources: Sources::Paths(vec![dir.path().join("t")]),
                 dest: None,
+                output: None,
             },
             [],
         );
@@ -1068,24 +1101,27 @@ mod tests {
     fn copy(sources: &[PathBuf], dest: &Path) -> OperationSpec {
         OperationSpec {
             kind: OperationKind::Copy,
-            sources: sources.to_vec(),
+            sources: Sources::Paths(sources.to_vec()),
             dest: Some(dest.to_path_buf()),
+            output: None,
         }
     }
 
     fn mv(sources: &[PathBuf], dest: &Path) -> OperationSpec {
         OperationSpec {
             kind: OperationKind::Move,
-            sources: sources.to_vec(),
+            sources: Sources::Paths(sources.to_vec()),
             dest: Some(dest.to_path_buf()),
+            output: None,
         }
     }
 
     fn delete(sources: &[PathBuf]) -> OperationSpec {
         OperationSpec {
             kind: OperationKind::Delete,
-            sources: sources.to_vec(),
+            sources: Sources::Paths(sources.to_vec()),
             dest: None,
+            output: None,
         }
     }
 

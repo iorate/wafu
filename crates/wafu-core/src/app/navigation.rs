@@ -1,11 +1,11 @@
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
 use super::{App, DrivePurpose, Effect, Os, Resolved, Side};
 use crate::command::Command;
 use crate::entry::Entry;
 use crate::error::{AppError, IoError};
-use crate::location::Location;
+use crate::location::{ArchiveFormat, Location};
 use crate::pane::{HistoryMove, InFlight, Pane, RequestId};
 use crate::path::{drive_letter, root_of};
 
@@ -183,7 +183,7 @@ impl App {
             return;
         };
         match result {
-            Some(Resolved { dir, .. }) if dir == pane.location().base => {
+            Some(Resolved { dir, file }) if still_here(pane.location(), &dir, file.as_deref()) => {
                 // Still here, so the read error was the whole story.
                 if let Some(source) = failed {
                     self.log
@@ -240,11 +240,62 @@ impl App {
         }
     }
 
+    pub(super) fn open_entry(&mut self, effects: &mut Vec<Effect>) {
+        let side = self.active;
+        let pane = &self.panes[side.index()];
+        let location = pane.location().clone();
+        match pane.cursor_entry() {
+            None => self.go_parent(effects),
+            Some(entry) if entry.kind.is_dir_like() => {
+                let target = if location.in_archive() {
+                    location.child(&entry.name.to_string_lossy())
+                } else {
+                    Location::new(location.base.join(&entry.name))
+                };
+                self.navigate(side, target, None, HistoryMove::Visit, effects);
+            }
+            Some(entry) if entry.kind.is_broken_link() => {
+                let path = location.base.join(&entry.name);
+                self.log.push(AppError::BrokenLink { path }.to_string());
+            }
+            Some(entry) => {
+                if let Some(format) = ArchiveFormat::from_name(&entry.name) {
+                    let name = entry.name.clone();
+                    self.enter_archive(&name, format, effects);
+                }
+            }
+        }
+    }
+
+    /// Enters the file under the cursor as an archive, whatever its name.
+    pub(super) fn enter_as_archive(&mut self, effects: &mut Vec<Effect>) {
+        let Some(entry) = self.active_pane().cursor_entry() else {
+            return;
+        };
+        if entry.kind.is_dir_like() {
+            return;
+        }
+        let format = ArchiveFormat::from_name(&entry.name).unwrap_or(ArchiveFormat::Zip);
+        let name = entry.name.clone();
+        self.enter_archive(&name, format, effects);
+    }
+
+    fn enter_archive(&mut self, name: &OsStr, format: ArchiveFormat, effects: &mut Vec<Effect>) {
+        let location = self.active_pane().location();
+        if location.in_archive() {
+            let path = PathBuf::from(location.child_display(name));
+            self.log.push(AppError::NestedArchive { path }.to_string());
+            return;
+        }
+        let target = Location::archive_root(location.base.join(name), format);
+        self.navigate(self.active, target, None, HistoryMove::Visit, effects);
+    }
+
     pub(super) fn go_parent(&mut self, effects: &mut Vec<Effect>) {
         let side = self.active;
         let pane = &self.panes[side.index()];
         if let Some(parent) = pane.location().parent() {
-            let came_from = pane.location().base.file_name().map(OsString::from);
+            let came_from = pane.location().leaf_name();
             self.navigate(side, parent, came_from, HistoryMove::Visit, effects);
         }
     }
@@ -405,5 +456,15 @@ impl App {
                 path: path.clone(),
             });
         }
+    }
+}
+
+// Whether a resolve of the pane's base found it where it is: the directory
+// itself, or, inside an archive, the archive file in its directory.
+fn still_here(location: &Location, dir: &Path, file: Option<&OsStr>) -> bool {
+    if location.in_archive() {
+        Some(dir) == location.base.parent() && file == location.base.file_name()
+    } else {
+        dir == location.base
     }
 }

@@ -10,7 +10,7 @@ use crate::key::{Key, KeyBase, KeyInput, NamedKey};
 use crate::location::Location;
 use crate::log::Log;
 use crate::operation::{OperationEvent, OperationSpec, Reply};
-use crate::pane::{HistoryMove, Pane, RequestId};
+use crate::pane::{Pane, RequestId};
 use crate::popup::{InputKind, Popup};
 use crate::state::{StateError, StateFile};
 use crate::view::{LogView, PaneView, Style, View};
@@ -38,8 +38,11 @@ pub enum Msg {
     CloseRequested,
     Key(KeyInput),
     Mouse(MouseInput),
-    /// The text of the popup's input field was edited.
-    InputChanged(String),
+    /// A field of the popup was edited. Fields are numbered from the top.
+    InputChanged {
+        field: usize,
+        text: String,
+    },
     /// The number of rows that fit in a pane's list.
     ViewportRows {
         side: Side,
@@ -382,7 +385,7 @@ impl App {
                     self.mouse(input, &mut effects);
                 }
             }
-            Msg::InputChanged(text) => self.input_changed(text),
+            Msg::InputChanged { field, text } => self.input_changed(field, text),
             Msg::ViewportRows { side, rows } => self.panes[side.index()].set_viewport_rows(rows),
             Msg::Io(event) => self.io_event(event, &mut effects),
         }
@@ -499,18 +502,7 @@ impl App {
         let side = self.active;
         let pane = &mut self.panes[side.index()];
         match command {
-            Command::Open => match pane.cursor_entry() {
-                None => self.go_parent(effects),
-                Some(entry) if entry.kind.is_dir_like() => {
-                    let location = Location::new(pane.location().base.join(&entry.name));
-                    self.navigate(side, location, None, HistoryMove::Visit, effects);
-                }
-                Some(entry) if entry.kind.is_broken_link() => {
-                    let path = pane.location().base.join(&entry.name);
-                    self.log.push(AppError::BrokenLink { path }.to_string());
-                }
-                Some(_) => {}
-            },
+            Command::Open => self.open_entry(effects),
             Command::GoParent => self.go_parent(effects),
             Command::GoRoot => self.go_root(effects),
             Command::GoHome => self.go_home(effects),
@@ -590,8 +582,11 @@ impl App {
             | Command::Edit
             | Command::CopyPath
             | Command::CopyName
-            | Command::ShellMenu => self.run_file_command(command, effects),
-            Command::EnterAsArchive | Command::Extract | Command::Compress | Command::Nop => {}
+            | Command::ShellMenu
+            | Command::EnterAsArchive
+            | Command::Extract
+            | Command::Compress => self.run_file_command(command, effects),
+            Command::Nop => {}
         }
     }
 

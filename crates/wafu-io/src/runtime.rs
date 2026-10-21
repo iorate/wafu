@@ -1,12 +1,18 @@
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 
 use notify::RecommendedWatcher;
-use wafu_core::{Change, Effect, IoError, IoEvent, Location, Reply, RequestId, Side, SpawnKind};
+use wafu_core::{
+    ArchivePath, Change, Effect, Entry, IoError, IoEvent, Location, Reply, RequestId, Side,
+    SpawnKind,
+};
 
+use crate::archive::{ArchiveEntry, list_dir, open_archive};
 use crate::drives::drives;
 use crate::fs_ops::{create_file, mkdir, open_with_os, rename, set_clipboard};
 use crate::operation::run_operation;
@@ -65,6 +71,7 @@ impl Runtime {
         thread::Builder::new()
             .name("wafu-io-reader".to_owned())
             .spawn(move || {
+                let mut cache: Option<CachedArchive> = None;
                 for job in receiver {
                     let request = match &job {
                         Job::ReadDir { request, .. } | Job::Resolve { request, .. } => *request,
@@ -75,8 +82,13 @@ impl Runtime {
                     let event = match job {
                         Job::ReadDir { side, location, .. } => {
                             let cancelled = || !lock(&worker_pending).contains(&request);
-                            let result = read_dir_with(&location.base, cancelled)
-                                .map_err(|error| IoError::new(error.to_string()));
+                            let result = match &location.archive {
+                                None => read_dir_with(&location.base, cancelled),
+                                Some(archive) => {
+                                    list_archive(&mut cache, &location.base, archive, cancelled)
+                                }
+                            }
+                            .map_err(|error| IoError::new(error.to_string()));
                             IoEvent::DirLoaded {
                                 side,
                                 request,
@@ -266,6 +278,39 @@ impl Runtime {
             _ => {}
         }
     }
+}
+
+// The table of contents of the archive read last, so that moving between
+// its directories does not read it again. A changed archive misses the cache.
+struct CachedArchive {
+    path: PathBuf,
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+    entries: Vec<ArchiveEntry>,
+}
+
+fn list_archive(
+    cache: &mut Option<CachedArchive>,
+    path: &Path,
+    archive: &ArchivePath,
+    cancelled: impl Fn() -> bool,
+) -> io::Result<Vec<Entry>> {
+    let meta = fs::metadata(path)?;
+    let (len, modified) = (meta.len(), meta.modified().ok());
+    let fresh = cache.as_ref().is_some_and(|cached| {
+        cached.path == path && cached.len == len && cached.modified == modified
+    });
+    if !fresh {
+        let reader = open_archive(path, archive.format).map_err(io::Error::other)?;
+        *cache = Some(CachedArchive {
+            path: path.to_path_buf(),
+            len,
+            modified,
+            entries: reader.entries().to_vec(),
+        });
+    }
+    let entries = &cache.as_ref().expect("the cache was just filled").entries;
+    list_dir(entries, &archive.inner, cancelled)
 }
 
 fn io_error(result: std::io::Result<()>) -> Option<IoError> {
@@ -484,6 +529,75 @@ mod tests {
     }
 
     #[test]
+    fn changes_to_a_watched_file_are_reported() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("a.zip");
+        fs::write(&file, b"v1").unwrap();
+        let (runtime, events) = runtime();
+        runtime.run(watch(&file));
+        settle(&events);
+
+        fs::write(&file, b"v2").unwrap();
+
+        let event = events.recv_timeout(TIMEOUT).unwrap();
+        assert_eq!(
+            event,
+            IoEvent::LocationChanged {
+                side: Side::Left,
+                path: file.clone(),
+            }
+        );
+        settle(&events);
+
+        File::create(dir.path().join("other")).unwrap();
+        assert!(events.recv_timeout(QUIET).is_err());
+    }
+
+    #[test]
+    fn read_dir_inside_an_archive_lists_its_entries_and_reuses_the_table() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.zip");
+        {
+            let mut writer = crate::archive::create_archive(
+                File::create(&archive).unwrap(),
+                wafu_core::ArchiveFormat::Zip,
+                None,
+            );
+            writer.start_file("d/f.txt", 1, None, None).unwrap();
+            std::io::Write::write_all(&mut writer, b"f").unwrap();
+            writer.finish().unwrap();
+        }
+        let (runtime, events) = runtime();
+        let root = Location::archive_root(archive.clone(), wafu_core::ArchiveFormat::Zip);
+
+        runtime.run(Effect::ReadDir {
+            side: Side::Left,
+            location: root.clone(),
+            request: RequestId(1),
+        });
+        runtime.run(Effect::ReadDir {
+            side: Side::Left,
+            location: root.child("d"),
+            request: RequestId(2),
+        });
+
+        let IoEvent::DirLoaded { result, .. } = events.recv_timeout(TIMEOUT).unwrap() else {
+            panic!("expected DirLoaded");
+        };
+        let entries = result.unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "d");
+        assert_eq!(entries[0].kind, wafu_core::EntryKind::Dir);
+        let IoEvent::DirLoaded { result, .. } = events.recv_timeout(TIMEOUT).unwrap() else {
+            panic!("expected DirLoaded");
+        };
+        let entries = result.unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "f.txt");
+        assert_eq!(entries[0].size, 1);
+    }
+
+    #[test]
     fn config_changes_are_reported_with_the_new_text() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("config.toml");
@@ -575,8 +689,9 @@ mod tests {
 
         runtime.run(Effect::StartOperation(wafu_core::OperationSpec {
             kind: wafu_core::OperationKind::Copy,
-            sources: vec![src.join("a")],
+            sources: wafu_core::Sources::Paths(vec![src.join("a")]),
             dest: Some(dst.clone()),
+            output: None,
         }));
 
         let mut saw_conflict = false;

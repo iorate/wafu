@@ -4,6 +4,7 @@
 //! results back to the application as [`wafu_core::IoEvent`]s. Nothing here
 //! knows about the UI.
 
+mod archive;
 mod config;
 mod drives;
 mod fs_ops;

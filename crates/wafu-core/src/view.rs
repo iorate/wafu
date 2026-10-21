@@ -90,16 +90,38 @@ pub struct PopupView {
     pub title: String,
     /// A line shown under the title.
     pub message: Option<String>,
-    /// The text of the input field, if the popup has one.
-    pub input: Option<String>,
-    /// The part of the input to select when it opens, as byte offsets. The
-    /// whole text is selected when this is `None`.
-    pub select: Option<(usize, usize)>,
+    /// The input fields, if the popup has any. The first one takes the focus.
+    pub fields: Vec<InputField>,
     pub items: Vec<PopupItem>,
     /// The selected item, if the popup has a list.
     pub cursor: Option<usize>,
     /// Reports work going on in the background; the UI may delay showing it.
     pub progress: bool,
+}
+
+/// One input field of a popup.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InputField {
+    /// Shown beside the field when the popup has more than one.
+    pub label: &'static str,
+    pub text: String,
+    /// Hides what is typed, as for a password.
+    pub secret: bool,
+    /// The part of the text to select when the field opens, as byte offsets.
+    /// The whole text is selected when this is `None`.
+    pub select: Option<(usize, usize)>,
+}
+
+impl InputField {
+    #[must_use]
+    pub fn new(text: String) -> Self {
+        Self {
+            label: "",
+            text,
+            secret: false,
+            select: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

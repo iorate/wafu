@@ -7,14 +7,17 @@ use slint::{
     SharedString, VecModel,
 };
 use wafu_core::{
-    App, Color, Colors, Effect, Ellipsis, ItemMark, MouseInput, Msg, PaneView, PopupView,
-    ResolvedFont, RowKind, RowView, Side, StateFile, Style, Theme as ConfigTheme, View,
+    App, Color, Colors, Effect, Ellipsis, InputField, ItemMark, MouseInput, Msg, PaneView,
+    PopupView, ResolvedFont, RowKind, RowView, Side, StateFile, Style, Theme as ConfigTheme, View,
     WindowState,
 };
 use wafu_io::{Paths, Runtime};
 
 use crate::keys::{Modifiers, key_input};
-use crate::{AppWindow, PaneData, PopupData, PopupItem, Row, Theme, ThemeColors};
+use crate::{AppWindow, PaneData, PopupData, PopupField, PopupItem, Row, Theme, ThemeColors};
+
+/// How many input fields the popup can show.
+const MAX_POPUP_FIELDS: usize = 2;
 
 // One wheel notch scrolls three rows. The pixel amount per notch is what the
 // platform reports through Slint and is tuned on real hardware.
@@ -36,6 +39,7 @@ pub struct Ui {
     right_marks: Rc<VecModel<bool>>,
     log_lines: Rc<VecModel<SharedString>>,
     popup_items: Rc<VecModel<PopupItem>>,
+    popup_fields: Rc<VecModel<PopupField>>,
     rendered: RefCell<Rendered>,
     // Left pane, right pane, log.
     wheel_remainder: RefCell<[f32; 3]>,
@@ -86,6 +90,7 @@ impl Ui {
             right_marks: Rc::new(VecModel::default()),
             log_lines: Rc::new(VecModel::default()),
             popup_items: Rc::new(VecModel::default()),
+            popup_fields: Rc::new(VecModel::default()),
             rendered: RefCell::new(Rendered::default()),
             wheel_remainder: RefCell::new([0.0; 3]),
         });
@@ -101,6 +106,8 @@ impl Ui {
             .set_log_lines(ModelRc::from(Rc::clone(&ui.log_lines)));
         ui.window
             .set_popup_items(ModelRc::from(Rc::clone(&ui.popup_items)));
+        ui.window
+            .set_popup_fields(ModelRc::from(Rc::clone(&ui.popup_fields)));
         ui.window.set_menu_bar_visible(cfg!(target_os = "macos"));
 
         Self::connect(&ui);
@@ -237,9 +244,12 @@ impl Ui {
         });
 
         let weak = Rc::downgrade(ui);
-        ui.window.on_input_edited(move |text| {
+        ui.window.on_input_edited(move |field, text| {
             if let Some(ui) = Weak::upgrade(&weak) {
-                ui.dispatch(Msg::InputChanged(text.to_string()));
+                ui.dispatch(Msg::InputChanged {
+                    field: usize::try_from(field).unwrap_or(0),
+                    text: text.to_string(),
+                });
             }
         });
 
@@ -357,24 +367,37 @@ impl Ui {
             );
             rendered.log = Arc::clone(&view.log.lines);
         }
-        // The field keeps its own text while typing; it is only written back
+        // A field keeps its own text while typing; it is only written back
         // when the core refused an edit or opened the popup with a value. It is
         // written before the popup appears so that the field opens with it.
-        if let Some(input) = view.popup.as_ref().and_then(|popup| popup.input.as_deref())
-            && self.window.get_popup_text() != input
-        {
-            self.window.set_popup_text(input.into());
+        let fields = view
+            .popup
+            .as_ref()
+            .map(|popup| popup.fields.as_slice())
+            .unwrap_or_default();
+        for (index, field) in fields.iter().enumerate().take(MAX_POPUP_FIELDS) {
+            let current = if index == 0 {
+                self.window.get_popup_text()
+            } else {
+                self.window.get_popup_text_2()
+            };
+            if current != field.text {
+                let text = SharedString::from(field.text.as_str());
+                if index == 0 {
+                    self.window.set_popup_text(text);
+                } else {
+                    self.window.set_popup_text_2(text);
+                }
+            }
         }
         if rendered.popup != view.popup {
-            let (start, end) = view
-                .popup
-                .as_ref()
-                .and_then(|popup| popup.select)
-                .unwrap_or((0, 0));
-            self.window
-                .set_popup_select_start(i32::try_from(start).unwrap_or(0));
-            self.window
-                .set_popup_select_end(i32::try_from(end).unwrap_or(0));
+            self.popup_fields.set_vec(
+                fields
+                    .iter()
+                    .take(MAX_POPUP_FIELDS)
+                    .map(popup_field)
+                    .collect::<Vec<_>>(),
+            );
             self.window.set_popup(popup_data(view.popup.as_ref()));
             let items = view
                 .popup
@@ -494,7 +517,7 @@ fn popup_data(popup: Option<&PopupView>) -> PopupData {
             visible: true,
             title: popup.title.as_str().into(),
             message: popup.message.as_deref().unwrap_or_default().into(),
-            has_input: popup.input.is_some(),
+            has_input: !popup.fields.is_empty(),
             cursor: popup
                 .cursor
                 .and_then(|cursor| i32::try_from(cursor).ok())
@@ -509,6 +532,16 @@ fn popup_data(popup: Option<&PopupView>) -> PopupData {
             cursor: -1,
             progress: false,
         },
+    }
+}
+
+fn popup_field(field: &InputField) -> PopupField {
+    let (start, end) = field.select.unwrap_or((0, 0));
+    PopupField {
+        label: field.label.into(),
+        secret: field.secret,
+        select_start: i32::try_from(start).unwrap_or(0),
+        select_end: i32::try_from(end).unwrap_or(0),
     }
 }
 

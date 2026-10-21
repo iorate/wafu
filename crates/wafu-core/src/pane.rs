@@ -37,6 +37,8 @@ pub struct Pane {
     history: History,
     // The last place visited on each drive, by letter. Not saved.
     drive_memory: HashMap<char, PathBuf>,
+    // Kept while inside one archive, forgotten on leaving it.
+    archive_password: Option<String>,
     rows: Arc<[RowView]>,
     mark_flags: Arc<[bool]>,
 }
@@ -110,6 +112,7 @@ impl Pane {
             reload_pending: false,
             history: History::new(),
             drive_memory: HashMap::new(),
+            archive_password: None,
             rows: Arc::from([]),
             mark_flags: Arc::from([]),
         }
@@ -236,6 +239,12 @@ impl Pane {
     /// Replaces the location and empties the listing until the new one arrives.
     /// Marks and the filter belong to the old location and are dropped.
     pub fn set_location(&mut self, location: Location, pending_cursor: Option<OsString>) {
+        let same_archive = location.in_archive()
+            && self.location.in_archive()
+            && location.base == self.location.base;
+        if !same_archive {
+            self.archive_password = None;
+        }
         self.location = location;
         self.pending_cursor = pending_cursor;
         self.listing = Listing::default();
@@ -486,6 +495,14 @@ impl Pane {
         self.search_from(start, prefix, false)
     }
 
+    pub(crate) fn archive_password(&self) -> Option<&str> {
+        self.archive_password.as_deref()
+    }
+
+    pub(crate) fn set_archive_password(&mut self, password: Option<String>) {
+        self.archive_password = password;
+    }
+
     pub(crate) fn loading(&self) -> Option<&InFlight> {
         self.loading.as_ref()
     }
@@ -511,12 +528,15 @@ impl Pane {
         entries: Vec<Entry>,
         history: HistoryMove,
     ) {
-        if let Some(letter) = drive_letter(&target.base) {
-            self.drive_memory.insert(letter, target.base.clone());
-        }
-        match history {
-            HistoryMove::Visit => self.history.visit(target.base.clone()),
-            HistoryMove::Position(pos) => self.history.set_pos(pos),
+        // Places inside an archive are neither remembered nor recorded.
+        if !target.in_archive() {
+            if let Some(letter) = drive_letter(&target.base) {
+                self.drive_memory.insert(letter, target.base.clone());
+            }
+            match history {
+                HistoryMove::Visit => self.history.visit(target.base.clone()),
+                HistoryMove::Position(pos) => self.history.set_pos(pos),
+            }
         }
         self.set_location(target, cursor);
         self.set_entries(entries);

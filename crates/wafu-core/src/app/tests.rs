@@ -10,6 +10,7 @@ use crate::state::{PaneState, StateFile};
 use crate::test_support::{CONFIG_PATH, HOME, Harness, dir, file, start_msg_with};
 use crate::view::{Ellipsis, ItemMark, RowKind};
 
+mod archives;
 mod operations;
 
 #[test]
@@ -678,7 +679,10 @@ fn filter_popup_applies_a_glob_and_shows_it_in_the_info_line() {
     harness.press(":");
     let popup = harness.view().popup.unwrap();
     assert_eq!(
-        (popup.title.as_str(), popup.input.as_deref()),
+        (
+            popup.title.as_str(),
+            popup.fields.first().map(|field| field.text.as_str())
+        ),
         ("Filter", Some(""))
     );
     harness.edit("*.png");
@@ -703,7 +707,13 @@ fn filter_popup_starts_with_the_current_pattern() {
     harness.press(":");
 
     assert_eq!(
-        harness.view().popup.unwrap().input.as_deref(),
+        harness
+            .view()
+            .popup
+            .unwrap()
+            .fields
+            .first()
+            .map(|field| field.text.as_str()),
         Some("*.png")
     );
 }
@@ -817,7 +827,7 @@ fn sort_popup_shows_the_draft_and_letters_confirm_immediately() {
     harness.press("S");
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Sort");
-    assert_eq!(popup.input, None);
+    assert_eq!(popup.fields, Vec::new());
     assert_eq!(popup.items.len(), 9);
     assert_eq!(popup.items[1].label, "Name");
     assert_eq!(popup.items[1].mark, ItemMark::Radio(true));
@@ -921,7 +931,16 @@ fn search_moves_the_cursor_as_the_text_grows_and_refuses_misses() {
     assert_eq!(harness.cursor_name(Side::Left), "berry");
 
     harness.edit("bez");
-    assert_eq!(harness.view().popup.unwrap().input.as_deref(), Some("be"));
+    assert_eq!(
+        harness
+            .view()
+            .popup
+            .unwrap()
+            .fields
+            .first()
+            .map(|field| field.text.as_str()),
+        Some("be")
+    );
     assert_eq!(harness.cursor_name(Side::Left), "berry");
 }
 
@@ -1444,7 +1463,7 @@ fn loading_popup_names_every_pane_being_read() {
 
     assert_eq!(popup.message, Some("Reading /home/user, /tmp".to_owned()));
     assert!(popup.progress);
-    assert!(popup.input.is_none());
+    assert_eq!(popup.fields, Vec::new());
 }
 
 #[test]
@@ -1633,7 +1652,7 @@ fn go_to_path_starts_with_the_current_path_and_expands_the_input() {
     harness.press("Shift+J");
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Go to path");
-    assert_eq!(popup.input, Some("/home/user".to_owned()));
+    assert_eq!(popup.fields[0].text, "/home/user");
 
     harness.edit("~/docs");
     harness.press("Enter");

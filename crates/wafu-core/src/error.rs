@@ -41,6 +41,12 @@ pub enum AppError {
     Unavailable { path: PathBuf },
     #[error("{command} is available only on Windows")]
     WindowsOnly { command: Command },
+    #[error("{command} is not available inside an archive")]
+    InArchive { command: Command },
+    #[error("cannot {verb} into an archive")]
+    IntoArchive { verb: &'static str },
+    #[error("cannot open {}: nested archives are not supported", path.display())]
+    NestedArchive { path: PathBuf },
     #[error("config: {}:{line}: {message}", path.display())]
     ConfigSyntax {
         path: PathBuf,

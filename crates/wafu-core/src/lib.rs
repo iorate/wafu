@@ -46,12 +46,15 @@ pub use history::History;
 pub use key::{Key, KeyBase, KeyInput, KeyParseError, NamedKey};
 pub use keymap::KeyMap;
 pub use listing::{Listing, SortKey, SortSpec};
-pub use location::{ArchivePath, Location};
+pub use location::{ArchiveFormat, ArchivePath, Location};
 pub use log::Log;
-pub use operation::{OperationEvent, OperationKind, OperationSpec, Outcome, OutcomeLine, Reply};
+pub use operation::{
+    ArchiveEntries, ArchiveOutput, OperationEvent, OperationKind, OperationSpec, Outcome,
+    OutcomeLine, Reply, Sources,
+};
 pub use pane::{HistoryMove, InFlight, Pane, RequestId, TargetRule};
 pub use state::{PaneState, StateError, StateFile, WindowState};
 pub use view::{
-    Ellipsis, Fonts, ItemMark, LogView, PaneView, PopupItem, PopupView, ResolvedFont, RowKind,
-    RowView, Style, View,
+    Ellipsis, Fonts, InputField, ItemMark, LogView, PaneView, PopupItem, PopupView, ResolvedFont,
+    RowKind, RowView, Style, View,
 };
