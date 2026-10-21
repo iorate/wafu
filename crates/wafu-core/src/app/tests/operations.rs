@@ -660,6 +660,10 @@ fn mkdir_without_entering_puts_the_cursor_on_the_first_component() {
     ));
     harness.load(Side::Left, vec![dir("a"), file("x")]);
     assert_eq!(harness.cursor_name(Side::Left), "a");
+    assert_eq!(
+        harness.log().last().map(String::as_str),
+        Some("created /home/user/a/b")
+    );
 
     harness.changed_result(Change::DirCreated(path(LEFT, "x")), Some("already exists"));
     assert_eq!(
@@ -689,6 +693,10 @@ fn new_file_creates_an_empty_file_and_puts_the_cursor_on_it() {
     harness.take_effects();
     harness.load(Side::Left, vec![file("a"), file("n.txt")]);
     assert_eq!(harness.cursor_name(Side::Left), "n.txt");
+    assert_eq!(
+        harness.log().last().map(String::as_str),
+        Some("created /home/user/n.txt")
+    );
 }
 
 #[test]

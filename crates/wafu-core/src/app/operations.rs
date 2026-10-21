@@ -253,6 +253,7 @@ impl App {
                     .push(AppError::RenameFailed { path: from, source }.to_string());
             }
             (Change::DirCreated(path), None) => {
+                self.log.push(format!("created {}", path.display()));
                 if self.config.general.mkdir_then_enter {
                     self.navigate(
                         self.active,
@@ -268,6 +269,7 @@ impl App {
                 }
             }
             (Change::FileCreated(path), None) => {
+                self.log.push(format!("created {}", path.display()));
                 if self
                     .edit_after_create
                     .take()
