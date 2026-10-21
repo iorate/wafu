@@ -562,6 +562,10 @@ fn a_rename_puts_the_cursor_on_the_new_name() {
     ));
     harness.load(Side::Left, vec![file("b"), file("c"), file("z")]);
     assert_eq!(harness.cursor_name(Side::Left), "z");
+    assert_eq!(
+        harness.log().last().map(String::as_str),
+        Some("renamed a to z")
+    );
 
     harness.changed_result(
         Change::Renamed {

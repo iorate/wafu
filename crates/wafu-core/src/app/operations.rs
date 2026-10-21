@@ -238,7 +238,12 @@ impl App {
         effects: &mut Vec<Effect>,
     ) {
         match (change, error) {
-            (Change::Renamed { to, .. }, None) => {
+            (Change::Renamed { from, to }, None) => {
+                self.log.push(format!(
+                    "renamed {} to {}",
+                    from.file_name().unwrap_or_default().to_string_lossy(),
+                    to.file_name().unwrap_or_default().to_string_lossy()
+                ));
                 if let Some(dir) = to.parent() {
                     self.show_created(dir, to.file_name().map(OsString::from), effects);
                 }
