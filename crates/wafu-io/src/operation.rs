@@ -389,7 +389,9 @@ impl Worker<'_> {
 
     fn trash_item(&mut self, path: &Path) -> Step {
         self.begin(path)?;
-        trash::delete(path).map_err(|error| failure(path, &error.to_string()))?;
+        trash_context()
+            .delete(path)
+            .map_err(|error| failure(path, &error.to_string()))?;
         self.done += 1;
         Ok(true)
     }
@@ -417,6 +419,23 @@ impl Worker<'_> {
             Ok(_) | Err(TryRecvError::Empty) => Ok(()),
         }
     }
+}
+
+// The default on macOS drives the Finder through AppleScript, which asks for
+// permission to automate it and refuses symbolic links; NSFileManager does
+// neither, at the cost of "Put Back" in the Finder.
+#[cfg(target_os = "macos")]
+fn trash_context() -> trash::TrashContext {
+    use trash::macos::{DeleteMethod, TrashContextExtMacos};
+
+    let mut context = trash::TrashContext::default();
+    context.set_delete_method(DeleteMethod::NsFileManager);
+    context
+}
+
+#[cfg(not(target_os = "macos"))]
+fn trash_context() -> trash::TrashContext {
+    trash::TrashContext::default()
 }
 
 // The entries of a directory in name order, so that progress is predictable.

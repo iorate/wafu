@@ -364,8 +364,8 @@ impl App {
                         dest: popup.dest,
                         all,
                     },
+                    select: super::operations::stem_selection(&text),
                     text,
-                    select: None,
                 }));
             }
             Some(ConflictRow::ApplyToAll) => {

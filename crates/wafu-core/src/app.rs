@@ -271,6 +271,8 @@ pub struct App {
     log: Log,
     popup: Option<Popup>,
     operation: Option<operations::Operation>,
+    // A file made for `new_text`, to open in the editor once it exists.
+    edit_after_create: Option<PathBuf>,
     split_percent: u8,
     next_request: u64,
     home: PathBuf,
@@ -314,6 +316,7 @@ impl App {
             log,
             popup: None,
             operation: None,
+            edit_after_create: None,
             split_percent: 50,
             next_request: 1,
             home: PathBuf::new(),

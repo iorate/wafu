@@ -218,12 +218,11 @@ impl App {
             }
             InputKind::Mkdir => effects.push(Effect::Mkdir(path)),
             InputKind::NewFile => effects.push(Effect::CreateFile(path)),
+            // Editors cannot be relied on to open a path that does not exist
+            // yet (`open -t` on macOS does nothing), so the file is made first.
             InputKind::NewText => {
-                let expansion = Expansion {
-                    paths: vec![path],
-                    ..self.expansion()
-                };
-                Self::spawn(&self.config.general.editor, &expansion, effects);
+                self.edit_after_create = Some(path.clone());
+                effects.push(Effect::CreateFile(path));
             }
             InputKind::ConflictRename { .. }
             | InputKind::Filter
@@ -264,11 +263,23 @@ impl App {
                 }
             }
             (Change::FileCreated(path), None) => {
+                if self
+                    .edit_after_create
+                    .take()
+                    .is_some_and(|edit| edit == path)
+                {
+                    let expansion = Expansion {
+                        paths: vec![path.clone()],
+                        ..self.expansion()
+                    };
+                    Self::spawn(&self.config.general.editor, &expansion, effects);
+                }
                 if let Some(dir) = path.parent() {
                     self.show_created(dir, path.file_name().map(OsString::from), effects);
                 }
             }
             (Change::DirCreated(path) | Change::FileCreated(path), Some(source)) => {
+                self.edit_after_create = None;
                 self.log
                     .push(AppError::CreateFailed { path, source }.to_string());
             }
@@ -395,6 +406,17 @@ impl App {
 fn rename_selection(entry: &Entry) -> Option<(usize, usize)> {
     let (stem, extension) = entry.split_name();
     (!extension.is_empty()).then_some((0, stem.len()))
+}
+
+/// The part of a file name to select when renaming it: everything but the
+/// extension, or nothing special when there is none.
+pub(super) fn stem_selection(name: &str) -> Option<(usize, usize)> {
+    name.char_indices()
+        .skip(1)
+        .filter(|&(_, c)| c == '.')
+        .map(|(index, _)| index)
+        .last()
+        .map(|index| (0, index))
 }
 
 // The first path component of `path` below `base`, which is where the cursor

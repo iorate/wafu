@@ -266,7 +266,20 @@ fn abort_cancels_the_operation() {
 
 #[test]
 fn rename_in_a_conflict_asks_for_a_name() {
-    let mut harness = conflicting();
+    let mut harness = copying();
+    harness.operation(OperationEvent::Conflict {
+        source: path(LEFT, "a"),
+        dest: path(RIGHT, "a.tar.gz"),
+    });
+    harness.press("R");
+    assert_eq!(harness.view().popup.unwrap().select, Some((0, 5)));
+    harness.press("Esc");
+    harness.press("S");
+    harness.take_effects();
+    harness.operation(OperationEvent::Conflict {
+        source: path(LEFT, "a"),
+        dest: path(RIGHT, "a"),
+    });
     harness.press("A");
 
     harness.press("R");
@@ -675,7 +688,7 @@ fn new_file_creates_an_empty_file_and_puts_the_cursor_on_it() {
 }
 
 #[test]
-fn new_text_opens_the_editor_on_the_path_without_creating_it() {
+fn new_text_creates_the_file_and_then_opens_it_in_the_editor() {
     let mut harness = three_files();
     harness.take_effects();
 
@@ -683,15 +696,50 @@ fn new_text_opens_the_editor_on_the_path_without_creating_it() {
     assert_eq!(harness.view().popup.unwrap().title, "New text");
     harness.edit("notes.txt");
     harness.press("Enter");
-
     assert_eq!(
         harness.take_effects(),
-        vec![Effect::Spawn {
-            program: "xdg-open".to_owned(),
-            args: vec![path(LEFT, "notes.txt").into_os_string()],
-            cwd: PathBuf::from(LEFT),
-        }]
+        vec![Effect::CreateFile(path(LEFT, "notes.txt"))]
     );
+
+    harness.changed_result(Change::FileCreated(path(LEFT, "notes.txt")), None);
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [
+            Effect::Spawn { program, args, .. },
+            Effect::ReadDir { side: Side::Left, .. }
+        ] if program == "xdg-open" && *args == [path(LEFT, "notes.txt").into_os_string()]
+    ));
+
+    // A file made some other way is not opened.
+    harness.load(Side::Left, vec![]);
+    harness.changed_result(Change::FileCreated(path(LEFT, "other.txt")), None);
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::ReadDir { .. }]
+    ));
+}
+
+#[test]
+fn new_text_on_an_existing_name_only_logs() {
+    let mut harness = three_files();
+    harness.take_effects();
+
+    harness.press("Shift+E");
+    harness.edit("a");
+    harness.press("Enter");
+    harness.take_effects();
+    harness.changed_result(Change::FileCreated(path(LEFT, "a")), Some("already exists"));
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log().last().map(String::as_str),
+        Some("cannot create /home/user/a: already exists")
+    );
+    harness.changed_result(Change::FileCreated(path(LEFT, "a")), None);
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::ReadDir { .. }]
+    ));
 }
 
 #[test]
