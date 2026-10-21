@@ -19,6 +19,7 @@ mod keymap;
 mod listing;
 mod location;
 mod log;
+mod operation;
 mod pane;
 mod path;
 mod popup;
@@ -29,7 +30,7 @@ mod text;
 mod view;
 
 pub use app::{
-    App, ConfigSource, DrivePurpose, Effect, IoEvent, MouseInput, Msg, Os, Resolved, Side,
+    App, Change, ConfigSource, DrivePurpose, Effect, IoEvent, MouseInput, Msg, Os, Resolved, Side,
     SpawnKind, Start,
 };
 pub use command::{Command, Context};
@@ -47,6 +48,7 @@ pub use keymap::KeyMap;
 pub use listing::{Listing, SortKey, SortSpec};
 pub use location::{ArchivePath, Location};
 pub use log::Log;
+pub use operation::{OperationEvent, OperationKind, OperationSpec, Outcome, OutcomeLine, Reply};
 pub use pane::{HistoryMove, InFlight, Pane, RequestId, TargetRule};
 pub use state::{PaneState, StateError, StateFile, WindowState};
 pub use view::{

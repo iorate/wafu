@@ -5,9 +5,11 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 
 use notify::RecommendedWatcher;
-use wafu_core::{Effect, IoError, IoEvent, Location, RequestId, Side, SpawnKind};
+use wafu_core::{Change, Effect, IoError, IoEvent, Location, Reply, RequestId, Side, SpawnKind};
 
 use crate::drives::drives;
+use crate::fs_ops::{create_file, mkdir, open_with_os, rename, set_clipboard};
+use crate::operation::run_operation;
 use crate::read_dir::read_dir_with;
 use crate::resolve::resolve;
 use crate::spawn::{spawn, spawn_new_window};
@@ -33,6 +35,9 @@ pub struct Runtime {
     pending: Arc<Mutex<HashSet<RequestId>>>,
     watcher: Mutex<Watcher>,
     config_watcher: Mutex<Option<RecommendedWatcher>>,
+    // The running operation takes its replies from here.
+    operation: Mutex<Option<Sender<Reply>>>,
+    clipboard: Mutex<Option<arboard::Clipboard>>,
     on_event: OnEvent,
 }
 
@@ -97,6 +102,8 @@ impl Runtime {
             pending,
             watcher: Mutex::new(Watcher::new()),
             config_watcher: Mutex::new(None),
+            operation: Mutex::new(None),
+            clipboard: Mutex::new(None),
             on_event,
         }
     }
@@ -187,9 +194,82 @@ impl Runtime {
                     error,
                 });
             }
-            Effect::SetTitle(_) | Effect::Quit => {}
+            effect => self.run_file_effect(effect),
         }
     }
+
+    fn run_file_effect(&self, effect: Effect) {
+        match effect {
+            Effect::StartOperation(spec) => {
+                let (sender, replies) = mpsc::channel();
+                *self
+                    .operation
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner) = Some(sender);
+                let on_event = Arc::clone(&self.on_event);
+                thread::Builder::new()
+                    .name("wafu-io-operation".to_owned())
+                    .spawn(move || {
+                        run_operation(&spec, &replies, &|event| {
+                            on_event(IoEvent::Operation(event));
+                        });
+                    })
+                    .expect("the operation thread should start");
+            }
+            Effect::OperationReply(reply) => {
+                if let Some(sender) = self
+                    .operation
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .as_ref()
+                {
+                    let _ = sender.send(reply);
+                }
+            }
+            Effect::Rename { from, to } => {
+                let error = io_error(rename(&from, &to));
+                (self.on_event)(IoEvent::Changed {
+                    change: Change::Renamed { from, to },
+                    error,
+                });
+            }
+            Effect::Mkdir(path) => {
+                let error = io_error(mkdir(&path));
+                (self.on_event)(IoEvent::Changed {
+                    change: Change::DirCreated(path),
+                    error,
+                });
+            }
+            Effect::CreateFile(path) => {
+                let error = io_error(create_file(&path));
+                (self.on_event)(IoEvent::Changed {
+                    change: Change::FileCreated(path),
+                    error,
+                });
+            }
+            Effect::Clipboard(text) => {
+                let error = set_clipboard(
+                    &mut self
+                        .clipboard
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner),
+                    &text,
+                )
+                .err()
+                .map(|error| IoError::new(error.to_string()));
+                (self.on_event)(IoEvent::ClipboardSet { error });
+            }
+            Effect::OpenWithOs(path) => {
+                let error = io_error(open_with_os(&path));
+                (self.on_event)(IoEvent::Opened { path, error });
+            }
+            _ => {}
+        }
+    }
+}
+
+fn io_error(result: std::io::Result<()>) -> Option<IoError> {
+    result.err().map(|error| IoError::new(error.to_string()))
 }
 
 fn lock(pending: &Mutex<HashSet<RequestId>>) -> std::sync::MutexGuard<'_, HashSet<RequestId>> {
@@ -480,6 +560,77 @@ mod tests {
             }
         );
         assert!(error.is_some());
+    }
+
+    #[test]
+    fn an_operation_runs_on_a_worker_and_takes_replies() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("src");
+        let dst = dir.path().join("dst");
+        fs::create_dir(&src).unwrap();
+        fs::create_dir(&dst).unwrap();
+        fs::write(src.join("a"), b"new").unwrap();
+        fs::write(dst.join("a"), b"old").unwrap();
+        let (runtime, events) = runtime();
+
+        runtime.run(Effect::StartOperation(wafu_core::OperationSpec {
+            kind: wafu_core::OperationKind::Copy,
+            sources: vec![src.join("a")],
+            dest: Some(dst.clone()),
+        }));
+
+        let mut saw_conflict = false;
+        loop {
+            match events.recv_timeout(TIMEOUT).unwrap() {
+                IoEvent::Operation(wafu_core::OperationEvent::Conflict { .. }) => {
+                    saw_conflict = true;
+                    runtime.run(Effect::OperationReply(Reply::Overwrite { all: false }));
+                }
+                IoEvent::Operation(wafu_core::OperationEvent::Finished(outcome)) => {
+                    assert!(matches!(
+                        outcome,
+                        wafu_core::Outcome::Completed { done: 1, .. }
+                    ));
+                    break;
+                }
+                _ => {}
+            }
+        }
+        assert!(saw_conflict);
+        assert_eq!(fs::read(dst.join("a")).unwrap(), b"new");
+    }
+
+    #[test]
+    fn small_changes_reply_at_once() {
+        let dir = TempDir::new().unwrap();
+        let (runtime, events) = runtime();
+
+        runtime.run(Effect::Mkdir(dir.path().join("d")));
+        assert_eq!(
+            events.recv_timeout(TIMEOUT).unwrap(),
+            IoEvent::Changed {
+                change: Change::DirCreated(dir.path().join("d")),
+                error: None,
+            }
+        );
+
+        runtime.run(Effect::CreateFile(dir.path().join("d").join("f")));
+        assert_eq!(
+            events.recv_timeout(TIMEOUT).unwrap(),
+            IoEvent::Changed {
+                change: Change::FileCreated(dir.path().join("d").join("f")),
+                error: None,
+            }
+        );
+
+        runtime.run(Effect::Rename {
+            from: dir.path().join("d").join("f"),
+            to: dir.path().join("d"),
+        });
+        let IoEvent::Changed { error, .. } = events.recv_timeout(TIMEOUT).unwrap() else {
+            panic!("expected Changed");
+        };
+        assert_eq!(error, Some(IoError::new("already exists")));
     }
 
     #[test]

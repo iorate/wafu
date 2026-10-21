@@ -366,6 +366,15 @@ impl Ui {
             self.window.set_popup_text(input.into());
         }
         if rendered.popup != view.popup {
+            let (start, end) = view
+                .popup
+                .as_ref()
+                .and_then(|popup| popup.select)
+                .unwrap_or((0, 0));
+            self.window
+                .set_popup_select_start(i32::try_from(start).unwrap_or(0));
+            self.window
+                .set_popup_select_end(i32::try_from(end).unwrap_or(0));
             self.window.set_popup(popup_data(view.popup.as_ref()));
             let items = view
                 .popup

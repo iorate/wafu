@@ -451,6 +451,13 @@ impl Pane {
         self.rebuild_mark_flags();
     }
 
+    /// Removes the mark on one entry, as an operation does once it succeeds.
+    pub fn unmark(&mut self, name: &OsStr) {
+        if self.marks.remove(name) {
+            self.rebuild_mark_flags();
+        }
+    }
+
     /// Moves to the next row whose name starts with the character, wrapping around.
     pub fn jump_to(&mut self, c: char) {
         let prefix = nfc(&c.to_string()).to_lowercase();
@@ -485,6 +492,10 @@ impl Pane {
 
     pub(crate) fn set_loading(&mut self, in_flight: Option<InFlight>) {
         self.loading = in_flight;
+    }
+
+    pub(crate) fn set_pending_cursor(&mut self, name: Option<OsString>) {
+        self.pending_cursor = name;
     }
 
     pub(crate) fn take_loading(&mut self) -> Option<InFlight> {

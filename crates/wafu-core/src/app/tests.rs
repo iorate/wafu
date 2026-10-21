@@ -10,6 +10,8 @@ use crate::state::{PaneState, StateFile};
 use crate::test_support::{CONFIG_PATH, HOME, Harness, dir, file, start_msg_with};
 use crate::view::{Ellipsis, ItemMark, RowKind};
 
+mod operations;
+
 #[test]
 fn start_resolves_both_panes_then_watches_and_reads_them() {
     let mut harness = Harness::start_unresolved(Os::Linux, "/home/user", "/tmp");

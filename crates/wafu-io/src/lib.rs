@@ -6,6 +6,8 @@
 
 mod config;
 mod drives;
+mod fs_ops;
+mod operation;
 mod paths;
 mod read_dir;
 mod resolve;
@@ -17,6 +19,8 @@ mod watch;
 
 pub use config::read_or_create;
 pub use drives::drives;
+pub use fs_ops::{create_file, mkdir, open_with_os, rename, set_clipboard};
+pub use operation::run_operation;
 pub use paths::{config_path, is_wayland, state_path};
 pub use read_dir::{read_dir, read_dir_with};
 pub use resolve::resolve;

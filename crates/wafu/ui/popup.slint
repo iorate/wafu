@@ -23,6 +23,8 @@ export component PopupOverlay {
     in property <PopupData> data;
     in property <[PopupItem]> items;
     in-out property <string> text;
+    in property <int> select-start;
+    in property <int> select-end;
 
     callback key-input(text: string, control: bool, shift: bool, alt: bool, meta: bool);
     callback input-edited(text: string);
@@ -77,10 +79,15 @@ export component PopupOverlay {
                     single-line: true;
                     text <=> root.text;
 
-                    // Typing replaces the initial value; the arrows edit it.
+                    // Typing replaces the selected part (the whole value
+                    // unless the core says otherwise); the arrows edit it.
                     init => {
                         self.focus();
-                        self.select-all();
+                        if root.select-end > root.select-start {
+                            self.set-selection-offsets(root.select-start, root.select-end);
+                        } else {
+                            self.select-all();
+                        }
                     }
 
                     edited => {

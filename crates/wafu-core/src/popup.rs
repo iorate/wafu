@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::path::PathBuf;
 
 use crate::command::{Command, Context};
@@ -13,6 +14,8 @@ pub enum Popup {
     Search(SearchPopup),
     Palette(PalettePopup),
     List(ListPopup),
+    Choice(ChoicePopup),
+    Conflict(ConflictPopup),
 }
 
 /// Edits a copy of the sort settings; nothing is applied until confirmed.
@@ -27,13 +30,27 @@ pub struct SortPopup {
 pub struct InputPopup {
     pub kind: InputKind,
     pub text: String,
+    /// The part of the text to select when the field opens; all of it when `None`.
+    pub select: Option<(usize, usize)>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputKind {
     Filter,
     MarkGlob,
     GoToPath,
+    Rename {
+        original: OsString,
+    },
+    Mkdir,
+    NewFile,
+    NewText,
+    /// The "Rename" choice of a conflict; Esc goes back to the conflict popup.
+    ConflictRename {
+        source: PathBuf,
+        dest: PathBuf,
+        all: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +68,51 @@ pub struct PalettePopup {
     pub cursor: usize,
     /// The names of the external commands, listed after the built-in ones.
     externals: Vec<String>,
+}
+
+/// A question with a few fixed answers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChoicePopup {
+    pub kind: ChoiceKind,
+    pub message: String,
+    pub cursor: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChoiceKind {
+    /// The entries to delete, taken when the question was asked.
+    DeleteConfirm { names: Vec<OsString> },
+    /// Asked while an operation runs. The popup that was open, if any, comes
+    /// back when the operation is left running.
+    QuitDuringOperation { resume: Option<Box<Popup>> },
+}
+
+/// One answer of a [`ChoicePopup`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Choice {
+    pub label: &'static str,
+    /// The letter that picks the answer at once.
+    pub key: Option<char>,
+}
+
+/// The destination of a copy or move exists; the worker waits for the answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConflictPopup {
+    pub source: PathBuf,
+    pub dest: PathBuf,
+    /// "Apply to all": the answer also covers the conflicts that follow.
+    pub all: bool,
+    pub cursor: usize,
+}
+
+/// A row of the conflict popup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConflictRow {
+    Overwrite,
+    Skip,
+    Rename,
+    ApplyToAll,
+    Abort,
 }
 
 /// A list of places to pick from: history, bookmarks, or drives.
@@ -193,12 +255,178 @@ impl SortPopup {
 
 impl InputKind {
     #[must_use]
-    pub fn title(self) -> &'static str {
+    pub fn title(&self) -> &'static str {
         match self {
             Self::Filter => "Filter",
             Self::MarkGlob => "Mark",
             Self::GoToPath => "Go to path",
+            Self::Rename { .. } | Self::ConflictRename { .. } => "Rename",
+            Self::Mkdir => "Make directory",
+            Self::NewFile => "New file",
+            Self::NewText => "New text",
         }
+    }
+}
+
+const DELETE_CHOICES: [Choice; 2] = [
+    Choice {
+        label: "Delete",
+        key: Some('Y'),
+    },
+    Choice {
+        label: "Cancel",
+        key: Some('N'),
+    },
+];
+
+const QUIT_CHOICES: [Choice; 2] = [
+    Choice {
+        label: "Continue the operation",
+        key: None,
+    },
+    Choice {
+        label: "Cancel the operation and quit",
+        key: None,
+    },
+];
+
+impl ChoicePopup {
+    /// Asks before deleting; the first answer deletes.
+    #[must_use]
+    pub fn delete_confirm(names: Vec<OsString>) -> Self {
+        let message = match names.as_slice() {
+            [name] => format!("Delete \"{}\"?", name.to_string_lossy()),
+            _ => format!("Delete {} items?", names.len()),
+        };
+        Self {
+            kind: ChoiceKind::DeleteConfirm { names },
+            message,
+            cursor: 0,
+        }
+    }
+
+    /// Asks whether to quit while an operation runs; the first answer keeps it running.
+    #[must_use]
+    pub fn quit_during_operation(resume: Option<Popup>) -> Self {
+        Self {
+            kind: ChoiceKind::QuitDuringOperation {
+                resume: resume.map(Box::new),
+            },
+            message: "An operation is in progress".to_owned(),
+            cursor: 0,
+        }
+    }
+
+    #[must_use]
+    pub fn title(&self) -> &'static str {
+        match self.kind {
+            ChoiceKind::DeleteConfirm { .. } => "Delete",
+            ChoiceKind::QuitDuringOperation { .. } => "Quit",
+        }
+    }
+
+    #[must_use]
+    pub fn choices(&self) -> &'static [Choice] {
+        match self.kind {
+            ChoiceKind::DeleteConfirm { .. } => &DELETE_CHOICES,
+            ChoiceKind::QuitDuringOperation { .. } => &QUIT_CHOICES,
+        }
+    }
+
+    #[must_use]
+    pub fn items(&self) -> Vec<PopupItem> {
+        self.choices()
+            .iter()
+            .map(|choice| PopupItem {
+                label: choice.label.to_owned(),
+                detail: choice.key.map(String::from).unwrap_or_default(),
+                mark: ItemMark::None,
+            })
+            .collect()
+    }
+
+    /// The answer a letter picks, if any. Case does not matter.
+    #[must_use]
+    pub fn choice_for_letter(&self, letter: char) -> Option<usize> {
+        let letter = letter.to_ascii_uppercase();
+        self.choices()
+            .iter()
+            .position(|choice| choice.key == Some(letter))
+    }
+
+    pub fn cursor_up(&mut self) {
+        self.cursor = self
+            .cursor
+            .checked_sub(1)
+            .unwrap_or(self.choices().len() - 1);
+    }
+
+    pub fn cursor_down(&mut self) {
+        self.cursor = (self.cursor + 1) % self.choices().len();
+    }
+}
+
+const CONFLICT_ROWS: [(ConflictRow, &str, &str); 5] = [
+    (ConflictRow::Overwrite, "Overwrite", "O"),
+    (ConflictRow::Skip, "Skip", "S"),
+    (ConflictRow::Rename, "Rename", "R"),
+    (ConflictRow::ApplyToAll, "Apply to all", "A"),
+    (ConflictRow::Abort, "Abort", "Esc"),
+];
+
+impl ConflictPopup {
+    #[must_use]
+    pub fn new(source: PathBuf, dest: PathBuf, all: bool) -> Self {
+        Self {
+            source,
+            dest,
+            all,
+            cursor: 0,
+        }
+    }
+
+    #[must_use]
+    pub fn items(&self) -> Vec<PopupItem> {
+        CONFLICT_ROWS
+            .iter()
+            .map(|(row, label, key)| PopupItem {
+                label: (*label).to_owned(),
+                detail: (*key).to_owned(),
+                mark: if *row == ConflictRow::ApplyToAll {
+                    ItemMark::Check(self.all)
+                } else {
+                    ItemMark::None
+                },
+            })
+            .collect()
+    }
+
+    #[must_use]
+    pub fn row_at_cursor(&self) -> ConflictRow {
+        CONFLICT_ROWS[self.cursor].0
+    }
+
+    /// The row a letter stands for. Case does not matter.
+    #[must_use]
+    pub fn row_for_letter(letter: char) -> Option<ConflictRow> {
+        match letter.to_ascii_uppercase() {
+            'O' => Some(ConflictRow::Overwrite),
+            'S' => Some(ConflictRow::Skip),
+            'R' => Some(ConflictRow::Rename),
+            'A' => Some(ConflictRow::ApplyToAll),
+            _ => None,
+        }
+    }
+
+    pub fn cursor_up(&mut self) {
+        self.cursor = self
+            .cursor
+            .checked_sub(1)
+            .unwrap_or(CONFLICT_ROWS.len() - 1);
+    }
+
+    pub fn cursor_down(&mut self) {
+        self.cursor = (self.cursor + 1) % CONFLICT_ROWS.len();
     }
 }
 
@@ -442,6 +670,63 @@ mod tests {
         assert!(popup.toggle_for_letter('G'));
         assert!(!popup.draft.dirs_first);
         assert!(!popup.toggle_for_letter('Q'));
+    }
+
+    #[test]
+    fn delete_confirm_names_one_item_and_counts_more() {
+        let one = ChoicePopup::delete_confirm(vec![OsString::from("a.txt")]);
+        assert_eq!(one.message, "Delete \"a.txt\"?");
+        assert_eq!(one.title(), "Delete");
+        let labels: Vec<String> = one.items().into_iter().map(|item| item.label).collect();
+        assert_eq!(labels, ["Delete", "Cancel"]);
+        assert_eq!(one.items()[0].detail, "Y");
+        assert_eq!(one.choice_for_letter('n'), Some(1));
+        assert_eq!(one.choice_for_letter('x'), None);
+
+        let three = ChoicePopup::delete_confirm(vec![
+            OsString::from("a"),
+            OsString::from("b"),
+            OsString::from("c"),
+        ]);
+        assert_eq!(three.message, "Delete 3 items?");
+    }
+
+    #[test]
+    fn choice_cursor_wraps() {
+        let mut popup = ChoicePopup::quit_during_operation(None);
+        assert_eq!(popup.cursor, 0);
+        popup.cursor_up();
+        assert_eq!(popup.cursor, 1);
+        popup.cursor_down();
+        assert_eq!(popup.cursor, 0);
+        assert_eq!(popup.choice_for_letter('Y'), None);
+    }
+
+    #[test]
+    fn conflict_popup_rows_and_letters() {
+        let mut popup = ConflictPopup::new(PathBuf::from("/a/x"), PathBuf::from("/b/x"), true);
+
+        let items = popup.items();
+        let rows: Vec<(&str, &str, ItemMark)> = items
+            .iter()
+            .map(|i| (i.label.as_str(), i.detail.as_str(), i.mark))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("Overwrite", "O", ItemMark::None),
+                ("Skip", "S", ItemMark::None),
+                ("Rename", "R", ItemMark::None),
+                ("Apply to all", "A", ItemMark::Check(true)),
+                ("Abort", "Esc", ItemMark::None),
+            ]
+        );
+        assert_eq!(ConflictPopup::row_for_letter('s'), Some(ConflictRow::Skip));
+        assert_eq!(ConflictPopup::row_for_letter('Q'), None);
+        popup.cursor_up();
+        assert_eq!(popup.row_at_cursor(), ConflictRow::Abort);
+        popup.cursor_down();
+        assert_eq!(popup.row_at_cursor(), ConflictRow::Overwrite);
     }
 
     #[test]
