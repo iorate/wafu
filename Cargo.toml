@@ -17,6 +17,7 @@ publish = false
 
 [workspace.dependencies]
 arboard = { version = "3.7.0", default-features = false, features = ["wayland-data-control"] }
+chardetng = "1.0.0"
 chrono = "0.4.45"
 clap = "4.6.7"
 dirs = "7.0.0"
@@ -24,6 +25,7 @@ encoding_rs = "0.8.42"
 globset = "0.4.20"
 icu_collator = "2.3.1"
 icu_normalizer = "2.3.0"
+image = { version = "0.25.10", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png", "webp"] }
 notify = "8.2.0"
 open = "5.4.4"
 same-file = "1.0.6"

@@ -9,7 +9,8 @@ use crate::pane::HistoryMove;
 use crate::path::{expand_tilde, resolve_input};
 use crate::popup::{
     ChoiceKind, ChoicePopup, ConflictPopup, ConflictRow, InputKind, InputPopup, ListItem,
-    ListPopup, ListTarget, PalettePopup, Popup, SearchPopup, SortPopup, stem_selection,
+    ListPopup, ListTarget, PalettePopup, PasswordPurpose, Popup, SearchPopup, SortPopup,
+    stem_selection,
 };
 use crate::view::{InputField, ItemMark, PopupItem, PopupView};
 
@@ -188,7 +189,8 @@ impl App {
     }
 
     fn loading_view(&self) -> Option<PopupView> {
-        let targets = self.navigation_targets();
+        let mut targets = self.navigation_targets();
+        targets.extend(self.preview_loading_name());
         (!targets.is_empty()).then(|| PopupView {
             title: "Loading".to_owned(),
             message: Some(format!("Reading {}", targets.join(", "))),
@@ -229,7 +231,14 @@ impl App {
                     self.popup = Some(Popup::Conflict(ConflictPopup::new(source, dest, all)));
                 }
                 // So is the worker, and without a password it cannot go on.
-                InputKind::ArchivePassword { .. } => self.cancel_operation(effects),
+                InputKind::ArchivePassword {
+                    purpose: PasswordPurpose::Operation,
+                    ..
+                } => self.cancel_operation(effects),
+                InputKind::ArchivePassword {
+                    purpose: PasswordPurpose::Preview,
+                    ..
+                } => self.preview_password_refused(effects),
                 _ => {}
             },
             KeyBase::Named(NamedKey::Enter) => self.confirm_input(popup, effects),
@@ -258,8 +267,18 @@ impl App {
                 self.confirm_name(popup.kind, &text, effects);
                 return;
             }
-            InputKind::ArchivePassword { .. } => {
+            InputKind::ArchivePassword {
+                purpose: PasswordPurpose::Operation,
+                ..
+            } => {
                 self.confirm_password(popup, effects);
+                return;
+            }
+            InputKind::ArchivePassword {
+                purpose: PasswordPurpose::Preview,
+                ..
+            } => {
+                self.preview_password(popup, effects);
                 return;
             }
             InputKind::Compress { names } => {

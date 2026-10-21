@@ -73,4 +73,6 @@ pub enum AppError {
     ClipboardFailed { source: IoError },
     #[error("cannot open {}: {source}", path.display())]
     OpenFailed { path: PathBuf, source: IoError },
+    #[error("cannot preview {}: {source}", path.display())]
+    PreviewFailed { path: PathBuf, source: IoError },
 }

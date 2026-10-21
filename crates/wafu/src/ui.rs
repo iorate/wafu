@@ -4,17 +4,20 @@ use std::sync::Arc;
 
 use slint::{
     CloseRequestResponse, ComponentHandle, LogicalPosition, LogicalSize, Model, ModelRc,
-    SharedString, VecModel,
+    Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel,
 };
 use wafu_core::{
     App, Color, Colors, Effect, Ellipsis, InputField, ItemMark, MouseInput, Msg, PaneView,
-    PopupView, ResolvedFont, RowKind, RowView, Side, StateFile, Style, Theme as ConfigTheme, View,
-    WindowState,
+    PopupView, PreviewContent, PreviewPlacement, PreviewView, ResolvedFont, RowKind, RowView,
+    SharedImage, Side, StateFile, Style, Theme as ConfigTheme, View, WindowState,
 };
 use wafu_io::{Paths, Runtime};
 
 use crate::keys::{Modifiers, key_input};
-use crate::{AppWindow, PaneData, PopupData, PopupField, PopupItem, Row, Theme, ThemeColors};
+use crate::{
+    AppWindow, PaneData, PopupData, PopupField, PopupItem, PreviewData, PreviewLine, Row, Theme,
+    ThemeColors,
+};
 
 /// How many input fields the popup can show.
 const MAX_POPUP_FIELDS: usize = 2;
@@ -40,9 +43,10 @@ pub struct Ui {
     log_lines: Rc<VecModel<SharedString>>,
     popup_items: Rc<VecModel<PopupItem>>,
     popup_fields: Rc<VecModel<PopupField>>,
+    preview_lines: Rc<VecModel<PreviewLine>>,
     rendered: RefCell<Rendered>,
-    // Left pane, right pane, log.
-    wheel_remainder: RefCell<[f32; 3]>,
+    // Left pane, right pane, log, preview.
+    wheel_remainder: RefCell<[f32; 4]>,
 }
 
 struct Rendered {
@@ -52,6 +56,9 @@ struct Rendered {
     right_marks: Arc<[bool]>,
     log: Arc<[String]>,
     popup: Option<PopupView>,
+    preview: Option<PreviewView>,
+    // The image last handed to Slint, so that it is converted only once.
+    image: Option<SharedImage>,
     style: Option<Arc<Style>>,
 }
 
@@ -64,6 +71,8 @@ impl Default for Rendered {
             right_marks: Arc::from([]),
             log: Arc::from([]),
             popup: None,
+            preview: None,
+            image: None,
             style: None,
         }
     }
@@ -91,8 +100,9 @@ impl Ui {
             log_lines: Rc::new(VecModel::default()),
             popup_items: Rc::new(VecModel::default()),
             popup_fields: Rc::new(VecModel::default()),
+            preview_lines: Rc::new(VecModel::default()),
             rendered: RefCell::new(Rendered::default()),
-            wheel_remainder: RefCell::new([0.0; 3]),
+            wheel_remainder: RefCell::new([0.0; 4]),
         });
         ui.window
             .set_left_rows(ModelRc::from(Rc::clone(&ui.left_rows)));
@@ -108,6 +118,8 @@ impl Ui {
             .set_popup_items(ModelRc::from(Rc::clone(&ui.popup_items)));
         ui.window
             .set_popup_fields(ModelRc::from(Rc::clone(&ui.popup_fields)));
+        ui.window
+            .set_preview_lines(ModelRc::from(Rc::clone(&ui.preview_lines)));
         ui.window.set_menu_bar_visible(cfg!(target_os = "macos"));
 
         Self::connect(&ui);
@@ -244,6 +256,24 @@ impl Ui {
         });
 
         let weak = Rc::downgrade(ui);
+        ui.window.on_preview_rows_changed(move |rows| {
+            if let Some(ui) = Weak::upgrade(&weak) {
+                ui.dispatch(Msg::PreviewRows {
+                    rows: usize::try_from(rows).unwrap_or(1),
+                });
+            }
+        });
+
+        let weak = Rc::downgrade(ui);
+        ui.window.on_preview_wheel(move |delta| {
+            if let Some(ui) = Weak::upgrade(&weak)
+                && let Some(rows) = ui.wheel_rows(3, delta)
+            {
+                ui.dispatch(Msg::Mouse(MouseInput::PreviewWheel { rows }));
+            }
+        });
+
+        let weak = Rc::downgrade(ui);
         ui.window.on_input_edited(move |field, text| {
             if let Some(ui) = Weak::upgrade(&weak) {
                 ui.dispatch(Msg::InputChanged {
@@ -328,6 +358,7 @@ impl Ui {
             .set_log_rows(i32::try_from(view.log_rows).unwrap_or(i32::MAX));
         self.window
             .set_log_scroll_top(i32::try_from(view.log.scroll_top).unwrap_or(i32::MAX));
+        self.window.set_hide_log(view.hide_log);
         // Replacing a model resets the list, which is too slow to do on every
         // key repeat, so the models are only touched when their content changes.
         let mut rendered = self.rendered.borrow_mut();
@@ -390,6 +421,10 @@ impl Ui {
                 }
             }
         }
+        if rendered.preview != view.preview {
+            self.render_preview(&mut rendered, view.preview.as_ref());
+            rendered.preview.clone_from(&view.preview);
+        }
         if rendered.popup != view.popup {
             self.popup_fields.set_vec(
                 fields
@@ -411,6 +446,49 @@ impl Ui {
 }
 
 impl Ui {
+    fn render_preview(&self, rendered: &mut Rendered, preview: Option<&PreviewView>) {
+        let (lines, digits, image, data) = match preview {
+            None => (Vec::new(), 0, None, PreviewData::default()),
+            Some(preview) => {
+                let (kind, lines, digits, image, message) = match &preview.content {
+                    PreviewContent::Lines { lines, digits } => {
+                        (0, lines.as_slice(), *digits, None, "")
+                    }
+                    PreviewContent::Image(image) => (1, [].as_slice(), 0, image.clone(), ""),
+                    PreviewContent::Message(message) => {
+                        (2, [].as_slice(), 0, None, message.as_str())
+                    }
+                };
+                let data = PreviewData {
+                    visible: true,
+                    full: preview.placement == PreviewPlacement::Full,
+                    kind,
+                    message: message.into(),
+                    name: preview.name.as_str().into(),
+                    detail: preview.detail.as_str().into(),
+                };
+                (
+                    lines.iter().map(preview_line).collect(),
+                    digits,
+                    image,
+                    data,
+                )
+            }
+        };
+        if rendered.image != image {
+            self.window.set_preview_image(match &image {
+                Some(image) => slint_image(&image.0),
+                None => slint::Image::default(),
+            });
+            rendered.image = image;
+        }
+        self.window.set_preview_has_image(rendered.image.is_some());
+        self.window
+            .set_preview_number_sample("0".repeat(digits).into());
+        self.preview_lines.set_vec(lines);
+        self.window.set_preview(data);
+    }
+
     fn apply_style(&self, style: &Style) {
         self.window
             .set_ellipsis_middle(style.ellipsis == Ellipsis::Middle);
@@ -431,7 +509,23 @@ impl Ui {
         let (family, size) = font(&style.fonts.log);
         theme.set_log_font_family(family);
         theme.set_log_font_size(size);
+        let (family, size) = font(&style.fonts.preview);
+        theme.set_preview_font_family(family);
+        theme.set_preview_font_size(size);
     }
+}
+
+fn preview_line(line: &wafu_core::PreviewLine) -> PreviewLine {
+    PreviewLine {
+        number: line.number.as_str().into(),
+        text: line.text.as_str().into(),
+    }
+}
+
+fn slint_image(image: &wafu_core::ImageData) -> slint::Image {
+    let buffer =
+        SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(&image.rgba, image.width, image.height);
+    slint::Image::from_rgba8(buffer)
 }
 
 fn theme_colors(colors: &Colors) -> ThemeColors {

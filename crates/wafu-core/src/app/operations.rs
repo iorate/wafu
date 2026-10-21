@@ -13,7 +13,9 @@ use crate::operation::{
     OutcomeLine, Reply, Sources,
 };
 use crate::pane::{HistoryMove, TargetRule};
-use crate::popup::{ChoiceKind, ChoicePopup, ConflictPopup, InputKind, InputPopup, Popup};
+use crate::popup::{
+    ChoiceKind, ChoicePopup, ConflictPopup, InputKind, InputPopup, PasswordPurpose, Popup,
+};
 use crate::view::PopupView;
 
 /// The name of an archive made from several entries when the directory has no name.
@@ -274,7 +276,11 @@ impl App {
                 if retry && operation.remember_password {
                     self.panes[operation.side.index()].set_archive_password(None);
                 }
-                self.popup = Some(Popup::Input(InputPopup::password(archive, retry)));
+                self.popup = Some(Popup::Input(InputPopup::password(
+                    archive,
+                    retry,
+                    PasswordPurpose::Operation,
+                )));
             }
             OperationEvent::TempDir(path) => operation.temp_dir = Some(path),
             OperationEvent::Finished(outcome) => self.finished(&outcome, effects),

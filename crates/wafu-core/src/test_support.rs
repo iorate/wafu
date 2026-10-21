@@ -2,8 +2,8 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 use crate::app::{
-    App, Change, ConfigSource, DrivePurpose, Effect, IoEvent, MouseInput, Msg, Os, Resolved, Side,
-    Start,
+    App, Change, ConfigSource, DrivePurpose, Effect, IoEvent, MouseInput, Msg, Os, PreviewError,
+    Resolved, Side, Start,
 };
 use crate::entry::{Entry, EntryKind};
 use crate::error::IoError;
@@ -11,6 +11,7 @@ use crate::key::{Key, KeyBase, KeyInput};
 use crate::operation::{OperationEvent, OperationSpec, Outcome};
 use crate::pane::RequestId;
 use crate::popup::Popup;
+use crate::preview::{Document, ImageData};
 use crate::state::{StateError, StateFile};
 use crate::view::View;
 
@@ -24,6 +25,7 @@ pub(crate) struct Harness {
     effects: Vec<Effect>,
     requests: [Option<RequestId>; 2],
     resolves: [Option<RequestId>; 2],
+    preview_request: Option<RequestId>,
 }
 
 impl Harness {
@@ -60,6 +62,7 @@ impl Harness {
             effects: Vec::new(),
             requests: [None, None],
             resolves: [None, None],
+            preview_request: None,
         };
         harness.send(msg);
         harness
@@ -74,6 +77,9 @@ impl Harness {
                 }
                 Effect::Resolve { side, request, .. } => {
                     self.resolves[side.index()] = Some(*request);
+                }
+                Effect::LoadPreview { request, .. } | Effect::LoadImage { request, .. } => {
+                    self.preview_request = Some(*request);
                 }
                 _ => {}
             }
@@ -133,6 +139,80 @@ impl Harness {
 
     pub(crate) fn viewport(&mut self, side: Side, rows: usize) {
         self.send(Msg::ViewportRows { side, rows });
+    }
+
+    pub(crate) fn preview_rows(&mut self, rows: usize) {
+        self.send(Msg::PreviewRows { rows });
+    }
+
+    pub(crate) fn preview_wheel(&mut self, rows: i32) {
+        self.send(Msg::Mouse(MouseInput::PreviewWheel { rows }));
+    }
+
+    /// Answers the latest preview request with a decoded document.
+    pub(crate) fn preview_loaded(&mut self, document: Document) {
+        let request = self.latest_preview_request();
+        self.send(Msg::Io(IoEvent::PreviewLoaded {
+            request,
+            result: Ok(document),
+        }));
+    }
+
+    pub(crate) fn fail_preview(&mut self, error: PreviewError) {
+        let request = self.latest_preview_request();
+        self.send(Msg::Io(IoEvent::PreviewLoaded {
+            request,
+            result: Err(error),
+        }));
+    }
+
+    /// Answers the latest image request with a blank image of the given size.
+    pub(crate) fn image_loaded(&mut self, width: u32, height: u32) {
+        let request = self.latest_preview_request();
+        self.send(Msg::Io(IoEvent::ImageLoaded {
+            request,
+            result: Ok(ImageData {
+                width,
+                height,
+                rgba: vec![0; (width * height * 4) as usize],
+            }),
+        }));
+    }
+
+    pub(crate) fn fail_image(&mut self, error: PreviewError) {
+        let request = self.latest_preview_request();
+        self.send(Msg::Io(IoEvent::ImageLoaded {
+            request,
+            result: Err(error),
+        }));
+    }
+
+    pub(crate) fn latest_preview_request(&self) -> RequestId {
+        self.preview_request
+            .expect("a LoadPreview or LoadImage request should have been issued")
+    }
+
+    /// The texts of the lines a text or binary preview shows.
+    pub(crate) fn preview_lines(&self) -> Vec<String> {
+        self.preview_content()
+            .into_iter()
+            .map(|line| line.text)
+            .collect()
+    }
+
+    /// The line numbers beside the lines a preview shows.
+    pub(crate) fn preview_numbers(&self) -> Vec<String> {
+        self.preview_content()
+            .into_iter()
+            .map(|line| line.number)
+            .collect()
+    }
+
+    fn preview_content(&self) -> Vec<crate::view::PreviewLine> {
+        match self.view().preview.map(|preview| preview.content) {
+            Some(crate::view::PreviewContent::Lines { lines, .. }) => lines,
+            other => panic!("expected a lines preview, got {other:?}"),
+        }
     }
 
     /// Delivers a listing to a side: answers its pending read, or, when none

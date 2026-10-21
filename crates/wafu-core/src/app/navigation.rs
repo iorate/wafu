@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use super::{App, DrivePurpose, Effect, Os, Resolved, Side};
 use crate::command::Command;
-use crate::entry::Entry;
+use crate::entry::{Entry, EntryKind};
 use crate::error::{AppError, IoError};
 use crate::location::{ArchiveFormat, Location};
 use crate::pane::{HistoryMove, InFlight, Pane, RequestId};
@@ -262,6 +262,12 @@ impl App {
                 if let Some(format) = ArchiveFormat::from_name(&entry.name) {
                     let name = entry.name.clone();
                     self.enter_archive(&name, format, effects);
+                } else if !(location.in_archive()
+                    && matches!(entry.kind, EntryKind::Symlink { .. }))
+                {
+                    // A link inside an archive leads nowhere until extracted.
+                    let entry = entry.clone();
+                    self.open_preview(&entry, effects);
                 }
             }
         }
@@ -431,7 +437,7 @@ impl App {
         drive_letter(&self.active_pane().location().base)
     }
 
-    fn next_request_id(&mut self) -> RequestId {
+    pub(super) fn next_request_id(&mut self) -> RequestId {
         let request = RequestId(self.next_request);
         self.next_request += 1;
         request

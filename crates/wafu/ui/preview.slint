@@ -1,0 +1,147 @@
+import { Palette } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+export struct PreviewData {
+    visible: bool,
+    // In place of both panes; otherwise in place of the right pane.
+    full: bool,
+    // 0: lines of text, 1: an image (or nothing), 2: a message
+    kind: int,
+    message: string,
+    name: string,
+    detail: string,
+}
+
+export struct PreviewLine {
+    // Empty for a continued line and for the hex dump.
+    number: string,
+    text: string,
+}
+
+export component PreviewWidget inherits Rectangle {
+    in property <PreviewData> data;
+    in property <[PreviewLine]> lines;
+    // As many zeros as the widest line number has digits; empty for no column.
+    in property <string> number-sample;
+    in property <image> picture;
+    in property <bool> has-picture;
+
+    callback rows-changed(rows: int);
+    callback wheel(delta: length);
+
+    // The height of one unwrapped line decides how many lines are asked for.
+    property <length> row-height: measure.preferred-height;
+
+    function report() {
+        root.rows-changed(max(1, floor((root.height - 8px) / root.row-height)));
+    }
+
+    init => {
+        root.report();
+    }
+
+    changed height => {
+        root.report();
+    }
+
+    changed row-height => {
+        root.report();
+    }
+
+    clip: true;
+    background: Theme.colors.bg;
+
+    measure := Text {
+        text: "0";
+        font-family: Theme.preview-font-family;
+        font-size: Theme.preview-font-size;
+        visible: false;
+    }
+
+    // The number column is as wide as the widest number in the preview font.
+    measure-number := Text {
+        text: root.number-sample;
+        font-family: Theme.preview-font-family;
+        font-size: Theme.preview-font-size;
+        visible: false;
+    }
+
+    // The lines wrap to the width; the ones past the bottom are cut off.
+    if root.data.kind == 0: VerticalLayout {
+        alignment: start;
+        padding: 4px;
+
+        for line in root.lines: HorizontalLayout {
+            spacing: root.number-sample == "" ? 0 : 8px;
+
+            Text {
+                text: line.number;
+                width: measure-number.preferred-width;
+                horizontal-alignment: right;
+                vertical-alignment: top;
+                font-family: Theme.preview-font-family;
+                font-size: Theme.preview-font-size;
+                color: Theme.colors.fg;
+                opacity: 0.6;
+            }
+
+            Text {
+                text: line.text;
+                wrap: word-wrap;
+                horizontal-stretch: 1;
+                font-family: Theme.preview-font-family;
+                font-size: Theme.preview-font-size;
+                color: Theme.colors.fg;
+            }
+        }
+    }
+
+    // Shrunk to fit, never enlarged: a small image keeps its size.
+    if root.data.kind == 1 && root.has-picture: Image {
+        property <length> natural-width: root.picture.width * 1px;
+        property <length> natural-height: root.picture.height * 1px;
+        property <bool> fits: self.natural-width <= root.width && self.natural-height <= root.height;
+
+        source: root.picture;
+        width: self.fits ? self.natural-width : root.width;
+        height: self.fits ? self.natural-height : root.height;
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2;
+        image-fit: contain;
+        image-rendering: smooth;
+    }
+
+    if root.data.kind == 2: Text {
+        text: root.data.message;
+        width: root.width - 16px;
+        x: 8px;
+        y: (root.height - self.height) / 2;
+        wrap: word-wrap;
+        horizontal-alignment: center;
+        color: Theme.colors.fg;
+    }
+
+    if root.data.full && root.data.name != "": Rectangle {
+        width: overlay.preferred-width + 16px;
+        height: overlay.preferred-height + 8px;
+        x: root.width - self.width - 8px;
+        y: root.height - self.height - 8px;
+        background: Palette.alternate-background.with-alpha(0.85);
+        border-width: 1px;
+        border-color: Palette.border;
+        border-radius: 4px;
+
+        overlay := Text {
+            text: root.data.detail == "" ? root.data.name : root.data.name + "  " + root.data.detail;
+            color: Palette.foreground;
+        }
+    }
+
+    // The core owns the scroll position; clicks do nothing in a preview.
+    TouchArea {
+        scroll-event(event) => {
+            root.wheel(event.delta-y);
+            accept
+        }
+    }
+}
