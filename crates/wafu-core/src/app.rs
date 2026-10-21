@@ -182,6 +182,20 @@ pub enum Effect {
     Clipboard(String),
     /// Opens the path with whatever the OS associates with it.
     OpenWithOs(PathBuf),
+    /// Shows the OS's context menu for the paths (Windows only).
+    ShellMenu {
+        paths: Vec<PathBuf>,
+        anchor: MenuAnchor,
+    },
+}
+
+/// Where a context menu opens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuAnchor {
+    /// At the pointer, for a right click.
+    Pointer,
+    /// Below a display row of a pane, for the keyboard.
+    Row { side: Side, row: usize },
 }
 
 /// What to read for a preview: a file, or one entry of an archive.
@@ -303,6 +317,10 @@ pub enum IoEvent {
     },
     Opened {
         path: PathBuf,
+        error: Option<IoError>,
+    },
+    /// The shell menu was closed, or could not be shown.
+    ShellMenuClosed {
         error: Option<IoError>,
     },
 }
@@ -517,6 +535,12 @@ impl App {
                         .push(AppError::OpenFailed { path, source }.to_string());
                 }
             }
+            IoEvent::ShellMenuClosed { error } => {
+                if let Some(source) = error {
+                    self.log
+                        .push(AppError::ShellMenuFailed { source }.to_string());
+                }
+            }
         }
     }
 
@@ -661,9 +685,19 @@ impl App {
 
     fn mouse(&mut self, input: MouseInput, effects: &mut Vec<Effect>) {
         match input {
-            MouseInput::Click { side, row } | MouseInput::RightClick { side, row } => {
+            MouseInput::Click { side, row } => {
                 self.active = side;
                 self.panes[side.index()].set_cursor(row);
+            }
+            MouseInput::RightClick { side, row } => {
+                self.active = side;
+                let pane = &mut self.panes[side.index()];
+                if row < pane.row_count() {
+                    pane.set_cursor(row);
+                    if self.os == Os::Windows {
+                        self.shell_menu(MenuAnchor::Pointer, effects);
+                    }
+                }
             }
             MouseInput::DoubleClick { side, row } => {
                 self.active = side;

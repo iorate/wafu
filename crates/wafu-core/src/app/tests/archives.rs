@@ -167,7 +167,7 @@ fn commands_that_change_things_are_refused_inside_an_archive() {
     harness.press("Down");
     harness.press("Down");
 
-    for key in ["M", "D", "Shift+D", "R", "K", "Shift+E", "U", "P"] {
+    for key in ["M", "D", "Shift+D", "R", "K", "Shift+E", "U", "P", "\\"] {
         harness.press(key);
     }
 
@@ -184,7 +184,26 @@ fn commands_that_change_things_are_refused_inside_an_archive() {
             "new_text is not available inside an archive",
             "extract is not available inside an archive",
             "compress is not available inside an archive",
+            "shell_menu is not available inside an archive",
         ]
+    );
+}
+
+#[test]
+fn right_click_inside_an_archive_on_windows_is_refused() {
+    let mut harness = Harness::start_on(Os::Windows, r"C:\Users\me", r"D:\");
+    harness.load(Side::Left, vec![file("a.zip")]);
+    harness.press("Down");
+    harness.enter_archive(Side::Left, contents());
+    harness.take_effects();
+
+    harness.right_click(Side::Left, 2);
+
+    assert_eq!(harness.cursor_name(Side::Left), "b.txt");
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log(),
+        ["shell_menu is not available inside an archive"]
     );
 }
 

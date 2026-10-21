@@ -36,13 +36,17 @@ export component AppWindow inherits Window {
     // 0: follow the OS, 1: light, 2: dark
     in property <int> theme;
     in property <bool> menu-bar-visible;
+    out property <length> left-list-x: left-pane.list-x;
+    out property <length> left-list-y: left-pane.list-y;
+    out property <length> right-list-x: right-pane.list-x;
+    out property <length> right-list-y: right-pane.list-y;
 
     callback key-input(text: string, control: bool, shift: bool, alt: bool, meta: bool);
     callback quit-requested();
     callback viewport-rows-changed(side: int, rows: int);
     callback row-clicked(side: int, row: int);
     callback row-double-clicked(side: int, row: int);
-    callback row-right-clicked(side: int, row: int);
+    callback row-right-clicked(side: int, row: int, x: length, y: length);
     callback wheel(side: int, delta: length);
     callback log-wheel(delta: length);
     callback input-edited(field: int, text: string);
@@ -55,6 +59,7 @@ export component AppWindow inherits Window {
     property <bool> progress-shown;
 
     title: window-title;
+    icon: @image-url("../assets/wafu.png");
     preferred-width: 960px;
     preferred-height: 640px;
     forward-focus: scope;
@@ -149,7 +154,7 @@ export component AppWindow inherits Window {
                 property <bool> left-covered: root.preview.visible && root.preview.full;
                 property <bool> right-covered: root.preview.visible;
 
-                PaneWidget {
+                left-pane := PaneWidget {
                     x: 0;
                     width: panes.left-width;
                     height: parent.height;
@@ -168,8 +173,8 @@ export component AppWindow inherits Window {
                     row-double-clicked(row) => {
                         root.row-double-clicked(0, row);
                     }
-                    row-right-clicked(row) => {
-                        root.row-right-clicked(0, row);
+                    row-right-clicked(row, x, y) => {
+                        root.row-right-clicked(0, row, x, y);
                     }
                     wheel(delta) => {
                         root.wheel(0, delta);
@@ -183,7 +188,7 @@ export component AppWindow inherits Window {
                     background: Palette.border;
                 }
 
-                PaneWidget {
+                right-pane := PaneWidget {
                     x: panes.left-width + 1px;
                     width: parent.width - panes.left-width - 1px;
                     height: parent.height;
@@ -202,8 +207,8 @@ export component AppWindow inherits Window {
                     row-double-clicked(row) => {
                         root.row-double-clicked(1, row);
                     }
-                    row-right-clicked(row) => {
-                        root.row-right-clicked(1, row);
+                    row-right-clicked(row, x, y) => {
+                        root.row-right-clicked(1, row, x, y);
                     }
                     wheel(delta) => {
                         root.wheel(1, delta);

@@ -124,11 +124,15 @@ export component PaneWidget {
     in property <[bool]> marks;
     in property <int> scroll-top;
     in property <bool> ellipsis-middle;
+    // Where the list is in the window, for a menu below a row.
+    out property <length> list-x: area.absolute-position.x;
+    out property <length> list-y: area.absolute-position.y;
 
     callback viewport-rows-changed(rows: int);
     callback row-clicked(row: int);
     callback row-double-clicked(row: int);
-    callback row-right-clicked(row: int);
+    // The pointer position is in window coordinates, for a menu at the pointer.
+    callback row-right-clicked(row: int, x: length, y: length);
     callback wheel(delta: length);
 
     // The fixed columns are as wide as a sample of their widest content in
@@ -183,7 +187,7 @@ export component PaneWidget {
 
         // A pane narrower than its fixed columns cuts the rows off at its
         // edge instead of drawing over the other pane.
-        Rectangle {
+        area := Rectangle {
             vertical-stretch: 1;
             clip: true;
 
@@ -219,9 +223,15 @@ export component PaneWidget {
                     root.row-double-clicked(root.row-at(self.mouse-y));
                 }
 
+                // On release, as the shell does, so that a menu opened by the
+                // press is not dismissed by the release.
                 pointer-event(event) => {
-                    if event.kind == PointerEventKind.down && event.button == PointerEventButton.right {
-                        root.row-right-clicked(root.row-at(self.mouse-y));
+                    if event.kind == PointerEventKind.up && event.button == PointerEventButton.right {
+                        root.row-right-clicked(
+                            root.row-at(self.mouse-y),
+                            self.absolute-position.x + self.mouse-x,
+                            self.absolute-position.y + self.mouse-y
+                        );
                     }
                 }
 

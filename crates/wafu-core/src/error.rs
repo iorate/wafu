@@ -75,4 +75,6 @@ pub enum AppError {
     OpenFailed { path: PathBuf, source: IoError },
     #[error("cannot preview {}: {source}", path.display())]
     PreviewFailed { path: PathBuf, source: IoError },
+    #[error("cannot show the shell menu: {source}")]
+    ShellMenuFailed { source: IoError },
 }

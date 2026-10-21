@@ -31,8 +31,8 @@ mod text;
 mod view;
 
 pub use app::{
-    App, Change, ConfigSource, DrivePurpose, Effect, IoEvent, MouseInput, Msg, Os, PreviewError,
-    PreviewSource, Resolved, Side, SpawnKind, Start,
+    App, Change, ConfigSource, DrivePurpose, Effect, IoEvent, MenuAnchor, MouseInput, Msg, Os,
+    PreviewError, PreviewSource, Resolved, Side, SpawnKind, Start,
 };
 pub use command::{Command, Context};
 pub use config::{

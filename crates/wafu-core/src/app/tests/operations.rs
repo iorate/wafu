@@ -1,7 +1,8 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-use crate::app::{Change, ConfigSource, Effect, Msg, Os, Side};
+use crate::app::{Change, ConfigSource, Effect, IoEvent, MenuAnchor, Msg, Os, Side};
+use crate::error::IoError;
 use crate::operation::{OperationEvent, OperationKind, OperationSpec, Outcome, Reply, Sources};
 use crate::popup::Popup;
 use crate::test_support::{Harness, dir, file, start_msg_with};
@@ -9,6 +10,8 @@ use crate::view::ItemMark;
 
 const LEFT: &str = "/home/user";
 const RIGHT: &str = "/tmp";
+const WIN_LEFT: &str = r"C:\Users\me";
+const WIN_RIGHT: &str = r"D:\";
 
 #[test]
 fn copy_starts_an_operation_on_the_marked_entries_in_display_order() {
@@ -901,9 +904,171 @@ fn shell_menu_is_windows_only() {
     assert_eq!(windows.log(), Vec::<String>::new());
 }
 
+#[test]
+fn shell_menu_from_the_keyboard_takes_the_marks_or_the_cursor_entry() {
+    let mut harness = windows_files();
+    harness.press("Down");
+    harness.press("\\");
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::ShellMenu {
+            paths: vec![path(WIN_LEFT, "a")],
+            anchor: MenuAnchor::Row {
+                side: Side::Left,
+                row: 1,
+            },
+        }]
+    );
+
+    harness.press("Space");
+    harness.press("Space");
+    harness.take_effects();
+    harness.press("\\");
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::ShellMenu {
+            paths: vec![path(WIN_LEFT, "a"), path(WIN_LEFT, "b")],
+            anchor: MenuAnchor::Row {
+                side: Side::Left,
+                row: 3,
+            },
+        }]
+    );
+    assert_eq!(harness.log(), Vec::<String>::new());
+}
+
+#[test]
+fn shell_menu_from_the_palette_is_the_same_as_the_key() {
+    let mut harness = windows_files();
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("B");
+    harness.edit("shell_menu");
+    harness.press("Enter");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::ShellMenu {
+            paths: vec![path(WIN_LEFT, "a")],
+            anchor: MenuAnchor::Row {
+                side: Side::Left,
+                row: 1,
+            },
+        }]
+    );
+}
+
+#[test]
+fn shell_menu_does_nothing_on_the_parent_row_without_marks() {
+    let mut harness = windows_files();
+    harness.take_effects();
+
+    harness.press("\\");
+    harness.right_click(Side::Left, 0);
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.log(), Vec::<String>::new());
+}
+
+#[test]
+fn right_click_on_windows_opens_the_menu_for_the_clicked_row_at_the_pointer() {
+    let mut harness = windows_files();
+    harness.press("Down");
+    harness.press("Space");
+    harness.press("Tab");
+    harness.take_effects();
+
+    harness.right_click(Side::Left, 2);
+
+    assert!(harness.view().left.active);
+    assert_eq!(harness.cursor_name(Side::Left), "b");
+    assert_eq!(harness.marks(Side::Left), ["a"]);
+    // Activating the pane also retitles the window.
+    assert_eq!(
+        harness.take_effects(),
+        vec![
+            Effect::ShellMenu {
+                paths: vec![path(WIN_LEFT, "b")],
+                anchor: MenuAnchor::Pointer,
+            },
+            Effect::SetTitle(format!("wafu - {WIN_LEFT}")),
+        ]
+    );
+}
+
+#[test]
+fn right_click_on_a_marked_row_takes_every_mark() {
+    let mut harness = windows_files();
+    harness.press("Down");
+    harness.press("Space");
+    harness.press("Down");
+    harness.press("Space");
+    harness.take_effects();
+
+    harness.right_click(Side::Left, 1);
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::ShellMenu {
+            paths: vec![path(WIN_LEFT, "a"), path(WIN_LEFT, "c")],
+            anchor: MenuAnchor::Pointer,
+        }]
+    );
+}
+
+#[test]
+fn right_click_past_the_rows_only_activates_the_pane() {
+    let mut harness = windows_files();
+    harness.press("Tab");
+    harness.take_effects();
+
+    harness.right_click(Side::Left, 7);
+
+    assert!(harness.view().left.active);
+    assert_eq!(harness.cursor_name(Side::Left), "..");
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::SetTitle(format!("wafu - {WIN_LEFT}"))]
+    );
+}
+
+#[test]
+fn right_click_is_ignored_while_a_popup_is_open() {
+    let mut harness = windows_files();
+    harness.press("S");
+    harness.take_effects();
+
+    harness.right_click(Side::Left, 1);
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.cursor_name(Side::Left), "..");
+}
+
+#[test]
+fn a_failed_shell_menu_is_logged_and_a_closed_one_is_not() {
+    let mut harness = windows_files();
+
+    harness.send(Msg::Io(IoEvent::ShellMenuClosed { error: None }));
+    assert_eq!(harness.log(), Vec::<String>::new());
+
+    harness.send(Msg::Io(IoEvent::ShellMenuClosed {
+        error: Some(IoError::new("no handler")),
+    }));
+    assert_eq!(harness.log(), ["cannot show the shell menu: no handler"]);
+}
+
 fn three_files() -> Harness {
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
+    harness
+}
+
+fn windows_files() -> Harness {
+    let mut harness = Harness::start_on(Os::Windows, WIN_LEFT, WIN_RIGHT);
+    harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
+    harness.load(Side::Right, vec![file("r")]);
+    harness.take_effects();
     harness
 }
 
