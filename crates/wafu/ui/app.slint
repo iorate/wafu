@@ -23,6 +23,9 @@ export component AppWindow inherits Window {
     in property <PopupData> popup;
     in property <[PopupItem]> popup-items;
     in-out property <string> popup-text;
+    // The part of the input to select when the popup opens; all of it when empty.
+    in property <int> popup-select-start;
+    in property <int> popup-select-end;
     // 0: follow the OS, 1: light, 2: dark
     in property <int> theme;
     in property <bool> menu-bar-visible;
@@ -237,6 +240,8 @@ export component AppWindow inherits Window {
         data: root.popup;
         items: root.popup-items;
         text <=> root.popup-text;
+        select-start: root.popup-select-start;
+        select-end: root.popup-select-end;
         key-input(text, control, shift, alt, meta) => {
             root.key-input(text, control, shift, alt, meta);
         }

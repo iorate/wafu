@@ -57,4 +57,14 @@ pub enum AppError {
     SpawnFailed { program: String, source: IoError },
     #[error("cannot start a new window: {source}")]
     NewWindowFailed { source: IoError },
+    #[error("cannot {verb}: the other pane has no location")]
+    NoOtherLocation { verb: &'static str },
+    #[error("cannot rename {}: {source}", path.display())]
+    RenameFailed { path: PathBuf, source: IoError },
+    #[error("cannot create {}: {source}", path.display())]
+    CreateFailed { path: PathBuf, source: IoError },
+    #[error("cannot copy to the clipboard: {source}")]
+    ClipboardFailed { source: IoError },
+    #[error("cannot open {}: {source}", path.display())]
+    OpenFailed { path: PathBuf, source: IoError },
 }

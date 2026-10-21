@@ -220,7 +220,7 @@ impl App {
         ));
     }
 
-    fn expansion(&self) -> Expansion {
+    pub(super) fn expansion(&self) -> Expansion {
         let pane = self.active_pane();
         let base = &pane.location().base;
         let full = |entry: &Entry| base.join(&entry.name);
@@ -237,7 +237,7 @@ impl App {
         }
     }
 
-    fn spawn(line: &CommandLine, expansion: &Expansion, effects: &mut Vec<Effect>) {
+    pub(super) fn spawn(line: &CommandLine, expansion: &Expansion, effects: &mut Vec<Effect>) {
         effects.push(Effect::Spawn {
             program: line.program().to_owned(),
             args: line.expand(expansion),

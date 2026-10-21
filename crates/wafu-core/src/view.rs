@@ -92,6 +92,9 @@ pub struct PopupView {
     pub message: Option<String>,
     /// The text of the input field, if the popup has one.
     pub input: Option<String>,
+    /// The part of the input to select when it opens, as byte offsets. The
+    /// whole text is selected when this is `None`.
+    pub select: Option<(usize, usize)>,
     pub items: Vec<PopupItem>,
     /// The selected item, if the popup has a list.
     pub cursor: Option<usize>,

@@ -2,11 +2,13 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 use crate::app::{
-    App, ConfigSource, DrivePurpose, Effect, IoEvent, MouseInput, Msg, Os, Resolved, Side, Start,
+    App, Change, ConfigSource, DrivePurpose, Effect, IoEvent, MouseInput, Msg, Os, Resolved, Side,
+    Start,
 };
 use crate::entry::{Entry, EntryKind};
 use crate::error::IoError;
 use crate::key::{Key, KeyBase, KeyInput};
+use crate::operation::{OperationEvent, Outcome};
 use crate::pane::RequestId;
 use crate::popup::Popup;
 use crate::state::{StateError, StateFile};
@@ -170,6 +172,23 @@ impl Harness {
             side,
             request,
             result: None,
+        }));
+    }
+
+    /// Reports something from the operation worker.
+    pub(crate) fn operation(&mut self, event: OperationEvent) {
+        self.send(Msg::Io(IoEvent::Operation(event)));
+    }
+
+    pub(crate) fn finish(&mut self, outcome: Outcome) {
+        self.operation(OperationEvent::Finished(outcome));
+    }
+
+    /// Reports the result of a rename or a creation.
+    pub(crate) fn changed_result(&mut self, change: Change, error: Option<&str>) {
+        self.send(Msg::Io(IoEvent::Changed {
+            change,
+            error: error.map(IoError::new),
         }));
     }
 

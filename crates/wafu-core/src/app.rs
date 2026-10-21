@@ -9,12 +9,14 @@ use crate::error::{AppError, IoError};
 use crate::key::{Key, KeyBase, KeyInput, NamedKey};
 use crate::location::Location;
 use crate::log::Log;
+use crate::operation::{OperationEvent, OperationSpec, Reply};
 use crate::pane::{HistoryMove, Pane, RequestId};
 use crate::popup::{InputKind, Popup};
 use crate::state::{StateError, StateFile};
 use crate::view::{LogView, PaneView, Style, View};
 
 mod navigation;
+mod operations;
 mod popups;
 mod session;
 #[cfg(test)]
@@ -140,6 +142,30 @@ pub enum Effect {
     /// geometry is filled in by the UI, as for `SaveState`.
     SpawnNewWindow(StateFile),
     Quit,
+    /// Runs a file operation on a worker; it reports through `IoEvent::Operation`.
+    StartOperation(OperationSpec),
+    /// Answers the running operation.
+    OperationReply(Reply),
+    Rename {
+        from: PathBuf,
+        to: PathBuf,
+    },
+    /// Creates the directory and any missing parents.
+    Mkdir(PathBuf),
+    /// Creates an empty file; an existing one is an error.
+    CreateFile(PathBuf),
+    /// Puts text on the clipboard.
+    Clipboard(String),
+    /// Opens the path with whatever the OS associates with it.
+    OpenWithOs(PathBuf),
+}
+
+/// What `Effect::Rename`, `Effect::Mkdir`, or `Effect::CreateFile` did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Change {
+    Renamed { from: PathBuf, to: PathBuf },
+    DirCreated(PathBuf),
+    FileCreated(PathBuf),
 }
 
 /// What `Effect::Spawn` or `Effect::SpawnNewWindow` started.
@@ -214,6 +240,18 @@ pub enum IoEvent {
         kind: SpawnKind,
         error: Option<IoError>,
     },
+    Operation(OperationEvent),
+    Changed {
+        change: Change,
+        error: Option<IoError>,
+    },
+    ClipboardSet {
+        error: Option<IoError>,
+    },
+    Opened {
+        path: PathBuf,
+        error: Option<IoError>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -232,6 +270,9 @@ pub struct App {
     style: Arc<Style>,
     log: Log,
     popup: Option<Popup>,
+    operation: Option<operations::Operation>,
+    // A file made for `new_text`, to open in the editor once it exists.
+    edit_after_create: Option<PathBuf>,
     split_percent: u8,
     next_request: u64,
     home: PathBuf,
@@ -274,6 +315,8 @@ impl App {
             config_path: PathBuf::new(),
             log,
             popup: None,
+            operation: None,
+            edit_after_create: None,
             split_percent: 50,
             next_request: 1,
             home: PathBuf::new(),
@@ -307,10 +350,18 @@ impl App {
                 effects.push(Effect::SetTitle(self.title()));
                 return effects;
             }
-            Msg::CloseRequested => self.quit(true, &mut effects),
+            Msg::CloseRequested => {
+                if self.operation.is_some() {
+                    self.confirm_quit();
+                } else {
+                    self.quit(true, &mut effects);
+                }
+            }
             Msg::Key(input) => {
                 if let Some(key) = Key::from_input(&input) {
-                    if self.popup.is_some() {
+                    if self.operation.is_some() {
+                        self.operation_key(key, &mut effects);
+                    } else if self.popup.is_some() {
                         self.popup_key(key, &mut effects);
                     } else if self.navigating() {
                         // A move in progress is modal: only Esc, which cancels it, gets through.
@@ -327,29 +378,40 @@ impl App {
                 }
             }
             Msg::Mouse(input) => {
-                if self.popup.is_none() && !self.navigating() {
+                if self.popup.is_none() && self.operation.is_none() && !self.navigating() {
                     self.mouse(input, &mut effects);
                 }
             }
             Msg::InputChanged(text) => self.input_changed(text),
             Msg::ViewportRows { side, rows } => self.panes[side.index()].set_viewport_rows(rows),
-            Msg::Io(IoEvent::DirLoaded {
+            Msg::Io(event) => self.io_event(event, &mut effects),
+        }
+        let title = self.title();
+        if title != title_before {
+            effects.push(Effect::SetTitle(title));
+        }
+        effects
+    }
+
+    fn io_event(&mut self, event: IoEvent, effects: &mut Vec<Effect>) {
+        match event {
+            IoEvent::DirLoaded {
                 side,
                 request,
                 result,
-            }) => self.dir_loaded(side, request, result, &mut effects),
-            Msg::Io(IoEvent::Resolved {
+            } => self.dir_loaded(side, request, result, effects),
+            IoEvent::Resolved {
                 side,
                 request,
                 result,
-            }) => self.resolved(side, request, result, &mut effects),
-            Msg::Io(IoEvent::LocationChanged { side, path }) => {
-                self.location_changed(side, &path, &mut effects);
+            } => self.resolved(side, request, result, effects),
+            IoEvent::LocationChanged { side, path } => {
+                self.location_changed(side, &path, effects);
             }
-            Msg::Io(IoEvent::Drives { purpose, letters }) => {
-                self.drives(purpose, letters, &mut effects);
+            IoEvent::Drives { purpose, letters } => {
+                self.drives(purpose, letters, effects);
             }
-            Msg::Io(IoEvent::WatchFailed { path, error, .. }) => {
+            IoEvent::WatchFailed { path, error, .. } => {
                 self.log.push(
                     AppError::Watch {
                         path,
@@ -358,8 +420,8 @@ impl App {
                     .to_string(),
                 );
             }
-            Msg::Io(IoEvent::ConfigLoaded { result }) => self.config_loaded(result),
-            Msg::Io(IoEvent::ConfigWatchFailed { error }) => {
+            IoEvent::ConfigLoaded { result } => self.config_loaded(result),
+            IoEvent::ConfigWatchFailed { error } => {
                 self.log.push(
                     AppError::Watch {
                         path: self.config_path.clone(),
@@ -368,13 +430,24 @@ impl App {
                     .to_string(),
                 );
             }
-            Msg::Io(IoEvent::Spawned { kind, error }) => self.spawned(kind, error),
+            IoEvent::Spawned { kind, error } => self.spawned(kind, error),
+            IoEvent::Operation(event) => self.operation_event(event, effects),
+            IoEvent::Changed { change, error } => {
+                self.changed(change, error, effects);
+            }
+            IoEvent::ClipboardSet { error } => {
+                if let Some(source) = error {
+                    self.log
+                        .push(AppError::ClipboardFailed { source }.to_string());
+                }
+            }
+            IoEvent::Opened { path, error } => {
+                if let Some(source) = error {
+                    self.log
+                        .push(AppError::OpenFailed { path, source }.to_string());
+                }
+            }
         }
-        let title = self.title();
-        if title != title_before {
-            effects.push(Effect::SetTitle(title));
-        }
-        effects
     }
 
     #[must_use]
@@ -517,11 +590,8 @@ impl App {
             | Command::Edit
             | Command::CopyPath
             | Command::CopyName
-            | Command::ShellMenu
-            | Command::EnterAsArchive
-            | Command::Extract
-            | Command::Compress
-            | Command::Nop => {}
+            | Command::ShellMenu => self.run_file_command(command, effects),
+            Command::EnterAsArchive | Command::Extract | Command::Compress | Command::Nop => {}
         }
     }
 
