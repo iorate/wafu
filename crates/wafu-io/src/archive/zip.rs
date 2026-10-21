@@ -243,7 +243,10 @@ mod tests {
         assert_eq!(entries[1].components, ["d", "f.txt"]);
         assert_eq!(entries[1].kind, ArchiveEntryKind::File);
         assert_eq!(entries[1].size, 5);
-        assert_eq!(entries[1].mode.map(|mode| mode & 0o777), Some(0o600));
+        // Written on Windows, the entry carries DOS attributes, not a Unix mode.
+        if cfg!(unix) {
+            assert_eq!(entries[1].mode.map(|mode| mode & 0o777), Some(0o600));
+        }
         // DOS times are local and even-second; the written instant is even.
         assert_eq!(entries[1].modified, Some(modified));
         assert_eq!(entries[2].kind, ArchiveEntryKind::Symlink);
