@@ -1,15 +1,18 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
+use std::path::PathBuf;
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
+use std::time::Duration;
 
 use slint::{
     CloseRequestResponse, ComponentHandle, LogicalPosition, LogicalSize, Model, ModelRc,
     Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel,
 };
 use wafu_core::{
-    App, Color, Colors, Effect, Ellipsis, InputField, ItemMark, MouseInput, Msg, PaneView,
-    PopupView, PreviewContent, PreviewPlacement, PreviewView, ResolvedFont, RowKind, RowView,
-    SharedImage, Side, StateFile, Style, Theme as ConfigTheme, View, WindowState,
+    App, Color, Colors, Effect, Ellipsis, InputField, IoError, IoEvent, ItemMark, MenuAnchor,
+    MouseInput, Msg, PaneView, PopupView, PreviewContent, PreviewPlacement, PreviewView,
+    ResolvedFont, RowKind, RowView, SharedImage, Side, StateFile, Style, Theme as ConfigTheme,
+    View, WindowState,
 };
 use wafu_io::{Paths, Runtime};
 
@@ -26,6 +29,9 @@ const MAX_POPUP_FIELDS: usize = 2;
 // platform reports through Slint and is tuned on real hardware.
 const WHEEL_PIXELS_PER_NOTCH: f32 = 60.0;
 const WHEEL_ROWS_PER_NOTCH: f32 = 3.0;
+
+// A menu opened from the keyboard sits a little in from the row's left edge.
+const MENU_INSET: f32 = 16.0;
 
 thread_local! {
     static UI: RefCell<Option<Rc<Ui>>> = const { RefCell::new(None) };
@@ -47,6 +53,8 @@ pub struct Ui {
     rendered: RefCell<Rendered>,
     // Left pane, right pane, log, preview.
     wheel_remainder: RefCell<[f32; 4]>,
+    // Where the last right click landed, in logical window coordinates.
+    last_pointer: Cell<(f32, f32)>,
 }
 
 struct Rendered {
@@ -103,6 +111,7 @@ impl Ui {
             preview_lines: Rc::new(VecModel::default()),
             rendered: RefCell::new(Rendered::default()),
             wheel_remainder: RefCell::new([0.0; 4]),
+            last_pointer: Cell::new((0.0, 0.0)),
         });
         ui.window
             .set_left_rows(ModelRc::from(Rc::clone(&ui.left_rows)));
@@ -132,11 +141,12 @@ impl Ui {
         &self.window
     }
 
-    pub fn dispatch(&self, msg: Msg) {
+    pub fn dispatch(self: &Rc<Self>, msg: Msg) {
         let effects = self.app.borrow_mut().update(msg);
         for effect in effects {
             match effect {
                 Effect::SetTitle(title) => self.window.set_window_title(title.into()),
+                Effect::ShellMenu { paths, anchor } => self.shell_menu(paths, anchor),
                 // Only the window knows where it is, so its place is added here.
                 Effect::SaveState(state) => {
                     self.runtime.run(Effect::SaveState(self.with_window(state)));
@@ -170,6 +180,48 @@ impl Ui {
             // Likewise for positions.
             #[allow(clippy::cast_precision_loss)]
             window.set_position(LogicalPosition::new(x as f32, y as f32));
+        }
+    }
+
+    // The menu runs a modal loop of its own, so it is opened from the event
+    // loop rather than from inside `dispatch`, where the I/O events arriving
+    // meanwhile would re-enter the application ahead of the remaining effects.
+    fn shell_menu(self: &Rc<Self>, paths: Vec<PathBuf>, anchor: MenuAnchor) {
+        let weak = Rc::downgrade(self);
+        slint::Timer::single_shot(Duration::ZERO, move || {
+            if let Some(ui) = weak.upgrade() {
+                let (x, y) = ui.menu_position(anchor);
+                let error = show_shell_menu(&ui.window, &paths, x, y);
+                ui.dispatch(Msg::Io(IoEvent::ShellMenuClosed { error }));
+            }
+        });
+    }
+
+    // Logical window coordinates of the menu's top-left corner.
+    fn menu_position(&self, anchor: MenuAnchor) -> (f32, f32) {
+        match anchor {
+            MenuAnchor::Pointer => self.last_pointer.get(),
+            MenuAnchor::Row { side, row } => {
+                let (list_x, list_y, scroll_top) = match side {
+                    Side::Left => (
+                        self.window.get_left_list_x(),
+                        self.window.get_left_list_y(),
+                        self.window.get_left_scroll_top(),
+                    ),
+                    Side::Right => (
+                        self.window.get_right_list_x(),
+                        self.window.get_right_list_y(),
+                        self.window.get_right_scroll_top(),
+                    ),
+                };
+                let row = i32::try_from(row).unwrap_or(i32::MAX);
+                let visible_row = (row - scroll_top).max(0);
+                let row_height = self.window.global::<Theme>().get_row_height();
+                // Rows on screen are few enough to be exact as floats.
+                #[allow(clippy::cast_precision_loss)]
+                let y = list_y + (visible_row + 1) as f32 * row_height;
+                (list_x + MENU_INSET, y)
+            }
         }
     }
 
@@ -227,8 +279,9 @@ impl Ui {
         });
 
         let weak = Rc::downgrade(ui);
-        ui.window.on_row_right_clicked(move |side, row| {
+        ui.window.on_row_right_clicked(move |side, row, x, y| {
             if let Some(ui) = Weak::upgrade(&weak) {
+                ui.last_pointer.set((x, y));
                 ui.dispatch(Msg::Mouse(MouseInput::RightClick {
                     side: side_of(side),
                     row: row_of(row),
@@ -513,6 +566,28 @@ impl Ui {
         theme.set_preview_font_family(family);
         theme.set_preview_font_size(size);
     }
+}
+
+// Shows the shell menu at a logical window position and blocks until it closes.
+#[cfg(windows)]
+fn show_shell_menu(window: &AppWindow, paths: &[PathBuf], x: f32, y: f32) -> Option<IoError> {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+    let window = window.window();
+    let handle = window.window_handle();
+    let hwnd = match handle.window_handle().map(|handle| handle.as_raw()) {
+        Ok(RawWindowHandle::Win32(handle)) => handle.hwnd.get(),
+        _ => return Some(IoError::new("the window has no handle")),
+    };
+    let scale = window.scale_factor();
+    wafu_io::shell_menu(hwnd, paths, round(x * scale), round(y * scale))
+        .err()
+        .map(|error| IoError::new(error.to_string()))
+}
+
+#[cfg(not(windows))]
+fn show_shell_menu(_window: &AppWindow, _paths: &[PathBuf], _x: f32, _y: f32) -> Option<IoError> {
+    None
 }
 
 fn preview_line(line: &wafu_core::PreviewLine) -> PreviewLine {

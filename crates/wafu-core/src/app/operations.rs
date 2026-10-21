@@ -1,7 +1,7 @@
 use std::ffi::{OsStr, OsString};
 use std::path::{Component, Path, PathBuf};
 
-use super::{App, Change, Effect, Os, Side};
+use super::{App, Change, Effect, MenuAnchor, Os, Side};
 use crate::command::{Command, Context};
 use crate::entry::Entry;
 use crate::error::{AppError, IoError};
@@ -86,11 +86,44 @@ impl App {
             Command::ShellMenu if self.os != Os::Windows => {
                 self.log.push(AppError::WindowsOnly { command }.to_string());
             }
+            Command::ShellMenu => {
+                let anchor = MenuAnchor::Row {
+                    side: self.active,
+                    row: self.active_pane().cursor(),
+                };
+                self.shell_menu(anchor, effects);
+            }
             Command::EnterAsArchive => self.enter_as_archive(effects),
             Command::Extract => self.start_extract(effects),
             Command::Compress => self.open_compress(),
             _ => {}
         }
+    }
+
+    /// Asks for the shell menu of the targets. From the keyboard the targets
+    /// follow the usual rule; a right click takes the marked entries only when
+    /// the clicked row is one of them, else just that row.
+    pub(super) fn shell_menu(&mut self, anchor: MenuAnchor, effects: &mut Vec<Effect>) {
+        let pane = self.active_pane();
+        if pane.location().in_archive() {
+            let command = Command::ShellMenu;
+            self.log.push(AppError::InArchive { command }.to_string());
+            return;
+        }
+        let entries = match anchor {
+            MenuAnchor::Pointer => match pane.cursor_entry() {
+                Some(entry) if pane.is_marked(entry) => pane.targets(TargetRule::Multiple),
+                Some(entry) => vec![entry],
+                None => Vec::new(),
+            },
+            MenuAnchor::Row { .. } => pane.targets(TargetRule::Multiple),
+        };
+        if entries.is_empty() {
+            return;
+        }
+        let base = &pane.location().base;
+        let paths = entries.iter().map(|entry| base.join(&entry.name)).collect();
+        effects.push(Effect::ShellMenu { paths, anchor });
     }
 
     fn start_transfer(&mut self, kind: OperationKind, effects: &mut Vec<Effect>) {
