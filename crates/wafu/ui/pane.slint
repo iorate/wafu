@@ -200,6 +200,10 @@ export component PaneWidget {
                     root.viewport-rows-changed(floor(self.visible-height / Theme.row-height));
                 }
 
+                changed viewport-height => {
+                    self.content-y = -root.scroll-top * Theme.row-height;
+                }
+
                 for row[index] in root.rows: RowItem {
                     item: row;
                     cursor: index == root.data.cursor;
