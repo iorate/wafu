@@ -250,6 +250,10 @@ export component AppWindow inherits Window {
                     height: max(0px, parent.height - 8px);
                     vertical-scrollbar-policy: ScrollBarPolicy.always-off;
 
+                    changed viewport-height => {
+                        self.content-y = -root.log-scroll-top * Theme.log-row-height;
+                    }
+
                     for line in root.log-lines: Text {
                         text: line;
                         height: Theme.log-row-height;
