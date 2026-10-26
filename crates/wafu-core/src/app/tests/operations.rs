@@ -870,6 +870,7 @@ fn copy_path_and_copy_name_join_the_targets_with_newlines() {
     );
 
     harness.send(Msg::Io(crate::app::IoEvent::ClipboardSet {
+        text: String::new(),
         error: Some(crate::error::IoError::new("no clipboard")),
     }));
     assert_eq!(
@@ -1056,6 +1057,44 @@ fn a_failed_shell_menu_is_logged_and_a_closed_one_is_not() {
         error: Some(IoError::new("no handler")),
     }));
     assert_eq!(harness.log(), ["cannot show the shell menu: no handler"]);
+}
+
+#[test]
+fn clipboard_copies_are_logged_with_the_text_or_the_line_count() {
+    let mut harness = three_files();
+    harness.config("[keys.filelist]\n\"F2\" = \"copy_name\"");
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("F2");
+    assert_eq!(harness.take_effects(), [Effect::Clipboard("a".to_owned())]);
+    harness.send(Msg::Io(IoEvent::ClipboardSet {
+        text: "a".to_owned(),
+        error: None,
+    }));
+    assert_eq!(harness.log().last().unwrap(), "copied to clipboard: a");
+
+    harness.press("Space");
+    harness.press("Space");
+    harness.press("F2");
+    assert_eq!(
+        harness.take_effects(),
+        [Effect::Clipboard("a\nb".to_owned())]
+    );
+    harness.send(Msg::Io(IoEvent::ClipboardSet {
+        text: "a\nb".to_owned(),
+        error: None,
+    }));
+    assert_eq!(harness.log().last().unwrap(), "copied 2 lines to clipboard");
+
+    harness.send(Msg::Io(IoEvent::ClipboardSet {
+        text: String::new(),
+        error: Some(IoError::new("no clipboard")),
+    }));
+    assert_eq!(
+        harness.log().last().unwrap(),
+        "cannot copy to the clipboard: no clipboard"
+    );
 }
 
 fn three_files() -> Harness {
