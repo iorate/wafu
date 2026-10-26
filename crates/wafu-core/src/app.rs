@@ -313,6 +313,7 @@ pub enum IoEvent {
         error: Option<IoError>,
     },
     ClipboardSet {
+        text: String,
         error: Option<IoError>,
     },
     Opened {
@@ -523,10 +524,17 @@ impl App {
             IoEvent::Changed { change, error } => {
                 self.changed(change, error, effects);
             }
-            IoEvent::ClipboardSet { error } => {
+            IoEvent::ClipboardSet { text, error } => {
                 if let Some(source) = error {
                     self.log
                         .push(AppError::ClipboardFailed { source }.to_string());
+                } else {
+                    let lines = text.lines().count();
+                    self.log.push(if lines == 1 {
+                        format!("copied to clipboard: {text}")
+                    } else {
+                        format!("copied {lines} lines to clipboard")
+                    });
                 }
             }
             IoEvent::Opened { path, error } => {

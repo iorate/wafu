@@ -297,7 +297,7 @@ impl Runtime {
                 )
                 .err()
                 .map(|error| IoError::new(error.to_string()));
-                (self.on_event)(IoEvent::ClipboardSet { error });
+                (self.on_event)(IoEvent::ClipboardSet { text, error });
             }
             Effect::OpenWithOs(path) => {
                 let error = io_error(open_with_os(&path));
