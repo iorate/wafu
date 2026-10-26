@@ -87,7 +87,7 @@ export component PreviewWidget inherits Rectangle {
 
             Text {
                 text: line.text;
-                wrap: word-wrap;
+                wrap: char-wrap;
                 width: parent.width - measure-number.preferred-width - parent.spacing;
                 font-family: Theme.preview-font-family;
                 font-size: Theme.preview-font-size;
