@@ -128,7 +128,7 @@ fn tab_switches_to_the_hex_dump_and_back_from_the_top() {
     assert!(lines[0].starts_with("00000000  6c 30 0a 6c 31 0a"));
     assert!(lines[1].starts_with("00000010 "));
     assert_eq!(harness.preview_numbers(), ["", ""]);
-    assert_eq!(harness.view().preview.unwrap().detail, "utf-8, binary");
+    assert_eq!(harness.view().preview.unwrap().detail, "binary");
 
     harness.press("Tab");
 
@@ -148,7 +148,7 @@ fn a_binary_file_opens_as_a_hex_dump_with_the_note() {
     assert_eq!(lines.len(), 2);
     assert!(lines[0].starts_with("00000000  61 62 00"));
     assert_eq!(lines[1], TRUNCATED_NOTE);
-    assert_eq!(harness.view().preview.unwrap().detail, "utf-8, binary");
+    assert_eq!(harness.view().preview.unwrap().detail, "binary");
 }
 
 #[test]

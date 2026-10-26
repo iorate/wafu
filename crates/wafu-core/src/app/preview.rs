@@ -263,14 +263,12 @@ impl App {
                     Some(document) => (
                         document.lines(preview.mode, preview.scroll_top, self.preview_rows),
                         document.digits(preview.mode),
-                        format!(
-                            "{}, {}",
-                            document.encoding.to_lowercase(),
-                            match preview.mode {
-                                DocumentMode::Text => "text",
-                                DocumentMode::Binary => "binary",
+                        match preview.mode {
+                            DocumentMode::Text => {
+                                format!("{}, text", document.encoding.to_lowercase())
                             }
-                        ),
+                            DocumentMode::Binary => "binary".to_owned(),
+                        },
                     ),
                     None => (Vec::new(), 0, String::new()),
                 };
