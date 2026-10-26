@@ -710,10 +710,21 @@ impl PalettePopup {
 
 fn matches(context: Context, externals: &[String], query: &str) -> Vec<Command> {
     let query = query.to_lowercase();
-    Command::all()
-        .chain(externals.iter().map(|name| Command::External(name.clone())))
-        .filter(|command| command.available_in(context))
-        .filter(|command| command.to_string().contains(&query))
+    let mut built_in: Vec<(String, Command)> = Command::all()
+        .map(|command| (command.to_string(), command))
+        .collect();
+    built_in.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut externals: Vec<(String, Command)> = externals
+        .iter()
+        .map(|name| (format!("${name}"), Command::External(name.clone())))
+        .collect();
+    externals.sort_by(|a, b| a.0.cmp(&b.0));
+    built_in
+        .into_iter()
+        .chain(externals)
+        .filter(|(_, command)| command.available_in(context))
+        .filter(|(name, _)| name.contains(&query))
+        .map(|(_, command)| command)
         .collect()
 }
 
@@ -868,12 +879,29 @@ mod tests {
     }
 
     #[test]
-    fn palette_lists_external_commands_after_the_built_in_ones() {
-        let mut popup = PalettePopup::new(Context::FileList, vec!["open_terminal".to_owned()]);
+    fn palette_lists_the_built_in_commands_in_alphabetical_order() {
+        let popup = PalettePopup::new(Context::FileList, Vec::new());
+        let names: Vec<String> = popup.matches.iter().map(ToString::to_string).collect();
 
+        assert_eq!(names[0], "bookmarks");
+        assert!(names.windows(2).all(|pair| pair[0] < pair[1]), "{names:?}");
+        assert!(names.contains(&"jump_0".to_owned()));
+    }
+
+    #[test]
+    fn palette_lists_external_commands_after_the_built_in_ones() {
+        let mut popup = PalettePopup::new(
+            Context::FileList,
+            vec!["open_terminal".to_owned(), "diff".to_owned()],
+        );
+
+        let count = popup.matches.len();
         assert_eq!(
-            popup.matches.last(),
-            Some(&Command::External("open_terminal".to_owned()))
+            popup.matches[count - 2..],
+            [
+                Command::External("diff".to_owned()),
+                Command::External("open_terminal".to_owned())
+            ]
         );
         popup.set_query("$open".to_owned());
         assert_eq!(
