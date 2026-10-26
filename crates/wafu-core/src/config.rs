@@ -322,8 +322,14 @@ mod tests {
     fn template_with_its_items_uncommented_is_the_default() {
         let text: String = CONFIG_TEMPLATE
             .lines()
-            .map(|line| match line.strip_prefix('#') {
-                Some(item) if !item.is_empty() && !item.starts_with([' ', '#']) => item,
+            .map(|line| match line.strip_prefix("# ") {
+                Some(item)
+                    if item
+                        .split_once(" = ")
+                        .is_some_and(|(key, _)| !key.is_empty() && !key.contains(' ')) =>
+                {
+                    item
+                }
                 _ => line,
             })
             .fold(String::new(), |mut text, line| {

@@ -2,72 +2,73 @@
 #
 # Every item below is commented out and shows its default value. Uncomment an
 # item to change it; whatever stays commented keeps following the built-in
-# default. Changes take effect as soon as the file is saved.
+# default. The section headers are not commented out, so an item only needs
+# its own line uncommented. Changes take effect as soon as the file is saved.
 
-#[general]
+[general]
 # Enter the directory that mkdir created.
-#mkdir_then_enter = true
+# mkdir_then_enter = true
 # Hide the log while a preview is open.
-#hide_log_in_preview = false
+# hide_log_in_preview = false
 # The editor used by edit, new_text, and edit_config, written like the run
 # item of a command (see [commands]). The default depends on the OS and is
 # shown in the [os.*] sections at the end.
 
-#[appearance]
+[appearance]
 # auto follows the OS; light and dark force a theme.
-#theme = "auto"
+# theme = "auto"
 # Where a name that does not fit is cut: end or middle.
-#ellipsis = "end"
+# ellipsis = "end"
 
 # The default font. An empty family uses the system font. The size is in pixels.
-#[appearance.font]
-#family = ""
-#size = 12
+[appearance.font]
+# family = ""
+# size = 12
 
 # The file lists, the log, and the preview may each have their own font. An
 # item that is not set here falls back to the default font. For example:
 #
-# [appearance.font.filelist]
-# family = "Consolas"
-# size = 14
-#[appearance.font.filelist]
-#family = ""
-#[appearance.font.log]
-#family = ""
-#[appearance.font.preview]
-#family = ""
+#   [appearance.font.filelist]
+#   family = "Consolas"
+#   size = 14
+[appearance.font.filelist]
+# family = ""
+[appearance.font.log]
+# family = ""
+[appearance.font.preview]
+# family = ""
 
 # Colors are written as #rrggbb. fg and bg are the text and the background,
 # mark the marked rows, cursor the cursor line, dir the directories, and
 # link the symbolic links. A marked row uses mark, then link, then dir.
-#[colors.light]
-#fg = "#1e1e1e"
-#bg = "#ffffff"
-#mark = "#c0392b"
-#cursor = "#1e1e1e"
-#dir = "#1f5fbf"
-#link = "#0f8a6a"
+[colors.light]
+# fg = "#1e1e1e"
+# bg = "#ffffff"
+# mark = "#c0392b"
+# cursor = "#1e1e1e"
+# dir = "#1f5fbf"
+# link = "#0f8a6a"
 
-#[colors.dark]
-#fg = "#d4d4d4"
-#bg = "#1e1e1e"
-#mark = "#e74c3c"
-#cursor = "#d4d4d4"
-#dir = "#6fa8ff"
-#link = "#4fd1a5"
+[colors.dark]
+# fg = "#d4d4d4"
+# bg = "#1e1e1e"
+# mark = "#e74c3c"
+# cursor = "#d4d4d4"
+# dir = "#6fa8ff"
+# link = "#4fd1a5"
 
 # The display state of the panes when there is no state file yet.
-#[initial]
-#sort = "name"          # none / name / extension / size / time / natural
-#descending = false
-#dirs_first = true
-#ignore_case = true
-#show_hidden = false
+[initial]
+# sort = "name"          # none / name / extension / size / time / natural
+# descending = false
+# dirs_first = true
+# ignore_case = true
+# show_hidden = false
 
 # Bookmarks, in the order they are listed. A leading ~ is the home directory.
 #
-# [[bookmarks]]
-# path = "~/Downloads"
+#   [[bookmarks]]
+#   path = "~/Downloads"
 
 # External commands. The run item is split at spaces; quote an argument that
 # contains spaces. The command is started directly, without a shell, in the
@@ -78,27 +79,27 @@
 #   {dir}           the active pane's directory
 #   {other_dir}     the other pane's directory
 #
-# [commands.open_terminal]
-# run = "wt -d {dir}"
+#   [commands.open_terminal]
+#   run = "wt -d {dir}"
 
 # Keys. Each entry replaces the built-in binding of that key; bind nop to
 # remove one. A command from [commands] is written with a leading $.
 # Modifiers are Ctrl, Shift, and Alt; symbols are written as typed.
 #
-# [keys.filelist]
-# "F2" = "$open_terminal"
-# "Ctrl+C" = "copy_path"
-# "Q" = "nop"
-#[keys.filelist]
-#[keys.image]
-#[keys.text]
-#[keys.binary]
+#   [keys.filelist]
+#   "F2" = "$open_terminal"
+#   "Ctrl+C" = "copy_path"
+#   "Q" = "nop"
+[keys.filelist]
+[keys.image]
+[keys.text]
+[keys.binary]
 
 # Items under [os.windows], [os.macos], and [os.linux] apply on that OS only
 # and override the items above.
-#[os.windows.general]
-#editor = "notepad {paths}"
-#[os.macos.general]
-#editor = "open -t {paths}"
-#[os.linux.general]
-#editor = "xdg-open {paths}"
+[os.windows.general]
+# editor = "notepad {paths}"
+[os.macos.general]
+# editor = "open -t {paths}"
+[os.linux.general]
+# editor = "xdg-open {paths}"
