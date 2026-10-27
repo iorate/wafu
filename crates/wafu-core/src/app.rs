@@ -662,6 +662,12 @@ impl App {
             Command::LogPageUp => self.log.page_up(),
             Command::LogPageDown => self.log.page_down(),
             Command::ClearLog => self.log.clear(),
+            Command::CopyLog => {
+                let lines = self.log.lines();
+                if !lines.is_empty() {
+                    effects.push(Effect::Clipboard(lines.join("\n")));
+                }
+            }
             Command::Palette => self.open_palette(),
             Command::GoToPath => self.open_input(InputKind::GoToPath),
             Command::Bookmarks => self.open_bookmarks(),
