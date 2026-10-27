@@ -2041,6 +2041,61 @@ fn drive_switching_wraps_and_remembers_the_last_place_on_each_drive() {
 }
 
 #[test]
+fn size_format_applies_to_the_rows_and_the_marked_total_on_reload() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(
+        Side::Left,
+        vec![
+            Entry {
+                size: 1_234_567,
+                ..file("a")
+            },
+            Entry {
+                size: 512,
+                ..file("b")
+            },
+        ],
+    );
+    harness.press("Down");
+    harness.press("Space");
+    harness.take_effects();
+
+    assert_eq!(harness.view().left.rows[1].size, "1234567");
+    assert!(
+        harness
+            .view()
+            .left
+            .info
+            .contains("1 marked (1234567 bytes)")
+    );
+
+    harness.config("[appearance]\nsize_format = \"comma\"\n");
+    assert_eq!(harness.view().left.rows[1].size, "1,234,567");
+    assert_eq!(harness.view().left.rows[2].size, "512");
+    assert!(
+        harness
+            .view()
+            .left
+            .info
+            .contains("1 marked (1,234,567 bytes)")
+    );
+
+    harness.config("[appearance]\nsize_format = \"human\"\n");
+    assert_eq!(harness.view().left.rows[1].size, "1.2M");
+    assert_eq!(harness.view().left.rows[2].size, "512");
+    assert!(harness.view().left.info.contains("1 marked (1.2M)"));
+
+    harness.config("[appearance]\nsize_format = \"bogus\"\n");
+    assert_eq!(harness.view().left.rows[1].size, "1234567");
+    assert!(
+        harness
+            .log()
+            .iter()
+            .any(|line| line.contains("appearance.size_format"))
+    );
+}
+
+#[test]
 fn rows_carry_their_kind_for_coloring() {
     let mut harness = Harness::start("/home/user", "/tmp");
 

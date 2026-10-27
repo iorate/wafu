@@ -3,6 +3,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::config::SizeFormat;
 use crate::entry::Entry;
 use crate::error::IoError;
 use crate::filter::Filter;
@@ -39,6 +40,7 @@ pub struct Pane {
     drive_memory: HashMap<char, PathBuf>,
     // Kept while inside one archive, forgotten on leaving it.
     archive_password: Option<String>,
+    size_format: SizeFormat,
     rows: Arc<[RowView]>,
     mark_flags: Arc<[bool]>,
 }
@@ -113,8 +115,21 @@ impl Pane {
             history: History::new(),
             drive_memory: HashMap::new(),
             archive_password: None,
+            size_format: SizeFormat::Plain,
             rows: Arc::from([]),
             mark_flags: Arc::from([]),
+        }
+    }
+
+    #[must_use]
+    pub fn size_format(&self) -> SizeFormat {
+        self.size_format
+    }
+
+    pub fn set_size_format(&mut self, format: SizeFormat) {
+        if self.size_format != format {
+            self.size_format = format;
+            self.rebuild_rows();
         }
     }
 
@@ -662,7 +677,11 @@ impl Pane {
         let parent = self.has_parent().then(RowView::parent);
         self.rows = parent
             .into_iter()
-            .chain(self.listing.visible_entries().map(RowView::from_entry))
+            .chain(
+                self.listing
+                    .visible_entries()
+                    .map(|entry| RowView::from_entry(entry, self.size_format)),
+            )
             .collect();
         self.rebuild_mark_flags();
     }

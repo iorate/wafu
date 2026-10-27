@@ -5,7 +5,7 @@ use toml::{Table, Value};
 
 use super::{
     Color, Colors, Config, Diagnostic, DiagnosticKind, FONT_SIZE_MAX, FONT_SIZE_MIN, Font,
-    SyntaxError, Theme,
+    SizeFormat, SyntaxError, Theme,
 };
 use crate::app::Os;
 use crate::command::{Command, Context};
@@ -195,6 +195,13 @@ fn read_appearance(root: &mut Reader<'_>, config: &mut Config) {
         _ => None,
     }) {
         config.appearance.ellipsis = ellipsis;
+    }
+    if let Some(format) = appearance.choice(
+        "size_format",
+        "plain, comma, or human",
+        SizeFormat::from_name,
+    ) {
+        config.appearance.size_format = format;
     }
     if let Some(mut font) = appearance.table("font") {
         let fonts = &mut config.appearance.font;
@@ -456,6 +463,7 @@ hide_log_in_preview = false
 [appearance]
 theme = "auto"                 # auto / light / dark
 ellipsis = "end"               # end / middle
+size_format = "human"          # plain / comma / human
 
 [appearance.font]              # the default
 family = "..."
