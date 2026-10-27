@@ -8,6 +8,8 @@ mod archive;
 mod config;
 mod drives;
 mod fs_ops;
+#[cfg(windows)]
+mod message;
 mod operation;
 mod paths;
 mod preview;
@@ -24,6 +26,8 @@ mod watch;
 pub use config::read_or_create;
 pub use drives::drives;
 pub use fs_ops::{create_file, mkdir, open_with_os, rename, set_clipboard};
+#[cfg(windows)]
+pub use message::show_message;
 pub use operation::run_operation;
 pub use paths::{config_path, is_wayland, state_path};
 pub use preview::{decode_image, load_image, load_preview};

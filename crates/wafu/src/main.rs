@@ -17,7 +17,10 @@ use crate::ui::Ui;
 slint::include_modules!();
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(error) => return report_cli_error(&error),
+    };
     let home = home_dir();
     let config_override = cli.config.map(absolute);
     let Some(config_path) = config_override.clone().or_else(wafu_io::config_path) else {
@@ -90,4 +93,22 @@ fn home_dir() -> PathBuf {
 
 fn absolute(path: PathBuf) -> PathBuf {
     std::path::absolute(&path).unwrap_or(path)
+}
+
+// A GUI executable on Windows has no console, so what clap would print
+// (help, the version, or an argument error) goes to a message box.
+#[cfg(windows)]
+fn report_cli_error(error: &clap::Error) -> ExitCode {
+    use clap::error::ErrorKind;
+
+    wafu_io::show_message("wafu", &error.to_string());
+    match error.kind() {
+        ErrorKind::DisplayHelp | ErrorKind::DisplayVersion => ExitCode::SUCCESS,
+        _ => ExitCode::from(2),
+    }
+}
+
+#[cfg(not(windows))]
+fn report_cli_error(error: &clap::Error) -> ExitCode {
+    error.exit()
 }
