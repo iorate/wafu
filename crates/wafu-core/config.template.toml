@@ -43,16 +43,22 @@
 # family = ""
 
 # Colors are written as #rrggbb. fg and bg are the text and the background,
-# mark the background of the marked rows, cursor the cursor line, dir the
-# directories, and link the symbolic links. The text of a row uses link, then
-# dir, then fg, whether the row is marked or not.
+# mark the background of the marked rows, and cursor the cursor line. The
+# text of a row takes, like ls --color, the first of these that applies:
+# broken for a broken symbolic link, link for a symbolic link, dir for a
+# directory, exec for an executable file, fifo for a FIFO or a device, socket
+# for a socket, and fg otherwise. Marking a row does not change its text color.
 [colors.light]
 # fg = "#1e1e1e"
 # bg = "#ffffff"
 # mark = "#dcdcdc"
 # cursor = "#1e1e1e"
 # dir = "#1f5fbf"
-# link = "#0f8a6a"
+# link = "#0e7c86"
+# exec = "#2a8c2a"
+# broken = "#c0392b"
+# fifo = "#b8860b"
+# socket = "#b03a9a"
 
 [colors.dark]
 # fg = "#d4d4d4"
@@ -60,7 +66,11 @@
 # mark = "#3c3c3c"
 # cursor = "#d4d4d4"
 # dir = "#6fa8ff"
-# link = "#4fd1a5"
+# link = "#4fd1e0"
+# exec = "#5fd75f"
+# broken = "#ff6b6b"
+# fifo = "#f0c050"
+# socket = "#e58ae0"
 
 # The display state of the panes when there is no state file yet.
 [initial]

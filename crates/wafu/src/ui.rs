@@ -609,6 +609,10 @@ fn theme_colors(colors: &Colors) -> ThemeColors {
         cursor: color(colors.cursor),
         dir: color(colors.dir),
         link: color(colors.link),
+        exec: color(colors.exec),
+        broken: color(colors.broken),
+        fifo: color(colors.fifo),
+        socket: color(colors.socket),
     }
 }
 
@@ -667,7 +671,11 @@ fn row(row: &RowView) -> Row {
             RowKind::Parent => 0,
             RowKind::Dir => 1,
             RowKind::File => 2,
-            RowKind::Link => 3,
+            RowKind::Exec => 3,
+            RowKind::Link => 4,
+            RowKind::Broken => 5,
+            RowKind::Fifo => 6,
+            RowKind::Socket => 7,
         },
         name: row.name.as_str().into(),
         extension: row.extension.as_str().into(),

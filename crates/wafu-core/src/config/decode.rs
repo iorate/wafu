@@ -240,6 +240,10 @@ fn read_colors(root: &mut Reader<'_>, config: &mut Config) {
             cursor,
             dir,
             link,
+            exec,
+            broken,
+            fifo,
+            socket,
         } = set;
         for (item, color) in [
             ("fg", fg),
@@ -248,6 +252,10 @@ fn read_colors(root: &mut Reader<'_>, config: &mut Config) {
             ("cursor", cursor),
             ("dir", dir),
             ("link", link),
+            ("exec", exec),
+            ("broken", broken),
+            ("fifo", fifo),
+            ("socket", socket),
         ] {
             if let Some(value) = reader.color(item) {
                 *color = value;

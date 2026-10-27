@@ -7,13 +7,23 @@ export struct ThemeColors {
     cursor: color,
     dir: color,
     link: color,
+    exec: color,
+    broken: color,
+    fifo: color,
+    socket: color,
 }
 
 // Colors and fonts come from the configuration through Rust; the defaults
 // here only cover the moment before the first render.
 export global Theme {
-    in property <ThemeColors> light: { fg: #1e1e1e, bg: #ffffff, mark: #dcdcdc, cursor: #1e1e1e, dir: #1f5fbf, link: #0f8a6a };
-    in property <ThemeColors> dark: { fg: #d4d4d4, bg: #1e1e1e, mark: #3c3c3c, cursor: #d4d4d4, dir: #6fa8ff, link: #4fd1a5 };
+    in property <ThemeColors> light: {
+        fg: #1e1e1e, bg: #ffffff, mark: #dcdcdc, cursor: #1e1e1e, dir: #1f5fbf,
+        link: #0e7c86, exec: #2a8c2a, broken: #c0392b, fifo: #b8860b, socket: #b03a9a,
+    };
+    in property <ThemeColors> dark: {
+        fg: #d4d4d4, bg: #1e1e1e, mark: #3c3c3c, cursor: #d4d4d4, dir: #6fa8ff,
+        link: #4fd1e0, exec: #5fd75f, broken: #ff6b6b, fifo: #f0c050, socket: #e58ae0,
+    };
     in property <string> ui-font-family;
     in property <length> ui-font-size: 12px;
     in property <string> filelist-font-family;

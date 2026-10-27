@@ -2200,7 +2200,45 @@ fn rows_carry_their_kind_for_coloring() {
             RowKind::Dir,
             RowKind::Link,
             RowKind::File,
-            RowKind::Link
+            RowKind::Broken
+        ]
+    );
+}
+
+#[test]
+fn executables_and_special_files_carry_their_own_kinds() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+
+    harness.load(
+        Side::Left,
+        vec![
+            Entry {
+                kind: EntryKind::File { executable: true },
+                ..file("run")
+            },
+            special("fifo", SpecialKind::Fifo),
+            special("sock", SpecialKind::Socket),
+            special("disk", SpecialKind::BlockDevice),
+            special("tty", SpecialKind::CharDevice),
+        ],
+    );
+
+    let kinds: Vec<RowKind> = harness
+        .view()
+        .left
+        .rows
+        .iter()
+        .map(|row| row.kind)
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            RowKind::Parent,
+            RowKind::Fifo,
+            RowKind::Fifo,
+            RowKind::Exec,
+            RowKind::Socket,
+            RowKind::Fifo
         ]
     );
 }
