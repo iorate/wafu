@@ -236,7 +236,7 @@ impl Config {
                 light: Colors {
                     fg: Color::new(0x1e, 0x1e, 0x1e),
                     bg: Color::new(0xff, 0xff, 0xff),
-                    mark: Color::new(0xc0, 0x39, 0x2b),
+                    mark: Color::new(0xdc, 0xdc, 0xdc),
                     cursor: Color::new(0x1e, 0x1e, 0x1e),
                     dir: Color::new(0x1f, 0x5f, 0xbf),
                     link: Color::new(0x0f, 0x8a, 0x6a),
@@ -244,7 +244,7 @@ impl Config {
                 dark: Colors {
                     fg: Color::new(0xd4, 0xd4, 0xd4),
                     bg: Color::new(0x1e, 0x1e, 0x1e),
-                    mark: Color::new(0xe7, 0x4c, 0x3c),
+                    mark: Color::new(0x3c, 0x3c, 0x3c),
                     cursor: Color::new(0xd4, 0xd4, 0xd4),
                     dir: Color::new(0x6f, 0xa8, 0xff),
                     link: Color::new(0x4f, 0xd1, 0xa5),

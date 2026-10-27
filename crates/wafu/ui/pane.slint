@@ -38,12 +38,15 @@ component RowItem {
     in property <bool> marked;
     in property <ColumnWidths> columns;
 
-    property <brush> text-color: marked ? Theme.colors.mark
-        : item.kind == 3 ? Theme.colors.link
+    property <brush> text-color: item.kind == 3 ? Theme.colors.link
         : item.kind == 1 ? Theme.colors.dir
         : Theme.colors.fg;
 
     height: Theme.row-height;
+
+    if marked: Rectangle {
+        background: Theme.colors.mark;
+    }
 
     HorizontalLayout {
         padding-left: 4px;
@@ -86,8 +89,8 @@ component RowItem {
     }
 
     if cursor: Rectangle {
-        y: parent.height - 1px;
-        height: 1px;
+        y: parent.height - Theme.line-width;
+        height: Theme.line-width;
         background: Theme.colors.cursor;
     }
 }
@@ -147,15 +150,20 @@ export component PaneWidget {
     }
 
     VerticalLayout {
-        Cell {
-            text: data.path;
-            overflow: elide;
+        HorizontalLayout {
+            padding-left: 4px;
+            padding-right: 4px;
             height: Theme.row-height;
-            horizontal-alignment: left;
+
+            Cell {
+                text: data.path;
+                overflow: elide;
+                horizontal-alignment: left;
+            }
         }
 
         Rectangle {
-            height: 1px;
+            height: Theme.line-width;
             background: Palette.border;
         }
 
@@ -220,14 +228,19 @@ export component PaneWidget {
         }
 
         Rectangle {
-            height: 1px;
+            height: Theme.line-width;
             background: Palette.border;
         }
 
-        Cell {
-            text: data.info;
-            overflow: elide;
+        HorizontalLayout {
+            padding-left: 4px;
+            padding-right: 4px;
             height: Theme.row-height;
+
+            Cell {
+                text: data.info;
+                overflow: elide;
+            }
         }
     }
 }
