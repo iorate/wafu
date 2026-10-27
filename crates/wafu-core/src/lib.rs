@@ -59,7 +59,7 @@ pub use preview::{
 };
 pub use state::{PaneState, StateError, StateFile, WindowState};
 pub use view::{
-    Ellipsis, Fonts, InputField, ItemMark, LogView, PaneView, PopupItem, PopupView, PreviewContent,
+    Fonts, InputField, ItemMark, LogView, PaneView, PopupItem, PopupView, PreviewContent,
     PreviewLine, PreviewPlacement, PreviewView, ResolvedFont, RowKind, RowView, SharedImage, Style,
     View,
 };

@@ -8,7 +8,6 @@ use crate::app::Os;
 use crate::external::{CommandLine, CommandLineError};
 use crate::keymap::KeyMap;
 use crate::listing::SortSpec;
-use crate::view::Ellipsis;
 
 mod decode;
 
@@ -44,7 +43,6 @@ pub struct General {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Appearance {
     pub theme: Theme,
-    pub ellipsis: Ellipsis,
     pub size_format: SizeFormat,
     pub font: FontSet,
 }
@@ -225,7 +223,6 @@ impl Config {
             },
             appearance: Appearance {
                 theme: Theme::Auto,
-                ellipsis: Ellipsis::End,
                 size_format: SizeFormat::Plain,
                 font: FontSet {
                     default: Font {

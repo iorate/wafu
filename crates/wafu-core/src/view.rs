@@ -6,8 +6,6 @@ use crate::pane::Pane;
 use crate::preview::ImageData;
 
 /// How many characters of a name stay visible at the end when it is elided in the middle.
-const TAIL_CHARS: usize = 8;
-
 /// A read-only snapshot of the state for rendering.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct View {
@@ -31,7 +29,6 @@ pub struct View {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Style {
     pub theme: Theme,
-    pub ellipsis: Ellipsis,
     /// The text the size column is made wide enough for.
     pub size_sample: &'static str,
     pub fonts: Fonts,
@@ -72,11 +69,9 @@ pub struct PaneView {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RowView {
     pub kind: RowKind,
-    /// The name without its last characters, which are in `name_tail`.
     pub name: String,
     /// The last characters of the name, kept visible when eliding in the middle.
     /// Empty for short names.
-    pub name_tail: String,
     pub extension: String,
     /// `@` for symbolic links, otherwise empty.
     pub marker: String,
@@ -212,13 +207,6 @@ pub enum RowKind {
     Link,
 }
 
-/// Where a name is cut when it does not fit.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Ellipsis {
-    End,
-    Middle,
-}
-
 impl Style {
     pub(crate) fn from_config(config: &Config) -> Self {
         let font = &config.appearance.font;
@@ -228,7 +216,6 @@ impl Style {
         };
         Self {
             theme: config.appearance.theme,
-            ellipsis: config.appearance.ellipsis,
             size_sample: config.appearance.size_format.column_sample(),
             fonts: Fonts {
                 ui: resolve(&font.default),
@@ -276,7 +263,6 @@ impl RowView {
         Self {
             kind: RowKind::Parent,
             name: "..".to_owned(),
-            name_tail: String::new(),
             extension: String::new(),
             marker: String::new(),
             size: String::new(),
@@ -286,7 +272,6 @@ impl RowView {
 
     pub(crate) fn from_entry(entry: &Entry, size_format: SizeFormat) -> Self {
         let (name, extension) = entry.split_name();
-        let (name, name_tail) = split_tail(name);
         let extension = if extension.is_empty() {
             extension
         } else {
@@ -317,7 +302,6 @@ impl RowView {
         Self {
             kind,
             name,
-            name_tail,
             extension,
             marker: if is_link {
                 "@".to_owned()
@@ -327,43 +311,5 @@ impl RowView {
             size,
             modified,
         }
-    }
-}
-
-fn split_tail(mut name: String) -> (String, String) {
-    let count = name.chars().count();
-    if count <= TAIL_CHARS {
-        return (name, String::new());
-    }
-    let at = name
-        .char_indices()
-        .nth(count - TAIL_CHARS)
-        .map_or(name.len(), |(index, _)| index);
-    let tail = name.split_off(at);
-    (name, tail)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn short_names_have_no_tail() {
-        assert_eq!(
-            split_tail("12345678".to_owned()),
-            ("12345678".to_owned(), String::new())
-        );
-    }
-
-    #[test]
-    fn long_names_keep_the_last_eight_characters_in_the_tail() {
-        assert_eq!(
-            split_tail("abcdefghij".to_owned()),
-            ("ab".to_owned(), "cdefghij".to_owned())
-        );
-        assert_eq!(
-            split_tail("日本語のファイル名です".to_owned()),
-            ("日本語".to_owned(), "のファイル名です".to_owned())
-        );
     }
 }

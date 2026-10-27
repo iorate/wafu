@@ -9,10 +9,9 @@ use slint::{
     Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel,
 };
 use wafu_core::{
-    App, Color, Colors, Effect, Ellipsis, InputField, IoError, IoEvent, ItemMark, MenuAnchor,
-    MouseInput, Msg, PaneView, PopupView, PreviewContent, PreviewPlacement, PreviewView,
-    ResolvedFont, RowKind, RowView, SharedImage, Side, StateFile, Style, Theme as ConfigTheme,
-    View, WindowState,
+    App, Color, Colors, Effect, InputField, IoError, IoEvent, ItemMark, MenuAnchor, MouseInput,
+    Msg, PaneView, PopupView, PreviewContent, PreviewPlacement, PreviewView, ResolvedFont, RowKind,
+    RowView, SharedImage, Side, StateFile, Style, Theme as ConfigTheme, View, WindowState,
 };
 use wafu_io::{Paths, Runtime};
 
@@ -543,8 +542,6 @@ impl Ui {
     }
 
     fn apply_style(&self, style: &Style) {
-        self.window
-            .set_ellipsis_middle(style.ellipsis == Ellipsis::Middle);
         self.window.set_size_sample(style.size_sample.into());
         self.window.set_theme(match style.theme {
             ConfigTheme::Auto => 0,
@@ -673,7 +670,6 @@ fn row(row: &RowView) -> Row {
             RowKind::Link => 3,
         },
         name: row.name.as_str().into(),
-        name_tail: row.name_tail.as_str().into(),
         extension: row.extension.as_str().into(),
         marker: row.marker.as_str().into(),
         size: row.size.as_str().into(),

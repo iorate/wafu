@@ -12,7 +12,6 @@ use crate::command::{Command, Context};
 use crate::external::CommandLine;
 use crate::key::Key;
 use crate::listing::SortKey;
-use crate::view::Ellipsis;
 
 const CONTEXTS: [(&str, Context); 4] = [
     ("filelist", Context::FileList),
@@ -188,13 +187,6 @@ fn read_appearance(root: &mut Reader<'_>, config: &mut Config) {
     };
     if let Some(theme) = appearance.choice("theme", "auto, light, or dark", Theme::from_name) {
         config.appearance.theme = theme;
-    }
-    if let Some(ellipsis) = appearance.choice("ellipsis", "end or middle", |text| match text {
-        "end" => Some(Ellipsis::End),
-        "middle" => Some(Ellipsis::Middle),
-        _ => None,
-    }) {
-        config.appearance.ellipsis = ellipsis;
     }
     if let Some(format) = appearance.choice(
         "size_format",
@@ -462,7 +454,6 @@ hide_log_in_preview = false
 
 [appearance]
 theme = "auto"                 # auto / light / dark
-ellipsis = "end"               # end / middle
 size_format = "human"          # plain / comma / human
 
 [appearance.font]              # the default
@@ -617,7 +608,6 @@ editor = "open -t {paths}"
         let text = r##"
 [appearance]
 theme = 1
-ellipsis = "left"
 [appearance.font]
 size = "big"
 [appearance.font.log]
@@ -645,7 +635,6 @@ editor = "\"unterminated"
             [
                 "general.editor",
                 "appearance.theme",
-                "appearance.ellipsis",
                 "appearance.font.log.size",
                 "appearance.font.size",
                 "colors.light.fg",
