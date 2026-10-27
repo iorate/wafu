@@ -42,6 +42,7 @@ fn copy_starts_an_operation_on_the_marked_entries_in_display_order() {
 #[test]
 fn move_without_marks_takes_the_cursor_entry() {
     let mut harness = three_files();
+    cursor_only(&mut harness);
     harness.press("Down");
     harness.press("Down");
     harness.take_effects();
@@ -63,13 +64,40 @@ fn move_without_marks_takes_the_cursor_entry() {
 #[test]
 fn copy_on_the_parent_row_without_marks_does_nothing() {
     let mut harness = three_files();
+    cursor_only(&mut harness);
     harness.take_effects();
 
     harness.press("C");
 
     assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(harness.log(), Vec::<String>::new());
+    assert_eq!(harness.log(), ["config reloaded"]);
     assert_eq!(harness.view().popup, None);
+}
+
+#[test]
+fn destructive_commands_require_marks_by_default() {
+    let mut harness = three_files();
+    harness.press("Down");
+    harness.take_effects();
+
+    for (key, command) in [
+        ("C", "copy"),
+        ("M", "move"),
+        ("D", "delete"),
+        ("Shift+D", "trash"),
+    ] {
+        harness.press(key);
+        assert_eq!(harness.take_effects(), vec![]);
+        assert_eq!(harness.view().popup, None);
+        assert_eq!(
+            harness.log().last().map(String::as_str),
+            Some(format!("no marks for {command}").as_str())
+        );
+    }
+
+    harness.press("Space");
+    harness.press("C");
+    assert!(harness.start_operation().is_some());
 }
 
 #[test]
@@ -77,6 +105,7 @@ fn copy_without_a_location_on_the_other_side_is_logged() {
     let mut harness = Harness::start_both_pending(Os::Linux, LEFT, RIGHT);
     harness.load(Side::Left, vec![file("a")]);
     harness.fail_load(Side::Right, "gone");
+    cursor_only(&mut harness);
     harness.press("Down");
     harness.take_effects();
 
@@ -380,6 +409,7 @@ fn closing_the_window_during_an_operation_asks_first() {
 #[test]
 fn delete_asks_once_and_names_a_single_target() {
     let mut harness = three_files();
+    cursor_only(&mut harness);
     harness.press("Down");
     harness.take_effects();
 
@@ -458,6 +488,7 @@ fn delete_counts_several_targets_and_enter_confirms() {
 #[test]
 fn trash_starts_at_once() {
     let mut harness = three_files();
+    cursor_only(&mut harness);
     harness.press("Down");
     harness.take_effects();
 
@@ -1123,6 +1154,11 @@ fn clipboard_copies_are_logged_with_the_text_or_the_line_count() {
         harness.log().last().unwrap(),
         "cannot copy to the clipboard: no clipboard"
     );
+}
+
+// Lets copy, move, delete, and trash act on the cursor row without marks.
+fn cursor_only(harness: &mut Harness) {
+    harness.config("[general]\nrequire_marks = false\n");
 }
 
 fn three_files() -> Harness {

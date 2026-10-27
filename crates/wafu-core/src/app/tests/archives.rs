@@ -242,6 +242,7 @@ fn nothing_can_be_sent_into_an_archive_on_the_other_side() {
     harness.press("Tab");
     harness.load(Side::Right, vec![file("r.txt")]);
     harness.press("Down");
+    harness.press("Space");
     harness.take_effects();
 
     for key in ["C", "M", "U", "P"] {
@@ -577,6 +578,7 @@ fn passwords_typed_for_extract_are_not_remembered() {
     harness.enter_archive(Side::Left, contents());
     harness.press("Down");
     harness.press("Down");
+    harness.press("Space");
     harness.take_effects();
 
     harness.press("C");
@@ -603,6 +605,7 @@ fn leaving_the_archive_forgets_the_password() {
     harness.enter_archive(Side::Left, contents());
     harness.press("Down");
     harness.press("Down");
+    harness.press("Space");
     harness.take_effects();
 
     harness.press("C");
@@ -908,6 +911,7 @@ fn copying_inside() -> Harness {
     let mut harness = inside();
     harness.press("Down");
     harness.press("Down");
+    harness.press("Space");
     harness.press("C");
     assert!(harness.start_operation().is_some());
     harness

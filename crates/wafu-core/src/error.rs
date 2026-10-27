@@ -43,6 +43,8 @@ pub enum AppError {
     WindowsOnly { command: Command },
     #[error("{command} is not available inside an archive")]
     InArchive { command: Command },
+    #[error("no marks for {command}")]
+    NoMarks { command: Command },
     #[error("cannot {verb} into an archive")]
     IntoArchive { verb: &'static str },
     #[error("cannot open {}: nested archives are not supported", path.display())]

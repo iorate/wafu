@@ -405,11 +405,13 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let (runtime, events) = runtime();
 
-        runtime.run(read(dir.path(), 1));
-        runtime.run(Effect::CancelRead {
-            request: RequestId(1),
+        with_worker_held(&runtime, |pending, jobs| {
+            pending.insert(RequestId(1));
+            jobs.send(read_job(dir.path(), 1)).unwrap();
+            pending.remove(&RequestId(1));
+            pending.insert(RequestId(2));
+            jobs.send(read_job(dir.path(), 2)).unwrap();
         });
-        runtime.run(read(dir.path(), 2));
 
         let IoEvent::DirLoaded { request, .. } = events.recv_timeout(TIMEOUT).unwrap() else {
             panic!("expected DirLoaded");
@@ -448,13 +450,15 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let (runtime, events) = runtime();
 
-        runtime.run(Effect::Resolve {
-            side: Side::Left,
-            path: dir.path().to_path_buf(),
-            request: RequestId(1),
-        });
-        runtime.run(Effect::CancelRead {
-            request: RequestId(1),
+        with_worker_held(&runtime, |pending, jobs| {
+            pending.insert(RequestId(1));
+            jobs.send(Job::Resolve {
+                side: Side::Left,
+                path: dir.path().to_path_buf(),
+                request: RequestId(1),
+            })
+            .unwrap();
+            pending.remove(&RequestId(1));
         });
 
         assert!(events.recv_timeout(Duration::from_millis(100)).is_err());
@@ -472,16 +476,20 @@ mod tests {
             password: None,
         };
 
-        runtime.run(Effect::LoadPreview {
-            source: source.clone(),
-            request: RequestId(1),
-        });
-        runtime.run(Effect::CancelRead {
-            request: RequestId(1),
-        });
-        runtime.run(Effect::LoadPreview {
-            source,
-            request: RequestId(2),
+        with_worker_held(&runtime, |pending, jobs| {
+            pending.insert(RequestId(1));
+            jobs.send(Job::LoadPreview {
+                source: source.clone(),
+                request: RequestId(1),
+            })
+            .unwrap();
+            pending.remove(&RequestId(1));
+            pending.insert(RequestId(2));
+            jobs.send(Job::LoadPreview {
+                source,
+                request: RequestId(2),
+            })
+            .unwrap();
         });
 
         let event = events.recv_timeout(TIMEOUT).unwrap();
@@ -879,6 +887,25 @@ mod tests {
             location: Location::new(path.to_path_buf()),
             request: RequestId(request),
         }
+    }
+
+    fn read_job(path: &Path, request: u64) -> Job {
+        Job::ReadDir {
+            side: Side::Left,
+            location: Location::new(path.to_path_buf()),
+            request: RequestId(request),
+        }
+    }
+
+    // Queues jobs and cancellations as `run` would, but with the worker held
+    // off the pending set until all of them are in, so that a cancellation
+    // cannot lose the race against a read that finishes at once.
+    fn with_worker_held(
+        runtime: &Runtime,
+        queue: impl FnOnce(&mut HashSet<RequestId>, &Sender<Job>),
+    ) {
+        let mut pending = lock(&runtime.pending);
+        queue(&mut pending, &runtime.jobs);
     }
 
     fn watch(path: &Path) -> Effect {
