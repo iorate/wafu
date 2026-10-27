@@ -2070,6 +2070,7 @@ fn size_format_applies_to_the_rows_and_the_marked_total_on_reload() {
     );
 
     harness.config("[appearance]\nsize_format = \"comma\"\n");
+    assert_eq!(harness.view().style.size_sample, "000,000,000,000");
     assert_eq!(harness.view().left.rows[1].size, "1,234,567");
     assert_eq!(harness.view().left.rows[2].size, "512");
     assert!(
@@ -2081,6 +2082,7 @@ fn size_format_applies_to_the_rows_and_the_marked_total_on_reload() {
     );
 
     harness.config("[appearance]\nsize_format = \"human\"\n");
+    assert_eq!(harness.view().style.size_sample, "0000.0K");
     assert_eq!(harness.view().left.rows[1].size, "1.2M");
     assert_eq!(harness.view().left.rows[2].size, "512");
     assert!(harness.view().left.info.contains("1 marked (1.2M)"));

@@ -32,6 +32,8 @@ pub struct View {
 pub struct Style {
     pub theme: Theme,
     pub ellipsis: Ellipsis,
+    /// The text the size column is made wide enough for.
+    pub size_sample: &'static str,
     pub fonts: Fonts,
     pub colors: ColorSet,
 }
@@ -227,6 +229,7 @@ impl Style {
         Self {
             theme: config.appearance.theme,
             ellipsis: config.appearance.ellipsis,
+            size_sample: config.appearance.size_format.column_sample(),
             fonts: Fonts {
                 ui: resolve(&font.default),
                 filelist: resolve(&font.filelist),

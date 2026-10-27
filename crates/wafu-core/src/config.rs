@@ -69,6 +69,17 @@ impl SizeFormat {
         }
     }
 
+    /// A sample as wide as the widest size the file list should fit without
+    /// clipping, for sizing the column.
+    #[must_use]
+    pub fn column_sample(self) -> &'static str {
+        match self {
+            Self::Plain => "000000000000",
+            Self::Comma => "000,000,000,000",
+            Self::Human => "0000.0K",
+        }
+    }
+
     /// Writes `bytes` in this format. `Human` follows `ls -h`: powers of
     /// 1024, rounded up, one decimal below 10.
     #[must_use]

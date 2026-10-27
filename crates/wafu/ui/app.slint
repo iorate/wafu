@@ -17,6 +17,7 @@ export component AppWindow inherits Window {
     in property <int> left-scroll-top;
     in property <int> right-scroll-top;
     in property <bool> ellipsis-middle;
+    in property <string> size-sample;
     in property <int> split-percent: 50;
     in property <int> log-rows: 6;
     in property <[string]> log-lines;
@@ -164,6 +165,7 @@ export component AppWindow inherits Window {
                     marks: root.left-marks;
                     scroll-top: root.left-scroll-top;
                     ellipsis-middle: root.ellipsis-middle;
+                    size-sample: root.size-sample;
                     viewport-rows-changed(rows) => {
                         root.viewport-rows-changed(0, rows);
                     }
@@ -198,6 +200,7 @@ export component AppWindow inherits Window {
                     marks: root.right-marks;
                     scroll-top: root.right-scroll-top;
                     ellipsis-middle: root.ellipsis-middle;
+                    size-sample: root.size-sample;
                     viewport-rows-changed(rows) => {
                         root.viewport-rows-changed(1, rows);
                     }
