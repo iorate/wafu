@@ -61,8 +61,8 @@ const DEFAULT_FILELIST: &[(&str, &str)] = &[
     (":", "filter"),
     ("*", "clear_filter"),
     (".", "toggle_hidden"),
-    ("Y", "reload"),
-    ("B", "palette"),
+    ("F5", "reload"),
+    ("F1", "palette"),
     ("Z", "edit_config"),
     ("Alt+Z", "new_window"),
     ("Q", "quit"),
@@ -279,7 +279,7 @@ mod tests {
         let keymap = KeyMap::default();
 
         assert_eq!(
-            keymap.lookup(Context::FileList, &"F1".parse().unwrap()),
+            keymap.lookup(Context::FileList, &"F2".parse().unwrap()),
             None
         );
         assert_eq!(keymap.lookup(Context::Text, &"Up".parse().unwrap()), None);

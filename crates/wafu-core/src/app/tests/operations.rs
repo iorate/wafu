@@ -706,7 +706,7 @@ fn new_file_creates_an_empty_file_and_puts_the_cursor_on_it() {
     let mut harness = three_files();
     harness.take_effects();
 
-    harness.press("B");
+    harness.press("F1");
     harness.edit("new_file");
     harness.press("Enter");
     assert_eq!(harness.view().popup.unwrap().title, "New file");
@@ -849,7 +849,7 @@ fn copy_path_and_copy_name_join_the_targets_with_newlines() {
     harness.press("Space");
     harness.take_effects();
 
-    harness.press("B");
+    harness.press("F1");
     harness.edit("copy_path");
     harness.press("Enter");
     assert_eq!(
@@ -861,7 +861,7 @@ fn copy_path_and_copy_name_join_the_targets_with_newlines() {
         ))]
     );
 
-    harness.press("B");
+    harness.press("F1");
     harness.edit("copy_name");
     harness.press("Enter");
     assert_eq!(
@@ -884,7 +884,7 @@ fn copy_path_on_the_parent_row_does_nothing() {
     let mut harness = three_files();
     harness.take_effects();
 
-    harness.press("B");
+    harness.press("F1");
     harness.edit("copy_path");
     harness.press("Enter");
 
@@ -944,7 +944,7 @@ fn shell_menu_from_the_palette_is_the_same_as_the_key() {
     harness.press("Down");
     harness.take_effects();
 
-    harness.press("B");
+    harness.press("F1");
     harness.edit("shell_menu");
     harness.press("Enter");
 
