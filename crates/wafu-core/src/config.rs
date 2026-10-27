@@ -268,7 +268,7 @@ impl Config {
             },
             bookmarks: Vec::new(),
             commands: BTreeMap::new(),
-            keys: KeyMap::default(),
+            keys: KeyMap::default_for(os),
         }
     }
 }

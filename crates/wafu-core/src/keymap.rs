@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::app::Os;
 use crate::command::{Command, Context};
 use crate::key::Key;
 
@@ -78,6 +79,46 @@ const DEFAULT_FILELIST: &[(&str, &str)] = &[
 ];
 
 impl KeyMap {
+    /// The default bindings for the OS. The image preview reuses the file
+    /// list's cursor and mark keys; the text and binary previews have fixed
+    /// keys and no bindings.
+    #[must_use]
+    pub fn default_for(os: Os) -> Self {
+        let jumps = Command::all().filter_map(|command| match command {
+            Command::Jump(c) => Some((format!("Ctrl+{}", c.to_ascii_uppercase()), command)),
+            _ => None,
+        });
+        let filelist: HashMap<Key, Command> = DEFAULT_FILELIST
+            .iter()
+            .map(|(key, name)| {
+                let command = Command::from_name(name)
+                    .unwrap_or_else(|| panic!("unknown command in the default key map: {name}"));
+                ((*key).to_owned(), command)
+            })
+            .chain(jumps)
+            .filter(|(_, command)| command.available_on(os))
+            .map(|(key, command)| {
+                let key: Key = key
+                    .parse()
+                    .unwrap_or_else(|_| panic!("invalid key in the default key map: {key}"));
+                (key, command)
+            })
+            .collect();
+        let image = filelist
+            .iter()
+            .filter(|(_, command)| command.available_in(Context::Image))
+            .map(|(key, command)| (*key, command.clone()))
+            .collect();
+        Self {
+            maps: HashMap::from([
+                (Context::FileList, filelist),
+                (Context::Image, image),
+                (Context::Text, HashMap::new()),
+                (Context::Binary, HashMap::new()),
+            ]),
+        }
+    }
+
     #[must_use]
     pub fn lookup(&self, context: Context, key: &Key) -> Option<Command> {
         self.maps.get(&context)?.get(key).cloned()
@@ -117,45 +158,6 @@ impl KeyMap {
     }
 }
 
-impl Default for KeyMap {
-    // The image preview reuses the file list's cursor and mark keys; the text
-    // and binary previews have fixed keys and no bindings.
-    fn default() -> Self {
-        let jumps = Command::all().filter_map(|command| match command {
-            Command::Jump(c) => Some((format!("Ctrl+{}", c.to_ascii_uppercase()), command)),
-            _ => None,
-        });
-        let filelist: HashMap<Key, Command> = DEFAULT_FILELIST
-            .iter()
-            .map(|(key, name)| {
-                let command = Command::from_name(name)
-                    .unwrap_or_else(|| panic!("unknown command in the default key map: {name}"));
-                ((*key).to_owned(), command)
-            })
-            .chain(jumps)
-            .map(|(key, command)| {
-                let key: Key = key
-                    .parse()
-                    .unwrap_or_else(|_| panic!("invalid key in the default key map: {key}"));
-                (key, command)
-            })
-            .collect();
-        let image = filelist
-            .iter()
-            .filter(|(_, command)| command.available_in(Context::Image))
-            .map(|(key, command)| (*key, command.clone()))
-            .collect();
-        Self {
-            maps: HashMap::from([
-                (Context::FileList, filelist),
-                (Context::Image, image),
-                (Context::Text, HashMap::new()),
-                (Context::Binary, HashMap::new()),
-            ]),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
@@ -186,7 +188,7 @@ mod tests {
 
     #[test]
     fn default_binds_every_command_except_the_unbound_ones() {
-        let keymap = KeyMap::default();
+        let keymap = KeyMap::default_for(Os::Windows);
         let bound: HashSet<Command> = keymap
             .bindings(Context::FileList)
             .map(|(_, command)| command.clone())
@@ -200,7 +202,7 @@ mod tests {
 
     #[test]
     fn default_binding_count_matches_the_table() {
-        let keymap = KeyMap::default();
+        let keymap = KeyMap::default_for(Os::Windows);
 
         assert_eq!(
             keymap.bindings(Context::FileList).count(),
@@ -209,8 +211,27 @@ mod tests {
     }
 
     #[test]
+    fn windows_only_keys_are_left_unbound_on_other_systems() {
+        for os in [Os::MacOs, Os::Linux] {
+            let keymap = KeyMap::default_for(os);
+
+            assert_eq!(
+                keymap.bindings(Context::FileList).count(),
+                DEFAULT_FILELIST.len() + 36 - 4
+            );
+            for key in ["L", "Ctrl+Left", "Ctrl+Right", "\\"] {
+                assert_eq!(
+                    keymap.lookup(Context::FileList, &key.parse().unwrap()),
+                    None,
+                    "{key} on {os:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn image_context_has_the_cursor_and_mark_keys_only() {
-        let keymap = KeyMap::default();
+        let keymap = KeyMap::default_for(Os::Windows);
 
         // The sixteen commands minus clear_marks, which has no key.
         assert_eq!(keymap.bindings(Context::Image).count(), 15);
@@ -224,7 +245,7 @@ mod tests {
 
     #[test]
     fn bind_replaces_and_unbinds() {
-        let mut keymap = KeyMap::default();
+        let mut keymap = KeyMap::default_for(Os::Windows);
         let key: Key = "Ctrl+C".parse().unwrap();
 
         keymap.bind(Context::FileList, key, Some(Command::CopyPath));
@@ -243,7 +264,7 @@ mod tests {
 
     #[test]
     fn lookup_finds_bound_keys() {
-        let keymap = KeyMap::default();
+        let keymap = KeyMap::default_for(Os::Windows);
 
         assert_eq!(
             keymap.lookup(Context::FileList, &"Ctrl+Shift+Left".parse().unwrap()),
@@ -261,7 +282,7 @@ mod tests {
 
     #[test]
     fn keys_for_lists_bound_keys_in_display_order() {
-        let keymap = KeyMap::default();
+        let keymap = KeyMap::default_for(Os::Windows);
 
         let keys: Vec<String> = keymap
             .keys_for(Context::FileList, &Command::MarkRangeBelow)
@@ -277,7 +298,7 @@ mod tests {
 
     #[test]
     fn lookup_misses_unbound_keys_and_other_contexts() {
-        let keymap = KeyMap::default();
+        let keymap = KeyMap::default_for(Os::Windows);
 
         assert_eq!(
             keymap.lookup(Context::FileList, &"F2".parse().unwrap()),

@@ -1,6 +1,7 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
+use crate::app::Os;
 use crate::command::{Command, Context};
 use crate::history::History;
 use crate::listing::{SortKey, SortSpec};
@@ -80,6 +81,7 @@ pub struct SearchPopup {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PalettePopup {
     pub context: Context,
+    os: Os,
     pub query: String,
     pub matches: Vec<Command>,
     pub cursor: usize,
@@ -674,18 +676,19 @@ fn item_keys() -> impl Iterator<Item = Option<char>> {
 
 impl PalettePopup {
     #[must_use]
-    pub fn new(context: Context, externals: Vec<String>) -> Self {
+    pub fn new(context: Context, os: Os, externals: Vec<String>) -> Self {
         Self {
             context,
+            os,
             query: String::new(),
-            matches: matches(context, &externals, ""),
+            matches: matches(context, os, &externals, ""),
             cursor: 0,
             externals,
         }
     }
 
     pub fn set_query(&mut self, query: String) {
-        self.matches = matches(self.context, &self.externals, &query);
+        self.matches = matches(self.context, self.os, &self.externals, &query);
         self.query = query;
         self.cursor = 0;
     }
@@ -708,7 +711,7 @@ impl PalettePopup {
     }
 }
 
-fn matches(context: Context, externals: &[String], query: &str) -> Vec<Command> {
+fn matches(context: Context, os: Os, externals: &[String], query: &str) -> Vec<Command> {
     let query = query.to_lowercase();
     let mut built_in: Vec<(String, Command)> = Command::all()
         .map(|command| (command.to_string(), command))
@@ -722,7 +725,7 @@ fn matches(context: Context, externals: &[String], query: &str) -> Vec<Command> 
     built_in
         .into_iter()
         .chain(externals)
-        .filter(|(_, command)| command.available_in(context))
+        .filter(|(_, command)| command.available_in(context) && command.available_on(os))
         .filter(|(name, _)| name.contains(&query))
         .map(|(_, command)| command)
         .collect()
@@ -858,7 +861,7 @@ mod tests {
 
     #[test]
     fn palette_filters_by_substring_ignoring_case() {
-        let mut popup = PalettePopup::new(Context::FileList, Vec::new());
+        let mut popup = PalettePopup::new(Context::FileList, Os::Windows, Vec::new());
         assert_eq!(popup.matches.len(), Command::all().count());
 
         popup.set_query("MARK_R".to_owned());
@@ -872,15 +875,24 @@ mod tests {
 
     #[test]
     fn palette_shows_only_commands_available_in_the_context() {
-        let popup = PalettePopup::new(Context::Image, vec!["x".to_owned()]);
+        let popup = PalettePopup::new(Context::Image, Os::Windows, vec!["x".to_owned()]);
 
         assert_eq!(popup.matches.len(), 16);
         assert!(!popup.matches.contains(&Command::Copy));
     }
 
     #[test]
+    fn palette_hides_the_windows_only_commands_on_other_systems() {
+        let popup = PalettePopup::new(Context::FileList, Os::Linux, Vec::new());
+
+        assert_eq!(popup.matches.len(), Command::all().count() - 4);
+        assert!(!popup.matches.contains(&Command::Drives));
+        assert!(!popup.matches.contains(&Command::ShellMenu));
+    }
+
+    #[test]
     fn palette_lists_the_built_in_commands_in_alphabetical_order() {
-        let popup = PalettePopup::new(Context::FileList, Vec::new());
+        let popup = PalettePopup::new(Context::FileList, Os::Windows, Vec::new());
         let names: Vec<String> = popup.matches.iter().map(ToString::to_string).collect();
 
         assert_eq!(names[0], "bookmarks");
@@ -892,6 +904,7 @@ mod tests {
     fn palette_lists_external_commands_after_the_built_in_ones() {
         let mut popup = PalettePopup::new(
             Context::FileList,
+            Os::Windows,
             vec!["open_terminal".to_owned(), "diff".to_owned()],
         );
 
@@ -975,7 +988,7 @@ mod tests {
 
     #[test]
     fn palette_cursor_wraps_and_handles_no_matches() {
-        let mut popup = PalettePopup::new(Context::FileList, Vec::new());
+        let mut popup = PalettePopup::new(Context::FileList, Os::Windows, Vec::new());
         popup.set_query("jump_".to_owned());
         assert_eq!(popup.matches.len(), 36);
 
