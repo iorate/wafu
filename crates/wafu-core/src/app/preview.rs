@@ -120,7 +120,9 @@ impl App {
         let target = self
             .active_pane()
             .cursor_entry()
-            .filter(|entry| !entry.kind.is_dir_like() && is_image_name(&entry.name))
+            .filter(|entry| {
+                !entry.kind.is_dir_like() && !entry.kind.is_special() && is_image_name(&entry.name)
+            })
             .map(|entry| entry.name.clone());
         if target == preview.shown {
             return;

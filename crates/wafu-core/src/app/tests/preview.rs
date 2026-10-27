@@ -1,10 +1,11 @@
 use std::path::PathBuf;
 
 use crate::app::{Effect, IoEvent, Msg, PreviewError, PreviewSource, Side};
+use crate::entry::SpecialKind;
 use crate::error::IoError;
 use crate::location::{ArchiveFormat, ArchivePath};
 use crate::preview::{Document, TRUNCATED_NOTE};
-use crate::test_support::{Harness, file};
+use crate::test_support::{Harness, file, special};
 use crate::view::{PreviewContent, PreviewPlacement};
 
 const LEFT: &str = "/home/user";
@@ -289,6 +290,25 @@ fn an_image_opened_from_the_left_pane_uses_the_right_area_and_follows_the_cursor
         [Effect::LoadImage { .. }]
     ));
     assert_eq!(harness.view().preview.unwrap().name, "two.JPG");
+}
+
+#[test]
+fn a_special_file_named_like_an_image_is_not_requested() {
+    let mut harness = image();
+    harness.image_loaded(2, 1);
+    harness.load(
+        Side::Left,
+        vec![file("one.png"), special("pipe.png", SpecialKind::Fifo)],
+    );
+    harness.take_effects();
+
+    harness.press("Down");
+
+    assert_eq!(harness.cursor_name(Side::Left), "pipe.png");
+    assert_eq!(harness.take_effects(), vec![]);
+    let preview = harness.view().preview.unwrap();
+    assert_eq!(preview.content, PreviewContent::Image(None));
+    assert_eq!(preview.name, "");
 }
 
 #[test]

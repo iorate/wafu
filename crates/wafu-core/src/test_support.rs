@@ -5,7 +5,7 @@ use crate::app::{
     App, Change, ConfigSource, DrivePurpose, Effect, IoEvent, MouseInput, Msg, Os, PreviewError,
     Resolved, Side, Start,
 };
-use crate::entry::{Entry, EntryKind};
+use crate::entry::{Entry, EntryKind, SpecialKind};
 use crate::error::IoError;
 use crate::key::{Key, KeyBase, KeyInput};
 use crate::operation::{OperationEvent, OperationSpec, Outcome};
@@ -421,7 +421,7 @@ pub(crate) fn start_msg_with(
 pub(crate) fn file(name: &str) -> Entry {
     Entry {
         name: OsString::from(name),
-        kind: EntryKind::File,
+        kind: EntryKind::File { executable: false },
         size: 0,
         modified: None,
         hidden: false,
@@ -431,6 +431,13 @@ pub(crate) fn file(name: &str) -> Entry {
 pub(crate) fn dir(name: &str) -> Entry {
     Entry {
         kind: EntryKind::Dir,
+        ..file(name)
+    }
+}
+
+pub(crate) fn special(name: &str, kind: SpecialKind) -> Entry {
+    Entry {
+        kind: EntryKind::Special(kind),
         ..file(name)
     }
 }

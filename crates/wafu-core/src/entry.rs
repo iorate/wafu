@@ -15,17 +15,29 @@ pub struct Entry {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EntryKind {
     Dir,
-    File,
+    File {
+        executable: bool,
+    },
     /// A symbolic link. `target` is `None` when the link is broken.
     Symlink {
         target: Option<TargetKind>,
     },
+    /// A FIFO, socket, or device, whose content cannot be read as a file.
+    Special(SpecialKind),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TargetKind {
     Dir,
     File,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpecialKind {
+    Fifo,
+    Socket,
+    BlockDevice,
+    CharDevice,
 }
 
 /// A modification time, both as an instant for sorting and as local civil time for display.
@@ -84,6 +96,25 @@ impl EntryKind {
                 }
         )
     }
+
+    #[must_use]
+    pub fn is_special(self) -> bool {
+        matches!(self, Self::Special(_))
+    }
+
+    /// The mark `ls -F` would print after the name, or an empty string.
+    #[must_use]
+    pub fn marker(self) -> &'static str {
+        match self {
+            Self::Dir => "/",
+            Self::File { executable: true } => "*",
+            Self::File { executable: false }
+            | Self::Special(SpecialKind::BlockDevice | SpecialKind::CharDevice) => "",
+            Self::Symlink { .. } => "@",
+            Self::Special(SpecialKind::Fifo) => "|",
+            Self::Special(SpecialKind::Socket) => "=",
+        }
+    }
 }
 
 impl fmt::Display for LocalDateTime {
@@ -102,22 +133,37 @@ mod tests {
 
     #[test]
     fn split_name_at_last_dot() {
-        assert_split("a.tar.gz", EntryKind::File, "a.tar", "gz");
+        assert_split(
+            "a.tar.gz",
+            EntryKind::File { executable: false },
+            "a.tar",
+            "gz",
+        );
     }
 
     #[test]
     fn split_name_without_dot_has_no_extension() {
-        assert_split("noext", EntryKind::File, "noext", "");
+        assert_split("noext", EntryKind::File { executable: false }, "noext", "");
     }
 
     #[test]
     fn split_name_with_only_leading_dot_has_no_extension() {
-        assert_split(".gitignore", EntryKind::File, ".gitignore", "");
+        assert_split(
+            ".gitignore",
+            EntryKind::File { executable: false },
+            ".gitignore",
+            "",
+        );
     }
 
     #[test]
     fn split_name_with_leading_dot_and_another_dot() {
-        assert_split(".bashrc.bak", EntryKind::File, ".bashrc", "bak");
+        assert_split(
+            ".bashrc.bak",
+            EntryKind::File { executable: false },
+            ".bashrc",
+            "bak",
+        );
     }
 
     #[test]
@@ -143,12 +189,34 @@ mod tests {
 
     #[test]
     fn split_name_with_multibyte_first_char() {
-        assert_split("日本.txt", EntryKind::File, "日本", "txt");
+        assert_split(
+            "日本.txt",
+            EntryKind::File { executable: false },
+            "日本",
+            "txt",
+        );
     }
 
     #[test]
     fn split_name_of_empty_name() {
-        assert_split("", EntryKind::File, "", "");
+        assert_split("", EntryKind::File { executable: false }, "", "");
+    }
+
+    #[test]
+    fn markers_follow_ls_f() {
+        let link = EntryKind::Symlink {
+            target: Some(TargetKind::Dir),
+        };
+
+        assert_eq!(EntryKind::Dir.marker(), "/");
+        assert_eq!(EntryKind::File { executable: true }.marker(), "*");
+        assert_eq!(EntryKind::File { executable: false }.marker(), "");
+        assert_eq!(link.marker(), "@");
+        assert_eq!(EntryKind::Symlink { target: None }.marker(), "@");
+        assert_eq!(EntryKind::Special(SpecialKind::Fifo).marker(), "|");
+        assert_eq!(EntryKind::Special(SpecialKind::Socket).marker(), "=");
+        assert_eq!(EntryKind::Special(SpecialKind::BlockDevice).marker(), "");
+        assert_eq!(EntryKind::Special(SpecialKind::CharDevice).marker(), "");
     }
 
     #[test]

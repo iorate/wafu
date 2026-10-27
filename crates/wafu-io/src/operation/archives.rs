@@ -5,7 +5,7 @@ use std::time::SystemTime;
 
 use wafu_core::{ArchiveEntries, ArchiveFormat, OperationEvent, OperationSpec, Reply};
 
-use super::{CHUNK_SIZE, Step, Stop, Worker, children, fail, failure, open_for_times};
+use super::{CHUNK_SIZE, NOT_REGULAR, Step, Stop, Worker, children, fail, failure, open_for_times};
 use crate::archive::{
     ArchiveEntry, ArchiveEntryKind, ArchiveError, ArchiveReader, ArchiveWriter, check_component,
     create_archive, open_archive,
@@ -333,7 +333,7 @@ impl Worker<'_> {
             for child in children(path)? {
                 self.add_path(writer, &child, base)?;
             }
-        } else {
+        } else if meta.is_file() {
             writer
                 .start_file(&name, meta.len(), modified, mode)
                 .map_err(fail(path))?;
@@ -347,6 +347,8 @@ impl Worker<'_> {
                 }
                 writer.write_all(&buffer[..read]).map_err(fail(path))?;
             }
+        } else {
+            return Err(failure(path, NOT_REGULAR));
         }
         self.done += 1;
         Ok(())
@@ -821,6 +823,33 @@ mod tests {
             .unwrap();
         assert_eq!(content, "hello");
         assert!(reader.entries()[1].modified.is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn compress_fails_at_a_fifo() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("src");
+        fs::create_dir(&src).unwrap();
+        fs::write(src.join("a.txt"), b"a").unwrap();
+        let status = std::process::Command::new("mkfifo")
+            .arg(src.join("fifo"))
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+
+        let (outcome, _) = run(
+            &compress(std::slice::from_ref(&src), &dest, "x.zip", None),
+            [],
+        );
+
+        let Outcome::Failed { path, error, .. } = outcome else {
+            panic!("expected a failure, got {outcome:?}");
+        };
+        assert_eq!(path, src.join("fifo"));
+        assert_eq!(error.to_string(), "not a regular file");
     }
 
     #[test]

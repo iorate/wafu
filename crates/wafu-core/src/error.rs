@@ -35,6 +35,8 @@ pub enum AppError {
     },
     #[error("cannot open {}: the symbolic link is broken", path.display())]
     BrokenLink { path: PathBuf },
+    #[error("cannot open {}: not a regular file", path.display())]
+    NotRegularFile { path: PathBuf },
     #[error("{} is not available; moved to {}", path.display(), fallback.display())]
     Fallback { path: PathBuf, fallback: PathBuf },
     #[error("{} is not available", path.display())]

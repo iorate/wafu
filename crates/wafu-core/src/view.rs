@@ -73,7 +73,7 @@ pub struct RowView {
     /// The last characters of the name, kept visible when eliding in the middle.
     /// Empty for short names.
     pub extension: String,
-    /// `@` for symbolic links, otherwise empty.
+    /// The mark `ls -F` prints after the name (`/`, `*`, `@`, `|`, `=`), or empty.
     pub marker: String,
     pub size: String,
     pub modified: String,
@@ -279,15 +279,14 @@ impl RowView {
         };
         let kind = match entry.kind {
             EntryKind::Dir => RowKind::Dir,
-            EntryKind::File => RowKind::File,
+            EntryKind::File { .. } | EntryKind::Special(_) => RowKind::File,
             EntryKind::Symlink { .. } => RowKind::Link,
         };
-        let is_link = kind == RowKind::Link;
         let broken = entry.kind == EntryKind::Symlink { target: None };
         let size = if broken {
             "?".to_owned()
-        } else if entry.kind.is_dir_like() {
-            "<DIR>".to_owned()
+        } else if entry.kind.is_dir_like() || entry.kind.is_special() {
+            String::new()
         } else {
             size_format.format(entry.size)
         };
@@ -303,11 +302,7 @@ impl RowView {
             kind,
             name,
             extension,
-            marker: if is_link {
-                "@".to_owned()
-            } else {
-                String::new()
-            },
+            marker: entry.kind.marker().to_owned(),
             size,
             modified,
         }

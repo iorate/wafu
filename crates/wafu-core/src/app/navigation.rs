@@ -258,6 +258,10 @@ impl App {
                 let path = location.base.join(&entry.name);
                 self.log.push(AppError::BrokenLink { path }.to_string());
             }
+            Some(entry) if entry.kind.is_special() => {
+                let path = location.base.join(&entry.name);
+                self.log.push(AppError::NotRegularFile { path }.to_string());
+            }
             Some(entry) => {
                 if let Some(format) = ArchiveFormat::from_name(&entry.name) {
                     let name = entry.name.clone();
@@ -279,6 +283,11 @@ impl App {
             return;
         };
         if entry.kind.is_dir_like() {
+            return;
+        }
+        if entry.kind.is_special() {
+            let path = self.active_pane().location().base.join(&entry.name);
+            self.log.push(AppError::NotRegularFile { path }.to_string());
             return;
         }
         let format = ArchiveFormat::from_name(&entry.name).unwrap_or(ArchiveFormat::Zip);
