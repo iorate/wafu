@@ -8,7 +8,7 @@ use crate::listing::{SortKey, SortSpec};
 use crate::pane::InFlight;
 use crate::state::{PaneState, StateFile};
 use crate::test_support::{CONFIG_PATH, HOME, Harness, dir, file, start_msg_with};
-use crate::view::{Ellipsis, ItemMark, RowKind};
+use crate::view::{ItemMark, RowKind};
 
 mod archives;
 mod operations;
@@ -112,18 +112,6 @@ fn extension_column_includes_the_dot() {
             ("noext", "", ""),
         ]
     );
-}
-
-#[test]
-fn long_names_are_split_for_middle_ellipsis() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-
-    harness.load(Side::Left, vec![file("a_rather_long_name.txt")]);
-
-    let view = harness.view();
-    assert_eq!(view.style.ellipsis, Ellipsis::End);
-    assert_eq!(view.left.rows[1].name, "a_rather_l");
-    assert_eq!(view.left.rows[1].name_tail, "ong_name");
 }
 
 #[test]
@@ -2321,7 +2309,7 @@ fn reloading_the_configuration_changes_keys_and_style_but_not_initial() {
     harness.take_effects();
 
     harness.config(
-        "[appearance]\ntheme = \"dark\"\nellipsis = \"middle\"\nbogus = 1\n[appearance.font]\nsize = 16\n[initial]\nshow_hidden = true\n[keys.filelist]\n\"Q\" = \"nop\"\n\"F2\" = \"go_root\"\n",
+        "[appearance]\ntheme = \"dark\"\nbogus = 1\n[appearance.font]\nsize = 16\n[initial]\nshow_hidden = true\n[keys.filelist]\n\"Q\" = \"nop\"\n\"F2\" = \"go_root\"\n",
     );
 
     assert_eq!(
@@ -2330,7 +2318,6 @@ fn reloading_the_configuration_changes_keys_and_style_but_not_initial() {
     );
     let style = harness.view().style;
     assert_eq!(style.theme, Theme::Dark);
-    assert_eq!(style.ellipsis, Ellipsis::Middle);
     assert_eq!(style.fonts.filelist.size, 16);
     assert!(!harness.app().pane(Side::Left).show_hidden());
     assert_eq!(harness.marks(Side::Left), ["a"]);

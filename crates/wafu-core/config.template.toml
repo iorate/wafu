@@ -20,8 +20,6 @@
 [appearance]
 # auto follows the OS; light and dark force a theme.
 # theme = "auto"
-# Where a name that does not fit is cut: end or middle.
-# ellipsis = "end"
 # How sizes are written: plain (bytes), comma (1,234,567), or human (1.2M,
 # like ls -h).
 # size_format = "plain"

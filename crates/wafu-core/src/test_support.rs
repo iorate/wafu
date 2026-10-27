@@ -345,7 +345,7 @@ impl Harness {
         };
         pane.rows
             .iter()
-            .map(|row| format!("{}{}{}", row.name, row.name_tail, row.extension))
+            .map(|row| format!("{}{}", row.name, row.extension))
             .collect()
     }
 
