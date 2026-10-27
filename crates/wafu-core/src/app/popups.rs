@@ -53,6 +53,7 @@ impl App {
         let externals = self.config.commands.keys().cloned().collect();
         self.popup = Some(Popup::Palette(PalettePopup::new(
             Context::FileList,
+            self.os,
             externals,
         )));
     }

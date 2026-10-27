@@ -1,5 +1,7 @@
 use std::fmt;
 
+use crate::app::Os;
+
 /// A named operation. Keys, the mouse, and the palette all invoke these.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Command {
@@ -188,6 +190,18 @@ impl Command {
             .chain(after.iter().map(|(command, _)| command.clone()))
     }
 
+    /// Whether the command does something on the OS. The default key map and
+    /// the palette leave out the commands that do not; a configuration may
+    /// still bind them, and running one then logs an error.
+    #[must_use]
+    pub fn available_on(&self, os: Os) -> bool {
+        os == Os::Windows
+            || !matches!(
+                self,
+                Self::Drives | Self::DrivePrev | Self::DriveNext | Self::ShellMenu
+            )
+    }
+
     /// Whether the command can run in the context. Commands that do nothing on
     /// some OS still count as available, so that a shared configuration loads
     /// without errors everywhere.
@@ -307,6 +321,22 @@ mod tests {
                 .count(),
             16
         );
+    }
+
+    #[test]
+    fn windows_only_commands_are_unavailable_elsewhere() {
+        for command in [
+            Command::Drives,
+            Command::DrivePrev,
+            Command::DriveNext,
+            Command::ShellMenu,
+        ] {
+            assert!(command.available_on(Os::Windows), "{command}");
+            assert!(!command.available_on(Os::MacOs), "{command}");
+            assert!(!command.available_on(Os::Linux), "{command}");
+        }
+        assert!(Command::Copy.available_on(Os::Linux));
+        assert!(Command::External("x".to_owned()).available_on(Os::MacOs));
     }
 
     #[test]

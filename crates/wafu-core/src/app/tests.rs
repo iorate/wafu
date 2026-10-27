@@ -1038,7 +1038,7 @@ fn palette_filters_commands_and_runs_the_selected_one() {
     harness.press("F1");
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Palette");
-    assert_eq!(popup.items.len(), Command::all().count());
+    assert_eq!(popup.items.len(), Command::all().count() - 4);
     assert_eq!(popup.cursor, Some(0));
 
     harness.edit("clear_m");
@@ -1992,15 +1992,29 @@ fn empty_bookmarks_popup_says_so_and_enter_closes_it() {
 }
 
 #[test]
-fn drive_commands_log_on_other_systems() {
+fn drive_keys_are_unbound_on_other_systems() {
     let mut harness = Harness::start("/home/user", "/tmp");
+    harness.take_effects();
+
+    harness.press("L");
+    harness.press("Ctrl+Left");
+    harness.press("\\");
+
+    assert_eq!(harness.log(), Vec::<String>::new());
+    assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
+fn drive_commands_bound_by_the_configuration_log_on_other_systems() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.config("[keys.filelist]\n\"L\" = \"drives\"\n\"Ctrl+Left\" = \"drive_prev\"\n");
     harness.take_effects();
 
     harness.press("L");
     harness.press("Ctrl+Left");
 
     assert_eq!(
-        harness.log(),
+        harness.log()[1..],
         [
             "drives is available only on Windows",
             "drive_prev is available only on Windows"

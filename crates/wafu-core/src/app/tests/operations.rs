@@ -953,6 +953,7 @@ fn copy_path_on_the_parent_row_does_nothing() {
 #[test]
 fn shell_menu_is_windows_only() {
     let mut harness = three_files();
+    harness.config("[keys.filelist]\n\"\\\\\" = \"shell_menu\"\n");
     harness.press("\\");
     assert_eq!(
         harness.log().last().map(String::as_str),

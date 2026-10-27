@@ -213,7 +213,6 @@ fn commands_that_change_things_are_refused_inside_an_archive() {
             "new_text is not available inside an archive",
             "extract is not available inside an archive",
             "compress is not available inside an archive",
-            "shell_menu is not available inside an archive",
         ]
     );
 }
