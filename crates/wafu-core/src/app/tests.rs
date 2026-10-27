@@ -628,7 +628,7 @@ fn marks_survive_sorting_and_reloading() {
     assert_eq!(harness.names(Side::Left), ["..", "b", "a"]);
     assert_eq!(harness.marks(Side::Left), ["a"]);
 
-    harness.press("Y");
+    harness.press("F5");
     harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
     assert_eq!(harness.marks(Side::Left), ["a"]);
 }
@@ -1006,7 +1006,7 @@ fn palette_filters_commands_and_runs_the_selected_one() {
     harness.press("Down");
     harness.press("Space");
 
-    harness.press("B");
+    harness.press("F1");
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Palette");
     assert_eq!(popup.items.len(), Command::all().count());
@@ -1027,7 +1027,7 @@ fn palette_filters_commands_and_runs_the_selected_one() {
 fn palette_shows_bound_keys_and_wraps_the_cursor() {
     let mut harness = Harness::start("/home/user", "/tmp");
 
-    harness.press("B");
+    harness.press("F1");
     harness.edit("mark_range");
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.items[0].detail, "Ctrl+Space");
@@ -1043,13 +1043,13 @@ fn palette_with_no_match_closes_on_enter_and_escape_closes_too() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.take_effects();
 
-    harness.press("B");
+    harness.press("F1");
     harness.edit("no such command");
     assert_eq!(harness.view().popup.unwrap().cursor, None);
     harness.press("Enter");
     assert_eq!(harness.popup(), None);
 
-    harness.press("B");
+    harness.press("F1");
     harness.press("Esc");
     assert_eq!(harness.popup(), None);
     assert_eq!(harness.take_effects(), vec![]);
@@ -1105,7 +1105,7 @@ fn log_keys_scroll_and_clear() {
         shift: false,
         alt: false,
     }));
-    harness.press("B");
+    harness.press("F1");
     harness.edit("clear_log");
     harness.press("Enter");
     assert_eq!(harness.log(), Vec::<String>::new());
@@ -1149,7 +1149,7 @@ fn reload_reads_again_without_emptying_and_the_cursor_follows_the_entry() {
     harness.press("End");
     harness.take_effects();
 
-    harness.press("Y");
+    harness.press("F5");
 
     let effects = harness.take_effects();
     assert_eq!(
@@ -1593,7 +1593,7 @@ fn going_to_the_current_place_does_nothing() {
 
     harness.press("~");
     harness.press("Shift+O");
-    harness.press("B");
+    harness.press("F1");
     harness.edit("swap_panes");
     harness.press("Enter");
 
@@ -1615,7 +1615,7 @@ fn going_to_the_current_place_does_nothing() {
     harness.load(Side::Right, vec![]);
     harness.take_effects();
 
-    harness.press("B");
+    harness.press("F1");
     harness.edit("swap_panes");
     harness.press("Enter");
     assert_eq!(harness.take_effects(), vec![]);
@@ -1744,7 +1744,7 @@ fn swap_panes_exchanges_the_locations_and_keeps_the_active_pane() {
     harness.press("Right");
     harness.take_effects();
 
-    harness.press("B");
+    harness.press("F1");
     harness.edit("swap_panes");
     harness.press("Enter");
 
@@ -2462,7 +2462,7 @@ fn external_commands_run_from_the_palette_with_no_targets() {
     harness.config("[commands.term]\nrun = \"wt {paths}\"\n");
     harness.take_effects();
 
-    harness.press("B");
+    harness.press("F1");
     harness.edit("$te");
     assert_eq!(harness.popup_labels(), ["$term"]);
     harness.press("Enter");
