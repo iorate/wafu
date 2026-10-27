@@ -125,6 +125,7 @@ export component PaneWidget {
     in property <[bool]> marks;
     in property <int> scroll-top;
     in property <bool> ellipsis-middle;
+    in property <string> size-sample;
     // Where the list is in the window, for a menu below a row.
     out property <length> list-x: area.absolute-position.x;
     out property <length> list-y: area.absolute-position.y;
@@ -164,7 +165,7 @@ export component PaneWidget {
     }
 
     measure-size := Cell {
-        text: "000000000000";
+        text: root.size-sample;
         visible: false;
     }
 

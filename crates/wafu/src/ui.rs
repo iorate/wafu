@@ -545,6 +545,7 @@ impl Ui {
     fn apply_style(&self, style: &Style) {
         self.window
             .set_ellipsis_middle(style.ellipsis == Ellipsis::Middle);
+        self.window.set_size_sample(style.size_sample.into());
         self.window.set_theme(match style.theme {
             ConfigTheme::Auto => 0,
             ConfigTheme::Light => 1,

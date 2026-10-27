@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::config::{ColorSet, Config, Theme};
+use crate::config::{ColorSet, Config, SizeFormat, Theme};
 use crate::entry::{Entry, EntryKind};
 use crate::pane::Pane;
 use crate::preview::ImageData;
@@ -32,6 +32,8 @@ pub struct View {
 pub struct Style {
     pub theme: Theme,
     pub ellipsis: Ellipsis,
+    /// The text the size column is made wide enough for.
+    pub size_sample: &'static str,
     pub fonts: Fonts,
     pub colors: ColorSet,
 }
@@ -227,6 +229,7 @@ impl Style {
         Self {
             theme: config.appearance.theme,
             ellipsis: config.appearance.ellipsis,
+            size_sample: config.appearance.size_format.column_sample(),
             fonts: Fonts {
                 ui: resolve(&font.default),
                 filelist: resolve(&font.filelist),
@@ -242,6 +245,10 @@ impl PaneView {
     pub(crate) fn from_pane(pane: &Pane, active: bool) -> Self {
         let rows = pane.rows();
         let (marked, bytes) = pane.marked_summary();
+        let bytes = match pane.size_format() {
+            SizeFormat::Human => SizeFormat::Human.format(bytes),
+            format => format!("{} bytes", format.format(bytes)),
+        };
         let filter = pane
             .filter()
             .map(|filter| format!(" | filter: {filter}"))
@@ -255,7 +262,7 @@ impl PaneView {
             marks: pane.mark_flags(),
             scroll_top: pane.scroll_top(),
             info: format!(
-                "{} items | {marked} marked ({bytes} bytes){filter} | sort: {}{descending} | hidden: {hidden}",
+                "{} items | {marked} marked ({bytes}){filter} | sort: {}{descending} | hidden: {hidden}",
                 pane.listing().visible_len(),
                 pane.sort().key.name(),
             ),
@@ -277,7 +284,7 @@ impl RowView {
         }
     }
 
-    pub(crate) fn from_entry(entry: &Entry) -> Self {
+    pub(crate) fn from_entry(entry: &Entry, size_format: SizeFormat) -> Self {
         let (name, extension) = entry.split_name();
         let (name, name_tail) = split_tail(name);
         let extension = if extension.is_empty() {
@@ -297,7 +304,7 @@ impl RowView {
         } else if entry.kind.is_dir_like() {
             "<DIR>".to_owned()
         } else {
-            entry.size.to_string()
+            size_format.format(entry.size)
         };
         let modified = if broken {
             "?".to_owned()
