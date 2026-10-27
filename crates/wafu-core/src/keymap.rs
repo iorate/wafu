@@ -162,13 +162,14 @@ mod tests {
 
     use super::*;
 
-    const UNBOUND: [Command; 7] = [
+    const UNBOUND: [Command; 8] = [
         Command::SwapPanes,
         Command::ClearMarks,
         Command::NewFile,
         Command::CopyPath,
         Command::CopyName,
         Command::ClearLog,
+        Command::CopyLog,
         Command::Nop,
     ];
 

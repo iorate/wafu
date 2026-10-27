@@ -880,6 +880,34 @@ fn copy_path_and_copy_name_join_the_targets_with_newlines() {
 }
 
 #[test]
+fn copy_log_copies_every_kept_line_and_nothing_when_empty() {
+    let mut harness = three_files();
+    harness.take_effects();
+
+    harness.press("F1");
+    harness.edit("copy_log");
+    harness.press("Enter");
+    assert_eq!(harness.take_effects(), vec![]);
+
+    for name in ["one", "two"] {
+        harness.send(Msg::Io(crate::app::IoEvent::ClipboardSet {
+            text: String::new(),
+            error: Some(crate::error::IoError::new(name)),
+        }));
+    }
+    harness.press("F1");
+    harness.edit("copy_log");
+    harness.press("Enter");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Clipboard(
+            "cannot copy to the clipboard: one\ncannot copy to the clipboard: two".to_owned()
+        )]
+    );
+}
+
+#[test]
 fn copy_path_on_the_parent_row_does_nothing() {
     let mut harness = three_files();
     harness.take_effects();
