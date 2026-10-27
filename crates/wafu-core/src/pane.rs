@@ -1280,7 +1280,7 @@ mod tests {
     fn file(name: &str) -> Entry {
         Entry {
             name: OsString::from(name),
-            kind: EntryKind::File,
+            kind: EntryKind::File { executable: false },
             size: 0,
             modified: None,
             hidden: false,

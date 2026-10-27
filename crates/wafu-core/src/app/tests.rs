@@ -2,12 +2,12 @@ use std::path::{Path, PathBuf};
 
 use super::*;
 use crate::config::Theme;
-use crate::entry::{EntryKind, TargetKind};
+use crate::entry::{EntryKind, SpecialKind, TargetKind};
 use crate::external::CommandLine;
 use crate::listing::{SortKey, SortSpec};
 use crate::pane::InFlight;
 use crate::state::{PaneState, StateFile};
-use crate::test_support::{CONFIG_PATH, HOME, Harness, dir, file, start_msg_with};
+use crate::test_support::{CONFIG_PATH, HOME, Harness, dir, file, special, start_msg_with};
 use crate::view::{ItemMark, RowKind};
 
 mod archives;
@@ -107,9 +107,50 @@ fn extension_column_includes_the_dot() {
         columns,
         [
             ("..", "", ""),
-            ("conf.d", "", ""),
+            ("conf.d", "", "/"),
             ("a.tar", ".gz", ""),
             ("noext", "", ""),
+        ]
+    );
+}
+
+#[test]
+fn marker_column_follows_ls_f_and_directories_and_special_files_have_no_size() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    let executable = Entry {
+        kind: EntryKind::File { executable: true },
+        ..file("run")
+    };
+
+    harness.load(
+        Side::Left,
+        vec![
+            dir("d"),
+            executable,
+            file("plain"),
+            special("fifo", SpecialKind::Fifo),
+            special("sock", SpecialKind::Socket),
+            special("tty", SpecialKind::CharDevice),
+        ],
+    );
+
+    let view = harness.view();
+    let columns: Vec<(&str, &str, &str)> = view
+        .left
+        .rows
+        .iter()
+        .map(|row| (row.name.as_str(), row.marker.as_str(), row.size.as_str()))
+        .collect();
+    assert_eq!(
+        columns,
+        [
+            ("..", "", ""),
+            ("d", "/", ""),
+            ("fifo", "|", ""),
+            ("plain", "", "0"),
+            ("run", "*", "0"),
+            ("sock", "=", ""),
+            ("tty", "", ""),
         ]
     );
 }
@@ -155,7 +196,7 @@ fn size_and_time_columns_follow_symlink_targets() {
         columns,
         [
             ("..", "", "", ""),
-            ("to_dir", "@", "<DIR>", ""),
+            ("to_dir", "@", "", ""),
             ("broken", "@", "?", "?"),
             ("to_file", "@", "42", ""),
         ]
@@ -1863,6 +1904,44 @@ fn opening_a_broken_link_logs_an_error() {
         [format!(
             "cannot open {}: the symbolic link is broken",
             PathBuf::from("/home/user").join("dead").display()
+        )]
+    );
+    assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
+fn opening_a_special_file_logs_an_error() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![special("fifo", SpecialKind::Fifo)]);
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("Enter");
+
+    assert_eq!(
+        harness.log(),
+        [format!(
+            "cannot open {}: not a regular file",
+            PathBuf::from("/home/user").join("fifo").display()
+        )]
+    );
+    assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
+fn entering_a_special_file_as_an_archive_logs_an_error() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![special("sock", SpecialKind::Socket)]);
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("Shift+U");
+
+    assert_eq!(
+        harness.log(),
+        [format!(
+            "cannot open {}: not a regular file",
+            PathBuf::from("/home/user").join("sock").display()
         )]
     );
     assert_eq!(harness.take_effects(), vec![]);

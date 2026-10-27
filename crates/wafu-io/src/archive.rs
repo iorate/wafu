@@ -160,7 +160,9 @@ pub(crate) fn find_entry(entries: &[ArchiveEntry], inner: &[String], name: &str)
 fn listed_entry(name: &str, entry: &ArchiveEntry) -> Entry {
     let kind = match entry.kind {
         ArchiveEntryKind::Dir => EntryKind::Dir,
-        ArchiveEntryKind::File => EntryKind::File,
+        ArchiveEntryKind::File => EntryKind::File {
+            executable: entry.mode.is_some_and(|mode| mode & 0o111 != 0),
+        },
         // What the link points to is not known until it is extracted.
         ArchiveEntryKind::Symlink => EntryKind::Symlink {
             target: Some(TargetKind::File),

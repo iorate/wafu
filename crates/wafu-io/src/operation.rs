@@ -10,6 +10,7 @@ use wafu_core::{IoError, OperationEvent, OperationKind, OperationSpec, Outcome, 
 mod archives;
 
 const CHUNK_SIZE: usize = 64 * 1024;
+const NOT_REGULAR: &str = "not a regular file";
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Carries out an operation, reporting through `report` and taking answers
@@ -156,8 +157,10 @@ impl Worker<'_> {
             self.transfer_link(src, dst, transfer)
         } else if file_type.is_dir() {
             self.transfer_dir(src, dst, &meta, transfer)
-        } else {
+        } else if file_type.is_file() {
             self.transfer_file(src, dst, &meta, transfer)
+        } else {
+            Err(failure(src, NOT_REGULAR))
         }
     }
 
@@ -1008,6 +1011,27 @@ mod tests {
         );
         assert!(!d.exists());
         assert_eq!(events.last(), Some(&OperationEvent::ItemDone { index: 0 }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_inside_a_copied_directory_fails_there() {
+        let dir = TempDir::new().unwrap();
+        let (src, dst) = two_dirs(&dir, &["a.txt"], &[]);
+        let status = std::process::Command::new("mkfifo")
+            .arg(src.join("fifo"))
+            .status()
+            .unwrap();
+        assert!(status.success());
+
+        let (outcome, _) = run(&copy(std::slice::from_ref(&src), &dst), []);
+
+        let Outcome::Failed { path, error, .. } = outcome else {
+            panic!("expected a failure, got {outcome:?}");
+        };
+        assert_eq!(path, src.join("fifo"));
+        assert_eq!(error.to_string(), "not a regular file");
+        assert!(!dst.join("src").join("fifo").exists());
     }
 
     #[test]
