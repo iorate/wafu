@@ -148,7 +148,7 @@ export component AppWindow inherits Window {
             panes := Rectangle {
                 vertical-stretch: 1;
 
-                property <length> left-width: (self.width - 1px) * root.split-percent / 100;
+                property <length> left-width: (self.width - Theme.line-width) * root.split-percent / 100;
                 // A pane under a preview is hidden rather than removed, so
                 // that its list keeps its scroll position.
                 property <bool> left-covered: root.preview.visible && root.preview.full;
@@ -183,14 +183,14 @@ export component AppWindow inherits Window {
 
                 Rectangle {
                     x: panes.left-width;
-                    width: 1px;
+                    width: Theme.line-width;
                     height: parent.height;
                     background: Palette.border;
                 }
 
                 right-pane := PaneWidget {
-                    x: panes.left-width + 1px;
-                    width: parent.width - panes.left-width - 1px;
+                    x: panes.left-width + Theme.line-width;
+                    width: parent.width - panes.left-width - Theme.line-width;
                     height: parent.height;
                     visible: !panes.right-covered;
                     data: root.right;
@@ -216,8 +216,8 @@ export component AppWindow inherits Window {
                 }
 
                 if root.preview.visible: PreviewWidget {
-                    x: root.preview.full ? 0 : panes.left-width + 1px;
-                    width: root.preview.full ? parent.width : parent.width - panes.left-width - 1px;
+                    x: root.preview.full ? 0 : panes.left-width + Theme.line-width;
+                    width: root.preview.full ? parent.width : parent.width - panes.left-width - Theme.line-width;
                     height: parent.height;
                     data: root.preview;
                     lines: root.preview-lines;
@@ -234,7 +234,7 @@ export component AppWindow inherits Window {
             }
 
             Rectangle {
-                height: root.hide-log ? 0 : 1px;
+                height: root.hide-log ? 0 : Theme.line-width;
                 background: Palette.border;
             }
 

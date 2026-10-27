@@ -43,12 +43,13 @@
 # family = ""
 
 # Colors are written as #rrggbb. fg and bg are the text and the background,
-# mark the marked rows, cursor the cursor line, dir the directories, and
-# link the symbolic links. A marked row uses mark, then link, then dir.
+# mark the background of the marked rows, cursor the cursor line, dir the
+# directories, and link the symbolic links. The text of a row uses link, then
+# dir, then fg, whether the row is marked or not.
 [colors.light]
 # fg = "#1e1e1e"
 # bg = "#ffffff"
-# mark = "#c0392b"
+# mark = "#dcdcdc"
 # cursor = "#1e1e1e"
 # dir = "#1f5fbf"
 # link = "#0f8a6a"
@@ -56,7 +57,7 @@
 [colors.dark]
 # fg = "#d4d4d4"
 # bg = "#1e1e1e"
-# mark = "#e74c3c"
+# mark = "#3c3c3c"
 # cursor = "#d4d4d4"
 # dir = "#6fa8ff"
 # link = "#4fd1a5"
