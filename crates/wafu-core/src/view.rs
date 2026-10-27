@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::config::{ColorSet, Config, SizeFormat, Theme};
-use crate::entry::{Entry, EntryKind};
+use crate::entry::{Entry, EntryKind, SpecialKind};
 use crate::pane::Pane;
 use crate::preview::ImageData;
 
@@ -197,14 +197,22 @@ pub enum ItemMark {
     Check(bool),
 }
 
-/// What a row shows, for its color.
+/// What a row shows, for its color. Each variant takes the color of the same
+/// name, except `Parent` and `File`, which take the text color.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RowKind {
     Parent,
     Dir,
     File,
-    /// Any symbolic link, whatever it points to.
+    /// An executable file.
+    Exec,
+    /// A symbolic link that can be followed, whatever it points to.
     Link,
+    /// A broken symbolic link.
+    Broken,
+    /// A FIFO or a device.
+    Fifo,
+    Socket,
 }
 
 impl Style {
@@ -279,8 +287,12 @@ impl RowView {
         };
         let kind = match entry.kind {
             EntryKind::Dir => RowKind::Dir,
-            EntryKind::File { .. } | EntryKind::Special(_) => RowKind::File,
-            EntryKind::Symlink { .. } => RowKind::Link,
+            EntryKind::File { executable: false } => RowKind::File,
+            EntryKind::File { executable: true } => RowKind::Exec,
+            EntryKind::Symlink { target: Some(_) } => RowKind::Link,
+            EntryKind::Symlink { target: None } => RowKind::Broken,
+            EntryKind::Special(SpecialKind::Socket) => RowKind::Socket,
+            EntryKind::Special(_) => RowKind::Fifo,
         };
         let broken = entry.kind == EntryKind::Symlink { target: None };
         let size = if broken {

@@ -163,6 +163,10 @@ pub struct Colors {
     pub cursor: Color,
     pub dir: Color,
     pub link: Color,
+    pub exec: Color,
+    pub broken: Color,
+    pub fifo: Color,
+    pub socket: Color,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -239,7 +243,11 @@ impl Config {
                     mark: Color::new(0xdc, 0xdc, 0xdc),
                     cursor: Color::new(0x1e, 0x1e, 0x1e),
                     dir: Color::new(0x1f, 0x5f, 0xbf),
-                    link: Color::new(0x0f, 0x8a, 0x6a),
+                    link: Color::new(0x0e, 0x7c, 0x86),
+                    exec: Color::new(0x2a, 0x8c, 0x2a),
+                    broken: Color::new(0xc0, 0x39, 0x2b),
+                    fifo: Color::new(0xb8, 0x86, 0x0b),
+                    socket: Color::new(0xb0, 0x3a, 0x9a),
                 },
                 dark: Colors {
                     fg: Color::new(0xd4, 0xd4, 0xd4),
@@ -247,7 +255,11 @@ impl Config {
                     mark: Color::new(0x3c, 0x3c, 0x3c),
                     cursor: Color::new(0xd4, 0xd4, 0xd4),
                     dir: Color::new(0x6f, 0xa8, 0xff),
-                    link: Color::new(0x4f, 0xd1, 0xa5),
+                    link: Color::new(0x4f, 0xd1, 0xe0),
+                    exec: Color::new(0x5f, 0xd7, 0x5f),
+                    broken: Color::new(0xff, 0x6b, 0x6b),
+                    fifo: Color::new(0xf0, 0xc0, 0x50),
+                    socket: Color::new(0xe5, 0x8a, 0xe0),
                 },
             },
             initial: Initial {
