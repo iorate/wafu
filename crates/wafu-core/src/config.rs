@@ -36,6 +36,7 @@ pub struct Config {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct General {
     pub mkdir_then_enter: bool,
+    pub require_marks: bool,
     pub editor: CommandLine,
     pub hide_log_in_preview: bool,
 }
@@ -139,6 +140,7 @@ impl Config {
         Self {
             general: General {
                 mkdir_then_enter: true,
+                require_marks: true,
                 editor: default_editor(os),
                 hide_log_in_preview: false,
             },

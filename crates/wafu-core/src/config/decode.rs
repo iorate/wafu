@@ -164,6 +164,9 @@ fn read_general(root: &mut Reader<'_>, config: &mut Config) {
     if let Some(value) = general.bool("mkdir_then_enter") {
         config.general.mkdir_then_enter = value;
     }
+    if let Some(value) = general.bool("require_marks") {
+        config.general.require_marks = value;
+    }
     if let Some(value) = general.bool("hide_log_in_preview") {
         config.general.hide_log_in_preview = value;
     }
@@ -446,6 +449,7 @@ mod tests {
     const EXAMPLE: &str = r##"
 [general]
 mkdir_then_enter = true
+require_marks = false
 editor = "notepad {paths}"
 hide_log_in_preview = false
 
@@ -552,6 +556,7 @@ editor = "open -t {paths}"
             CommandLine::parse("open -t {paths}").unwrap()
         );
         assert!(config.general.mkdir_then_enter);
+        assert!(!config.general.require_marks);
         assert_eq!(
             config
                 .keys

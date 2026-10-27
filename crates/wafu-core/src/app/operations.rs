@@ -70,6 +70,13 @@ impl App {
             self.log.push(AppError::InArchive { command }.to_string());
             return;
         }
+        if self.config.general.require_marks
+            && requires_marks(&command)
+            && self.active_pane().marked_entries().next().is_none()
+        {
+            self.log.push(AppError::NoMarks { command }.to_string());
+            return;
+        }
         match command {
             Command::OpenWithOs => self.open_with_os(effects),
             Command::Copy => self.start_transfer(OperationKind::Copy, effects),
@@ -730,6 +737,14 @@ impl App {
             }
         }
     }
+}
+
+// The commands that require_marks keeps from acting on the cursor row alone.
+fn requires_marks(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::Copy | Command::Move | Command::Delete | Command::Trash
+    )
 }
 
 // The commands that work on the entries of an archive without changing it.

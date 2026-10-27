@@ -8,6 +8,9 @@
 [general]
 # Enter the directory that mkdir created.
 # mkdir_then_enter = true
+# Make copy, move, delete, and trash act only on marked entries; with no
+# marks they do nothing. Set to false to let them act on the cursor row.
+# require_marks = true
 # Hide the log while a preview is open.
 # hide_log_in_preview = false
 # The editor used by edit, new_text, and edit_config, written like the run
