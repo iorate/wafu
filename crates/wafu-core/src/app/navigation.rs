@@ -307,15 +307,15 @@ impl App {
     }
 
     pub(super) fn go_root(&mut self, effects: &mut Vec<Effect>) {
-        if let Some(root) = root_of(&self.active_pane().location().base) {
-            self.navigate(
-                self.active,
-                Location::new(root),
-                None,
-                HistoryMove::Visit,
-                effects,
-            );
-        }
+        let location = self.active_pane().location();
+        let target = match &location.archive {
+            Some(archive) => Location::archive_root(location.base.clone(), archive.format),
+            None => match root_of(&location.base) {
+                Some(root) => Location::new(root),
+                None => return,
+            },
+        };
+        self.navigate(self.active, target, None, HistoryMove::Visit, effects);
     }
 
     pub(super) fn go_home(&mut self, effects: &mut Vec<Effect>) {

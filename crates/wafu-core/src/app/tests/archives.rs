@@ -101,6 +101,35 @@ fn directories_inside_an_archive_descend_and_backspace_returns_with_the_cursor()
 }
 
 #[test]
+fn go_root_inside_an_archive_goes_to_the_archive_root_and_stays_there() {
+    let mut harness = inside();
+    harness.press("Down");
+    harness.press("Enter");
+    harness.load(Side::Left, vec![dir("deep")]);
+    harness.press("Down");
+    harness.press("Enter");
+    harness.load(Side::Left, vec![file("x")]);
+    harness.take_effects();
+
+    harness.press("/");
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::Watch { path, .. }, Effect::ReadDir { location, .. }]
+            if *path == archive() && *location == root()
+    ));
+    harness.load(Side::Left, contents());
+    assert_eq!(harness.view().left.path, root().to_string());
+    assert_eq!(harness.cursor_name(Side::Left), "..");
+    assert_eq!(harness.history(Side::Left), [LEFT]);
+    harness.take_effects();
+
+    harness.press("/");
+
+    assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
 fn backspace_at_the_archive_root_leaves_with_the_cursor_on_the_archive() {
     let mut harness = inside();
 
