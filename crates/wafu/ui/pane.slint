@@ -187,7 +187,8 @@ export component PaneWidget {
             clip: true;
 
             list := ListView {
-                width: parent.width - (bar.needed ? bar.width : 0px);
+                x: 0;
+                width: parent.width - Theme.scrollbar-gutter;
                 height: parent.height;
                 vertical-scrollbar-policy: ScrollBarPolicy.always-off;
 
@@ -211,6 +212,7 @@ export component PaneWidget {
             // Sits on top of the list so that the core, not the list, owns the
             // scroll position; the list's own wheel handling never runs.
             TouchArea {
+                x: 0;
                 width: list.width;
                 height: parent.height;
 
