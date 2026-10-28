@@ -764,14 +764,13 @@ fn pane_data(pane: &PaneView) -> PaneData {
 fn row(row: &RowView) -> Row {
     Row {
         kind: match row.kind {
-            RowKind::Parent => 0,
-            RowKind::Dir => 1,
-            RowKind::File => 2,
-            RowKind::Exec => 3,
-            RowKind::Link => 4,
-            RowKind::Broken => 5,
-            RowKind::Fifo => 6,
-            RowKind::Socket => 7,
+            RowKind::Dir => 0,
+            RowKind::File => 1,
+            RowKind::Exec => 2,
+            RowKind::Link => 3,
+            RowKind::Broken => 4,
+            RowKind::Fifo => 5,
+            RowKind::Socket => 6,
         },
         name: row.name.as_str().into(),
         extension: row.extension.as_str().into(),

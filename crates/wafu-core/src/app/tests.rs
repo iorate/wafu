@@ -325,6 +325,7 @@ fn status_line_on_the_parent_row_spells_out_the_directory_itself() {
         ),
         ("..", "/", "", "2026/01/02 03:04:05")
     );
+    assert_eq!(row.kind, RowKind::Dir);
 
     harness.press("Down");
     assert_eq!(harness.view().status, "a | -????????? | 0 bytes");
@@ -383,6 +384,7 @@ fn status_line_on_the_parent_row_inside_a_link_shows_the_link() {
 
     assert_eq!(harness.view().status, ".. -> private/tmp/ | lrwxr-xr-x");
     assert_eq!(harness.view().left.rows[0].marker, "@");
+    assert_eq!(harness.view().left.rows[0].kind, RowKind::Link);
 }
 
 #[test]
@@ -2583,7 +2585,7 @@ fn rows_carry_their_kind_for_coloring() {
     assert_eq!(
         kinds,
         [
-            RowKind::Parent,
+            RowKind::File,
             RowKind::Dir,
             RowKind::Link,
             RowKind::File,
@@ -2620,7 +2622,7 @@ fn executables_and_special_files_carry_their_own_kinds() {
     assert_eq!(
         kinds,
         [
-            RowKind::Parent,
+            RowKind::File,
             RowKind::Fifo,
             RowKind::Fifo,
             RowKind::Exec,

@@ -204,10 +204,9 @@ pub enum ItemMark {
 }
 
 /// What a row shows, for its color. Each variant takes the color of the same
-/// name, except `Parent` and `File`, which take the text color.
+/// name, except `File`, which takes the text color.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RowKind {
-    Parent,
     Dir,
     File,
     /// An executable file.
@@ -320,12 +319,12 @@ fn size_with_unit(format: SizeFormat, bytes: u64) -> String {
 }
 
 impl RowView {
-    /// The `..` row, whose marker, size, and time columns describe the location itself.
+    /// The `..` row, whose marker, size, and time columns and color describe the location itself.
     pub(crate) fn parent(own: Option<&Entry>, size_format: SizeFormat) -> Self {
         let (size, modified) =
             own.map_or_else(Default::default, |own| size_and_modified(own, size_format));
         Self {
-            kind: RowKind::Parent,
+            kind: own.map_or(RowKind::File, |own| RowKind::from_entry_kind(own.kind)),
             name: "..".to_owned(),
             extension: String::new(),
             marker: own.map_or("", |own| own.kind.marker()).to_owned(),
@@ -341,23 +340,28 @@ impl RowView {
         } else {
             format!(".{extension}")
         };
-        let kind = match entry.kind {
-            EntryKind::Dir => RowKind::Dir,
-            EntryKind::File { executable: false } => RowKind::File,
-            EntryKind::File { executable: true } => RowKind::Exec,
-            EntryKind::Symlink { target: Some(_) } => RowKind::Link,
-            EntryKind::Symlink { target: None } => RowKind::Broken,
-            EntryKind::Special(SpecialKind::Socket) => RowKind::Socket,
-            EntryKind::Special(_) => RowKind::Fifo,
-        };
         let (size, modified) = size_and_modified(entry, size_format);
         Self {
-            kind,
+            kind: RowKind::from_entry_kind(entry.kind),
             name,
             extension,
             marker: entry.kind.marker().to_owned(),
             size,
             modified,
+        }
+    }
+}
+
+impl RowKind {
+    fn from_entry_kind(kind: EntryKind) -> Self {
+        match kind {
+            EntryKind::Dir => Self::Dir,
+            EntryKind::File { executable: false } => Self::File,
+            EntryKind::File { executable: true } => Self::Exec,
+            EntryKind::Symlink { target: Some(_) } => Self::Link,
+            EntryKind::Symlink { target: None } => Self::Broken,
+            EntryKind::Special(SpecialKind::Socket) => Self::Socket,
+            EntryKind::Special(_) => Self::Fifo,
         }
     }
 }
