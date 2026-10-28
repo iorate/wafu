@@ -852,6 +852,28 @@ fn a_vanished_archive_falls_back_to_its_directory() {
 }
 
 #[test]
+fn go_to_path_naming_the_archive_leaves_it_with_the_cursor_on_the_file() {
+    let mut harness = inside();
+
+    harness.press("Shift+J");
+    harness.edit(&archive().to_string_lossy());
+    harness.press("Enter");
+    harness.take_effects();
+    harness.resolve(Side::Left, LEFT, Some("a.zip"));
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::Watch { .. }, Effect::ReadDir { location, .. }]
+            if *location == Location::new(PathBuf::from(LEFT))
+    ));
+
+    harness.load(Side::Left, vec![file("a.zip")]);
+
+    assert_eq!(harness.view().left.path, LEFT);
+    assert_eq!(harness.cursor_name(Side::Left), "a.zip");
+}
+
+#[test]
 fn copy_path_inside_an_archive_spells_the_path_through_the_archive() {
     let mut harness = inside();
     harness.config("[keys.filelist]\n\"Ctrl+C\" = \"copy_path\"\n");

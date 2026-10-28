@@ -58,6 +58,7 @@ enum Job {
     Resolve {
         side: Side,
         path: PathBuf,
+        climb: bool,
         request: RequestId,
     },
     LoadPreview {
@@ -107,10 +108,12 @@ impl Runtime {
                                 result,
                             }
                         }
-                        Job::Resolve { side, path, .. } => IoEvent::Resolved {
+                        Job::Resolve {
+                            side, path, climb, ..
+                        } => IoEvent::Resolved {
                             side,
                             request,
-                            result: resolve(&path),
+                            result: resolve(&path, climb),
                         },
                         Job::LoadPreview { source, .. } => IoEvent::PreviewLoaded {
                             request,
@@ -158,6 +161,7 @@ impl Runtime {
             Effect::Resolve {
                 side,
                 path,
+                climb,
                 request,
             } => {
                 // The old watch might keep a vanished directory half alive on
@@ -170,6 +174,7 @@ impl Runtime {
                 let _ = self.jobs.send(Job::Resolve {
                     side,
                     path,
+                    climb,
                     request,
                 });
             }
@@ -428,6 +433,7 @@ mod tests {
         runtime.run(Effect::Resolve {
             side: Side::Right,
             path: dir.path().join("gone"),
+            climb: true,
             request: RequestId(1),
         });
 
@@ -455,6 +461,7 @@ mod tests {
             jobs.send(Job::Resolve {
                 side: Side::Left,
                 path: dir.path().to_path_buf(),
+                climb: true,
                 request: RequestId(1),
             })
             .unwrap();

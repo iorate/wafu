@@ -48,11 +48,12 @@ pub struct Pane {
 /// A read the pane is waiting for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InFlight {
-    /// The I/O layer is finding an existing directory at or above `path`.
-    /// `failed` is the read error that led here, if any.
+    /// The I/O layer is finding an existing directory at `path`, or above it
+    /// when `climb` is set. `failed` is the read error that led here, if any.
     Resolve {
         request: RequestId,
         path: PathBuf,
+        climb: bool,
         failed: Option<IoError>,
     },
     /// A move to `target`. The pane keeps showing its current place until the

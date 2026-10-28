@@ -25,11 +25,13 @@ fn start_resolves_both_panes_then_watches_and_reads_them() {
             Effect::Resolve {
                 side: Side::Left,
                 path: PathBuf::from("/home/user"),
+                climb: true,
                 request: RequestId(1),
             },
             Effect::Resolve {
                 side: Side::Right,
                 path: PathBuf::from("/tmp"),
+                climb: true,
                 request: RequestId(2),
             },
             Effect::SetTitle("wafu".to_owned()),
@@ -1678,6 +1680,18 @@ fn go_to_path_starts_with_the_current_path_and_expands_the_input() {
     assert_eq!(harness.popup(), None);
     assert_eq!(
         harness.take_effects(),
+        vec![Effect::Resolve {
+            side: Side::Left,
+            path: docs.clone(),
+            climb: false,
+            request: harness.latest_resolve(Side::Left),
+        }]
+    );
+
+    harness.resolve(Side::Left, &docs.to_string_lossy(), None);
+
+    assert_eq!(
+        harness.take_effects(),
         vec![
             Effect::Watch {
                 side: Side::Left,
@@ -1700,13 +1714,88 @@ fn go_to_path_resolves_relative_input_from_the_pane() {
     harness.press("Shift+J");
     harness.edit("docs/../other");
     harness.press("Enter");
-    harness.load(Side::Left, vec![]);
 
     // Compared as paths: folding rebuilds the path with the platform separator.
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::Resolve { path, .. }] if *path == PathBuf::from("/home/user").join("other")
+    ));
+}
+
+#[test]
+fn go_to_path_to_a_file_opens_its_parent_with_the_cursor_on_it() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.take_effects();
+
+    harness.press("Shift+J");
+    harness.edit("/home/user/docs/b.txt");
+    harness.press("Enter");
+    harness.take_effects();
+    harness.resolve(Side::Left, "/home/user/docs", Some("b.txt"));
+
     assert_eq!(
-        harness.app().pane(Side::Left).location().base,
-        PathBuf::from("/home/user").join("other")
+        harness.take_effects(),
+        vec![
+            Effect::Watch {
+                side: Side::Left,
+                path: PathBuf::from("/home/user/docs"),
+            },
+            Effect::ReadDir {
+                side: Side::Left,
+                location: Location::new(PathBuf::from("/home/user/docs")),
+                request: harness.latest_request(Side::Left),
+            },
+        ]
     );
+
+    harness.load(Side::Left, vec![file("a.txt"), file("b.txt")]);
+
+    assert_eq!(harness.view().left.path, "/home/user/docs");
+    assert_eq!(harness.cursor_name(Side::Left), "b.txt");
+}
+
+#[test]
+fn go_to_path_to_a_file_in_the_current_place_rereads_it_with_the_cursor_on_the_file() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a.txt"), file("b.txt")]);
+    harness.take_effects();
+
+    harness.press("Shift+J");
+    harness.edit("/home/user/b.txt");
+    harness.press("Enter");
+    harness.take_effects();
+    harness.resolve(Side::Left, "/home/user", Some("b.txt"));
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::Watch { .. }, Effect::ReadDir { location, .. }]
+            if *location == Location::new(PathBuf::from("/home/user"))
+    ));
+
+    harness.load(Side::Left, vec![file("a.txt"), file("b.txt")]);
+
+    assert_eq!(harness.cursor_name(Side::Left), "b.txt");
+    assert_eq!(harness.history(Side::Left), ["/home/user"]);
+}
+
+#[test]
+fn go_to_path_to_the_current_place_only_watches_it_again() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.take_effects();
+
+    harness.press("Shift+J");
+    harness.press("Enter");
+    harness.take_effects();
+    harness.resolve(Side::Left, "/home/user", None);
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Watch {
+            side: Side::Left,
+            path: PathBuf::from("/home/user"),
+        }]
+    );
+    assert_eq!(harness.log(), Vec::<String>::new());
 }
 
 #[test]
@@ -1723,19 +1812,25 @@ fn go_to_path_with_blank_input_just_closes() {
 }
 
 #[test]
-fn go_to_path_to_a_missing_place_logs_the_read_error_and_stays() {
+fn go_to_path_to_a_missing_place_logs_an_error_and_stays() {
     let mut harness = Harness::start("/home/user", "/tmp");
+    harness.take_effects();
 
     harness.press("Shift+J");
     harness.edit("/nowhere");
     harness.press("Enter");
-    harness.fail_load(Side::Left, "No such file or directory");
+    harness.take_effects();
+    harness.fail_resolve(Side::Left);
 
-    assert_eq!(
-        harness.log(),
-        ["cannot read /nowhere: No such file or directory"]
-    );
+    assert_eq!(harness.log(), ["/nowhere does not exist"]);
     assert_eq!(harness.view().left.path, "/home/user");
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Watch {
+            side: Side::Left,
+            path: PathBuf::from("/home/user"),
+        }]
+    );
 }
 
 #[test]
@@ -1830,6 +1925,7 @@ fn a_vanished_place_is_left_for_the_nearest_ancestor() {
             Effect::Resolve {
                 side: Side::Left,
                 path: PathBuf::from("/home/user"),
+                climb: true,
                 request: harness.latest_resolve(Side::Left),
             },
         ]
@@ -2048,6 +2144,7 @@ fn drives_popup_lists_the_letters_and_picks_by_letter() {
         vec![Effect::Resolve {
             side: Side::Left,
             path: PathBuf::from("D:\\"),
+            climb: true,
             request: harness.latest_resolve(Side::Left),
         }]
     );

@@ -257,8 +257,8 @@ impl App {
                     return;
                 }
                 let base = &self.active_pane().location().base;
-                let target = Location::new(resolve_input(text, &self.home, base));
-                self.navigate(self.active, target, None, HistoryMove::Visit, effects);
+                let path = resolve_input(text, &self.home, base);
+                self.resolve(self.active, path, false, None, effects);
                 return;
             }
             InputKind::Rename { .. }

@@ -42,7 +42,7 @@ impl App {
         history: HistoryMove,
         effects: &mut Vec<Effect>,
     ) {
-        if *self.panes[side.index()].location() == target {
+        if *self.panes[side.index()].location() == target && cursor.is_none() {
             return;
         }
         Self::cancel_loading(&mut self.panes[side.index()], effects);
@@ -65,12 +65,13 @@ impl App {
         }));
     }
 
-    /// Moves to the nearest existing directory at or above the path, with the
-    /// I/O layer deciding what exists.
+    /// Moves to the existing directory at the path, or, when `climb` is set,
+    /// the nearest one above it, with the I/O layer deciding what exists.
     pub(super) fn resolve(
         &mut self,
         side: Side,
         path: PathBuf,
+        climb: bool,
         failed: Option<IoError>,
         effects: &mut Vec<Effect>,
     ) {
@@ -79,11 +80,13 @@ impl App {
         effects.push(Effect::Resolve {
             side,
             path: path.clone(),
+            climb,
             request,
         });
         self.panes[side.index()].set_loading(Some(InFlight::Resolve {
             request,
             path,
+            climb,
             failed,
         }));
     }
@@ -155,7 +158,7 @@ impl App {
                 Err(source) => {
                     // The place may be gone; let the I/O layer find out.
                     let path = pane.location().base.clone();
-                    self.resolve(side, path, Some(source), effects);
+                    self.resolve(side, path, true, Some(source), effects);
                     return;
                 }
             },
@@ -179,16 +182,28 @@ impl App {
         if pane.loading().map(InFlight::request) != Some(request) {
             return;
         }
-        let Some(InFlight::Resolve { path, failed, .. }) = pane.take_loading() else {
+        let Some(InFlight::Resolve {
+            path,
+            climb,
+            failed,
+            ..
+        }) = pane.take_loading()
+        else {
             return;
         };
         match result {
-            Some(Resolved { dir, file }) if still_here(pane.location(), &dir, file.as_deref()) => {
+            Some(Resolved { dir, file })
+                if climb && still_here(pane.location(), &dir, file.as_deref()) =>
+            {
                 // Still here, so the read error was the whole story.
                 if let Some(source) = failed {
                     self.log
                         .push(AppError::ReadDir { path, source }.to_string());
                 }
+                Self::rewatch(side, pane, effects);
+            }
+            // The pane is already there; only its watch needs restoring.
+            Some(Resolved { dir, file: None }) if dir == pane.location().base => {
                 Self::rewatch(side, pane, effects);
             }
             Some(Resolved { dir, file }) => {
@@ -202,6 +217,10 @@ impl App {
                     );
                 }
                 self.navigate(side, Location::new(dir), file, HistoryMove::Visit, effects);
+            }
+            None if !climb => {
+                self.log.push(AppError::NotFound { path }.to_string());
+                Self::rewatch(side, pane, effects);
             }
             // Home is only for a pane with nowhere else to be; a pane that is
             // somewhere stays there.
@@ -439,7 +458,7 @@ impl App {
             .get(&letter)
             .cloned()
             .unwrap_or_else(|| PathBuf::from(format!("{letter}:\\")));
-        self.resolve(self.active, path, None, effects);
+        self.resolve(self.active, path, true, None, effects);
     }
 
     pub(super) fn drive_of_active(&self) -> Option<char> {
