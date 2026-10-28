@@ -145,6 +145,10 @@ impl Harness {
         self.send(Msg::PreviewRows { rows });
     }
 
+    pub(crate) fn preview_double_click(&mut self) {
+        self.send(Msg::Mouse(MouseInput::PreviewDoubleClick));
+    }
+
     pub(crate) fn preview_wheel(&mut self, rows: i32) {
         self.send(Msg::Mouse(MouseInput::PreviewWheel { rows }));
     }

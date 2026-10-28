@@ -104,11 +104,32 @@ impl App {
         }
     }
 
-    pub(super) fn preview_mouse(&mut self, input: MouseInput) {
-        if let (MouseInput::PreviewWheel { rows }, Some(Preview::Document(preview))) =
-            (input, &mut self.preview)
-        {
-            preview.scroll_by(i64::from(rows));
+    pub(super) fn preview_mouse(&mut self, input: MouseInput, effects: &mut Vec<Effect>) {
+        if input == MouseInput::PreviewDoubleClick {
+            self.close_preview(effects);
+            return;
+        }
+        match &mut self.preview {
+            Some(Preview::Document(preview)) => {
+                if let MouseInput::PreviewWheel { rows } = input {
+                    preview.scroll_by(i64::from(rows));
+                }
+            }
+            Some(Preview::Image(preview)) if preview.placement == PreviewPlacement::RightPane => {
+                let pane = &mut self.panes[Side::Left.index()];
+                match input {
+                    MouseInput::Click {
+                        side: Side::Left,
+                        row,
+                    } => pane.set_cursor(row),
+                    MouseInput::Wheel {
+                        side: Side::Left,
+                        rows,
+                    } => pane.scroll_by(rows),
+                    _ => {}
+                }
+            }
+            _ => {}
         }
     }
 

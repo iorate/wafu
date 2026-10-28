@@ -282,6 +282,7 @@ impl Ui {
 
     fn connect(ui: &Rc<Self>) {
         Self::connect_window(ui);
+        Self::connect_preview(ui);
 
         let weak = Rc::downgrade(ui);
         ui.window.on_viewport_rows_changed(move |side, rows| {
@@ -341,24 +342,6 @@ impl Ui {
                 && let Some(rows) = ui.wheel_rows(2, delta)
             {
                 ui.dispatch(Msg::Mouse(MouseInput::LogWheel { rows }));
-            }
-        });
-
-        let weak = Rc::downgrade(ui);
-        ui.window.on_preview_rows_changed(move |rows| {
-            if let Some(ui) = Weak::upgrade(&weak) {
-                ui.dispatch(Msg::PreviewRows {
-                    rows: usize::try_from(rows).unwrap_or(1),
-                });
-            }
-        });
-
-        let weak = Rc::downgrade(ui);
-        ui.window.on_preview_wheel(move |delta| {
-            if let Some(ui) = Weak::upgrade(&weak)
-                && let Some(rows) = ui.wheel_rows(3, delta)
-            {
-                ui.dispatch(Msg::Mouse(MouseInput::PreviewWheel { rows }));
             }
         });
 
@@ -424,6 +407,34 @@ impl Ui {
 
     // Wheel deltas arrive in pixels and in fractions of a notch; whole rows are
     // returned and the rest is carried over to the next event of the same area.
+
+    fn connect_preview(ui: &Rc<Self>) {
+        let weak = Rc::downgrade(ui);
+        ui.window.on_preview_rows_changed(move |rows| {
+            if let Some(ui) = Weak::upgrade(&weak) {
+                ui.dispatch(Msg::PreviewRows {
+                    rows: usize::try_from(rows).unwrap_or(1),
+                });
+            }
+        });
+
+        let weak = Rc::downgrade(ui);
+        ui.window.on_preview_double_clicked(move || {
+            if let Some(ui) = Weak::upgrade(&weak) {
+                ui.dispatch(Msg::Mouse(MouseInput::PreviewDoubleClick));
+            }
+        });
+
+        let weak = Rc::downgrade(ui);
+        ui.window.on_preview_wheel(move |delta| {
+            if let Some(ui) = Weak::upgrade(&weak)
+                && let Some(rows) = ui.wheel_rows(3, delta)
+            {
+                ui.dispatch(Msg::Mouse(MouseInput::PreviewWheel { rows }));
+            }
+        });
+    }
+
     fn wheel_rows(&self, index: usize, delta: f32) -> Option<i32> {
         let mut remainder = self.wheel_remainder.borrow_mut();
         let total = remainder[index] - delta / WHEEL_PIXELS_PER_NOTCH * WHEEL_ROWS_PER_NOTCH;

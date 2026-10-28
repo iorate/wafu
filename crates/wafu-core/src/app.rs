@@ -86,6 +86,8 @@ pub enum MouseInput {
     PreviewWheel {
         rows: i32,
     },
+    /// A double click on a preview of any kind.
+    PreviewDoubleClick,
 }
 
 /// What the application starts from. The pane paths need not exist yet; the
@@ -460,9 +462,10 @@ impl App {
                 }
             }
             Msg::Mouse(input) => {
-                if self.preview.is_some() {
-                    self.preview_mouse(input);
-                } else if self.popup.is_none() && self.operation.is_none() && !self.navigating() {
+                if self.operation.is_some() || self.popup.is_some() {
+                } else if self.preview.is_some() {
+                    self.preview_mouse(input, &mut effects);
+                } else if !self.navigating() {
                     self.mouse(input, &mut effects);
                 }
             }
@@ -722,7 +725,7 @@ impl App {
             }
             MouseInput::Wheel { side, rows } => self.panes[side.index()].scroll_by(rows),
             MouseInput::LogWheel { rows } => self.log.scroll_by(i64::from(rows)),
-            MouseInput::PreviewWheel { .. } => {}
+            MouseInput::PreviewWheel { .. } | MouseInput::PreviewDoubleClick => {}
         }
     }
 

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::app::{Effect, IoEvent, Msg, PreviewError, PreviewSource, Side};
+use crate::app::{Effect, IoEvent, MouseInput, Msg, PreviewError, PreviewSource, Side};
 use crate::entry::SpecialKind;
 use crate::error::IoError;
 use crate::location::{ArchiveFormat, ArchivePath};
@@ -437,13 +437,86 @@ fn a_stale_image_is_discarded() {
 }
 
 #[test]
-fn mouse_clicks_are_ignored_during_a_preview() {
+fn double_click_on_a_document_preview_closes_it() {
+    let mut harness = document();
+
+    harness.preview_double_click();
+
+    assert!(harness.view().preview.is_none());
+    assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
+fn double_click_on_an_image_preview_closes_it_and_cancels_the_read() {
+    let mut harness = image();
+    let request = harness.latest_preview_request();
+
+    harness.preview_double_click();
+
+    assert!(harness.view().preview.is_none());
+    assert_eq!(harness.take_effects(), vec![Effect::CancelRead { request }]);
+}
+
+#[test]
+fn the_left_pane_takes_clicks_and_the_wheel_beside_a_right_pane_image() {
+    let mut harness = image();
+    harness.viewport(Side::Left, 2);
+
+    harness.click(Side::Left, 3);
+
+    assert_eq!(harness.cursor_name(Side::Left), "two.JPG");
+    assert_eq!(harness.view().preview.unwrap().name, "two.JPG");
+
+    harness.wheel(Side::Left, 1);
+
+    assert_eq!(harness.view().left.scroll_top, 3);
+    assert_eq!(harness.cursor_name(Side::Left), "two.JPG");
+    assert!(harness.view().preview.is_some());
+}
+
+#[test]
+fn double_click_on_the_left_pane_beside_a_right_pane_image_only_moves_the_cursor() {
+    let mut harness = image();
+
+    harness.double_click(Side::Left, 1);
+
+    assert_eq!(harness.cursor_name(Side::Left), "note.txt");
+    assert_eq!(harness.view().preview.unwrap().name, "");
+    assert!(harness.view().left.active);
+}
+
+#[test]
+fn the_right_pane_and_right_clicks_are_ignored_beside_a_right_pane_image() {
     let mut harness = image();
 
     harness.click(Side::Right, 1);
+    harness.double_click(Side::Right, 1);
+    harness.send(Msg::Mouse(MouseInput::RightClick {
+        side: Side::Left,
+        row: 1,
+    }));
 
     assert!(harness.view().left.active);
     assert_eq!(harness.cursor_name(Side::Left), "one.png");
+    assert_eq!(harness.cursor_name(Side::Right), "..");
+    assert_eq!(harness.view().preview.unwrap().name, "one.png");
+}
+
+#[test]
+fn mouse_clicks_are_ignored_during_a_full_image_preview() {
+    let mut harness = listing();
+    harness.press("Tab");
+    harness.press("Down");
+    harness.press("Enter");
+
+    harness.click(Side::Left, 1);
+    harness.wheel(Side::Left, 1);
+    harness.double_click(Side::Left, 1);
+
+    assert!(harness.view().right.active);
+    assert_eq!(harness.cursor_name(Side::Left), "..");
+    assert_eq!(harness.view().left.scroll_top, 0);
+    assert!(harness.view().preview.is_some());
 }
 
 #[test]
