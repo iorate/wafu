@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::app::Os;
 use crate::config::{ColorSet, Config, SizeFormat, Theme, monospace_family};
-use crate::entry::{Entry, EntryKind, SpecialKind};
+use crate::entry::{Entry, EntryKind, SpecialKind, TargetKind};
 
 use crate::pane::Pane;
 use crate::preview::ImageData;
@@ -288,8 +288,14 @@ pub(crate) fn status_line(pane: &Pane) -> String {
 }
 
 fn entry_status(entry: &Entry, mut name: String, size_format: SizeFormat) -> String {
-    if let Some(target) = &entry.link_target {
-        name = format!("{name} -> {}", target.to_string_lossy());
+    match entry.kind {
+        EntryKind::Symlink { target } => {
+            if let Some(link_target) = &entry.link_target {
+                let marker = target.map_or("", TargetKind::marker);
+                name = format!("{name} -> {}{marker}", link_target.to_string_lossy());
+            }
+        }
+        kind => name.push_str(kind.marker()),
     }
     let mut segments = vec![name, entry.permissions_text()];
     if entry.kind.is_broken_link() {

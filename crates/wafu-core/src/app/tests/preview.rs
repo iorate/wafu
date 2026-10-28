@@ -709,7 +709,7 @@ fn inside_archive() -> Harness {
     harness.press("Enter");
     let link = crate::entry::Entry {
         kind: crate::entry::EntryKind::Symlink {
-            target: Some(crate::entry::TargetKind::File),
+            target: Some(crate::entry::TargetKind::File { executable: false }),
         },
         ..file("link")
     };

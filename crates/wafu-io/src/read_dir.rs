@@ -1,4 +1,4 @@
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs::{self, Metadata};
 use std::io;
 use std::path::Path;
@@ -71,11 +71,7 @@ fn entry(path: &Path, name: OsString, metadata: Option<&Metadata>) -> Entry {
     let (kind, details) = if file_type.is_symlink() {
         match fs::metadata(path) {
             Ok(target) => {
-                let kind = if target.is_dir() {
-                    TargetKind::Dir
-                } else {
-                    TargetKind::File
-                };
+                let kind = target_kind(&target, link_target.as_deref());
                 (EntryKind::Symlink { target: Some(kind) }, Some(target))
             }
             Err(_) => (EntryKind::Symlink { target: None }, None),
@@ -98,6 +94,22 @@ fn entry(path: &Path, name: OsString, metadata: Option<&Metadata>) -> Entry {
         hidden,
         permissions: Some(permissions(metadata)),
         link_target,
+    }
+}
+
+fn target_kind(target: &Metadata, link_target: Option<&OsStr>) -> TargetKind {
+    let file_type = target.file_type();
+    if file_type.is_dir() {
+        TargetKind::Dir
+    } else if let Some(special) = special_kind(file_type) {
+        TargetKind::Special(special)
+    } else {
+        let name = link_target
+            .and_then(|link_target| Path::new(link_target).file_name())
+            .unwrap_or_default();
+        TargetKind::File {
+            executable: is_executable(name, target),
+        }
     }
 }
 
@@ -156,14 +168,14 @@ fn special_kind(_file_type: fs::FileType) -> Option<SpecialKind> {
 }
 
 #[cfg(unix)]
-fn is_executable(_name: &OsString, metadata: &Metadata) -> bool {
+fn is_executable(_name: &OsStr, metadata: &Metadata) -> bool {
     use std::os::unix::fs::PermissionsExt;
 
     metadata.permissions().mode() & 0o111 != 0
 }
 
 #[cfg(not(unix))]
-fn is_executable(name: &OsString, _metadata: &Metadata) -> bool {
+fn is_executable(name: &OsStr, _metadata: &Metadata) -> bool {
     Path::new(name)
         .extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
@@ -323,6 +335,7 @@ mod tests {
         fs::create_dir(dir.path().join("sub")).unwrap();
         symlink("file", dir.path().join("to_file")).unwrap();
         symlink("sub", dir.path().join("to_dir")).unwrap();
+        symlink("to_dir", dir.path().join("to_link")).unwrap();
         symlink("missing", dir.path().join("broken")).unwrap();
 
         let entries = read_dir(dir.path()).unwrap().entries;
@@ -331,7 +344,7 @@ mod tests {
         assert_eq!(
             to_file.kind,
             EntryKind::Symlink {
-                target: Some(TargetKind::File)
+                target: Some(TargetKind::File { executable: false })
             }
         );
         assert_eq!(to_file.size, 5);
@@ -344,11 +357,49 @@ mod tests {
                 target: Some(TargetKind::Dir)
             }
         );
+        assert_eq!(
+            find(&entries, "to_link").kind,
+            EntryKind::Symlink {
+                target: Some(TargetKind::Dir)
+            }
+        );
         let broken = find(&entries, "broken");
         assert_eq!(broken.kind, EntryKind::Symlink { target: None });
         assert_eq!(broken.size, 0);
         assert_eq!(broken.modified, None);
         assert_eq!(broken.link_target.as_deref(), Some(OsStr::new("missing")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_report_executable_and_special_targets() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("run"), b"#!/bin/sh\n").unwrap();
+        fs::set_permissions(dir.path().join("run"), fs::Permissions::from_mode(0o755)).unwrap();
+        let status = std::process::Command::new("mkfifo")
+            .arg(dir.path().join("fifo"))
+            .status()
+            .unwrap();
+        assert!(status.success());
+        symlink("run", dir.path().join("to_run")).unwrap();
+        symlink("fifo", dir.path().join("to_fifo")).unwrap();
+
+        let entries = read_dir(dir.path()).unwrap().entries;
+
+        assert_eq!(
+            find(&entries, "to_run").kind,
+            EntryKind::Symlink {
+                target: Some(TargetKind::File { executable: true })
+            }
+        );
+        assert_eq!(
+            find(&entries, "to_fifo").kind,
+            EntryKind::Symlink {
+                target: Some(TargetKind::Special(SpecialKind::Fifo))
+            }
+        );
     }
 
     #[cfg(windows)]

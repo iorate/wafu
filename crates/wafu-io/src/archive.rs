@@ -179,7 +179,7 @@ fn listed_entry(name: &str, entry: &ArchiveEntry) -> Entry {
         },
         // What the link points to is not known until it is extracted.
         ArchiveEntryKind::Symlink => EntryKind::Symlink {
-            target: Some(TargetKind::File),
+            target: Some(TargetKind::File { executable: false }),
         },
     };
     Entry {
@@ -263,7 +263,7 @@ mod tests {
         assert_eq!(
             root[0].kind,
             EntryKind::Symlink {
-                target: Some(TargetKind::File)
+                target: Some(TargetKind::File { executable: false })
             }
         );
         assert_eq!(root[0].size, 2);
