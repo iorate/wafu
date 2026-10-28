@@ -760,6 +760,24 @@ fn new_file_creates_an_empty_file_and_puts_the_cursor_on_it() {
 }
 
 #[test]
+fn new_text_passes_the_name_to_the_editor_without_creating_it() {
+    let mut harness = three_files_not_creating_text();
+
+    harness.press("Shift+E");
+    assert_eq!(harness.view().popup.unwrap().title, "New text");
+    harness.edit("notes.txt");
+    harness.press("Enter");
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Spawn {
+            program: "xdg-open".to_owned(),
+            args: vec![path(LEFT, "notes.txt").into_os_string()],
+            cwd: PathBuf::from(LEFT),
+        }]
+    );
+}
+
+#[test]
 fn new_text_creates_the_file_and_then_opens_it_in_the_editor() {
     let mut harness = three_files();
     harness.take_effects();
@@ -1165,6 +1183,22 @@ fn cursor_only(harness: &mut Harness) {
 fn three_files() -> Harness {
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
+    harness
+}
+
+fn three_files_not_creating_text() -> Harness {
+    let mut harness = Harness::start_from(start_msg_with(
+        Os::Linux,
+        Some(LEFT),
+        Some(RIGHT),
+        ConfigSource::Text("[general]\nnew_text_creates_file = false\n".to_owned()),
+        Ok(None),
+    ));
+    harness.resolve(Side::Left, LEFT, None);
+    harness.resolve(Side::Right, RIGHT, None);
+    harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
+    harness.load(Side::Right, vec![]);
+    harness.take_effects();
     harness
 }
 
