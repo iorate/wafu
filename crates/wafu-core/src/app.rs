@@ -120,10 +120,12 @@ pub enum Effect {
         location: Location,
         request: RequestId,
     },
-    /// Finds an existing directory at or above the path.
+    /// Finds an existing directory at the path, or, when `climb` is set, at
+    /// the nearest ancestor that exists.
     Resolve {
         side: Side,
         path: PathBuf,
+        climb: bool,
         request: RequestId,
     },
     /// Cancels any request on the reading thread: a `ReadDir`, `Resolve`,
@@ -267,7 +269,7 @@ pub enum IoEvent {
         request: RequestId,
         result: Result<Vec<Entry>, IoError>,
     },
-    /// `None` when no directory exists anywhere above the path.
+    /// `None` when nothing exists at the path, nor, when climbing, above it.
     Resolved {
         side: Side,
         request: RequestId,

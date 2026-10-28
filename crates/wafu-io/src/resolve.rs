@@ -5,10 +5,11 @@ use std::path::Path;
 use wafu_core::Resolved;
 
 /// Finds the directory to show for a path that may not exist: the path itself,
-/// the parent of a file (with the file to put the cursor on), or the nearest
-/// ancestor that is a directory. `None` when nothing above the path exists.
+/// the parent of a file (with the file to put the cursor on), or, when `climb`
+/// is set, the nearest ancestor that is a directory. `None` when the path does
+/// not exist and climbing is off or finds nothing.
 #[must_use]
-pub fn resolve(path: &Path) -> Option<Resolved> {
+pub fn resolve(path: &Path, climb: bool) -> Option<Resolved> {
     match fs::metadata(path) {
         Ok(metadata) if metadata.is_dir() => Some(Resolved {
             dir: path.to_path_buf(),
@@ -18,7 +19,7 @@ pub fn resolve(path: &Path) -> Option<Resolved> {
             dir: path.parent()?.to_path_buf(),
             file: path.file_name().map(OsString::from),
         }),
-        Err(_) => path
+        Err(_) if climb => path
             .ancestors()
             .skip(1)
             .find(|ancestor| fs::metadata(ancestor).is_ok_and(|metadata| metadata.is_dir()))
@@ -26,6 +27,7 @@ pub fn resolve(path: &Path) -> Option<Resolved> {
                 dir: ancestor.to_path_buf(),
                 file: None,
             }),
+        Err(_) => None,
     }
 }
 
@@ -40,7 +42,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
 
         assert_eq!(
-            resolve(dir.path()),
+            resolve(dir.path(), true),
             Some(Resolved {
                 dir: dir.path().to_path_buf(),
                 file: None,
@@ -55,7 +57,7 @@ mod tests {
         fs::write(&file, b"").unwrap();
 
         assert_eq!(
-            resolve(&file),
+            resolve(&file, true),
             Some(Resolved {
                 dir: dir.path().to_path_buf(),
                 file: Some(OsString::from("a.txt")),
@@ -69,7 +71,7 @@ mod tests {
         fs::create_dir(dir.path().join("sub")).unwrap();
 
         assert_eq!(
-            resolve(&dir.path().join("sub").join("gone").join("deeper")),
+            resolve(&dir.path().join("sub").join("gone").join("deeper"), true),
             Some(Resolved {
                 dir: dir.path().join("sub"),
                 file: None,
@@ -83,12 +85,36 @@ mod tests {
         fs::write(dir.path().join("file"), b"").unwrap();
 
         assert_eq!(
-            resolve(&dir.path().join("file").join("x")),
+            resolve(&dir.path().join("file").join("x"), true),
             Some(Resolved {
                 dir: dir.path().to_path_buf(),
                 file: None,
             })
         );
+    }
+
+    #[test]
+    fn without_climbing_a_file_still_resolves_to_its_parent() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("a.txt");
+        fs::write(&file, b"").unwrap();
+
+        assert_eq!(
+            resolve(&file, false),
+            Some(Resolved {
+                dir: dir.path().to_path_buf(),
+                file: Some(OsString::from("a.txt")),
+            })
+        );
+    }
+
+    #[test]
+    fn without_climbing_a_missing_path_is_none() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("file"), b"").unwrap();
+
+        assert_eq!(resolve(&dir.path().join("gone"), false), None);
+        assert_eq!(resolve(&dir.path().join("file").join("x"), false), None);
     }
 
     #[cfg(unix)]
@@ -101,7 +127,7 @@ mod tests {
         symlink("missing", &link).unwrap();
 
         assert_eq!(
-            resolve(&link),
+            resolve(&link, true),
             Some(Resolved {
                 dir: dir.path().to_path_buf(),
                 file: None,

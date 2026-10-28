@@ -41,6 +41,8 @@ pub enum AppError {
     Fallback { path: PathBuf, fallback: PathBuf },
     #[error("{} is not available", path.display())]
     Unavailable { path: PathBuf },
+    #[error("{} does not exist", path.display())]
+    NotFound { path: PathBuf },
     #[error("{command} is available only on Windows")]
     WindowsOnly { command: Command },
     #[error("{command} is not available inside an archive")]

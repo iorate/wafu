@@ -54,8 +54,8 @@ impl App {
         let right = right
             .or_else(|| saved(right_state))
             .unwrap_or_else(|| self.home.clone());
-        self.resolve(Side::Left, left, None, effects);
-        self.resolve(Side::Right, right, None, effects);
+        self.resolve(Side::Left, left, true, None, effects);
+        self.resolve(Side::Right, right, true, None, effects);
     }
 
     pub(super) fn config_loaded(&mut self, result: Result<String, IoError>) {
