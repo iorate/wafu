@@ -216,6 +216,8 @@ export component PaneWidget {
                 width: list.width;
                 height: parent.height;
 
+                property <bool> right-pressed;
+
                 clicked => {
                     root.row-clicked(root.row-at(self.mouse-y));
                 }
@@ -227,12 +229,20 @@ export component PaneWidget {
                 // On release, as the shell does, so that a menu opened by the
                 // press is not dismissed by the release.
                 pointer-event(event) => {
-                    if event.kind == PointerEventKind.up && event.button == PointerEventButton.right {
+                    if event.button != PointerEventButton.right {
+                        return;
+                    }
+                    if event.kind == PointerEventKind.down {
+                        self.right-pressed = true;
+                    } else if event.kind == PointerEventKind.up && self.right-pressed {
+                        self.right-pressed = false;
                         root.row-right-clicked(
                             root.row-at(self.mouse-y),
                             self.absolute-position.x + self.mouse-x,
                             self.absolute-position.y + self.mouse-y
                         );
+                    } else {
+                        self.right-pressed = false;
                     }
                 }
 
