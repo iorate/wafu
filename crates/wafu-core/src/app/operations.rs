@@ -138,8 +138,9 @@ impl App {
             return;
         };
         let names = self.target_names();
-        if self.active_pane().location().in_archive() {
-            let entries = self.archive_entries(&names);
+        let location = self.active_pane().location();
+        if location.in_archive() {
+            let entries = self.archive_entries(location, &names);
             self.start_operation(kind, names, Sources::Entries(entries), Some(dest), effects);
         } else {
             let sources = self.source_paths(&names);
@@ -477,7 +478,8 @@ impl App {
                 marked: Vec::new(),
                 targets: names.clone(),
             };
-            self.start_temp(temp, names, effects);
+            let entries = self.archive_entries(self.active_pane().location(), &names);
+            self.start_temp(temp, entries, effects);
             return;
         }
         let expansion = self.expansion();
@@ -489,20 +491,25 @@ impl App {
 
     pub(super) fn open_with_os(&mut self, effects: &mut Vec<Effect>) {
         let pane = self.active_pane();
-        let Some(entry) = pane.cursor_entry() else {
-            return;
-        };
-        if pane.location().in_archive() {
-            let name = entry.name.clone();
-            let temp = Temp {
-                action: TempAction::OpenWithOs,
-                cursor: Some(name.clone()),
-                marked: Vec::new(),
-                targets: vec![name.clone()],
-            };
-            self.start_temp(temp, vec![name], effects);
-        } else {
-            effects.push(Effect::OpenWithOs(pane.location().base.join(&entry.name)));
+        let location = pane.location().clone();
+        match pane.cursor_entry() {
+            Some(entry) if location.in_archive() => {
+                let name = entry.name.clone();
+                let entries = self.archive_entries(&location, std::slice::from_ref(&name));
+                self.start_temp(Self::temp_open(name), entries, effects);
+            }
+            Some(entry) => effects.push(Effect::OpenWithOs(location.base.join(&entry.name))),
+            None if pane.has_parent() => match location.parent() {
+                Some(parent) if parent.in_archive() => {
+                    let name = location
+                        .leaf_name()
+                        .expect("a directory inside an archive has a name");
+                    let entries = self.archive_entries(&parent, std::slice::from_ref(&name));
+                    self.start_temp(Self::temp_open(name), entries, effects);
+                }
+                _ => effects.push(Effect::OpenWithOs(location.base)),
+            },
+            None => {}
         }
     }
 
@@ -529,7 +536,8 @@ impl App {
             marked,
             targets,
         };
-        self.start_temp(temp, names, effects);
+        let entries = self.archive_entries(self.active_pane().location(), &names);
+        self.start_temp(temp, entries, effects);
     }
 
     pub(super) fn copy_to_clipboard(&mut self, full_paths: bool, effects: &mut Vec<Effect>) {
@@ -579,9 +587,16 @@ impl App {
         Sources::Paths(names.iter().map(|name| base.join(name)).collect())
     }
 
-    fn archive_entries(&self, names: &[OsString]) -> ArchiveEntries {
-        let pane = self.active_pane();
-        let location = pane.location();
+    fn temp_open(name: OsString) -> Temp {
+        Temp {
+            action: TempAction::OpenWithOs,
+            cursor: Some(name.clone()),
+            marked: Vec::new(),
+            targets: vec![name],
+        }
+    }
+
+    fn archive_entries(&self, location: &Location, names: &[OsString]) -> ArchiveEntries {
         ArchiveEntries {
             archive: location.base.clone(),
             path: location
@@ -592,15 +607,12 @@ impl App {
                 .iter()
                 .map(|name| name.to_string_lossy().into_owned())
                 .collect(),
-            password: pane.archive_password().map(ToOwned::to_owned),
+            password: self.active_pane().archive_password().map(ToOwned::to_owned),
         }
     }
 
-    fn start_temp(&mut self, temp: Temp, names: Vec<OsString>, effects: &mut Vec<Effect>) {
-        if names.is_empty() {
-            return;
-        }
-        let entries = self.archive_entries(&names);
+    fn start_temp(&mut self, temp: Temp, entries: ArchiveEntries, effects: &mut Vec<Effect>) {
+        let names = entries.names.iter().map(OsString::from).collect();
         self.begin_operation(
             OperationKind::ExtractToTemp,
             names,
