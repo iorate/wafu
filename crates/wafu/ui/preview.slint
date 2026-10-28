@@ -8,7 +8,6 @@ export struct PreviewData {
     // 0: lines of text, 1: an image (or nothing), 2: a message
     kind: int,
     message: string,
-    name: string,
     detail: string,
 }
 
@@ -122,7 +121,7 @@ export component PreviewWidget inherits Rectangle {
         color: Theme.colors.fg;
     }
 
-    if root.data.full && root.data.name != "": Rectangle {
+    if root.data.full && root.data.detail != "": Rectangle {
         width: overlay.preferred-width + 16px;
         height: overlay.preferred-height + 8px;
         x: root.width - self.width - 8px;
@@ -133,7 +132,7 @@ export component PreviewWidget inherits Rectangle {
         border-radius: 4px;
 
         overlay := Text {
-            text: root.data.detail == "" ? root.data.name : root.data.name + "  " + root.data.detail;
+            text: root.data.detail;
             color: Palette.foreground;
         }
     }

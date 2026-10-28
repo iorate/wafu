@@ -565,7 +565,6 @@ impl Ui {
                     full: preview.placement == PreviewPlacement::Full,
                     kind,
                     message: message.into(),
-                    name: preview.name.as_str().into(),
                     detail: preview.detail.as_str().into(),
                 };
                 (
