@@ -7,6 +7,8 @@ use std::time::{Duration, Instant};
 
 use wafu_core::{IoError, OperationEvent, OperationKind, OperationSpec, Outcome, Reply, Sources};
 
+use crate::trash::trash;
+
 mod archives;
 
 const CHUNK_SIZE: usize = 64 * 1024;
@@ -15,16 +17,20 @@ const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Carries out an operation, reporting through `report` and taking answers
 /// to conflicts, and cancellations, from `replies`. Returns once the
-/// `Finished` event has been reported.
+/// `Finished` event has been reported. `owner_window` is the raw handle of
+/// the window that owns the dialogs the OS may show (on Windows, the warning
+/// that an item cannot go to the trash).
 ///
 /// A cancellation or an error stops the operation where it is; a file being
 /// written at that moment is removed.
 pub fn run_operation(
     spec: &OperationSpec,
+    owner_window: Option<isize>,
     replies: &Receiver<Reply>,
     report: &dyn Fn(OperationEvent),
 ) {
     let mut worker = Worker {
+        owner_window,
         replies,
         report,
         policy: None,
@@ -37,6 +43,7 @@ pub fn run_operation(
 }
 
 struct Worker<'a> {
+    owner_window: Option<isize>,
     replies: &'a Receiver<Reply>,
     report: &'a dyn Fn(OperationEvent),
     // "Apply to all" from an earlier conflict.
@@ -424,9 +431,7 @@ impl Worker<'_> {
 
     fn trash_item(&mut self, path: &Path) -> Step {
         self.begin(path)?;
-        trash_context()
-            .delete(path)
-            .map_err(|error| failure(path, &error.to_string()))?;
+        trash(path, self.owner_window).map_err(fail(path))?;
         self.done += 1;
         Ok(true)
     }
@@ -454,23 +459,6 @@ impl Worker<'_> {
             Ok(_) | Err(TryRecvError::Empty) => Ok(()),
         }
     }
-}
-
-// The default on macOS drives the Finder through AppleScript, which asks for
-// permission to automate it and refuses symbolic links; NSFileManager does
-// neither, at the cost of "Put Back" in the Finder.
-#[cfg(target_os = "macos")]
-fn trash_context() -> trash::TrashContext {
-    use trash::macos::{DeleteMethod, TrashContextExtMacos};
-
-    let mut context = trash::TrashContext::default();
-    context.set_delete_method(DeleteMethod::NsFileManager);
-    context
-}
-
-#[cfg(not(target_os = "macos"))]
-fn trash_context() -> trash::TrashContext {
-    trash::TrashContext::default()
 }
 
 // The entries of a directory in name order, so that progress is predictable.
@@ -947,6 +935,7 @@ mod tests {
         let events = Mutex::new(Vec::new());
         let report = |event| events.lock().unwrap().push(event);
         let mut worker = Worker {
+            owner_window: None,
             replies: &replies,
             report: &report,
             policy: None,
@@ -983,7 +972,7 @@ mod tests {
             }
         };
 
-        run_operation(&copy(&[src.join("big")], &dst), &replies, &report);
+        run_operation(&copy(&[src.join("big")], &dst), None, &replies, &report);
 
         assert!(!dst.join("big").exists());
         assert!(src.join("big").is_file());
@@ -1082,7 +1071,7 @@ mod tests {
             }
             events.lock().unwrap().push(event);
         };
-        run_operation(spec, &replies, &report);
+        run_operation(spec, None, &replies, &report);
         let mut events = events.into_inner().unwrap();
         let Some(OperationEvent::Finished(outcome)) = events.pop() else {
             panic!("the last event should be Finished");

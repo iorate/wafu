@@ -44,6 +44,7 @@ pub struct Runtime {
     config_watcher: Mutex<Option<RecommendedWatcher>>,
     // The running operation takes its replies from here.
     operation: Mutex<Option<Sender<Reply>>>,
+    owner_window: Mutex<Option<isize>>,
     clipboard: Mutex<Option<arboard::Clipboard>>,
     on_event: OnEvent,
 }
@@ -138,9 +139,21 @@ impl Runtime {
             watcher: Mutex::new(Watcher::new()),
             config_watcher: Mutex::new(None),
             operation: Mutex::new(None),
+            owner_window: Mutex::new(None),
             clipboard: Mutex::new(None),
             on_event,
         }
+    }
+
+    /// Sets the window that owns the dialogs the OS may show for an operation
+    /// (on Windows, the warning that an item cannot go to the trash), as its
+    /// raw handle. The window is created after the runtime, so the handle is
+    /// given once it exists.
+    pub fn set_owner_window(&self, window: Option<isize>) {
+        *self
+            .owner_window
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = window;
     }
 
     /// Runs an effect. Effects that are not for the I/O layer are ignored.
@@ -251,11 +264,15 @@ impl Runtime {
                     .operation
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner) = Some(sender);
+                let owner_window = *self
+                    .owner_window
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner);
                 let on_event = Arc::clone(&self.on_event);
                 thread::Builder::new()
                     .name("wafu-io-operation".to_owned())
                     .spawn(move || {
-                        run_operation(&spec, &replies, &|event| {
+                        run_operation(&spec, owner_window, &replies, &|event| {
                             on_event(IoEvent::Operation(event));
                         });
                     })

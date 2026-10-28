@@ -924,6 +924,7 @@ mod tests {
 
         run_operation(
             &compress(&[src], &dest, "a.zip", None),
+            None,
             &replies,
             &|event| {
                 events.lock().unwrap().push(event);
@@ -979,7 +980,7 @@ mod tests {
             }
             events.lock().unwrap().push(event);
         };
-        run_operation(spec, &replies, &report);
+        run_operation(spec, None, &replies, &report);
         let mut events = events.into_inner().unwrap();
         let Some(OperationEvent::Finished(outcome)) = events.pop() else {
             panic!("the last event should be Finished");
