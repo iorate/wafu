@@ -2,6 +2,7 @@ import { ListView, Palette } from "std-widgets.slint";
 import { PaneData, PaneWidget, Row } from "pane.slint";
 import { PopupData, PopupField, PopupItem, PopupOverlay } from "popup.slint";
 import { PreviewData, PreviewLine, PreviewWidget } from "preview.slint";
+import { ScrollBar } from "scrollbar.slint";
 import { Theme, ThemeColors } from "theme.slint";
 
 export { PaneData, PopupData, PopupField, PopupItem, PreviewData, PreviewLine, Row, Theme, ThemeColors }
@@ -49,7 +50,9 @@ export component AppWindow inherits Window {
     callback row-double-clicked(side: int, row: int);
     callback row-right-clicked(side: int, row: int, x: length, y: length);
     callback wheel(side: int, delta: length);
+    callback scroll-to(side: int, top: int);
     callback log-wheel(delta: length);
+    callback log-scroll-to(top: int);
     callback input-edited(field: int, text: string);
     callback input-accepted();
     callback preview-rows-changed(rows: int);
@@ -181,6 +184,9 @@ export component AppWindow inherits Window {
                     wheel(delta) => {
                         root.wheel(0, delta);
                     }
+                    scroll-to(top) => {
+                        root.scroll-to(0, top);
+                    }
                 }
 
                 Rectangle {
@@ -214,6 +220,9 @@ export component AppWindow inherits Window {
                     }
                     wheel(delta) => {
                         root.wheel(1, delta);
+                    }
+                    scroll-to(top) => {
+                        root.scroll-to(1, top);
                     }
                 }
 
@@ -251,7 +260,7 @@ export component AppWindow inherits Window {
                 log := ListView {
                     x: 4px;
                     y: 4px;
-                    width: parent.width - 8px;
+                    width: parent.width - 8px - (log-bar.needed ? log-bar.width : 0px);
                     height: max(0px, parent.height - 8px);
                     vertical-scrollbar-policy: ScrollBarPolicy.always-off;
 
@@ -275,6 +284,23 @@ export component AppWindow inherits Window {
                     scroll-event(event) => {
                         root.log-wheel(event.delta-y);
                         accept
+                    }
+                }
+
+                log-bar := ScrollBar {
+                    x: parent.width - 4px - self.width;
+                    y: 4px;
+                    height: max(0px, parent.height - 8px);
+                    top: root.log-scroll-top;
+                    rows: root.log-lines.length;
+                    visible-rows: root.log-rows;
+
+                    scroll-to(top) => {
+                        root.log-scroll-to(top);
+                    }
+
+                    wheel(delta) => {
+                        root.log-wheel(delta);
                     }
                 }
             }

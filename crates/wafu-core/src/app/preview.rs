@@ -126,6 +126,10 @@ impl App {
                         side: Side::Left,
                         rows,
                     } => pane.scroll_by(rows),
+                    MouseInput::ScrollTo {
+                        side: Side::Left,
+                        top,
+                    } => pane.scroll_to(top),
                     _ => {}
                 }
             }

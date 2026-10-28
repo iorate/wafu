@@ -1,0 +1,67 @@
+import { Theme } from "theme.slint";
+
+// A vertical bar beside a list whose scroll position the core owns. The thumb
+// shows `top` out of `rows`; dragging it reports the row to put at the top.
+export component ScrollBar {
+    in property <int> top;
+    in property <int> rows;
+    in property <int> visible-rows;
+
+    callback scroll-to(top: int);
+    callback wheel(delta: length);
+
+    out property <bool> needed: rows > visible-rows && visible-rows > 0;
+
+    property <length> min-thumb-height: 16px;
+    property <int> max-top: max(0, rows - visible-rows);
+    property <length> thumb-height: rows > 0
+        ? max(min-thumb-height, root.height * visible-rows / rows)
+        : root.height;
+    property <length> travel: root.height - thumb-height;
+    property <length> thumb-y: max-top > 0 ? travel * top / max-top : 0px;
+    // Where the thumb was grabbed, so that it does not jump under the pointer.
+    property <length> grab;
+
+    function top-at(y: length) -> int {
+        if travel <= 0px {
+            return 0;
+        }
+        return max(0, round((y - grab) / travel * max-top));
+    }
+
+    width: Theme.scrollbar-width;
+    visible: needed;
+
+    Rectangle {
+        background: Theme.colors.fg.with-alpha(0.08);
+    }
+
+    Rectangle {
+        y: root.thumb-y;
+        height: root.thumb-height;
+        border-radius: root.width / 2;
+        background: Theme.colors.fg.with-alpha(touch.pressed ? 0.6 : touch.has-hover ? 0.45 : 0.3);
+    }
+
+    touch := TouchArea {
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                if self.mouse-y >= root.thumb-y && self.mouse-y < root.thumb-y + root.thumb-height {
+                    root.grab = self.mouse-y - root.thumb-y;
+                } else {
+                    root.grab = root.thumb-height / 2;
+                    root.scroll-to(root.top-at(self.mouse-y));
+                }
+            }
+        }
+
+        moved => {
+            root.scroll-to(root.top-at(self.mouse-y));
+        }
+
+        scroll-event(event) => {
+            root.wheel(event.delta-y);
+            accept
+        }
+    }
+}

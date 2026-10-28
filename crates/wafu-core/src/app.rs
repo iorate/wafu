@@ -78,9 +78,19 @@ pub enum MouseInput {
         side: Side,
         rows: i32,
     },
+    /// The scrollbar was dragged to put `top` at the first visible row. It
+    /// may be past the last position and is clamped.
+    ScrollTo {
+        side: Side,
+        top: usize,
+    },
     /// Wheel movement over the log, in rows.
     LogWheel {
         rows: i32,
+    },
+    /// The log's scrollbar was dragged; same as `ScrollTo`.
+    LogScrollTo {
+        top: usize,
     },
     /// Wheel movement over a text or binary preview, in rows.
     PreviewWheel {
@@ -456,7 +466,7 @@ impl App {
                         if let Some(command) = self.config.keys.lookup(Context::FileList, &key) {
                             self.run_command(command, &mut effects);
                         }
-                        // A key after wheel scrolling brings the cursor back into view.
+                        // A key after scrolling with the mouse brings the cursor back into view.
                         self.active_pane_mut().ensure_cursor_visible();
                     }
                 }
@@ -725,7 +735,9 @@ impl App {
                 self.run_command(Command::Open, effects);
             }
             MouseInput::Wheel { side, rows } => self.panes[side.index()].scroll_by(rows),
+            MouseInput::ScrollTo { side, top } => self.panes[side.index()].scroll_to(top),
             MouseInput::LogWheel { rows } => self.log.scroll_by(i64::from(rows)),
+            MouseInput::LogScrollTo { top } => self.log.scroll_to(top),
             MouseInput::PreviewWheel { .. } | MouseInput::PreviewDoubleClick => {}
         }
     }

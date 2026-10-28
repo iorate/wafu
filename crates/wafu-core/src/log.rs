@@ -95,13 +95,16 @@ impl Log {
     /// Scrolls by a number of lines; positive moves towards the tail.
     pub fn scroll_by(&mut self, delta: i64) {
         let top = i64::try_from(self.scroll_top()).unwrap_or(i64::MAX);
-        let max_top = self.max_top();
-        let target = usize::try_from(top.saturating_add(delta)).unwrap_or(0);
-        if target >= max_top {
+        self.scroll_to(usize::try_from(top.saturating_add(delta)).unwrap_or(0));
+    }
+
+    /// Puts `top` at the first visible line. Reaching the tail resumes following it.
+    pub fn scroll_to(&mut self, top: usize) {
+        if top >= self.max_top() {
             self.follow = true;
         } else {
             self.follow = false;
-            self.scroll_top = target;
+            self.scroll_top = top;
         }
     }
 
@@ -168,6 +171,21 @@ mod tests {
         assert_eq!(log.scroll_top(), 4);
         log.page_down();
         assert_eq!(log.scroll_top(), 7);
+    }
+
+    #[test]
+    fn scroll_to_stops_following_until_the_tail_is_reached() {
+        let mut log = log_with(10, 3);
+
+        log.scroll_to(4);
+        assert_eq!(log.scroll_top(), 4);
+        log.push("k".to_owned());
+        assert_eq!(log.scroll_top(), 4);
+
+        log.scroll_to(99);
+        assert_eq!(log.scroll_top(), 8);
+        log.push("l".to_owned());
+        assert_eq!(log.scroll_top(), 9);
     }
 
     #[test]

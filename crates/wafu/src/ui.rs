@@ -337,11 +337,28 @@ impl Ui {
         });
 
         let weak = Rc::downgrade(ui);
+        ui.window.on_scroll_to(move |side, top| {
+            if let Some(ui) = Weak::upgrade(&weak) {
+                ui.dispatch(Msg::Mouse(MouseInput::ScrollTo {
+                    side: side_of(side),
+                    top: top_of(top),
+                }));
+            }
+        });
+
+        let weak = Rc::downgrade(ui);
         ui.window.on_log_wheel(move |delta| {
             if let Some(ui) = Weak::upgrade(&weak)
                 && let Some(rows) = ui.wheel_rows(2, delta)
             {
                 ui.dispatch(Msg::Mouse(MouseInput::LogWheel { rows }));
+            }
+        });
+
+        let weak = Rc::downgrade(ui);
+        ui.window.on_log_scroll_to(move |top| {
+            if let Some(ui) = Weak::upgrade(&weak) {
+                ui.dispatch(Msg::Mouse(MouseInput::LogScrollTo { top: top_of(top) }));
             }
         });
 
@@ -699,6 +716,10 @@ fn side_of(side: i32) -> Side {
 
 fn row_of(row: i32) -> usize {
     usize::try_from(row).unwrap_or(usize::MAX)
+}
+
+fn top_of(top: i32) -> usize {
+    usize::try_from(top).unwrap_or(0)
 }
 
 fn pane_data(pane: &PaneView) -> PaneData {

@@ -137,6 +137,10 @@ impl Harness {
         self.send(Msg::Mouse(MouseInput::Wheel { side, rows }));
     }
 
+    pub(crate) fn scroll_to(&mut self, side: Side, top: usize) {
+        self.send(Msg::Mouse(MouseInput::ScrollTo { side, top }));
+    }
+
     pub(crate) fn viewport(&mut self, side: Side, rows: usize) {
         self.send(Msg::ViewportRows { side, rows });
     }
