@@ -387,8 +387,12 @@ impl Pane {
     /// Scrolls the view without moving the cursor.
     pub fn scroll_by(&mut self, rows: i32) {
         let top = i64::try_from(self.scroll_top).unwrap_or(i64::MAX) + i64::from(rows);
-        let max = i64::try_from(self.max_scroll_top()).unwrap_or(i64::MAX);
-        self.scroll_top = usize::try_from(top.clamp(0, max)).unwrap_or(0);
+        self.scroll_to(usize::try_from(top).unwrap_or(0));
+    }
+
+    /// Puts `top` at the first visible row, clamped, without moving the cursor.
+    pub fn scroll_to(&mut self, top: usize) {
+        self.scroll_top = top.min(self.max_scroll_top());
     }
 
     pub fn ensure_cursor_visible(&mut self) {

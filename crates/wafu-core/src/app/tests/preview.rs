@@ -475,6 +475,11 @@ fn the_left_pane_takes_clicks_and_the_wheel_beside_a_right_pane_image() {
     assert_eq!(harness.view().left.scroll_top, 3);
     assert_eq!(harness.cursor_name(Side::Left), "two.JPG");
     assert!(harness.view().preview.is_some());
+
+    harness.scroll_to(Side::Left, 0);
+
+    assert_eq!(harness.view().left.scroll_top, 0);
+    assert_eq!(harness.cursor_name(Side::Left), "two.JPG");
 }
 
 #[test]
@@ -517,6 +522,7 @@ fn mouse_clicks_are_ignored_during_a_full_image_preview() {
 
     harness.click(Side::Left, 1);
     harness.wheel(Side::Left, 1);
+    harness.scroll_to(Side::Left, 1);
     harness.double_click(Side::Left, 1);
 
     assert!(harness.view().right.active);

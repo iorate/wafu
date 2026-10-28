@@ -1541,6 +1541,23 @@ fn wheel_on_the_inactive_pane_is_not_undone_by_keys() {
 }
 
 #[test]
+fn scrollbar_drag_scrolls_without_moving_the_cursor_and_stops_at_the_end() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a"), file("b"), file("c"), file("d")]);
+    harness.viewport(Side::Left, 2);
+
+    harness.scroll_to(Side::Left, 2);
+    assert_eq!(harness.view().left.scroll_top, 2);
+    assert_eq!(harness.view().left.cursor, Some(0));
+
+    harness.scroll_to(Side::Left, 100);
+    assert_eq!(harness.view().left.scroll_top, 3);
+
+    harness.scroll_to(Side::Left, 0);
+    assert_eq!(harness.view().left.scroll_top, 0);
+}
+
+#[test]
 fn wheel_over_the_log_scrolls_it() {
     let mut harness = Harness::start("/a/b/c/d/e", "/tmp");
     for _ in 0..4 {
@@ -1557,6 +1574,31 @@ fn wheel_over_the_log_scrolls_it() {
     harness.send(Msg::Mouse(MouseInput::LogWheel { rows: 1 }));
     assert_eq!(harness.view().log.scroll_top, 1);
     assert_eq!(harness.view().left.scroll_top, 0);
+}
+
+#[test]
+fn scrollbar_drag_over_the_log_scrolls_it_and_the_tail_resumes_following() {
+    let mut harness = Harness::start("/a/b/c/d/e", "/tmp");
+    for _ in 0..4 {
+        harness.press("Alt+Down");
+    }
+    for _ in 0..4 {
+        harness.press("BS");
+        harness.fail_load(Side::Left, "boom");
+    }
+    assert_eq!(harness.view().log.scroll_top, 2);
+
+    harness.send(Msg::Mouse(MouseInput::LogScrollTo { top: 1 }));
+    assert_eq!(harness.view().log.scroll_top, 1);
+    harness.press("BS");
+    harness.fail_load(Side::Left, "boom");
+    assert_eq!(harness.view().log.scroll_top, 1);
+
+    harness.send(Msg::Mouse(MouseInput::LogScrollTo { top: 100 }));
+    assert_eq!(harness.view().log.scroll_top, 3);
+    harness.press("BS");
+    harness.fail_load(Side::Left, "boom");
+    assert_eq!(harness.view().log.scroll_top, 4);
 }
 
 #[test]

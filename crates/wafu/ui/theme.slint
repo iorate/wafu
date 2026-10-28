@@ -38,6 +38,7 @@ export global Theme {
     out property <bool> dark-scheme: Palette.background.to-hsv().value < 0.5;
     out property <ThemeColors> colors: dark-scheme ? dark : light;
     out property <length> line-width: 2px;
+    out property <length> scrollbar-width: 8px;
     out property <length> row-height: round(filelist-font-size * 5 / 3 / 1px) * 1px;
     out property <length> log-row-height: round(log-font-size * 5 / 3 / 1px) * 1px;
     out property <brush> selection-background: Palette.accent-background.with-alpha(0.3);
