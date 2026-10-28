@@ -158,6 +158,74 @@ fn marker_column_follows_ls_f_and_directories_and_special_files_have_no_size() {
 }
 
 #[test]
+fn status_line_spells_out_the_cursor_entry_of_the_active_pane() {
+    use crate::entry::{LocalDateTime, Permissions, Timestamp};
+
+    let mut harness = Harness::start("/home/user", "/tmp");
+    let plain = Entry {
+        size: 1234,
+        modified: Some(Timestamp {
+            at: std::time::SystemTime::UNIX_EPOCH,
+            local: LocalDateTime {
+                year: 2026,
+                month: 1,
+                day: 2,
+                hour: 3,
+                minute: 4,
+                second: 5,
+            },
+        }),
+        permissions: Some(Permissions::Mode(0o644)),
+        ..file("a_long_name.txt")
+    };
+    let link = Entry {
+        kind: EntryKind::Symlink {
+            target: Some(TargetKind::File),
+        },
+        size: 42,
+        permissions: Some(Permissions::Mode(0o755)),
+        link_target: Some(std::ffi::OsString::from("target.txt")),
+        ..file("link.txt")
+    };
+    let broken = Entry {
+        kind: EntryKind::Symlink { target: None },
+        permissions: Some(Permissions::Mode(0o755)),
+        ..file("broken")
+    };
+    harness.load(Side::Left, vec![plain, link, broken, dir("sub")]);
+
+    assert_eq!(harness.view().status, "..");
+
+    let mut statuses = Vec::new();
+    for _ in 0..4 {
+        harness.press("Down");
+        statuses.push(harness.view().status);
+    }
+    statuses.sort();
+
+    assert_eq!(
+        statuses,
+        [
+            "a_long_name.txt | -rw-r--r-- | 1234 bytes | 2026/01/02 03:04:05",
+            "broken | lrwxr-xr-x | ? | ?",
+            "link.txt -> target.txt | lrwxr-xr-x | 42 bytes",
+            "sub | d?????????",
+        ]
+    );
+
+    harness.press("Tab");
+    assert_eq!(harness.view().status, "..");
+}
+
+#[test]
+fn status_line_is_empty_for_an_empty_root() {
+    let mut harness = Harness::start("/", "/tmp");
+    harness.load(Side::Left, vec![]);
+
+    assert_eq!(harness.view().status, "");
+}
+
+#[test]
 fn size_and_time_columns_follow_symlink_targets() {
     let mut harness = Harness::start("/home/user", "/tmp");
     let to_dir = Entry {

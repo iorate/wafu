@@ -39,7 +39,7 @@ pub use config::{
     Appearance, CONFIG_TEMPLATE, Color, ColorSet, Colors, Config, Diagnostic, DiagnosticKind, Font,
     FontSet, General, Initial, SyntaxError, Theme, parse_config,
 };
-pub use entry::{Entry, EntryKind, LocalDateTime, SpecialKind, TargetKind, Timestamp};
+pub use entry::{Entry, EntryKind, LocalDateTime, Permissions, SpecialKind, TargetKind, Timestamp};
 pub use error::{AppError, IoError};
 pub use external::{CommandLine, CommandLineError, Expansion, Placeholder};
 pub use filter::{Filter, FilterError};

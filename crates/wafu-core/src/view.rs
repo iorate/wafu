@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::config::{ColorSet, Config, SizeFormat, Theme};
 use crate::entry::{Entry, EntryKind, SpecialKind};
+
 use crate::pane::Pane;
 use crate::preview::ImageData;
 
@@ -13,6 +14,8 @@ pub struct View {
     pub left: PaneView,
     pub right: PaneView,
     pub log: LogView,
+    /// The cursor entry of the active pane, spelled out under the panes.
+    pub status: String,
     pub popup: Option<PopupView>,
     pub preview: Option<PreviewView>,
     /// Whether the log is hidden for the preview.
@@ -240,10 +243,7 @@ impl PaneView {
     pub(crate) fn from_pane(pane: &Pane, active: bool) -> Self {
         let rows = pane.rows();
         let (marked, bytes) = pane.marked_summary();
-        let bytes = match pane.size_format() {
-            SizeFormat::Human => SizeFormat::Human.format(bytes),
-            format => format!("{} bytes", format.format(bytes)),
-        };
+        let bytes = size_with_unit(pane.size_format(), bytes);
         let filter = pane
             .filter()
             .map(|filter| format!(" | filter: {filter}"))
@@ -263,6 +263,40 @@ impl PaneView {
             ),
             active,
         }
+    }
+}
+
+pub(crate) fn status_line(pane: &Pane) -> String {
+    let Some(entry) = pane.cursor_entry() else {
+        return if pane.has_parent() && pane.cursor() == 0 {
+            "..".to_owned()
+        } else {
+            String::new()
+        };
+    };
+    let mut name = entry.name.to_string_lossy().into_owned();
+    if let Some(target) = &entry.link_target {
+        name = format!("{name} -> {}", target.to_string_lossy());
+    }
+    let mut segments = vec![name, entry.permissions_text()];
+    if entry.kind.is_broken_link() {
+        segments.push("?".to_owned());
+        segments.push("?".to_owned());
+    } else {
+        if !entry.kind.is_dir_like() && !entry.kind.is_special() {
+            segments.push(size_with_unit(pane.size_format(), entry.size));
+        }
+        if let Some(modified) = entry.modified {
+            segments.push(modified.local.to_string());
+        }
+    }
+    segments.join(" | ")
+}
+
+fn size_with_unit(format: SizeFormat, bytes: u64) -> String {
+    match format {
+        SizeFormat::Human => SizeFormat::Human.format(bytes),
+        format => format!("{} bytes", format.format(bytes)),
     }
 }
 

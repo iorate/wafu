@@ -1285,6 +1285,8 @@ mod tests {
             size: 0,
             modified: None,
             hidden: false,
+            permissions: None,
+            link_target: None,
         }
     }
 

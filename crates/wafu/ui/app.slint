@@ -33,6 +33,7 @@ export component AppWindow inherits Window {
     in property <image> preview-image;
     in property <bool> preview-has-image;
     in property <bool> hide-log;
+    in property <string> status;
     // 0: follow the OS, 1: light, 2: dark
     in property <int> theme;
     in property <bool> menu-bar-visible;
@@ -233,6 +234,31 @@ export component AppWindow inherits Window {
                     }
                     wheel(delta) => {
                         root.preview-wheel(delta);
+                    }
+                }
+            }
+
+            Rectangle {
+                height: root.hide-log ? 0 : Theme.line-width;
+                background: Palette.border;
+            }
+
+            Rectangle {
+                height: root.hide-log ? 0 : Theme.row-height;
+                visible: !root.hide-log;
+                clip: true;
+
+                HorizontalLayout {
+                    padding-left: 4px;
+                    padding-right: 4px;
+
+                    Text {
+                        text: root.status;
+                        font-family: Theme.filelist-font-family;
+                        font-size: Theme.filelist-font-size;
+                        color: Theme.colors.fg;
+                        overflow: elide;
+                        vertical-alignment: center;
                     }
                 }
             }

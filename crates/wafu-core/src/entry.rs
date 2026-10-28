@@ -10,6 +10,10 @@ pub struct Entry {
     pub size: u64,
     pub modified: Option<Timestamp>,
     pub hidden: bool,
+    /// What the permission columns are made from; `None` when not known.
+    pub permissions: Option<Permissions>,
+    /// Where a symbolic link points, when known.
+    pub link_target: Option<OsString>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,6 +28,14 @@ pub enum EntryKind {
     },
     /// A FIFO, socket, or device, whose content cannot be read as a file.
     Special(SpecialKind),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Permissions {
+    /// Unix permission bits, with setuid, setgid, and sticky.
+    Mode(u32),
+    /// Windows attributes, approximated as `ls` does on MSYS2.
+    Attributes { readonly: bool },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,6 +90,26 @@ impl Entry {
             None => (name.into_owned(), String::new()),
         }
     }
+
+    /// The ten characters `ls -l` starts a line with: the kind and the permissions.
+    #[must_use]
+    pub fn permissions_text(&self) -> String {
+        let kind = match self.kind {
+            EntryKind::Dir => 'd',
+            EntryKind::File { .. } => '-',
+            EntryKind::Symlink { .. } => 'l',
+            EntryKind::Special(SpecialKind::Fifo) => 'p',
+            EntryKind::Special(SpecialKind::Socket) => 's',
+            EntryKind::Special(SpecialKind::BlockDevice) => 'b',
+            EntryKind::Special(SpecialKind::CharDevice) => 'c',
+        };
+        let bits = match self.permissions {
+            Some(Permissions::Mode(mode)) => mode_text(mode),
+            Some(Permissions::Attributes { readonly }) => attributes_text(self.kind, readonly),
+            None => "?????????".to_owned(),
+        };
+        format!("{kind}{bits}")
+    }
 }
 
 impl EntryKind {
@@ -114,6 +146,35 @@ impl EntryKind {
             Self::Special(SpecialKind::Fifo) => "|",
             Self::Special(SpecialKind::Socket) => "=",
         }
+    }
+}
+
+fn mode_text(mode: u32) -> String {
+    let mut text = String::with_capacity(9);
+    for (shift, special, special_char) in [(6, 0o4000, 's'), (3, 0o2000, 's'), (0, 0o1000, 't')] {
+        let bits = mode >> shift;
+        text.push(if bits & 0o4 == 0 { '-' } else { 'r' });
+        text.push(if bits & 0o2 == 0 { '-' } else { 'w' });
+        text.push(match (mode & special != 0, bits & 0o1 != 0) {
+            (true, true) => special_char,
+            (true, false) => special_char.to_ascii_uppercase(),
+            (false, true) => 'x',
+            (false, false) => '-',
+        });
+    }
+    text
+}
+
+fn attributes_text(kind: EntryKind, readonly: bool) -> String {
+    let base = match kind {
+        EntryKind::Symlink { .. } => return "rwxrwxrwx".to_owned(),
+        EntryKind::Dir | EntryKind::File { executable: true } => "rwxr-xr-x",
+        EntryKind::File { executable: false } | EntryKind::Special(_) => "rw-r--r--",
+    };
+    if readonly {
+        base.replace('w', "-")
+    } else {
+        base.to_owned()
     }
 }
 
@@ -233,6 +294,78 @@ mod tests {
         assert_eq!(time.to_string(), "2026/01/02 03:04:05");
     }
 
+    #[test]
+    fn permissions_text_follows_ls_l_for_modes() {
+        let file = EntryKind::File { executable: false };
+        let cases = [
+            (file, 0o644, "-rw-r--r--"),
+            (EntryKind::Dir, 0o755, "drwxr-xr-x"),
+            (file, 0o4755, "-rwsr-xr-x"),
+            (file, 0o2644, "-rw-r-Sr--"),
+            (EntryKind::Dir, 0o1777, "drwxrwxrwt"),
+            (EntryKind::Symlink { target: None }, 0o777, "lrwxrwxrwx"),
+            (EntryKind::Special(SpecialKind::Fifo), 0o600, "prw-------"),
+            (EntryKind::Special(SpecialKind::Socket), 0o600, "srw-------"),
+            (
+                EntryKind::Special(SpecialKind::BlockDevice),
+                0o660,
+                "brw-rw----",
+            ),
+            (
+                EntryKind::Special(SpecialKind::CharDevice),
+                0o666,
+                "crw-rw-rw-",
+            ),
+        ];
+        for (kind, mode, expected) in cases {
+            let entry = entry(kind, Some(Permissions::Mode(mode)));
+
+            assert_eq!(entry.permissions_text(), expected, "{mode:o}");
+        }
+    }
+
+    #[test]
+    fn permissions_text_approximates_windows_attributes() {
+        let file = EntryKind::File { executable: false };
+        let exe = EntryKind::File { executable: true };
+        let link = EntryKind::Symlink {
+            target: Some(TargetKind::File),
+        };
+        let cases = [
+            (file, false, "-rw-r--r--"),
+            (file, true, "-r--r--r--"),
+            (exe, false, "-rwxr-xr-x"),
+            (exe, true, "-r-xr-xr-x"),
+            (EntryKind::Dir, false, "drwxr-xr-x"),
+            (EntryKind::Dir, true, "dr-xr-xr-x"),
+            (link, true, "lrwxrwxrwx"),
+        ];
+        for (kind, readonly, expected) in cases {
+            let entry = entry(kind, Some(Permissions::Attributes { readonly }));
+
+            assert_eq!(entry.permissions_text(), expected, "{kind:?} {readonly}");
+        }
+    }
+
+    #[test]
+    fn permissions_text_shows_question_marks_when_unknown() {
+        let entry = entry(EntryKind::Dir, None);
+
+        assert_eq!(entry.permissions_text(), "d?????????");
+    }
+
+    fn entry(kind: EntryKind, permissions: Option<Permissions>) -> Entry {
+        Entry {
+            name: OsString::from("x"),
+            kind,
+            size: 0,
+            modified: None,
+            hidden: false,
+            permissions,
+            link_target: None,
+        }
+    }
+
     fn assert_split(name: &str, kind: EntryKind, expected_name: &str, expected_extension: &str) {
         let entry = Entry {
             name: OsString::from(name),
@@ -240,6 +373,8 @@ mod tests {
             size: 0,
             modified: None,
             hidden: false,
+            permissions: None,
+            link_target: None,
         };
 
         let (name, extension) = entry.split_name();
