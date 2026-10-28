@@ -475,13 +475,13 @@ fn the_left_pane_takes_clicks_and_the_wheel_beside_a_right_pane_image() {
 }
 
 #[test]
-fn double_click_on_the_left_pane_beside_a_right_pane_image_closes_it() {
+fn double_click_on_the_left_pane_beside_a_right_pane_image_only_moves_the_cursor() {
     let mut harness = image();
 
     harness.double_click(Side::Left, 1);
 
     assert_eq!(harness.cursor_name(Side::Left), "note.txt");
-    assert!(harness.view().preview.is_none());
+    assert_eq!(harness.view().preview.unwrap().name, "");
     assert!(harness.view().left.active);
 }
 

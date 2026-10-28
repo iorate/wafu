@@ -122,13 +122,6 @@ impl App {
                         side: Side::Left,
                         row,
                     } => pane.set_cursor(row),
-                    MouseInput::DoubleClick {
-                        side: Side::Left,
-                        row,
-                    } => {
-                        pane.set_cursor(row);
-                        self.close_preview(effects);
-                    }
                     MouseInput::Wheel {
                         side: Side::Left,
                         rows,
