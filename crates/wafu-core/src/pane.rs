@@ -675,7 +675,9 @@ impl Pane {
     }
 
     fn rebuild_rows(&mut self) {
-        let parent = self.has_parent().then(RowView::parent);
+        let parent = self
+            .has_parent()
+            .then(|| RowView::parent(self.listing.own(), self.size_format));
         self.rows = parent
             .into_iter()
             .chain(

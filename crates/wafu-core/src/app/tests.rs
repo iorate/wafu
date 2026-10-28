@@ -257,6 +257,11 @@ fn status_line_on_the_parent_row_spells_out_the_directory_itself() {
         harness.view().status,
         ".. | drwxr-xr-x | 2026/01/02 03:04:05"
     );
+    let row = &harness.view().left.rows[0];
+    assert_eq!(
+        (row.name.as_str(), row.size.as_str(), row.modified.as_str()),
+        ("..", "", "2026/01/02 03:04:05")
+    );
 
     harness.press("Down");
     assert_eq!(harness.view().status, "a | -????????? | 0 bytes");
@@ -281,6 +286,8 @@ fn status_line_on_the_parent_row_of_an_archive_root_describes_the_archive_file()
     );
 
     assert_eq!(harness.view().status, ".. | -rw-r--r-- | 1234 bytes");
+    let row = &harness.view().left.rows[0];
+    assert_eq!((row.size.as_str(), row.modified.as_str()), ("1234", ""));
 }
 
 #[test]
