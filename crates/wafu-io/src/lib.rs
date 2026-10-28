@@ -5,6 +5,8 @@
 //! knows about the UI.
 
 mod archive;
+#[cfg(windows)]
+mod com;
 mod config;
 mod drives;
 mod fs_ops;
@@ -21,6 +23,7 @@ mod shell_menu;
 mod spawn;
 mod state;
 mod time;
+mod trash;
 mod watch;
 
 pub use config::read_or_create;

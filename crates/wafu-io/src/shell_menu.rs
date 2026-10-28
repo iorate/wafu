@@ -1,9 +1,8 @@
 use std::path::Path;
 
 use thiserror::Error;
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RPC_E_CHANGED_MODE, WPARAM};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::Graphics::Gdi::ClientToScreen;
-use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize};
 use windows::Win32::UI::Shell::Common::ITEMIDLIST;
 use windows::Win32::UI::Shell::{
     BHID_SFUIObject, CMF_NORMAL, CMIC_MASK_PTINVOKE, CMINVOKECOMMANDINFO, CMINVOKECOMMANDINFOEX,
@@ -16,6 +15,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     TrackPopupMenuEx, WM_DRAWITEM, WM_INITMENUPOPUP, WM_MEASUREITEM, WM_MENUCHAR,
 };
 use windows::core::{HSTRING, Interface, PCSTR, PCWSTR};
+
+use crate::com::ComScope;
 
 /// Why the shell menu could not be shown.
 #[derive(Debug, Error)]
@@ -55,35 +56,6 @@ pub fn shell_menu(
     // SAFETY: `hmenu` was created above and is no longer tracked.
     let _ = unsafe { DestroyMenu(hmenu) };
     result
-}
-
-// Enters a single-threaded apartment for the call if the thread is not in one yet.
-struct ComScope {
-    initialized: bool,
-}
-
-impl ComScope {
-    #[allow(unsafe_code)]
-    fn enter() -> Self {
-        // SAFETY: the call only affects this thread's COM state and is balanced in `drop`.
-        let result = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
-        // `S_FALSE` means another initialization is in force and still needs the
-        // balancing call; `RPC_E_CHANGED_MODE` means the thread is in another
-        // apartment, which the shell menu tolerates.
-        Self {
-            initialized: result.is_ok() && result != RPC_E_CHANGED_MODE,
-        }
-    }
-}
-
-impl Drop for ComScope {
-    #[allow(unsafe_code)]
-    fn drop(&mut self) {
-        if self.initialized {
-            // SAFETY: paired with the successful `CoInitializeEx` in `enter`.
-            unsafe { CoUninitialize() };
-        }
-    }
 }
 
 // The context menu handler of the paths, which all lie in the same directory.

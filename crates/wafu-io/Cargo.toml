@@ -19,9 +19,11 @@ open.workspace = true
 same-file.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
-trash.workspace = true
 wafu-core.workspace = true
 zip.workspace = true
+
+[target.'cfg(not(windows))'.dependencies]
+trash.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 encoding_rs.workspace = true

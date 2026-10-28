@@ -163,6 +163,12 @@ impl Ui {
             match effect {
                 Effect::SetTitle(title) => self.window.set_window_title(title.into()),
                 Effect::ShellMenu { paths, anchor } => self.shell_menu(paths, anchor),
+                // The OS may show a dialog for the operation, and only the
+                // window knows its handle for owning it.
+                Effect::StartOperation(spec) => {
+                    self.runtime.set_owner_window(window_handle(&self.window));
+                    self.runtime.run(Effect::StartOperation(spec));
+                }
                 // Only the window knows where it is, so its place is added here.
                 Effect::SaveState(state) => {
                     self.runtime.run(Effect::SaveState(self.with_window(state)));
@@ -631,18 +637,30 @@ impl Ui {
     }
 }
 
+// The raw handle (HWND) of the window, once it exists.
+#[cfg(windows)]
+fn window_handle(window: &AppWindow) -> Option<isize> {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+    let handle = window.window().window_handle();
+    match handle.window_handle().map(|handle| handle.as_raw()) {
+        Ok(RawWindowHandle::Win32(handle)) => Some(handle.hwnd.get()),
+        _ => None,
+    }
+}
+
+#[cfg(not(windows))]
+fn window_handle(_window: &AppWindow) -> Option<isize> {
+    None
+}
+
 // Shows the shell menu at a logical window position and blocks until it closes.
 #[cfg(windows)]
 fn show_shell_menu(window: &AppWindow, paths: &[PathBuf], x: f32, y: f32) -> Option<IoError> {
-    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-
-    let window = window.window();
-    let handle = window.window_handle();
-    let hwnd = match handle.window_handle().map(|handle| handle.as_raw()) {
-        Ok(RawWindowHandle::Win32(handle)) => handle.hwnd.get(),
-        _ => return Some(IoError::new("the window has no handle")),
+    let Some(hwnd) = window_handle(window) else {
+        return Some(IoError::new("the window has no handle"));
     };
-    let scale = window.scale_factor();
+    let scale = window.window().scale_factor();
     wafu_io::shell_menu(hwnd, paths, round(x * scale), round(y * scale))
         .err()
         .map(|error| IoError::new(error.to_string()))
