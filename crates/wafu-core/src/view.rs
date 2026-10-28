@@ -267,14 +267,20 @@ impl PaneView {
 }
 
 pub(crate) fn status_line(pane: &Pane) -> String {
-    let Some(entry) = pane.cursor_entry() else {
-        return if pane.has_parent() && pane.cursor() == 0 {
-            "..".to_owned()
-        } else {
-            String::new()
-        };
-    };
-    let mut name = entry.name.to_string_lossy().into_owned();
+    if let Some(entry) = pane.cursor_entry() {
+        let name = entry.name.to_string_lossy().into_owned();
+        return entry_status(entry, name, pane.size_format());
+    }
+    if !pane.has_parent() || pane.cursor() != 0 {
+        return String::new();
+    }
+    match pane.listing().own() {
+        Some(own) => entry_status(own, "..".to_owned(), pane.size_format()),
+        None => "..".to_owned(),
+    }
+}
+
+fn entry_status(entry: &Entry, mut name: String, size_format: SizeFormat) -> String {
     if let Some(target) = &entry.link_target {
         name = format!("{name} -> {}", target.to_string_lossy());
     }
@@ -284,7 +290,7 @@ pub(crate) fn status_line(pane: &Pane) -> String {
         segments.push("?".to_owned());
     } else {
         if !entry.kind.is_dir_like() && !entry.kind.is_special() {
-            segments.push(size_with_unit(pane.size_format(), entry.size));
+            segments.push(size_with_unit(size_format, entry.size));
         }
         if let Some(modified) = entry.modified {
             segments.push(modified.local.to_string());
@@ -301,14 +307,17 @@ fn size_with_unit(format: SizeFormat, bytes: u64) -> String {
 }
 
 impl RowView {
-    pub(crate) fn parent() -> Self {
+    /// The `..` row, whose marker, size, and time columns describe the location itself.
+    pub(crate) fn parent(own: Option<&Entry>, size_format: SizeFormat) -> Self {
+        let (size, modified) =
+            own.map_or_else(Default::default, |own| size_and_modified(own, size_format));
         Self {
             kind: RowKind::Parent,
             name: "..".to_owned(),
             extension: String::new(),
-            marker: String::new(),
-            size: String::new(),
-            modified: String::new(),
+            marker: own.map_or("", |own| own.kind.marker()).to_owned(),
+            size,
+            modified,
         }
     }
 
@@ -328,22 +337,7 @@ impl RowView {
             EntryKind::Special(SpecialKind::Socket) => RowKind::Socket,
             EntryKind::Special(_) => RowKind::Fifo,
         };
-        let broken = entry.kind == EntryKind::Symlink { target: None };
-        let size = if broken {
-            "?".to_owned()
-        } else if entry.kind.is_dir_like() || entry.kind.is_special() {
-            String::new()
-        } else {
-            size_format.format(entry.size)
-        };
-        let modified = if broken {
-            "?".to_owned()
-        } else {
-            entry
-                .modified
-                .map(|t| t.local.to_string())
-                .unwrap_or_default()
-        };
+        let (size, modified) = size_and_modified(entry, size_format);
         Self {
             kind,
             name,
@@ -353,4 +347,20 @@ impl RowView {
             modified,
         }
     }
+}
+
+fn size_and_modified(entry: &Entry, size_format: SizeFormat) -> (String, String) {
+    if entry.kind.is_broken_link() {
+        return ("?".to_owned(), "?".to_owned());
+    }
+    let size = if entry.kind.is_dir_like() || entry.kind.is_special() {
+        String::new()
+    } else {
+        size_format.format(entry.size)
+    };
+    let modified = entry
+        .modified
+        .map(|t| t.local.to_string())
+        .unwrap_or_default();
+    (size, modified)
 }

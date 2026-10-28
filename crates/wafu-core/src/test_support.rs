@@ -5,7 +5,7 @@ use crate::app::{
     App, Change, ConfigSource, DrivePurpose, Effect, IoEvent, MouseInput, Msg, Os, PreviewError,
     Resolved, Side, Start,
 };
-use crate::entry::{Entry, EntryKind, SpecialKind};
+use crate::entry::{Directory, Entry, EntryKind, SpecialKind};
 use crate::error::IoError;
 use crate::key::{Key, KeyBase, KeyInput};
 use crate::operation::{OperationEvent, OperationSpec, Outcome};
@@ -222,6 +222,11 @@ impl Harness {
     /// Delivers a listing to a side: answers its pending read, or, when none
     /// is pending, reports a change first so that the side reads again.
     pub(crate) fn load(&mut self, side: Side, entries: Vec<Entry>) {
+        self.load_directory(side, Directory { own: None, entries });
+    }
+
+    /// Like `load`, with the location itself as an entry.
+    pub(crate) fn load_directory(&mut self, side: Side, directory: Directory) {
         if self.app.pane(side).loading().is_none() {
             self.changed(side);
         }
@@ -229,7 +234,7 @@ impl Harness {
         self.send(Msg::Io(IoEvent::DirLoaded {
             side,
             request,
-            result: Ok(entries),
+            result: Ok(directory),
         }));
     }
 

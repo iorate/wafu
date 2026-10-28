@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use super::{App, DrivePurpose, Effect, Os, Resolved, Side};
 use crate::command::Command;
-use crate::entry::{Entry, EntryKind};
+use crate::entry::{Directory, EntryKind};
 use crate::error::{AppError, IoError};
 use crate::location::{ArchiveFormat, Location};
 use crate::pane::{HistoryMove, InFlight, Pane, RequestId};
@@ -127,7 +127,7 @@ impl App {
         &mut self,
         side: Side,
         request: RequestId,
-        result: Result<Vec<Entry>, IoError>,
+        result: Result<Directory, IoError>,
         effects: &mut Vec<Effect>,
     ) {
         let pane = &mut self.panes[side.index()];
@@ -141,7 +141,7 @@ impl App {
                 history,
                 ..
             }) => match result {
-                Ok(entries) => pane.enter(target, cursor, entries, history),
+                Ok(directory) => pane.enter(target, cursor, directory, history),
                 Err(source) => {
                     self.log.push(
                         AppError::ReadDir {
@@ -154,7 +154,7 @@ impl App {
                 }
             },
             Some(InFlight::Refresh { .. }) => match result {
-                Ok(entries) => pane.set_entries(entries),
+                Ok(directory) => pane.set_directory(directory),
                 Err(source) => {
                     // The place may be gone; let the I/O layer find out.
                     let path = pane.location().base.clone();

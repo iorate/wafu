@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use super::*;
 use crate::config::Theme;
-use crate::entry::{EntryKind, SpecialKind, TargetKind};
+use crate::entry::{Directory, Entry, EntryKind, SpecialKind, TargetKind};
 use crate::external::CommandLine;
 use crate::listing::{SortKey, SortSpec};
 use crate::pane::InFlight;
@@ -226,6 +226,108 @@ fn status_line_is_empty_for_an_empty_root() {
 }
 
 #[test]
+fn status_line_on_the_parent_row_spells_out_the_directory_itself() {
+    use crate::entry::{LocalDateTime, Permissions, Timestamp};
+
+    let mut harness = Harness::start("/home/user", "/tmp");
+    let own = Entry {
+        modified: Some(Timestamp {
+            at: std::time::SystemTime::UNIX_EPOCH,
+            local: LocalDateTime {
+                year: 2026,
+                month: 1,
+                day: 2,
+                hour: 3,
+                minute: 4,
+                second: 5,
+            },
+        }),
+        permissions: Some(Permissions::Mode(0o755)),
+        ..dir("user")
+    };
+    harness.load_directory(
+        Side::Left,
+        Directory {
+            own: Some(own),
+            entries: vec![file("a")],
+        },
+    );
+
+    assert_eq!(
+        harness.view().status,
+        ".. | drwxr-xr-x | 2026/01/02 03:04:05"
+    );
+    let row = &harness.view().left.rows[0];
+    assert_eq!(
+        (
+            row.name.as_str(),
+            row.marker.as_str(),
+            row.size.as_str(),
+            row.modified.as_str()
+        ),
+        ("..", "/", "", "2026/01/02 03:04:05")
+    );
+
+    harness.press("Down");
+    assert_eq!(harness.view().status, "a | -????????? | 0 bytes");
+}
+
+#[test]
+fn status_line_on_the_parent_row_of_an_archive_root_describes_the_archive_file() {
+    use crate::entry::Permissions;
+
+    let mut harness = Harness::start("/home/user", "/tmp");
+    let own = Entry {
+        size: 1234,
+        permissions: Some(Permissions::Mode(0o644)),
+        ..file("a.zip")
+    };
+    harness.load_directory(
+        Side::Left,
+        Directory {
+            own: Some(own),
+            entries: vec![],
+        },
+    );
+
+    assert_eq!(harness.view().status, ".. | -rw-r--r-- | 1234 bytes");
+    let row = &harness.view().left.rows[0];
+    assert_eq!(
+        (
+            row.marker.as_str(),
+            row.size.as_str(),
+            row.modified.as_str()
+        ),
+        ("", "1234", "")
+    );
+}
+
+#[test]
+fn status_line_on_the_parent_row_inside_a_link_shows_the_link() {
+    use crate::entry::Permissions;
+
+    let mut harness = Harness::start("/tmp", "/home/user");
+    let own = Entry {
+        kind: EntryKind::Symlink {
+            target: Some(TargetKind::Dir),
+        },
+        permissions: Some(Permissions::Mode(0o755)),
+        link_target: Some(std::ffi::OsString::from("private/tmp")),
+        ..file("tmp")
+    };
+    harness.load_directory(
+        Side::Left,
+        Directory {
+            own: Some(own),
+            entries: vec![],
+        },
+    );
+
+    assert_eq!(harness.view().status, ".. -> private/tmp | lrwxr-xr-x");
+    assert_eq!(harness.view().left.rows[0].marker, "@");
+}
+
+#[test]
 fn size_and_time_columns_follow_symlink_targets() {
     let mut harness = Harness::start("/home/user", "/tmp");
     let to_dir = Entry {
@@ -291,7 +393,10 @@ fn stale_reply_is_discarded() {
     harness.send(Msg::Io(IoEvent::DirLoaded {
         side: Side::Left,
         request: stale,
-        result: Ok(vec![file("stale")]),
+        result: Ok(Directory {
+            own: None,
+            entries: vec![file("stale")],
+        }),
     }));
 
     assert_eq!(harness.names(Side::Left), [".."]);
@@ -514,7 +619,10 @@ fn escape_cancels_a_move_and_stays_put() {
     harness.send(Msg::Io(IoEvent::DirLoaded {
         side: Side::Left,
         request: pending,
-        result: Ok(vec![dir("user")]),
+        result: Ok(Directory {
+            own: None,
+            entries: vec![dir("user")],
+        }),
     }));
     assert_eq!(harness.view().left.path, "/home/user");
 }

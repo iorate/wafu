@@ -4,12 +4,13 @@ use icu_collator::options::{CollatorOptions, Strength};
 use icu_collator::preferences::CollationNumericOrdering;
 use icu_collator::{Collator, CollatorBorrowed, CollatorPreferences};
 
-use crate::entry::Entry;
+use crate::entry::{Directory, Entry};
 use crate::filter::Filter;
 
 /// The entries of a location, with the display order applied.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Listing {
+    own: Option<Entry>,
     entries: Vec<Entry>,
     visible: Vec<usize>,
 }
@@ -36,13 +37,14 @@ pub enum SortKey {
 impl Listing {
     #[must_use]
     pub fn new(
-        entries: Vec<Entry>,
+        directory: Directory,
         sort: SortSpec,
         show_hidden: bool,
         filter: Option<&Filter>,
     ) -> Self {
         let mut listing = Self {
-            entries,
+            own: directory.own,
+            entries: directory.entries,
             visible: Vec::new(),
         };
         listing.rebuild(sort, show_hidden, filter);
@@ -81,6 +83,12 @@ impl Listing {
 
     pub fn visible_entries(&self) -> impl Iterator<Item = &Entry> {
         self.visible.iter().map(|&index| &self.entries[index])
+    }
+
+    /// The location itself, when the I/O layer could read it.
+    #[must_use]
+    pub fn own(&self) -> Option<&Entry> {
+        self.own.as_ref()
     }
 }
 
@@ -427,8 +435,8 @@ mod tests {
     fn hidden_entries_are_excluded_unless_shown() {
         let entries = [file("a", 0), hidden(".b")];
 
-        let shown = Listing::new(entries.to_vec(), SortSpec::default(), true, None);
-        let not_shown = Listing::new(entries.to_vec(), SortSpec::default(), false, None);
+        let shown = Listing::new(directory(&entries), SortSpec::default(), true, None);
+        let not_shown = Listing::new(directory(&entries), SortSpec::default(), false, None);
 
         assert_eq!(names(&shown), [".b", "a"]);
         assert_eq!(names(&not_shown), ["a"]);
@@ -439,13 +447,25 @@ mod tests {
         let filter = Filter::parse("*.png").unwrap().unwrap();
         let entries = [file("a.png", 0), file("b.txt", 0), dir("c.txt")];
 
-        let listing = Listing::new(entries.to_vec(), SortSpec::default(), true, Some(&filter));
+        let listing = Listing::new(
+            directory(&entries),
+            SortSpec::default(),
+            true,
+            Some(&filter),
+        );
 
         assert_eq!(names(&listing), ["c.txt", "a.png"]);
     }
 
     fn listing(entries: &[Entry], sort: SortSpec) -> Listing {
-        Listing::new(entries.to_vec(), sort, true, None)
+        Listing::new(directory(entries), sort, true, None)
+    }
+
+    fn directory(entries: &[Entry]) -> Directory {
+        Directory {
+            own: None,
+            entries: entries.to_vec(),
+        }
     }
 
     fn names(listing: &Listing) -> Vec<String> {

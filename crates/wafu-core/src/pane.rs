@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::config::SizeFormat;
-use crate::entry::Entry;
+use crate::entry::{Directory, Entry};
 use crate::error::IoError;
 use crate::filter::Filter;
 use crate::history::History;
@@ -273,12 +273,12 @@ impl Pane {
 
     /// Installs a freshly read listing. The cursor follows the pending name if
     /// any, else the entry it was on, else it stays on the same row.
-    pub fn set_entries(&mut self, entries: Vec<Entry>) {
+    pub fn set_directory(&mut self, directory: Directory) {
         let follow = self
             .pending_cursor
             .take()
             .or_else(|| self.cursor_entry().map(|entry| entry.name.clone()));
-        self.listing = Listing::new(entries, self.sort, self.show_hidden, self.filter.as_ref());
+        self.listing = Listing::new(directory, self.sort, self.show_hidden, self.filter.as_ref());
         self.after_listing_change(follow);
     }
 
@@ -541,7 +541,7 @@ impl Pane {
         &mut self,
         target: Location,
         cursor: Option<OsString>,
-        entries: Vec<Entry>,
+        directory: Directory,
         history: HistoryMove,
     ) {
         // Places inside an archive are neither remembered nor recorded.
@@ -555,7 +555,7 @@ impl Pane {
             }
         }
         self.set_location(target, cursor);
-        self.set_entries(entries);
+        self.set_directory(directory);
     }
 
     pub(crate) fn reload_pending(&self) -> bool {
@@ -675,7 +675,9 @@ impl Pane {
     }
 
     fn rebuild_rows(&mut self) {
-        let parent = self.has_parent().then(RowView::parent);
+        let parent = self
+            .has_parent()
+            .then(|| RowView::parent(self.listing.own(), self.size_format));
         self.rows = parent
             .into_iter()
             .chain(
@@ -737,20 +739,20 @@ mod tests {
     }
 
     #[test]
-    fn set_entries_puts_cursor_on_pending_name() {
+    fn set_directory_puts_cursor_on_pending_name() {
         let mut pane = Pane::new(Location::new(PathBuf::from("/")));
         pane.set_location(
             Location::new(PathBuf::from("/home")),
             Some(OsString::from("b")),
         );
 
-        pane.set_entries(entries(&["a", "b", "c"]));
+        pane.set_directory(entries(&["a", "b", "c"]));
 
         assert_eq!(pane.cursor(), 2);
     }
 
     #[test]
-    fn set_entries_after_navigation_falls_back_to_first_row() {
+    fn set_directory_after_navigation_falls_back_to_first_row() {
         let mut pane = pane_with("/home", &["a", "b", "c"]);
         pane.cursor_bottom();
         pane.set_location(
@@ -758,38 +760,38 @@ mod tests {
             Some(OsString::from("missing")),
         );
 
-        pane.set_entries(entries(&["a", "b", "c"]));
+        pane.set_directory(entries(&["a", "b", "c"]));
 
         assert_eq!(pane.cursor(), 0);
     }
 
     #[test]
-    fn set_entries_on_reload_follows_the_cursor_entry() {
+    fn set_directory_on_reload_follows_the_cursor_entry() {
         let mut pane = pane_with("/", &["a", "b", "c"]);
         pane.set_cursor(1);
 
-        pane.set_entries(entries(&["b", "c", "d"]));
+        pane.set_directory(entries(&["b", "c", "d"]));
 
         assert_eq!(pane.cursor(), 0);
         assert_eq!(cursor_name(&pane), "b");
     }
 
     #[test]
-    fn set_entries_on_reload_keeps_the_row_when_the_entry_is_gone() {
+    fn set_directory_on_reload_keeps_the_row_when_the_entry_is_gone() {
         let mut pane = pane_with("/", &["a", "b", "c", "d"]);
         pane.set_cursor(1);
 
-        pane.set_entries(entries(&["a", "c", "d"]));
+        pane.set_directory(entries(&["a", "c", "d"]));
         assert_eq!(pane.cursor(), 1);
         assert_eq!(cursor_name(&pane), "c");
 
         pane.set_cursor(2);
-        pane.set_entries(entries(&["a"]));
+        pane.set_directory(entries(&["a"]));
         assert_eq!(pane.cursor(), 0);
     }
 
     #[test]
-    fn set_entries_on_reload_keeps_the_scroll_and_marks_of_remaining_entries() {
+    fn set_directory_on_reload_keeps_the_scroll_and_marks_of_remaining_entries() {
         let mut pane = pane_with("/", &["a", "b", "c", "d", "e"]);
         pane.set_viewport_rows(2);
         pane.set_cursor(3);
@@ -797,7 +799,7 @@ mod tests {
         pane.mark_down();
         assert_eq!(pane.scroll_top(), 3);
 
-        pane.set_entries(entries(&["a", "b", "c", "e", "f"]));
+        pane.set_directory(entries(&["a", "b", "c", "e", "f"]));
 
         assert_eq!(pane.scroll_top(), 3);
         assert_eq!(marked(&pane), ["e"]);
@@ -813,7 +815,7 @@ mod tests {
         assert_eq!(before.len(), 3);
         assert_eq!(before[0].name, "..");
 
-        pane.set_entries(entries(&["c"]));
+        pane.set_directory(entries(&["c"]));
         assert!(!Arc::ptr_eq(&before, &pane.rows()));
         assert_eq!(pane.rows().len(), 2);
     }
@@ -1063,7 +1065,7 @@ mod tests {
     #[test]
     fn invert_marks_skips_directories_unless_asked() {
         let mut pane = Pane::new(Location::new(PathBuf::from("/")));
-        pane.set_entries(vec![dir("d"), file("a"), file("b")]);
+        pane.set_directory(directory(vec![dir("d"), file("a"), file("b")]));
         pane.set_cursor(1);
         pane.mark_down();
 
@@ -1077,7 +1079,7 @@ mod tests {
     #[test]
     fn mark_matching_adds_files_only() {
         let mut pane = Pane::new(Location::new(PathBuf::from("/")));
-        pane.set_entries(vec![dir("d.png"), file("a.png"), file("b.txt")]);
+        pane.set_directory(directory(vec![dir("d.png"), file("a.png"), file("b.txt")]));
         pane.set_cursor(2);
         pane.mark_down();
 
@@ -1129,7 +1131,7 @@ mod tests {
     #[test]
     fn marked_summary_counts_directories_without_their_size() {
         let mut pane = Pane::new(Location::new(PathBuf::from("/")));
-        pane.set_entries(vec![
+        pane.set_directory(directory(vec![
             Entry {
                 size: 4096,
                 ..dir("d")
@@ -1142,7 +1144,7 @@ mod tests {
                 size: 5,
                 ..file("b")
             },
-        ]);
+        ]));
         pane.mark_down();
         pane.mark_down();
 
@@ -1233,13 +1235,13 @@ mod tests {
     #[test]
     fn toggle_hidden_clears_marks() {
         let mut pane = Pane::new(Location::new(PathBuf::from("/")));
-        pane.set_entries(vec![
+        pane.set_directory(directory(vec![
             file("a"),
             Entry {
                 hidden: true,
                 ..file(".b")
             },
-        ]);
+        ]));
         pane.mark_down();
 
         pane.toggle_hidden();
@@ -1270,12 +1272,16 @@ mod tests {
 
     fn pane_with(base: &str, names: &[&str]) -> Pane {
         let mut pane = Pane::new(Location::new(PathBuf::from(base)));
-        pane.set_entries(entries(names));
+        pane.set_directory(entries(names));
         pane
     }
 
-    fn entries(names: &[&str]) -> Vec<Entry> {
-        names.iter().map(|name| file(name)).collect()
+    fn entries(names: &[&str]) -> Directory {
+        directory(names.iter().map(|name| file(name)).collect())
+    }
+
+    fn directory(entries: Vec<Entry>) -> Directory {
+        Directory { own: None, entries }
     }
 
     fn file(name: &str) -> Entry {

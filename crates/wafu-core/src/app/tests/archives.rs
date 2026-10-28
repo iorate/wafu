@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use crate::app::{Effect, IoEvent, Msg, Os, Side};
+use crate::entry::Directory;
 use crate::location::{ArchiveFormat, ArchivePath, Location};
 use crate::operation::{
     ArchiveEntries, ArchiveOutput, OperationEvent, OperationKind, OperationSpec, Outcome, Reply,
@@ -900,7 +901,10 @@ fn stale_archive_replies_are_ignored() {
     harness.send(Msg::Io(IoEvent::DirLoaded {
         side: Side::Left,
         request: stale,
-        result: Ok(contents()),
+        result: Ok(Directory {
+            own: None,
+            entries: contents(),
+        }),
     }));
 
     assert_eq!(harness.view().left.path, LEFT);
