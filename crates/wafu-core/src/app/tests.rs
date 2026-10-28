@@ -180,7 +180,7 @@ fn status_line_spells_out_the_cursor_entry_of_the_active_pane() {
     };
     let link = Entry {
         kind: EntryKind::Symlink {
-            target: Some(TargetKind::File),
+            target: Some(TargetKind::File { executable: false }),
         },
         size: 42,
         permissions: Some(Permissions::Mode(0o755)),
@@ -209,12 +209,70 @@ fn status_line_spells_out_the_cursor_entry_of_the_active_pane() {
             "a_long_name.txt | -rw-r--r-- | 1234 bytes | 2026/01/02 03:04:05",
             "broken | lrwxr-xr-x | ? | ?",
             "link.txt -> target.txt | lrwxr-xr-x | 42 bytes",
-            "sub | d?????????",
+            "sub/ | d?????????",
         ]
     );
 
     harness.press("Tab");
     assert_eq!(harness.view().status, "..");
+}
+
+#[test]
+fn status_line_marks_names_and_link_targets_like_ls_lf() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    let link = |name: &str, target: &str, kind: Option<TargetKind>| Entry {
+        kind: EntryKind::Symlink { target: kind },
+        link_target: Some(std::ffi::OsString::from(target)),
+        ..file(name)
+    };
+    harness.load(
+        Side::Left,
+        vec![
+            Entry {
+                kind: EntryKind::File { executable: true },
+                ..file("run")
+            },
+            special("fifo", SpecialKind::Fifo),
+            special("sock", SpecialKind::Socket),
+            special("tty", SpecialKind::CharDevice),
+            link("to_dir", "sub", Some(TargetKind::Dir)),
+            link("to_run", "run", Some(TargetKind::File { executable: true })),
+            link(
+                "to_fifo",
+                "fifo",
+                Some(TargetKind::Special(SpecialKind::Fifo)),
+            ),
+            link("broken", "missing", None),
+            Entry {
+                kind: EntryKind::Symlink {
+                    target: Some(TargetKind::File { executable: false }),
+                },
+                ..file("in_archive")
+            },
+        ],
+    );
+
+    let mut statuses = Vec::new();
+    for _ in 0..9 {
+        harness.press("Down");
+        statuses.push(harness.view().status);
+    }
+    statuses.sort();
+
+    assert_eq!(
+        statuses,
+        [
+            "broken -> missing | l????????? | ? | ?",
+            "fifo| | p?????????",
+            "in_archive | l????????? | 0 bytes",
+            "run* | -????????? | 0 bytes",
+            "sock= | s?????????",
+            "to_dir -> sub/ | l?????????",
+            "to_fifo -> fifo| | l????????? | 0 bytes",
+            "to_run -> run* | l????????? | 0 bytes",
+            "tty | c?????????",
+        ]
+    );
 }
 
 #[test]
@@ -255,7 +313,7 @@ fn status_line_on_the_parent_row_spells_out_the_directory_itself() {
 
     assert_eq!(
         harness.view().status,
-        ".. | drwxr-xr-x | 2026/01/02 03:04:05"
+        "../ | drwxr-xr-x | 2026/01/02 03:04:05"
     );
     let row = &harness.view().left.rows[0];
     assert_eq!(
@@ -323,7 +381,7 @@ fn status_line_on_the_parent_row_inside_a_link_shows_the_link() {
         },
     );
 
-    assert_eq!(harness.view().status, ".. -> private/tmp | lrwxr-xr-x");
+    assert_eq!(harness.view().status, ".. -> private/tmp/ | lrwxr-xr-x");
     assert_eq!(harness.view().left.rows[0].marker, "@");
 }
 
@@ -338,7 +396,7 @@ fn size_and_time_columns_follow_symlink_targets() {
     };
     let to_file = Entry {
         kind: EntryKind::Symlink {
-            target: Some(TargetKind::File),
+            target: Some(TargetKind::File { executable: false }),
         },
         size: 42,
         ..file("to_file")

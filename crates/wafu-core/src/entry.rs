@@ -47,10 +47,12 @@ pub enum Permissions {
     Attributes { readonly: bool },
 }
 
+/// What a symbolic link resolves to, after following every link on the way.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TargetKind {
     Dir,
-    File,
+    File { executable: bool },
+    Special(SpecialKind),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -147,11 +149,23 @@ impl EntryKind {
     #[must_use]
     pub fn marker(self) -> &'static str {
         match self {
+            Self::Dir => TargetKind::Dir.marker(),
+            Self::File { executable } => TargetKind::File { executable }.marker(),
+            Self::Symlink { .. } => "@",
+            Self::Special(special) => TargetKind::Special(special).marker(),
+        }
+    }
+}
+
+impl TargetKind {
+    /// The mark `ls -lF` would print after the link target, or an empty string.
+    #[must_use]
+    pub fn marker(self) -> &'static str {
+        match self {
             Self::Dir => "/",
             Self::File { executable: true } => "*",
             Self::File { executable: false }
             | Self::Special(SpecialKind::BlockDevice | SpecialKind::CharDevice) => "",
-            Self::Symlink { .. } => "@",
             Self::Special(SpecialKind::Fifo) => "|",
             Self::Special(SpecialKind::Socket) => "=",
         }
@@ -290,6 +304,17 @@ mod tests {
     }
 
     #[test]
+    fn target_markers_follow_ls_lf() {
+        assert_eq!(TargetKind::Dir.marker(), "/");
+        assert_eq!(TargetKind::File { executable: true }.marker(), "*");
+        assert_eq!(TargetKind::File { executable: false }.marker(), "");
+        assert_eq!(TargetKind::Special(SpecialKind::Fifo).marker(), "|");
+        assert_eq!(TargetKind::Special(SpecialKind::Socket).marker(), "=");
+        assert_eq!(TargetKind::Special(SpecialKind::BlockDevice).marker(), "");
+        assert_eq!(TargetKind::Special(SpecialKind::CharDevice).marker(), "");
+    }
+
+    #[test]
     fn local_date_time_is_zero_padded() {
         let time = LocalDateTime {
             year: 2026,
@@ -338,7 +363,7 @@ mod tests {
         let file = EntryKind::File { executable: false };
         let exe = EntryKind::File { executable: true };
         let link = EntryKind::Symlink {
-            target: Some(TargetKind::File),
+            target: Some(TargetKind::File { executable: false }),
         };
         let cases = [
             (file, false, "-rw-r--r--"),
