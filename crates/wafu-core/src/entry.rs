@@ -16,6 +16,15 @@ pub struct Entry {
     pub link_target: Option<OsString>,
 }
 
+/// A location as the I/O layer reads it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Directory {
+    /// The location itself, when its metadata could be read: the directory,
+    /// or the archive file at an archive root.
+    pub own: Option<Entry>,
+    pub entries: Vec<Entry>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EntryKind {
     Dir,

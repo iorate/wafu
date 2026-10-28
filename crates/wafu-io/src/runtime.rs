@@ -8,16 +8,16 @@ use std::thread;
 
 use notify::RecommendedWatcher;
 use wafu_core::{
-    ArchivePath, Change, Effect, Entry, IoError, IoEvent, Location, PreviewSource, Reply,
+    ArchivePath, Change, Directory, Effect, IoError, IoEvent, Location, PreviewSource, Reply,
     RequestId, Side, SpawnKind,
 };
 
-use crate::archive::{ArchiveEntry, list_dir, open_archive};
+use crate::archive::{ArchiveEntry, dir_entry, list_dir, open_archive};
 use crate::drives::drives;
 use crate::fs_ops::{create_file, mkdir, open_with_os, rename, set_clipboard};
 use crate::operation::run_operation;
 use crate::preview::{load_image, load_preview};
-use crate::read_dir::read_dir_with;
+use crate::read_dir::{own_entry, read_dir_with};
 use crate::resolve::resolve;
 use crate::spawn::{spawn, spawn_new_window};
 use crate::state::{write_handoff, write_state};
@@ -327,7 +327,7 @@ fn list_archive(
     path: &Path,
     archive: &ArchivePath,
     cancelled: impl Fn() -> bool,
-) -> io::Result<Vec<Entry>> {
+) -> io::Result<Directory> {
     let meta = fs::metadata(path)?;
     let (len, modified) = (meta.len(), meta.modified().ok());
     let fresh = cache.as_ref().is_some_and(|cached| {
@@ -343,7 +343,12 @@ fn list_archive(
         });
     }
     let entries = &cache.as_ref().expect("the cache was just filled").entries;
-    list_dir(entries, &archive.inner, cancelled)
+    let own = dir_entry(entries, &archive.inner).unwrap_or_else(|| own_entry(path, &meta));
+    let entries = list_dir(entries, &archive.inner, cancelled)?;
+    Ok(Directory {
+        own: Some(own),
+        entries,
+    })
 }
 
 fn io_error(result: std::io::Result<()>) -> Option<IoError> {
@@ -387,7 +392,7 @@ mod tests {
         };
         assert_eq!(side, Side::Left);
         assert_eq!(request, RequestId(1));
-        let entries = result.unwrap();
+        let entries = result.unwrap().entries;
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].name, "a");
     }
@@ -684,14 +689,20 @@ mod tests {
         let IoEvent::DirLoaded { result, .. } = events.recv_timeout(TIMEOUT).unwrap() else {
             panic!("expected DirLoaded");
         };
-        let entries = result.unwrap();
+        let directory = result.unwrap();
+        assert_eq!(directory.own.unwrap().name, "a.zip");
+        let entries = directory.entries;
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].name, "d");
         assert_eq!(entries[0].kind, wafu_core::EntryKind::Dir);
         let IoEvent::DirLoaded { result, .. } = events.recv_timeout(TIMEOUT).unwrap() else {
             panic!("expected DirLoaded");
         };
-        let entries = result.unwrap();
+        let directory = result.unwrap();
+        let own = directory.own.unwrap();
+        assert_eq!(own.name, "d");
+        assert_eq!(own.kind, wafu_core::EntryKind::Dir);
+        let entries = directory.entries;
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].name, "f.txt");
         assert_eq!(entries[0].size, 1);

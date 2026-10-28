@@ -148,6 +148,20 @@ pub(crate) fn list_dir(
     Ok(listed)
 }
 
+/// The directory `inner` itself: its own entry when the archive has one, else
+/// a directory made up as `list_dir` does. `None` at the root, which has no
+/// entry of its own.
+pub(crate) fn dir_entry(entries: &[ArchiveEntry], inner: &[String]) -> Option<Entry> {
+    let name = inner.last()?;
+    let own = entries
+        .iter()
+        .find(|entry| entry.kind == ArchiveEntryKind::Dir && entry.components == inner);
+    Some(match own {
+        Some(entry) => listed_entry(name, entry),
+        None => synthesized_dir(name),
+    })
+}
+
 /// The index of the entry named `name` directly inside the directory `inner`.
 pub(crate) fn find_entry(entries: &[ArchiveEntry], inner: &[String], name: &str) -> Option<usize> {
     entries.iter().position(|entry| {
@@ -263,6 +277,22 @@ mod tests {
 
         assert!(root[0].hidden);
         assert!(!root[1].hidden);
+    }
+
+    #[test]
+    fn dir_entry_comes_from_the_archive_or_is_made_up() {
+        let entries = [dir(&["d"]), file(&["d", "x"], 1), file(&["e", "y"], 1)];
+
+        assert_eq!(dir_entry(&entries, &[]), None);
+        let d = dir_entry(&entries, &["d".to_owned()]).unwrap();
+        assert_eq!(d.name, "d");
+        assert_eq!(d.kind, EntryKind::Dir);
+        assert!(d.modified.is_some());
+        let e = dir_entry(&entries, &["e".to_owned()]).unwrap();
+        assert_eq!(e.name, "e");
+        assert_eq!(e.kind, EntryKind::Dir);
+        assert_eq!(e.modified, None);
+        assert_eq!(e.permissions, None);
     }
 
     #[test]

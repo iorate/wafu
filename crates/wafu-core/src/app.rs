@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::command::{Command, Context};
 use crate::config::Config;
-use crate::entry::Entry;
+use crate::entry::Directory;
 use crate::error::{AppError, IoError};
 use crate::key::{Key, KeyBase, KeyInput, NamedKey};
 use crate::location::{ArchivePath, Location};
@@ -269,7 +269,7 @@ pub enum IoEvent {
     DirLoaded {
         side: Side,
         request: RequestId,
-        result: Result<Vec<Entry>, IoError>,
+        result: Result<Directory, IoError>,
     },
     /// `None` when nothing exists at the path, nor, when climbing, above it.
     Resolved {

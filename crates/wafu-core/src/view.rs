@@ -267,14 +267,20 @@ impl PaneView {
 }
 
 pub(crate) fn status_line(pane: &Pane) -> String {
-    let Some(entry) = pane.cursor_entry() else {
-        return if pane.has_parent() && pane.cursor() == 0 {
-            "..".to_owned()
-        } else {
-            String::new()
-        };
-    };
-    let mut name = entry.name.to_string_lossy().into_owned();
+    if let Some(entry) = pane.cursor_entry() {
+        let name = entry.name.to_string_lossy().into_owned();
+        return entry_status(entry, name, pane.size_format());
+    }
+    if !pane.has_parent() || pane.cursor() != 0 {
+        return String::new();
+    }
+    match pane.listing().own() {
+        Some(own) => entry_status(own, "..".to_owned(), pane.size_format()),
+        None => "..".to_owned(),
+    }
+}
+
+fn entry_status(entry: &Entry, mut name: String, size_format: SizeFormat) -> String {
     if let Some(target) = &entry.link_target {
         name = format!("{name} -> {}", target.to_string_lossy());
     }
@@ -284,7 +290,7 @@ pub(crate) fn status_line(pane: &Pane) -> String {
         segments.push("?".to_owned());
     } else {
         if !entry.kind.is_dir_like() && !entry.kind.is_special() {
-            segments.push(size_with_unit(pane.size_format(), entry.size));
+            segments.push(size_with_unit(size_format, entry.size));
         }
         if let Some(modified) = entry.modified {
             segments.push(modified.local.to_string());
