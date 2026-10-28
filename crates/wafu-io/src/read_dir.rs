@@ -32,18 +32,20 @@ pub fn read_dir_with(path: &Path, cancelled: impl Fn() -> bool) -> io::Result<Di
         let metadata = dir_entry.metadata().ok();
         entries.push(entry(&dir_entry.path(), name, metadata.as_ref()));
     }
-    let own = fs::metadata(path)
-        .ok()
-        .map(|metadata| own_entry(path, &metadata));
-    Ok(Directory { own, entries })
+    Ok(Directory {
+        own: own_entry(path),
+        entries,
+    })
 }
 
-/// The item at `path` itself, from metadata that followed links.
-pub(crate) fn own_entry(path: &Path, metadata: &Metadata) -> Entry {
+/// The item at `path` itself, read like an item of a listing: the kind from
+/// the link, the size and time from its target. `None` when it cannot be read.
+pub(crate) fn own_entry(path: &Path) -> Option<Entry> {
+    let metadata = fs::symlink_metadata(path).ok()?;
     let name = path
         .file_name()
         .map_or_else(OsString::new, ToOwned::to_owned);
-    entry(path, name, Some(metadata))
+    Some(entry(path, name, Some(&metadata)))
 }
 
 fn entry(path: &Path, name: OsString, metadata: Option<&Metadata>) -> Entry {
@@ -199,6 +201,31 @@ mod tests {
         assert_eq!(own.kind, EntryKind::Dir);
         assert!(own.modified.is_some());
         assert!(own.permissions.is_some());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_reached_through_a_link_reports_the_link() {
+        use std::ffi::OsStr;
+        use std::os::unix::fs::symlink;
+
+        let dir = TempDir::new().unwrap();
+        fs::create_dir(dir.path().join("real")).unwrap();
+        fs::write(dir.path().join("real").join("f"), b"x").unwrap();
+        symlink("real", dir.path().join("link")).unwrap();
+
+        let directory = read_dir(&dir.path().join("link")).unwrap();
+
+        let own = directory.own.unwrap();
+        assert_eq!(
+            own.kind,
+            EntryKind::Symlink {
+                target: Some(TargetKind::Dir)
+            }
+        );
+        assert_eq!(own.link_target.as_deref(), Some(OsStr::new("real")));
+        assert!(own.modified.is_some());
+        assert_eq!(directory.entries.len(), 1);
     }
 
     #[test]

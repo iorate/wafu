@@ -343,12 +343,9 @@ fn list_archive(
         });
     }
     let entries = &cache.as_ref().expect("the cache was just filled").entries;
-    let own = dir_entry(entries, &archive.inner).unwrap_or_else(|| own_entry(path, &meta));
+    let own = dir_entry(entries, &archive.inner).or_else(|| own_entry(path));
     let entries = list_dir(entries, &archive.inner, cancelled)?;
-    Ok(Directory {
-        own: Some(own),
-        entries,
-    })
+    Ok(Directory { own, entries })
 }
 
 fn io_error(result: std::io::Result<()>) -> Option<IoError> {

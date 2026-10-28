@@ -259,8 +259,13 @@ fn status_line_on_the_parent_row_spells_out_the_directory_itself() {
     );
     let row = &harness.view().left.rows[0];
     assert_eq!(
-        (row.name.as_str(), row.size.as_str(), row.modified.as_str()),
-        ("..", "", "2026/01/02 03:04:05")
+        (
+            row.name.as_str(),
+            row.marker.as_str(),
+            row.size.as_str(),
+            row.modified.as_str()
+        ),
+        ("..", "/", "", "2026/01/02 03:04:05")
     );
 
     harness.press("Down");
@@ -287,7 +292,39 @@ fn status_line_on_the_parent_row_of_an_archive_root_describes_the_archive_file()
 
     assert_eq!(harness.view().status, ".. | -rw-r--r-- | 1234 bytes");
     let row = &harness.view().left.rows[0];
-    assert_eq!((row.size.as_str(), row.modified.as_str()), ("1234", ""));
+    assert_eq!(
+        (
+            row.marker.as_str(),
+            row.size.as_str(),
+            row.modified.as_str()
+        ),
+        ("", "1234", "")
+    );
+}
+
+#[test]
+fn status_line_on_the_parent_row_inside_a_link_shows_the_link() {
+    use crate::entry::Permissions;
+
+    let mut harness = Harness::start("/tmp", "/home/user");
+    let own = Entry {
+        kind: EntryKind::Symlink {
+            target: Some(TargetKind::Dir),
+        },
+        permissions: Some(Permissions::Mode(0o755)),
+        link_target: Some(std::ffi::OsString::from("private/tmp")),
+        ..file("tmp")
+    };
+    harness.load_directory(
+        Side::Left,
+        Directory {
+            own: Some(own),
+            entries: vec![],
+        },
+    );
+
+    assert_eq!(harness.view().status, ".. -> private/tmp | lrwxr-xr-x");
+    assert_eq!(harness.view().left.rows[0].marker, "@");
 }
 
 #[test]
