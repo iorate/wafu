@@ -462,6 +462,8 @@ mod tests {
             size,
             modified: None,
             hidden: false,
+            permissions: None,
+            link_target: None,
         }
     }
 

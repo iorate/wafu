@@ -459,6 +459,7 @@ impl Ui {
         self.window
             .set_log_scroll_top(i32::try_from(view.log.scroll_top).unwrap_or(i32::MAX));
         self.window.set_hide_log(view.hide_log);
+        self.window.set_status(view.status.as_str().into());
         // Replacing a model resets the list, which is too slow to do on every
         // key repeat, so the models are only touched when their content changes.
         let mut rendered = self.rendered.borrow_mut();

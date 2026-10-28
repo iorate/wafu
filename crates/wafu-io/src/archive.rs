@@ -6,7 +6,7 @@ use std::path::Path;
 use std::time::SystemTime;
 
 use thiserror::Error;
-use wafu_core::{ArchiveFormat, Entry, EntryKind, TargetKind};
+use wafu_core::{ArchiveFormat, Entry, EntryKind, Permissions, TargetKind};
 
 use crate::time::timestamp;
 
@@ -178,6 +178,8 @@ fn listed_entry(name: &str, entry: &ArchiveEntry) -> Entry {
         },
         modified: entry.modified.map(timestamp),
         hidden: is_hidden(name),
+        permissions: entry.mode.map(|mode| Permissions::Mode(mode & 0o7777)),
+        link_target: None,
     }
 }
 
@@ -188,6 +190,8 @@ fn synthesized_dir(name: &str) -> Entry {
         size: 0,
         modified: None,
         hidden: is_hidden(name),
+        permissions: None,
+        link_target: None,
     }
 }
 

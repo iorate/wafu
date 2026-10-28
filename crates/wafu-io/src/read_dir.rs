@@ -5,7 +5,7 @@ use std::path::Path;
 
 const CANCEL_CHECK_INTERVAL: usize = 256;
 
-use wafu_core::{Entry, EntryKind, SpecialKind, TargetKind};
+use wafu_core::{Entry, EntryKind, Permissions, SpecialKind, TargetKind};
 
 use crate::time::timestamp;
 
@@ -43,9 +43,16 @@ fn entry(path: &Path, name: OsString, metadata: Option<&Metadata>) -> Entry {
             size: 0,
             modified: None,
             hidden,
+            permissions: None,
+            link_target: None,
         };
     };
     let file_type = metadata.file_type();
+    let link_target = file_type
+        .is_symlink()
+        .then(|| fs::read_link(path).ok())
+        .flatten()
+        .map(std::path::PathBuf::into_os_string);
     // Size and time follow the link target; a broken link has neither.
     let (kind, details) = if file_type.is_symlink() {
         match fs::metadata(path) {
@@ -75,7 +82,27 @@ fn entry(path: &Path, name: OsString, metadata: Option<&Metadata>) -> Entry {
             .and_then(|details| details.modified().ok())
             .map(timestamp),
         hidden,
+        permissions: Some(permissions(metadata)),
+        link_target,
     }
+}
+
+#[cfg(windows)]
+fn permissions(metadata: &Metadata) -> Permissions {
+    use std::os::windows::fs::MetadataExt;
+
+    const FILE_ATTRIBUTE_READONLY: u32 = 0x1;
+
+    Permissions::Attributes {
+        readonly: metadata.file_attributes() & FILE_ATTRIBUTE_READONLY != 0,
+    }
+}
+
+#[cfg(not(windows))]
+fn permissions(metadata: &Metadata) -> Permissions {
+    use std::os::unix::fs::PermissionsExt;
+
+    Permissions::Mode(metadata.permissions().mode() & 0o7777)
 }
 
 #[cfg(windows)]
@@ -197,10 +224,10 @@ mod tests {
 
         let entries = read_dir(dir.path()).unwrap();
 
-        assert_eq!(
-            find(&entries, "run").kind,
-            EntryKind::File { executable: true }
-        );
+        let run = find(&entries, "run");
+        assert_eq!(run.kind, EntryKind::File { executable: true });
+        assert_eq!(run.permissions, Some(Permissions::Mode(0o755)));
+        assert_eq!(run.link_target, None);
         assert_eq!(
             find(&entries, "plain").kind,
             EntryKind::File { executable: false }
@@ -237,6 +264,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn symlinks_report_their_target_kind() {
+        use std::ffi::OsStr;
         use std::os::unix::fs::symlink;
 
         let dir = TempDir::new().unwrap();
@@ -257,6 +285,8 @@ mod tests {
         );
         assert_eq!(to_file.size, 5);
         assert_eq!(to_file.modified, find(&entries, "file").modified);
+        assert_eq!(to_file.link_target.as_deref(), Some(OsStr::new("file")));
+        assert!(matches!(to_file.permissions, Some(Permissions::Mode(_))));
         assert_eq!(
             find(&entries, "to_dir").kind,
             EntryKind::Symlink {
@@ -267,6 +297,31 @@ mod tests {
         assert_eq!(broken.kind, EntryKind::Symlink { target: None });
         assert_eq!(broken.size, 0);
         assert_eq!(broken.modified, None);
+        assert_eq!(broken.link_target.as_deref(), Some(OsStr::new("missing")));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn readonly_attribute_is_reported() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("locked.txt"), b"").unwrap();
+        let mut permissions = fs::metadata(dir.path().join("locked.txt"))
+            .unwrap()
+            .permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(dir.path().join("locked.txt"), permissions).unwrap();
+        fs::write(dir.path().join("open.txt"), b"").unwrap();
+
+        let entries = read_dir(dir.path()).unwrap();
+
+        assert_eq!(
+            find(&entries, "locked.txt").permissions,
+            Some(Permissions::Attributes { readonly: true })
+        );
+        assert_eq!(
+            find(&entries, "open.txt").permissions,
+            Some(Permissions::Attributes { readonly: false })
+        );
     }
 
     fn find<'a>(entries: &'a [Entry], name: &str) -> &'a Entry {

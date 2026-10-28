@@ -14,7 +14,7 @@ use crate::pane::{Pane, RequestId};
 use crate::popup::{InputKind, Popup};
 use crate::preview::{Document, ImageData};
 use crate::state::{StateError, StateFile};
-use crate::view::{LogView, PaneView, Style, View};
+use crate::view::{LogView, PaneView, Style, View, status_line};
 
 mod navigation;
 mod operations;
@@ -567,6 +567,7 @@ impl App {
                 lines: self.log.lines(),
                 scroll_top: self.log.scroll_top(),
             },
+            status: status_line(self.active_pane()),
             popup: self.popup_view(),
             preview: self.preview_view(),
             hide_log: self.hide_log(),
