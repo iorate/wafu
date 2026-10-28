@@ -11,8 +11,9 @@ use windows::Win32::UI::Shell::{
     SetWindowSubclass,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreatePopupMenu, DestroyMenu, HMENU, SW_SHOWNORMAL, TPM_RETURNCMD, TPM_RIGHTBUTTON,
-    TrackPopupMenuEx, WM_DRAWITEM, WM_INITMENUPOPUP, WM_MEASUREITEM, WM_MENUCHAR,
+    CreatePopupMenu, DestroyMenu, HMENU, MSG, PM_REMOVE, PeekMessageW, SW_SHOWNORMAL,
+    TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenuEx, WM_DRAWITEM, WM_INITMENUPOPUP,
+    WM_LBUTTONDOWN, WM_MEASUREITEM, WM_MENUCHAR, WM_RBUTTONDBLCLK,
 };
 use windows::core::{HSTRING, Interface, PCSTR, PCWSTR};
 
@@ -126,6 +127,7 @@ fn track(
     // SAFETY: the menu and the window are valid for the duration of the call,
     // which runs the menu's message loop on this thread.
     let chosen = unsafe { TrackPopupMenuEx(hmenu, flags.0, point.x, point.y, hwnd, None) }.0;
+    discard_clicks(hwnd);
 
     if subclassed {
         // SAFETY: removes the subclass installed above before `handler` is dropped.
@@ -156,6 +158,23 @@ fn track(
     // interface accepts in place of the basic one, and `directory` outlives the call.
     unsafe { menu.InvokeCommand(std::ptr::from_ref(&info).cast::<CMINVOKECOMMANDINFO>()) }?;
     Ok(())
+}
+
+#[allow(unsafe_code)]
+fn discard_clicks(hwnd: HWND) {
+    let mut msg = MSG::default();
+    // SAFETY: `msg` is a valid, writable message and `hwnd` is the caller's window.
+    while unsafe {
+        PeekMessageW(
+            &raw mut msg,
+            Some(hwnd),
+            WM_LBUTTONDOWN,
+            WM_RBUTTONDBLCLK,
+            PM_REMOVE,
+        )
+    }
+    .as_bool()
+    {}
 }
 
 enum Handler {
