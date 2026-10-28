@@ -52,6 +52,7 @@ export component AppWindow inherits Window {
     callback input-edited(field: int, text: string);
     callback input-accepted();
     callback preview-rows-changed(rows: int);
+    callback preview-double-clicked();
     callback preview-wheel(delta: length);
 
     // A progress popup is held back for a moment so that a quick read does not
@@ -226,6 +227,9 @@ export component AppWindow inherits Window {
                     has-picture: root.preview-has-image;
                     rows-changed(rows) => {
                         root.preview-rows-changed(rows);
+                    }
+                    double-clicked => {
+                        root.preview-double-clicked();
                     }
                     wheel(delta) => {
                         root.preview-wheel(delta);

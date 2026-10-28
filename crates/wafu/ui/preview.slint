@@ -27,6 +27,7 @@ export component PreviewWidget inherits Rectangle {
     in property <bool> has-picture;
 
     callback rows-changed(rows: int);
+    callback double-clicked();
     callback wheel(delta: length);
 
     // The height of one unwrapped line decides how many lines are asked for.
@@ -137,8 +138,12 @@ export component PreviewWidget inherits Rectangle {
         }
     }
 
-    // The core owns the scroll position; clicks do nothing in a preview.
+    // The core owns the scroll position; a single click does nothing in a preview.
     TouchArea {
+        double-clicked => {
+            root.double-clicked();
+        }
+
         scroll-event(event) => {
             root.wheel(event.delta-y);
             accept
