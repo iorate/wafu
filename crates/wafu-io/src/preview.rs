@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io::{self, Cursor, Read};
 
-use image::{DynamicImage, ImageDecoder, ImageReader, ImageResult};
+use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, ImageResult};
 use wafu_core::{Document, ImageData, IoError, PREVIEW_LIMIT, PreviewError, PreviewSource};
 
 use crate::archive::{ArchiveError, find_entry, open_archive};
@@ -20,9 +20,9 @@ pub fn load_image(source: &PreviewSource) -> Result<ImageData, PreviewError> {
 
 /// Decodes an image from its file contents.
 pub fn decode_image(bytes: &[u8]) -> ImageResult<ImageData> {
-    let mut decoder = ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()?
-        .into_decoder()?;
+    let reader = ImageReader::new(Cursor::new(bytes)).with_guessed_format()?;
+    let format = reader.format().map_or("", format_name);
+    let mut decoder = reader.into_decoder()?;
     let orientation = decoder.orientation()?;
     let mut image = DynamicImage::from_decoder(decoder)?;
     image.apply_orientation(orientation);
@@ -32,7 +32,20 @@ pub fn decode_image(bytes: &[u8]) -> ImageResult<ImageData> {
         width,
         height,
         rgba: image.into_raw(),
+        format,
     })
+}
+
+fn format_name(format: ImageFormat) -> &'static str {
+    match format {
+        ImageFormat::Png => "png",
+        ImageFormat::Jpeg => "jpeg",
+        ImageFormat::Gif => "gif",
+        ImageFormat::Bmp => "bmp",
+        ImageFormat::WebP => "webp",
+        ImageFormat::Ico => "ico",
+        other => other.extensions_str().first().copied().unwrap_or(""),
+    }
 }
 
 // At most `limit` bytes, and whether there were more.
@@ -173,6 +186,7 @@ mod tests {
         let decoded = decode_image(bytes.get_ref()).unwrap();
 
         assert_eq!((decoded.width, decoded.height), (2, 3));
+        assert_eq!(decoded.format, "png");
         assert_eq!(decoded.rgba.len(), 2 * 3 * 4);
         assert_eq!(&decoded.rgba[(2 * 2 + 1) * 4..], [10, 20, 30, 255]);
     }

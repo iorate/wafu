@@ -179,6 +179,7 @@ impl Harness {
                 width,
                 height,
                 rgba: vec![0; (width * height * 4) as usize],
+                format: "png",
             }),
         }));
     }

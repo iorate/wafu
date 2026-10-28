@@ -287,10 +287,8 @@ impl App {
                         document.lines(preview.mode, preview.scroll_top, self.preview_rows),
                         document.digits(preview.mode),
                         match preview.mode {
-                            DocumentMode::Text => {
-                                format!("{}, text", document.encoding.to_lowercase())
-                            }
-                            DocumentMode::Binary => "binary".to_owned(),
+                            DocumentMode::Text => document.encoding.to_lowercase(),
+                            DocumentMode::Binary => String::new(),
                         },
                     ),
                     None => (Vec::new(), 0, String::new()),
@@ -298,7 +296,6 @@ impl App {
                 PreviewView {
                     placement: PreviewPlacement::Full,
                     content: PreviewContent::Lines { lines, digits },
-                    name: preview.name.clone(),
                     detail,
                 }
             }
@@ -307,18 +304,21 @@ impl App {
                 let marked = pane
                     .cursor_entry()
                     .is_some_and(|entry| pane.is_marked(entry));
+                let detail = preview
+                    .image
+                    .as_ref()
+                    .map(|image| image.format)
+                    .into_iter()
+                    .chain(marked.then_some("marked"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 PreviewView {
                     placement: preview.placement,
                     content: match &preview.error {
                         Some(error) => PreviewContent::Message(error.clone()),
                         None => PreviewContent::Image(preview.image.clone().map(SharedImage)),
                     },
-                    name: preview
-                        .shown
-                        .as_ref()
-                        .map(|name| name.to_string_lossy().into_owned())
-                        .unwrap_or_default(),
-                    detail: if marked { "marked" } else { "" }.to_owned(),
+                    detail,
                 }
             }
         })

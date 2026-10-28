@@ -133,10 +133,9 @@ impl InputField {
 pub struct PreviewView {
     pub placement: PreviewPlacement,
     pub content: PreviewContent,
-    /// The file's name, for the overlay in the corner.
-    pub name: String,
-    /// What the overlay says beside the name: the encoding and kind of a
-    /// document, or whether the image's entry is marked.
+    /// What the overlay in the corner says: the encoding of a text document,
+    /// or the format of the image and whether its entry is marked. Empty when
+    /// there is nothing to say.
     pub detail: String,
 }
 

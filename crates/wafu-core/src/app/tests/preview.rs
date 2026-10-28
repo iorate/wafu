@@ -40,7 +40,6 @@ fn enter_on_a_text_file_opens_an_empty_preview_and_reads_the_file() {
             digits: 0,
         }
     );
-    assert_eq!(preview.name, "note.txt");
     assert_eq!(preview.detail, "");
     // The progress popup is held back by the UI for a moment.
     assert!(view.popup.is_some_and(|popup| popup.progress));
@@ -52,7 +51,7 @@ fn a_loaded_document_shows_its_lines_and_encoding() {
 
     let view = harness.view();
     let preview = view.preview.unwrap();
-    assert_eq!(preview.detail, "utf-8, text");
+    assert_eq!(preview.detail, "utf-8");
     assert_eq!(harness.preview_lines(), ["l0", "l1", "l2"]);
     assert_eq!(harness.preview_numbers(), ["1", "2", "3"]);
     assert!(matches!(
@@ -129,7 +128,7 @@ fn tab_switches_to_the_hex_dump_and_back_from_the_top() {
     assert!(lines[0].starts_with("00000000  6c 30 0a 6c 31 0a"));
     assert!(lines[1].starts_with("00000010 "));
     assert_eq!(harness.preview_numbers(), ["", ""]);
-    assert_eq!(harness.view().preview.unwrap().detail, "binary");
+    assert_eq!(harness.view().preview.unwrap().detail, "");
 
     harness.press("Tab");
 
@@ -149,7 +148,7 @@ fn a_binary_file_opens_as_a_hex_dump_with_the_note() {
     assert_eq!(lines.len(), 2);
     assert!(lines[0].starts_with("00000000  61 62 00"));
     assert_eq!(lines[1], TRUNCATED_NOTE);
-    assert_eq!(harness.view().preview.unwrap().detail, "binary");
+    assert_eq!(harness.view().preview.unwrap().detail, "");
 }
 
 #[test]
@@ -254,7 +253,7 @@ fn an_image_opened_from_the_left_pane_uses_the_right_area_and_follows_the_cursor
     let preview = harness.view().preview.unwrap();
     assert_eq!(preview.placement, PreviewPlacement::RightPane);
     assert_eq!(preview.content, PreviewContent::Image(None));
-    assert_eq!(preview.name, "one.png");
+    assert_eq!(preview.detail, "");
 
     // Moving on before the image arrives drops the request.
     harness.press("Down");
@@ -281,7 +280,7 @@ fn an_image_opened_from_the_left_pane_uses_the_right_area_and_follows_the_cursor
     assert_eq!(harness.take_effects(), vec![]);
     let preview = harness.view().preview.unwrap();
     assert_eq!(preview.content, PreviewContent::Image(None));
-    assert_eq!(preview.name, "");
+    assert_eq!(preview.detail, "");
 
     harness.press("Up");
 
@@ -289,7 +288,6 @@ fn an_image_opened_from_the_left_pane_uses_the_right_area_and_follows_the_cursor
         harness.take_effects().as_slice(),
         [Effect::LoadImage { .. }]
     ));
-    assert_eq!(harness.view().preview.unwrap().name, "two.JPG");
 }
 
 #[test]
@@ -308,7 +306,7 @@ fn a_special_file_named_like_an_image_is_not_requested() {
     assert_eq!(harness.take_effects(), vec![]);
     let preview = harness.view().preview.unwrap();
     assert_eq!(preview.content, PreviewContent::Image(None));
-    assert_eq!(preview.name, "");
+    assert_eq!(preview.detail, "");
 }
 
 #[test]
@@ -322,7 +320,7 @@ fn the_last_image_stays_until_the_next_one_arrives() {
         harness.view().preview.unwrap().content,
         PreviewContent::Image(Some(_))
     ));
-    assert_eq!(harness.view().preview.unwrap().name, "two.JPG");
+    assert_eq!(harness.view().preview.unwrap().detail, "png");
 
     harness.image_loaded(3, 3);
 
@@ -347,19 +345,19 @@ fn an_image_opened_from_the_right_pane_fills_the_window() {
     ));
     let preview = harness.view().preview.unwrap();
     assert_eq!(preview.placement, PreviewPlacement::Full);
-    assert_eq!(preview.name, "r.gif");
 }
 
 #[test]
 fn image_keys_are_the_cursor_and_mark_keys_of_the_image_context() {
     let mut harness = image();
+    harness.image_loaded(1, 1);
 
     harness.press("Space");
 
     assert_eq!(harness.marks(Side::Left), ["one.png"]);
     assert_eq!(harness.cursor_name(Side::Left), "two.JPG");
     harness.press("Up");
-    assert_eq!(harness.view().preview.unwrap().detail, "marked");
+    assert_eq!(harness.view().preview.unwrap().detail, "png, marked");
     harness.take_effects();
 
     harness.press("C");
@@ -427,6 +425,7 @@ fn a_stale_image_is_discarded() {
             width: 1,
             height: 1,
             rgba: vec![0; 4],
+            format: "png",
         }),
     }));
 
@@ -465,7 +464,11 @@ fn the_left_pane_takes_clicks_and_the_wheel_beside_a_right_pane_image() {
     harness.click(Side::Left, 3);
 
     assert_eq!(harness.cursor_name(Side::Left), "two.JPG");
-    assert_eq!(harness.view().preview.unwrap().name, "two.JPG");
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::CancelRead { .. }, Effect::LoadImage { source, .. }]
+            if source.path == PathBuf::from(LEFT).join("two.JPG")
+    ));
 
     harness.wheel(Side::Left, 1);
 
@@ -481,7 +484,10 @@ fn double_click_on_the_left_pane_beside_a_right_pane_image_only_moves_the_cursor
     harness.double_click(Side::Left, 1);
 
     assert_eq!(harness.cursor_name(Side::Left), "note.txt");
-    assert_eq!(harness.view().preview.unwrap().name, "");
+    assert_eq!(
+        harness.view().preview.unwrap().content,
+        PreviewContent::Image(None)
+    );
     assert!(harness.view().left.active);
 }
 
@@ -499,7 +505,7 @@ fn the_right_pane_and_right_clicks_are_ignored_beside_a_right_pane_image() {
     assert!(harness.view().left.active);
     assert_eq!(harness.cursor_name(Side::Left), "one.png");
     assert_eq!(harness.cursor_name(Side::Right), "..");
-    assert_eq!(harness.view().preview.unwrap().name, "one.png");
+    assert_eq!(harness.take_effects(), vec![]);
 }
 
 #[test]
