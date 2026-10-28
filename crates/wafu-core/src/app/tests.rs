@@ -2778,27 +2778,35 @@ fn reloading_the_configuration_changes_keys_and_style_but_not_initial() {
 }
 
 #[test]
-fn default_fonts_are_monospaced_in_the_areas_and_the_system_font_in_the_ui() {
+fn default_fonts_are_monospaced_except_in_the_popups() {
     let harness = Harness::start_on(Os::MacOs, "/Users/user", "/tmp");
 
     let fonts = harness.view().style.fonts.clone();
-    assert_eq!(fonts.ui.family, "");
+    assert_eq!(fonts.path.family, "Menlo");
     assert_eq!(fonts.filelist.family, "Menlo");
+    assert_eq!(fonts.info.family, "Menlo");
     assert_eq!(fonts.log.family, "Menlo");
+    assert_eq!(fonts.status.family, "Menlo");
     assert_eq!(fonts.preview.family, "Menlo");
+    assert_eq!(fonts.popup.family, "");
 }
 
 #[test]
 fn a_default_family_in_the_configuration_applies_to_every_area() {
     let mut harness = Harness::start("/home/user", "/tmp");
 
-    harness.config("[appearance.font]\nfamily = \"A\"\n[appearance.font.log]\nfamily = \"B\"\n");
+    harness.config(
+        "[appearance.font]\nfamily = \"A\"\n[appearance.font.log]\nfamily = \"B\"\n[appearance.font.popup]\nfamily = \"C\"\n",
+    );
 
     let fonts = harness.view().style.fonts.clone();
-    assert_eq!(fonts.ui.family, "A");
+    assert_eq!(fonts.path.family, "A");
     assert_eq!(fonts.filelist.family, "A");
+    assert_eq!(fonts.info.family, "A");
     assert_eq!(fonts.log.family, "B");
+    assert_eq!(fonts.status.family, "A");
     assert_eq!(fonts.preview.family, "A");
+    assert_eq!(fonts.popup.family, "C");
 }
 
 #[test]

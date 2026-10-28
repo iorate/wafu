@@ -24,14 +24,20 @@ export global Theme {
         fg: #d4d4d4, bg: #1e1e1e, mark: #3c3c3c, cursor: #d4d4d4, dir: #6fa8ff,
         link: #4fd1e0, exec: #5fd75f, broken: #ff6b6b, fifo: #f0c050, socket: #e58ae0,
     };
-    in property <string> ui-font-family;
-    in property <length> ui-font-size: 12px;
+    in property <string> path-font-family;
+    in property <length> path-font-size: 12px;
     in property <string> filelist-font-family;
     in property <length> filelist-font-size: 12px;
+    in property <string> info-font-family;
+    in property <length> info-font-size: 12px;
     in property <string> log-font-family;
     in property <length> log-font-size: 12px;
+    in property <string> status-font-family;
+    in property <length> status-font-size: 12px;
     in property <string> preview-font-family;
     in property <length> preview-font-size: 12px;
+    in property <string> popup-font-family;
+    in property <length> popup-font-size: 12px;
 
     // `Palette.color-scheme` reads back as `unknown` while following the OS,
     // so the scheme in force is taken from the palette's own colors.
@@ -39,7 +45,11 @@ export global Theme {
     out property <ThemeColors> colors: dark-scheme ? dark : light;
     out property <length> line-width: 2px;
     out property <length> scrollbar-width: 8px;
+    out property <length> path-row-height: round(path-font-size * 5 / 3 / 1px) * 1px;
     out property <length> row-height: round(filelist-font-size * 5 / 3 / 1px) * 1px;
+    out property <length> info-row-height: round(info-font-size * 5 / 3 / 1px) * 1px;
     out property <length> log-row-height: round(log-font-size * 5 / 3 / 1px) * 1px;
+    out property <length> status-row-height: round(status-font-size * 5 / 3 / 1px) * 1px;
+    out property <length> popup-row-height: round(popup-font-size * 5 / 3 / 1px) * 1px;
     out property <brush> selection-background: Palette.accent-background.with-alpha(0.3);
 }

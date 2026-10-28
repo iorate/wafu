@@ -138,9 +138,13 @@ pub enum Theme {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FontSet {
     pub default: Font,
+    pub path: Font,
     pub filelist: Font,
+    pub info: Font,
     pub log: Font,
+    pub status: Font,
     pub preview: Font,
+    pub popup: Font,
 }
 
 /// A font as configured; an item that is `None` falls back to the default font.

@@ -68,8 +68,6 @@ export component AppWindow inherits Window {
     preferred-width: 960px;
     preferred-height: 640px;
     forward-focus: scope;
-    default-font-family: Theme.ui-font-family;
-    default-font-size: Theme.ui-font-size;
     background: Theme.colors.bg;
 
     function apply-theme() {
@@ -311,7 +309,7 @@ export component AppWindow inherits Window {
             }
 
             Rectangle {
-                height: Theme.row-height;
+                height: Theme.status-row-height;
                 clip: true;
 
                 HorizontalLayout {
@@ -320,8 +318,8 @@ export component AppWindow inherits Window {
 
                     Text {
                         text: root.status;
-                        font-family: Theme.filelist-font-family;
-                        font-size: Theme.filelist-font-size;
+                        font-family: Theme.status-font-family;
+                        font-size: Theme.status-font-size;
                         color: Theme.colors.fg;
                         overflow: elide;
                         vertical-alignment: center;

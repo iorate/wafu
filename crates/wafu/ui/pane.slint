@@ -163,12 +163,15 @@ export component PaneWidget {
         HorizontalLayout {
             padding-left: 4px;
             padding-right: 4px;
-            height: Theme.row-height;
+            height: Theme.path-row-height;
 
-            Cell {
+            Text {
                 text: data.path;
+                font-family: Theme.path-font-family;
+                font-size: Theme.path-font-size;
+                color: Theme.colors.fg;
                 overflow: elide;
-                horizontal-alignment: left;
+                vertical-alignment: center;
             }
         }
 
@@ -262,11 +265,15 @@ export component PaneWidget {
         HorizontalLayout {
             padding-left: 4px;
             padding-right: 4px;
-            height: Theme.row-height;
+            height: Theme.info-row-height;
 
-            Cell {
+            Text {
                 text: data.info;
+                font-family: Theme.info-font-family;
+                font-size: Theme.info-font-size;
+                color: Theme.colors.fg;
                 overflow: elide;
+                vertical-alignment: center;
             }
         }
     }

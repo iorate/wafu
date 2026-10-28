@@ -42,10 +42,13 @@ pub struct Style {
 /// The fonts of each area, with every fallback already applied.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Fonts {
-    pub ui: ResolvedFont,
+    pub path: ResolvedFont,
     pub filelist: ResolvedFont,
+    pub info: ResolvedFont,
     pub log: ResolvedFont,
+    pub status: ResolvedFont,
     pub preview: ResolvedFont,
+    pub popup: ResolvedFont,
 }
 
 /// A font to use. An empty family means the system font.
@@ -230,10 +233,13 @@ impl Style {
             theme: config.appearance.theme,
             size_sample: config.appearance.size_format.column_sample(),
             fonts: Fonts {
-                ui: resolve(&font.default, ""),
+                path: resolve(&font.path, monospace),
                 filelist: resolve(&font.filelist, monospace),
+                info: resolve(&font.info, monospace),
                 log: resolve(&font.log, monospace),
+                status: resolve(&font.status, monospace),
                 preview: resolve(&font.preview, monospace),
+                popup: resolve(&font.popup, ""),
             },
             colors: config.colors.clone(),
         }
