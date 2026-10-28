@@ -201,9 +201,13 @@ fn read_appearance(root: &mut Reader<'_>, config: &mut Config) {
     if let Some(mut font) = appearance.table("font") {
         let fonts = &mut config.appearance.font;
         for (key, area) in [
+            ("path", &mut fonts.path),
             ("filelist", &mut fonts.filelist),
+            ("info", &mut fonts.info),
             ("log", &mut fonts.log),
+            ("status", &mut fonts.status),
             ("preview", &mut fonts.preview),
+            ("popup", &mut fonts.popup),
         ] {
             if let Some(mut reader) = font.table(key) {
                 read_font(&mut reader, area);
@@ -472,7 +476,7 @@ size_format = "human"          # plain / comma / human
 family = "..."
 size = 12
 
-[appearance.font.filelist]     # per area (log and preview too)
+[appearance.font.filelist]     # per area (path, info, log, status, preview, and popup too)
 family = "..."
 
 [colors.light]

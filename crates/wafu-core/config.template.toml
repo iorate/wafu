@@ -29,27 +29,37 @@
 # like ls -h).
 # size_format = "plain"
 
-# The default font. A family set here applies everywhere, including the popups.
-# An empty family uses the built-in default: the system font for the UI, and
-# the monospaced font of the OS (Consolas on Windows, Menlo on macOS, DejaVu
-# Sans Mono on Linux) for the file lists, the log, and the preview. Generic
-# names such as "monospace" do not work, and a family that is not installed
-# falls back to the system font. The size is in pixels.
+# The default font. A family set here applies everywhere. An empty family uses
+# the built-in default: the system font for the popups, and the monospaced
+# font of the OS (Consolas on Windows, Menlo on macOS, DejaVu Sans Mono on
+# Linux) everywhere else. Generic names such as "monospace" do not work, and a
+# family that is not installed falls back to the system font. The size is in
+# pixels.
 [appearance.font]
 # family = ""
 # size = 12
 
-# The file lists, the log, and the preview may each have their own font. An
-# item that is not set here falls back to the default font. For example:
+# Each area may have its own font: the path lines, the file lists, the
+# information lines, the log, the status line, the preview, and the popups
+# (the command palette among them). An item that is not set here falls back to
+# the default font. For example:
 #
 #   [appearance.font.filelist]
 #   family = "Consolas"
 #   size = 14
+[appearance.font.path]
+# family = ""
 [appearance.font.filelist]
+# family = ""
+[appearance.font.info]
 # family = ""
 [appearance.font.log]
 # family = ""
+[appearance.font.status]
+# family = ""
 [appearance.font.preview]
+# family = ""
+[appearance.font.popup]
 # family = ""
 
 # Colors are written as #rrggbb. fg and bg are the text and the background,

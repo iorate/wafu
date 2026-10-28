@@ -28,6 +28,11 @@ export struct PopupField {
     select-end: int,
 }
 
+component PopupText inherits Text {
+    font-family: Theme.popup-font-family;
+    font-size: Theme.popup-font-size;
+}
+
 component PopupInput {
     in property <PopupField> field;
     in property <bool> labelled;
@@ -41,7 +46,7 @@ component PopupInput {
     callback accepted();
     callback move-focus();
 
-    height: Theme.row-height + 6px;
+    height: Theme.popup-row-height + 6px;
 
     changed active => {
         if root.active {
@@ -52,7 +57,7 @@ component PopupInput {
     HorizontalLayout {
         spacing: 8px;
 
-        if root.labelled: Text {
+        if root.labelled: PopupText {
             text: root.field.label;
             vertical-alignment: center;
             width: 72px;
@@ -68,6 +73,8 @@ component PopupInput {
                 x: 4px;
                 width: parent.width - 8px;
                 height: parent.height;
+                font-family: Theme.popup-font-family;
+                font-size: Theme.popup-font-size;
                 vertical-alignment: center;
                 single-line: true;
                 input-type: root.field.secret ? InputType.password : InputType.text;
@@ -157,12 +164,12 @@ export component PopupOverlay {
             padding: 8px;
             spacing: 6px;
 
-            Text {
+            PopupText {
                 text: data.title;
                 font-weight: 700;
             }
 
-            if data.message != "": Text {
+            if data.message != "": PopupText {
                 text: data.message;
                 overflow: elide;
             }
@@ -210,7 +217,7 @@ export component PopupOverlay {
             if items.length > 0: Rectangle {
                 property <int> cursor: root.data.cursor;
 
-                height: root.visible-items * Theme.row-height;
+                height: root.visible-items * Theme.popup-row-height;
                 clip: true;
 
                 list := ListView {
@@ -219,7 +226,7 @@ export component PopupOverlay {
                     vertical-scrollbar-policy: ScrollBarPolicy.always-off;
 
                     for item[index] in root.items: Rectangle {
-                        height: Theme.row-height;
+                        height: Theme.popup-row-height;
                         background: index == root.data.cursor ? Theme.selection-background : transparent;
 
                         HorizontalLayout {
@@ -255,14 +262,14 @@ export component PopupOverlay {
                                 checked: item.on;
                             }
 
-                            Text {
+                            PopupText {
                                 text: item.label;
                                 overflow: elide;
                                 vertical-alignment: center;
                                 horizontal-stretch: 1;
                             }
 
-                            Text {
+                            PopupText {
                                 text: item.detail;
                                 opacity: 0.7;
                                 vertical-alignment: center;
@@ -281,10 +288,10 @@ export component PopupOverlay {
                     if self.cursor < 0 {
                         return;
                     }
-                    if self.cursor * Theme.row-height < -list.content-y {
-                        list.content-y = -self.cursor * Theme.row-height;
-                    } else if (self.cursor + 1) * Theme.row-height > -list.content-y + list.visible-height {
-                        list.content-y = -((self.cursor + 1) * Theme.row-height - list.visible-height);
+                    if self.cursor * Theme.popup-row-height < -list.content-y {
+                        list.content-y = -self.cursor * Theme.popup-row-height;
+                    } else if (self.cursor + 1) * Theme.popup-row-height > -list.content-y + list.visible-height {
+                        list.content-y = -((self.cursor + 1) * Theme.popup-row-height - list.visible-height);
                     }
                 }
             }

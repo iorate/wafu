@@ -622,18 +622,27 @@ impl Ui {
         let theme = self.window.global::<Theme>();
         theme.set_light(theme_colors(&style.colors.light));
         theme.set_dark(theme_colors(&style.colors.dark));
-        let (family, size) = font(&style.fonts.ui);
-        theme.set_ui_font_family(family);
-        theme.set_ui_font_size(size);
+        let (family, size) = font(&style.fonts.path);
+        theme.set_path_font_family(family);
+        theme.set_path_font_size(size);
         let (family, size) = font(&style.fonts.filelist);
         theme.set_filelist_font_family(family);
         theme.set_filelist_font_size(size);
+        let (family, size) = font(&style.fonts.info);
+        theme.set_info_font_family(family);
+        theme.set_info_font_size(size);
         let (family, size) = font(&style.fonts.log);
         theme.set_log_font_family(family);
         theme.set_log_font_size(size);
+        let (family, size) = font(&style.fonts.status);
+        theme.set_status_font_family(family);
+        theme.set_status_font_size(size);
         let (family, size) = font(&style.fonts.preview);
         theme.set_preview_font_family(family);
         theme.set_preview_font_size(size);
+        let (family, size) = font(&style.fonts.popup);
+        theme.set_popup_font_family(family);
+        theme.set_popup_font_size(size);
     }
 }
 
