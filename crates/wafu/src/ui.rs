@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use slint::{
     CloseRequestResponse, ComponentHandle, LogicalPosition, LogicalSize, Model, ModelRc,
-    Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel,
+    RenderingState, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel,
 };
 use wafu_core::{
     App, Color, Colors, Effect, InputField, IoError, IoEvent, ItemMark, MenuAnchor, MouseInput,
@@ -54,6 +54,8 @@ pub struct Ui {
     wheel_remainder: RefCell<[f32; 4]>,
     // Where the last right click landed, in logical window coordinates.
     last_pointer: Cell<(f32, f32)>,
+    after_render: RefCell<Vec<Box<dyn FnOnce()>>>,
+    has_rendering_notifier: bool,
 }
 
 struct Rendered {
@@ -96,21 +98,36 @@ impl Ui {
                 });
             });
         });
-        let ui = Rc::new(Self {
-            app: RefCell::new(App::new()),
-            window,
-            runtime,
-            left_rows: Rc::new(VecModel::default()),
-            right_rows: Rc::new(VecModel::default()),
-            left_marks: Rc::new(VecModel::default()),
-            right_marks: Rc::new(VecModel::default()),
-            log_lines: Rc::new(VecModel::default()),
-            popup_items: Rc::new(VecModel::default()),
-            popup_fields: Rc::new(VecModel::default()),
-            preview_lines: Rc::new(VecModel::default()),
-            rendered: RefCell::new(Rendered::default()),
-            wheel_remainder: RefCell::new([0.0; 4]),
-            last_pointer: Cell::new((0.0, 0.0)),
+        let ui = Rc::new_cyclic(|weak: &Weak<Self>| {
+            let weak = weak.clone();
+            let has_rendering_notifier = window
+                .window()
+                .set_rendering_notifier(move |state, _| {
+                    if matches!(state, RenderingState::AfterRendering)
+                        && let Some(ui) = weak.upgrade()
+                    {
+                        ui.flush_after_render();
+                    }
+                })
+                .is_ok();
+            Self {
+                app: RefCell::new(App::new()),
+                window,
+                runtime,
+                left_rows: Rc::new(VecModel::default()),
+                right_rows: Rc::new(VecModel::default()),
+                left_marks: Rc::new(VecModel::default()),
+                right_marks: Rc::new(VecModel::default()),
+                log_lines: Rc::new(VecModel::default()),
+                popup_items: Rc::new(VecModel::default()),
+                popup_fields: Rc::new(VecModel::default()),
+                preview_lines: Rc::new(VecModel::default()),
+                rendered: RefCell::new(Rendered::default()),
+                wheel_remainder: RefCell::new([0.0; 4]),
+                last_pointer: Cell::new((0.0, 0.0)),
+                after_render: RefCell::new(Vec::new()),
+                has_rendering_notifier,
+            }
         });
         ui.window
             .set_left_rows(ModelRc::from(Rc::clone(&ui.left_rows)));
@@ -187,13 +204,33 @@ impl Ui {
     // meanwhile would re-enter the application ahead of the remaining effects.
     fn shell_menu(self: &Rc<Self>, paths: Vec<PathBuf>, anchor: MenuAnchor) {
         let weak = Rc::downgrade(self);
-        slint::Timer::single_shot(Duration::ZERO, move || {
+        self.run_after_render(move || {
             if let Some(ui) = weak.upgrade() {
                 let (x, y) = ui.menu_position(anchor);
                 let error = show_shell_menu(&ui.window, &paths, x, y);
                 ui.dispatch(Msg::Io(IoEvent::ShellMenuClosed { error }));
             }
         });
+    }
+
+    fn run_after_render(&self, task: impl FnOnce() + 'static) {
+        if self.has_rendering_notifier {
+            self.after_render.borrow_mut().push(Box::new(task));
+            self.window.window().request_redraw();
+        } else {
+            slint::Timer::single_shot(Duration::ZERO, task);
+        }
+    }
+
+    fn flush_after_render(&self) {
+        let tasks = std::mem::take(&mut *self.after_render.borrow_mut());
+        if !tasks.is_empty() {
+            slint::Timer::single_shot(Duration::ZERO, move || {
+                for task in tasks {
+                    task();
+                }
+            });
+        }
     }
 
     // Logical window coordinates of the menu's top-left corner.
