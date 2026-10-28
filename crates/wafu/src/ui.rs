@@ -129,6 +129,13 @@ impl Ui {
                 has_rendering_notifier,
             }
         });
+        // The title bar needs the window, which exists once it is drawn.
+        let weak = Rc::downgrade(&ui);
+        ui.run_after_render(move || {
+            if let Some(ui) = weak.upgrade() {
+                set_small_icon(&ui.window);
+            }
+        });
         ui.window
             .set_left_rows(ModelRc::from(Rc::clone(&ui.left_rows)));
         ui.window
@@ -662,6 +669,17 @@ fn window_handle(window: &AppWindow) -> Option<isize> {
 fn window_handle(_window: &AppWindow) -> Option<isize> {
     None
 }
+
+// Replaces the small icon Slint scaled down with the one made for the size.
+#[cfg(windows)]
+fn set_small_icon(window: &AppWindow) {
+    if let Some(hwnd) = window_handle(window) {
+        let _ = wafu_io::set_small_icon(hwnd);
+    }
+}
+
+#[cfg(not(windows))]
+fn set_small_icon(_window: &AppWindow) {}
 
 // Shows the shell menu at a logical window position and blocks until it closes.
 #[cfg(windows)]

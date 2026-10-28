@@ -25,6 +25,8 @@ mod state;
 mod time;
 mod trash;
 mod watch;
+#[cfg(windows)]
+mod window_icon;
 
 pub use config::read_or_create;
 pub use drives::drives;
@@ -41,3 +43,5 @@ pub use runtime::{Paths, Runtime};
 pub use shell_menu::{ShellMenuError, shell_menu};
 pub use spawn::{spawn, spawn_new_window};
 pub use state::{read_handoff, read_state, write_handoff, write_state};
+#[cfg(windows)]
+pub use window_icon::set_small_icon;
