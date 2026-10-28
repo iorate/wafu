@@ -875,10 +875,6 @@ fn open_with_os_opens_the_cursor_entry_only() {
     );
     assert_eq!(harness.cursor_name(Side::Left), "c");
 
-    harness.press("Home");
-    harness.press("Ctrl+Enter");
-    assert_eq!(harness.take_effects(), vec![]);
-
     harness.send(Msg::Io(crate::app::IoEvent::Opened {
         path: path(LEFT, "c"),
         error: Some(crate::error::IoError::new("no application")),
@@ -887,6 +883,35 @@ fn open_with_os_opens_the_cursor_entry_only() {
         harness.log().last().cloned(),
         Some(format!("cannot open {}: no application", shown(LEFT, "c")))
     );
+}
+
+#[test]
+fn open_with_os_on_the_parent_row_opens_the_directory_itself() {
+    let mut harness = three_files();
+    harness.press("Down");
+    harness.press("Space");
+    harness.press("Home");
+    harness.take_effects();
+
+    harness.press("Ctrl+Enter");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::OpenWithOs(PathBuf::from(LEFT))]
+    );
+    assert_eq!(harness.cursor_name(Side::Left), "..");
+}
+
+#[test]
+fn open_with_os_in_an_empty_root_does_nothing() {
+    let mut harness = Harness::start("/", RIGHT);
+    harness.load(Side::Left, vec![]);
+    harness.take_effects();
+
+    harness.press("Ctrl+Enter");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.log(), Vec::<String>::new());
 }
 
 #[test]

@@ -683,6 +683,49 @@ fn open_with_os_inside_an_archive_extracts_the_cursor_entry() {
 }
 
 #[test]
+fn open_with_os_on_the_parent_row_of_an_archive_root_opens_the_archive_file() {
+    let mut harness = inside();
+    harness.press("Down");
+    harness.press("Space");
+    harness.press("Home");
+    harness.take_effects();
+
+    harness.press("Ctrl+Enter");
+
+    assert_eq!(harness.take_effects(), vec![Effect::OpenWithOs(archive())]);
+    assert_eq!(harness.cursor_name(Side::Left), "..");
+}
+
+#[test]
+fn open_with_os_on_the_parent_row_inside_an_archive_extracts_the_directory_itself() {
+    let mut harness = inside();
+    harness.press("Down");
+    harness.press("Enter");
+    harness.load(Side::Left, vec![file("x")]);
+    harness.take_effects();
+    assert_eq!(harness.cursor_name(Side::Left), "..");
+
+    harness.press("Ctrl+Enter");
+
+    let spec = harness.start_operation().unwrap();
+    assert_eq!(spec.kind, OperationKind::ExtractToTemp);
+    assert_eq!(spec.sources, Sources::Entries(entries(&["docs"], None)));
+
+    harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
+    harness.finish(Outcome::Completed {
+        done: 1,
+        skipped: 0,
+    });
+
+    let effects = harness.take_effects();
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::ReadDir { .. }, Effect::OpenWithOs(path)] if *path == self::path(TEMP, "docs")
+    ));
+    assert_eq!(harness.cursor_name(Side::Left), "..");
+}
+
+#[test]
 fn an_external_command_inside_an_archive_extracts_the_cursor_and_the_marks() {
     let mut harness = inside();
     harness.config(
