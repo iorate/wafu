@@ -29,7 +29,12 @@
 # like ls -h).
 # size_format = "plain"
 
-# The default font. An empty family uses the system font. The size is in pixels.
+# The default font. A family set here applies everywhere, including the popups.
+# An empty family uses the built-in default: the system font for the UI, and
+# the monospaced font of the OS (Consolas on Windows, Menlo on macOS, DejaVu
+# Sans Mono on Linux) for the file lists, the log, and the preview. Generic
+# names such as "monospace" do not work, and a family that is not installed
+# falls back to the system font. The size is in pixels.
 [appearance.font]
 # family = ""
 # size = 12

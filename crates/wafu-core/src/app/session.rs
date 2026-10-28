@@ -196,7 +196,7 @@ impl App {
         for pane in &mut self.panes {
             pane.set_size_format(config.appearance.size_format);
         }
-        self.style = Arc::new(Style::from_config(&config));
+        self.style = Arc::new(Style::from_config(&config, self.os));
         self.config = config;
     }
 

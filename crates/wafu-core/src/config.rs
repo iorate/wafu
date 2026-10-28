@@ -278,14 +278,14 @@ impl Config {
 
 impl Font {
     /// The font to use for an area: its own items, else the default's, else
-    /// the built-in values.
+    /// `family` and the built-in size.
     #[must_use]
-    pub fn resolve(&self, default: &Self) -> (String, u16) {
+    pub fn resolve(&self, default: &Self, family: &str) -> (String, u16) {
         (
             self.family
                 .clone()
                 .or_else(|| default.family.clone())
-                .unwrap_or_default(),
+                .unwrap_or_else(|| family.to_owned()),
             self.size.or(default.size).unwrap_or(FONT_SIZE_DEFAULT),
         )
     }
@@ -353,6 +353,14 @@ impl fmt::Display for Diagnostic {
     }
 }
 
+pub(crate) fn monospace_family(os: Os) -> &'static str {
+    match os {
+        Os::Windows => "Consolas",
+        Os::MacOs => "Menlo",
+        Os::Linux => "DejaVu Sans Mono",
+    }
+}
+
 fn default_editor(os: Os) -> CommandLine {
     let text = match os {
         Os::Windows => "notepad {paths}",
@@ -404,18 +412,18 @@ mod tests {
             size: Some(14),
         };
 
-        assert_eq!(Font::default().resolve(&default), ("A".to_owned(), 14));
+        assert_eq!(Font::default().resolve(&default, "M"), ("A".to_owned(), 14));
         assert_eq!(
             Font {
                 family: Some("B".to_owned()),
                 size: None,
             }
-            .resolve(&default),
+            .resolve(&default, "M"),
             ("B".to_owned(), 14)
         );
         assert_eq!(
-            Font::default().resolve(&Font::default()),
-            (String::new(), FONT_SIZE_DEFAULT)
+            Font::default().resolve(&Font::default(), "M"),
+            ("M".to_owned(), FONT_SIZE_DEFAULT)
         );
     }
 

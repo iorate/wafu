@@ -390,7 +390,7 @@ impl App {
                 Pane::new(Location::new(PathBuf::new())),
             ],
             active: Side::Left,
-            style: Arc::new(Style::from_config(&config)),
+            style: Arc::new(Style::from_config(&config, Os::Linux)),
             config,
             config_path: PathBuf::new(),
             log,

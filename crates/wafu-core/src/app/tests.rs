@@ -2736,6 +2736,30 @@ fn reloading_the_configuration_changes_keys_and_style_but_not_initial() {
 }
 
 #[test]
+fn default_fonts_are_monospaced_in_the_areas_and_the_system_font_in_the_ui() {
+    let harness = Harness::start_on(Os::MacOs, "/Users/user", "/tmp");
+
+    let fonts = harness.view().style.fonts.clone();
+    assert_eq!(fonts.ui.family, "");
+    assert_eq!(fonts.filelist.family, "Menlo");
+    assert_eq!(fonts.log.family, "Menlo");
+    assert_eq!(fonts.preview.family, "Menlo");
+}
+
+#[test]
+fn a_default_family_in_the_configuration_applies_to_every_area() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+
+    harness.config("[appearance.font]\nfamily = \"A\"\n[appearance.font.log]\nfamily = \"B\"\n");
+
+    let fonts = harness.view().style.fonts.clone();
+    assert_eq!(fonts.ui.family, "A");
+    assert_eq!(fonts.filelist.family, "A");
+    assert_eq!(fonts.log.family, "B");
+    assert_eq!(fonts.preview.family, "A");
+}
+
+#[test]
 fn a_syntax_error_on_reload_keeps_the_previous_configuration() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.config("[appearance]\ntheme = \"light\"\n");

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
-use crate::config::{ColorSet, Config, SizeFormat, Theme};
+use crate::app::Os;
+use crate::config::{ColorSet, Config, SizeFormat, Theme, monospace_family};
 use crate::entry::{Entry, EntryKind, SpecialKind};
 
 use crate::pane::Pane;
@@ -218,20 +219,21 @@ pub enum RowKind {
 }
 
 impl Style {
-    pub(crate) fn from_config(config: &Config) -> Self {
+    pub(crate) fn from_config(config: &Config, os: Os) -> Self {
         let font = &config.appearance.font;
-        let resolve = |area: &crate::config::Font| {
-            let (family, size) = area.resolve(&font.default);
+        let monospace = monospace_family(os);
+        let resolve = |area: &crate::config::Font, family: &str| {
+            let (family, size) = area.resolve(&font.default, family);
             ResolvedFont { family, size }
         };
         Self {
             theme: config.appearance.theme,
             size_sample: config.appearance.size_format.column_sample(),
             fonts: Fonts {
-                ui: resolve(&font.default),
-                filelist: resolve(&font.filelist),
-                log: resolve(&font.log),
-                preview: resolve(&font.preview),
+                ui: resolve(&font.default, ""),
+                filelist: resolve(&font.filelist, monospace),
+                log: resolve(&font.log, monospace),
+                preview: resolve(&font.preview, monospace),
             },
             colors: config.colors.clone(),
         }
