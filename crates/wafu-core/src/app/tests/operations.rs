@@ -1064,12 +1064,67 @@ fn shell_menu_from_the_palette_is_the_same_as_the_key() {
 }
 
 #[test]
-fn shell_menu_does_nothing_on_the_parent_row_without_marks() {
+fn shell_menu_on_the_parent_row_takes_the_marks_or_the_directory_itself() {
     let mut harness = windows_files();
     harness.take_effects();
 
     harness.press("\\");
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::ShellMenu {
+            paths: vec![PathBuf::from(WIN_LEFT)],
+            anchor: MenuAnchor::Row {
+                side: Side::Left,
+                row: 0,
+            },
+        }]
+    );
+
+    harness.press("Down");
+    harness.press("Space");
+    harness.press("Home");
+    harness.take_effects();
+    harness.press("\\");
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::ShellMenu {
+            paths: vec![path(WIN_LEFT, "a")],
+            anchor: MenuAnchor::Row {
+                side: Side::Left,
+                row: 0,
+            },
+        }]
+    );
+    assert_eq!(harness.log(), Vec::<String>::new());
+}
+
+#[test]
+fn right_click_on_the_parent_row_takes_the_directory_itself_even_with_marks() {
+    let mut harness = windows_files();
+    harness.press("Down");
+    harness.press("Space");
+    harness.take_effects();
+
     harness.right_click(Side::Left, 0);
+
+    assert_eq!(harness.cursor_name(Side::Left), "..");
+    assert_eq!(harness.marks(Side::Left), ["a"]);
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::ShellMenu {
+            paths: vec![PathBuf::from(WIN_LEFT)],
+            anchor: MenuAnchor::Pointer,
+        }]
+    );
+}
+
+#[test]
+fn shell_menu_in_an_empty_root_does_nothing() {
+    let mut harness = Harness::start_on(Os::Windows, "/", WIN_RIGHT);
+    harness.load(Side::Left, vec![]);
+    harness.take_effects();
+
+    harness.press("\\");
 
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(harness.log(), Vec::<String>::new());

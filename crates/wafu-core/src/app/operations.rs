@@ -125,11 +125,15 @@ impl App {
             },
             MenuAnchor::Row { .. } => pane.targets(TargetRule::Multiple),
         };
-        if entries.is_empty() {
-            return;
-        }
         let base = &pane.location().base;
-        let paths = entries.iter().map(|entry| base.join(&entry.name)).collect();
+        let paths = if entries.is_empty() {
+            if !pane.has_parent() {
+                return;
+            }
+            vec![base.clone()]
+        } else {
+            entries.iter().map(|entry| base.join(&entry.name)).collect()
+        };
         effects.push(Effect::ShellMenu { paths, anchor });
     }
 
