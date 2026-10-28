@@ -3,12 +3,14 @@ use std::path::{Component, Path, PathBuf, Prefix};
 /// Replaces a leading `~` with the home directory. `~user` is left alone.
 #[must_use]
 pub fn expand_tilde(text: &str, home: &Path) -> PathBuf {
-    if text == "~" {
-        return home.to_path_buf();
-    }
-    match text.strip_prefix("~/").or_else(|| text.strip_prefix("~\\")) {
-        Some(rest) => home.join(rest),
-        None => PathBuf::from(text),
+    match text.strip_prefix('~') {
+        Some("") => home.to_path_buf(),
+        Some(rest) if rest.starts_with('/') || (cfg!(windows) && rest.starts_with('\\')) => {
+            let mut path = home.as_os_str().to_owned();
+            path.push(rest);
+            PathBuf::from(path)
+        }
+        _ => PathBuf::from(text),
     }
 }
 
@@ -90,9 +92,34 @@ mod tests {
             Path::new("/home/user").join("docs")
         );
         assert_eq!(
+            expand_tilde("~//docs", home),
+            Path::new("/home/user").join("docs")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn tilde_backslash_expands_to_home_on_windows() {
+        let home = Path::new("/home/user");
+
+        assert_eq!(
             expand_tilde("~\\docs", home),
             Path::new("/home/user").join("docs")
         );
+        assert_eq!(
+            expand_tilde("~/\\docs", home),
+            Path::new("/home/user").join("docs")
+        );
+    }
+
+    #[test]
+    fn tilde_slash_keeps_a_drive_prefix_under_home() {
+        let home = Path::new("/home/user");
+
+        let result = expand_tilde("~/C:/docs", home);
+
+        assert!(result.starts_with(home));
+        assert!(result.ends_with("docs"));
     }
 
     #[test]
@@ -101,6 +128,14 @@ mod tests {
 
         assert_eq!(expand_tilde("~other", home), PathBuf::from("~other"));
         assert_eq!(expand_tilde("docs", home), PathBuf::from("docs"));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn tilde_backslash_is_left_alone_off_windows() {
+        let home = Path::new("/home/user");
+
+        assert_eq!(expand_tilde("~\\docs", home), PathBuf::from("~\\docs"));
     }
 
     #[test]
