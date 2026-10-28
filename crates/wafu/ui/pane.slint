@@ -3,8 +3,8 @@ import { ScrollBar } from "scrollbar.slint";
 import { Theme } from "theme.slint";
 
 export struct Row {
-    // 0: the parent row, 1: directory, 2: file, 3: executable, 4: symbolic
-    // link, 5: broken symbolic link, 6: FIFO or device, 7: socket
+    // 0: directory, 1: file, 2: executable, 3: symbolic link, 4: broken
+    // symbolic link, 5: FIFO or device, 6: socket
     kind: int,
     name: string,
     extension: string,
@@ -40,12 +40,12 @@ component RowItem {
     in property <bool> marked;
     in property <ColumnWidths> columns;
 
-    property <brush> text-color: item.kind == 1 ? Theme.colors.dir
-        : item.kind == 3 ? Theme.colors.exec
-        : item.kind == 4 ? Theme.colors.link
-        : item.kind == 5 ? Theme.colors.broken
-        : item.kind == 6 ? Theme.colors.fifo
-        : item.kind == 7 ? Theme.colors.socket
+    property <brush> text-color: item.kind == 0 ? Theme.colors.dir
+        : item.kind == 2 ? Theme.colors.exec
+        : item.kind == 3 ? Theme.colors.link
+        : item.kind == 4 ? Theme.colors.broken
+        : item.kind == 5 ? Theme.colors.fifo
+        : item.kind == 6 ? Theme.colors.socket
         : Theme.colors.fg;
 
     height: Theme.row-height;
