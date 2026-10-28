@@ -8,6 +8,11 @@
 [general]
 # Enter the directory that mkdir created.
 # mkdir_then_enter = true
+# Make new_text create an empty file before opening it in the editor, for
+# editors that do nothing when given a path that does not exist yet (such as
+# open -t on macOS). Set to false to pass the path to the editor as it is,
+# for editors that treat a missing path as a new file.
+# new_text_creates_file = true
 # Make copy, move, delete, and trash act only on marked entries; with no
 # marks they do nothing. Set to false to let them act on the cursor row.
 # require_marks = true

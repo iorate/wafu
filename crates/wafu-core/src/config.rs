@@ -33,8 +33,10 @@ pub struct Config {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct General {
     pub mkdir_then_enter: bool,
+    pub new_text_creates_file: bool,
     pub require_marks: bool,
     pub editor: CommandLine,
     pub hide_log_in_preview: bool,
@@ -221,6 +223,7 @@ impl Config {
         Self {
             general: General {
                 mkdir_then_enter: true,
+                new_text_creates_file: true,
                 require_marks: true,
                 editor: default_editor(os),
                 hide_log_in_preview: false,

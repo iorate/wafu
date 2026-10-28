@@ -384,11 +384,18 @@ impl App {
             }
             InputKind::Mkdir => effects.push(Effect::Mkdir(path)),
             InputKind::NewFile => effects.push(Effect::CreateFile(path)),
-            // Editors cannot be relied on to open a path that does not exist
-            // yet (`open -t` on macOS does nothing), so the file is made first.
-            InputKind::NewText => {
+            // Some editors do nothing when given a path that does not exist
+            // yet (`open -t` on macOS), so the file is made first by default.
+            InputKind::NewText if self.config.general.new_text_creates_file => {
                 self.edit_after_create = Some(path.clone());
                 effects.push(Effect::CreateFile(path));
+            }
+            InputKind::NewText => {
+                let expansion = Expansion {
+                    paths: vec![path],
+                    ..self.expansion()
+                };
+                Self::spawn(&self.config.general.editor, &expansion, effects);
             }
             InputKind::ConflictRename { .. }
             | InputKind::Filter
