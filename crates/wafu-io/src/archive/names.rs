@@ -1,3 +1,6 @@
+#[cfg(windows)]
+const UTF8_CODE_PAGE: u32 = 65001;
+
 /// Decodes an entry name: UTF-8 when it is valid, else the system's default
 /// encoding (the ANSI code page on Windows), with unreadable parts replaced.
 pub(crate) fn decode_name(raw: &[u8]) -> String {
@@ -43,8 +46,32 @@ fn decode_with_locale(raw: &[u8]) -> String {
 #[allow(unsafe_code)]
 fn locale_encoding() -> Option<&'static encoding_rs::Encoding> {
     // SAFETY: GetACP takes no arguments and only reads process-wide settings.
-    let code_page = unsafe { windows::Win32::Globalization::GetACP() };
+    let mut code_page = unsafe { windows::Win32::Globalization::GetACP() };
+    if code_page == UTF8_CODE_PAGE {
+        code_page = user_locale_ansi_code_page()?;
+    }
     encoding_for_code_page(code_page)
+}
+
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn user_locale_ansi_code_page() -> Option<u32> {
+    use windows::Win32::Globalization::{
+        GetLocaleInfoEx, LOCALE_IDEFAULTANSICODEPAGE, LOCALE_RETURN_NUMBER,
+    };
+
+    let mut buffer = [0u16; 2];
+    // SAFETY: a null locale name selects the user default locale, and with
+    // LOCALE_RETURN_NUMBER the function writes one u32 into the buffer, which
+    // holds exactly that many u16s.
+    let written = unsafe {
+        GetLocaleInfoEx(
+            windows::core::PCWSTR::null(),
+            LOCALE_IDEFAULTANSICODEPAGE | LOCALE_RETURN_NUMBER,
+            Some(&mut buffer),
+        )
+    };
+    (written == 2).then(|| u32::from(buffer[0]) | (u32::from(buffer[1]) << 16))
 }
 
 #[cfg(windows)]
@@ -92,13 +119,19 @@ mod tests {
             encoding_for_code_page(1252).map(encoding_rs::Encoding::name),
             Some("windows-1252")
         );
-        assert_eq!(encoding_for_code_page(65001), None);
+        assert_eq!(encoding_for_code_page(UTF8_CODE_PAGE), None);
         assert_eq!(
             encoding_rs::SHIFT_JIS
                 .decode_without_bom_handling(&[0x93, 0xfa, 0x96, 0x7b])
                 .0,
             "日本"
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn user_locale_has_an_ansi_code_page() {
+        assert!(user_locale_ansi_code_page().is_some());
     }
 
     #[test]
