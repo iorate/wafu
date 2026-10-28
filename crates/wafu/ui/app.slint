@@ -244,31 +244,6 @@ export component AppWindow inherits Window {
             }
 
             Rectangle {
-                height: root.hide-log ? 0 : Theme.row-height;
-                visible: !root.hide-log;
-                clip: true;
-
-                HorizontalLayout {
-                    padding-left: 4px;
-                    padding-right: 4px;
-
-                    Text {
-                        text: root.status;
-                        font-family: Theme.filelist-font-family;
-                        font-size: Theme.filelist-font-size;
-                        color: Theme.colors.fg;
-                        overflow: elide;
-                        vertical-alignment: center;
-                    }
-                }
-            }
-
-            Rectangle {
-                height: root.hide-log ? 0 : Theme.line-width;
-                background: Palette.border;
-            }
-
-            Rectangle {
                 height: root.hide-log ? 0 : root.log-rows * Theme.log-row-height + 8px;
                 visible: !root.hide-log;
                 clip: true;
@@ -300,6 +275,30 @@ export component AppWindow inherits Window {
                     scroll-event(event) => {
                         root.log-wheel(event.delta-y);
                         accept
+                    }
+                }
+            }
+
+            Rectangle {
+                height: Theme.line-width;
+                background: Palette.border;
+            }
+
+            Rectangle {
+                height: Theme.row-height;
+                clip: true;
+
+                HorizontalLayout {
+                    padding-left: 4px;
+                    padding-right: 4px;
+
+                    Text {
+                        text: root.status;
+                        font-family: Theme.filelist-font-family;
+                        font-size: Theme.filelist-font-size;
+                        color: Theme.colors.fg;
+                        overflow: elide;
+                        vertical-alignment: center;
                     }
                 }
             }
