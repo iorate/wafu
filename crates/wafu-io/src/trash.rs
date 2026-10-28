@@ -6,9 +6,11 @@ use std::path::Path;
 // `trash` crate suppresses that warning and destroys the item.
 #[cfg(windows)]
 pub(crate) fn trash(path: &Path, owner_window: Option<isize>) -> io::Result<()> {
+    use windows::Win32::UI::Shell::COPYENGINE_E_USER_CANCELLED;
+
     let _com = crate::com::ComScope::enter();
     shell_delete(path, owner_window).map_err(|error| {
-        if error.code() == cancelled() {
+        if error.code() == COPYENGINE_E_USER_CANCELLED {
             io::Error::other("cancelled in the dialog")
         } else {
             io::Error::other(error.to_string())
@@ -22,17 +24,17 @@ fn shell_delete(path: &Path, owner_window: Option<isize>) -> windows::core::Resu
     use windows::Win32::Foundation::HWND;
     use windows::Win32::System::Com::{CLSCTX_ALL, CoCreateInstance};
     use windows::Win32::UI::Shell::{
-        FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT, FOF_WANTNUKEWARNING,
+        COPYENGINE_E_USER_CANCELLED, FOF_ALLOWUNDO, FOF_NOERRORUI, FOF_SILENT, FOF_WANTNUKEWARNING,
         FileOperation, IFileOperation, IShellItem, SHCreateItemFromParsingName,
     };
     use windows::core::HSTRING;
 
     // SAFETY: the class id is a documented constant and the thread is in an apartment.
     let operation: IFileOperation = unsafe { CoCreateInstance(&FileOperation, None, CLSCTX_ALL) }?;
-    // Progress and errors are shown by wafu, and moving to the trash needs no
-    // confirmation; only the warning that an item would be destroyed stays.
-    let flags =
-        FOF_NOCONFIRMATION | FOF_ALLOWUNDO | FOF_WANTNUKEWARNING | FOF_SILENT | FOF_NOERRORUI;
+    // Progress and errors are shown by wafu. `FOF_NOCONFIRMATION` is left out
+    // because it also silences the warning that an item would be destroyed,
+    // whatever its documentation says.
+    let flags = FOF_ALLOWUNDO | FOF_WANTNUKEWARNING | FOF_SILENT | FOF_NOERRORUI;
     // SAFETY: a plain call on the object created above.
     unsafe { operation.SetOperationFlags(flags) }?;
     if let Some(window) = owner_window {
@@ -49,16 +51,9 @@ fn shell_delete(path: &Path, owner_window: Option<isize>) -> windows::core::Resu
     unsafe { operation.PerformOperations() }?;
     // SAFETY: a query on the finished operation.
     if unsafe { operation.GetAnyOperationsAborted() }?.as_bool() {
-        return Err(windows::core::Error::from_hresult(cancelled()));
+        return Err(COPYENGINE_E_USER_CANCELLED.into());
     }
     Ok(())
-}
-
-#[cfg(windows)]
-fn cancelled() -> windows::core::HRESULT {
-    use windows::Win32::Foundation::ERROR_CANCELLED;
-
-    windows::core::HRESULT::from_win32(ERROR_CANCELLED.0)
 }
 
 #[cfg(not(windows))]
