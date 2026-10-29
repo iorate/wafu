@@ -1,52 +1,51 @@
-# wafu configuration
-#
-# Every item below is commented out and shows its default value. Uncomment an
-# item to change it; whatever stays commented keeps following the built-in
-# default. The section headers are not commented out, so an item only needs
-# its own line uncommented. Changes take effect as soon as the file is saved.
+## wafu configuration
+##
+## Every item below is commented out with "# " and shows its default value.
+## Uncomment an item to change it; whatever stays commented keeps following the
+## built-in default. Lines starting with "## " are explanations, and the
+## examples in them are not defaults. The section headers are not commented
+## out, so an item only needs its own line uncommented. Changes take effect as
+## soon as the file is saved.
 
 [general]
-# Enter the directory that mkdir created.
+## Enter the directory that mkdir created.
 # mkdir_then_enter = true
-# Make new_text create an empty file before opening it in the editor, for
-# editors that do nothing when given a path that does not exist yet (such as
-# open -t on macOS). Set to false to pass the path to the editor as it is,
-# for editors that treat a missing path as a new file.
+## Make new_text create an empty file before opening it in the editor, for
+## editors that do nothing when given a path that does not exist yet (such as
+## open -t on macOS). Set to false to pass the path to the editor as it is,
+## for editors that treat a missing path as a new file.
 # new_text_creates_file = true
-# Make copy, move, delete, and trash act only on marked entries; with no
-# marks they do nothing. Set to false to let them act on the cursor row.
+## Make copy, move, delete, and trash act only on marked entries; with no
+## marks they do nothing. Set to false to let them act on the cursor row.
 # require_marks = true
-# Hide the log while a preview is open.
+## Hide the log while a preview is open.
 # hide_log_in_preview = false
-# The editor used by edit, new_text, and edit_config, written like the run
-# item of a command (see [commands]). The default depends on the OS and is
-# shown in the [os.*] sections at the end.
+## The editor used by edit, new_text, and edit_config, written like the run
+## item of a command (see [commands]). The default depends on the OS and is
+## shown in the [os.*] sections at the end.
 
 [appearance]
-# auto follows the OS; light and dark force a theme.
+## auto follows the OS; light and dark force a theme.
 # theme = "auto"
-# How sizes are written: plain (bytes), comma (1,234,567), or human (1.2M,
-# like ls -h).
+## How sizes are written: plain (bytes), comma (1,234,567), or human (1.2M,
+## like ls -h).
 # size_format = "plain"
 
-# The default font. A family set here applies everywhere. An empty family uses
-# the built-in default: the system font for the popups, and the monospaced
-# font of the OS (Consolas on Windows, Menlo on macOS, DejaVu Sans Mono on
-# Linux) everywhere else. Generic names such as "monospace" do not work, and a
-# family that is not installed falls back to the system font. The size is in
-# pixels.
+## The default font. A family set here applies everywhere. An empty family uses
+## the built-in default: the system font for the popups, and the monospaced
+## font of the OS (Consolas on Windows, Menlo on macOS, DejaVu Sans Mono on
+## Linux) everywhere else. Generic names such as "monospace" do not work, and a
+## family that is not installed falls back to the system font. The size is in
+## pixels.
 [appearance.font]
 # family = ""
 # size = 12
 
-# Each area may have its own font: the path lines, the file lists, the
-# information lines, the log, the status line, the preview, and the popups
-# (the command palette among them). An item that is not set here falls back to
-# the default font. For example:
-#
-#   [appearance.font.filelist]
-#   family = "Consolas"
-#   size = 14
+## Each area may have its own font: the path lines, the file lists, the
+## information lines, the log, the status line, the preview, and the popups
+## (the command palette among them). An item that is not set here falls back to
+## the default font. For example, size = 14 under [appearance.font.filelist]
+## makes only the file lists larger.
 [appearance.font.path]
 # family = ""
 [appearance.font.filelist]
@@ -62,12 +61,12 @@
 [appearance.font.popup]
 # family = ""
 
-# Colors are written as #rrggbb. fg and bg are the text and the background,
-# mark the background of the marked rows, and cursor the cursor line. The
-# text of a row takes, like ls --color, the first of these that applies:
-# broken for a broken symbolic link, link for a symbolic link, dir for a
-# directory, exec for an executable file, fifo for a FIFO or a device, socket
-# for a socket, and fg otherwise. Marking a row does not change its text color.
+## Colors are written as #rrggbb. fg and bg are the text and the background,
+## mark the background of the marked rows, and cursor the cursor line. The
+## text of a row takes, like ls --color, the first of these that applies:
+## broken for a broken symbolic link, link for a symbolic link, dir for a
+## directory, exec for an executable file, fifo for a FIFO or a device, socket
+## for a socket, and fg otherwise. Marking a row does not change its text color.
 [colors.light]
 # fg = "#1e1e1e"
 # bg = "#ffffff"
@@ -92,46 +91,49 @@
 # fifo = "#f0c050"
 # socket = "#e58ae0"
 
-# The display state of the panes when there is no state file yet.
+## The display state of the panes when there is no state file yet.
 [initial]
-# sort = "name"          # none / name / extension / size / time / natural
+## How the entries are sorted: none, name, extension, size, time, or natural.
+# sort = "name"
 # descending = false
 # dirs_first = true
 # ignore_case = true
 # show_hidden = false
 
-# Bookmarks, in the order they are listed. A leading ~ is the home directory.
-#
-#   [[bookmarks]]
-#   path = "~/Downloads"
+## Bookmarks, in the order they are listed. A leading ~ is the home directory.
+## For example:
+##
+##   [[bookmarks]]
+##   path = "~/Downloads"
 
-# External commands. The run item is split at spaces; quote an argument that
-# contains spaces. The command is started directly, without a shell, in the
-# active pane's directory. Placeholders stand for one argument each:
-#   {cursor_path}   the item under the cursor
-#   {marked_paths}  every marked item
-#   {paths}         the marked items, or the item under the cursor
-#   {dir}           the active pane's directory
-#   {other_dir}     the other pane's directory
-#
-#   [commands.open_terminal]
-#   run = "wt -d {dir}"
+## External commands. The run item is split at spaces; quote an argument that
+## contains spaces. The command is started directly, without a shell, in the
+## active pane's directory. Placeholders stand for one argument each:
+##   {cursor_path}   the item under the cursor
+##   {marked_paths}  every marked item
+##   {paths}         the marked items, or the item under the cursor
+##   {dir}           the active pane's directory
+##   {other_dir}     the other pane's directory
+## For example:
+##
+##   [commands.open_terminal]
+##   run = "wt -d {dir}"
 
-# Keys. Each entry replaces the built-in binding of that key; bind nop to
-# remove one. A command from [commands] is written with a leading $.
-# Modifiers are Ctrl, Shift, and Alt; symbols are written as typed.
-#
-#   [keys.filelist]
-#   "F2" = "$open_terminal"
-#   "Ctrl+C" = "copy_path"
-#   "Q" = "nop"
+## Keys. Each entry replaces the built-in binding of that key; bind nop to
+## remove one. A command from [commands] is written with a leading $.
+## Modifiers are Ctrl, Shift, and Alt; symbols are written as typed. For
+## example, under [keys.filelist]:
 [keys.filelist]
+##   "F2" = "$open_terminal"
+##   "Ctrl+C" = "copy_path"
+##   "Q" = "nop"
 [keys.image]
 [keys.text]
 [keys.binary]
 
-# Items under [os.windows], [os.macos], and [os.linux] apply on that OS only
-# and override the items above.
+## Items under [os.windows], [os.macos], and [os.linux] apply on that OS only
+## and override the items above. A table overrides item by item, and
+## [[bookmarks]] replaces the common list as a whole.
 [os.windows.general]
 # editor = "notepad {paths}"
 [os.macos.general]
