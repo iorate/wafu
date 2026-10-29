@@ -10,7 +10,7 @@ pub struct KeyMap {
     maps: HashMap<Context, HashMap<Key, Command>>,
 }
 
-// The jump commands are generated in `Default`.
+// The jump commands are generated in `default_for`.
 const DEFAULT_FILELIST: &[(&str, &str)] = &[
     ("Up", "cursor_up"),
     ("Down", "cursor_down"),

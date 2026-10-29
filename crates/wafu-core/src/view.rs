@@ -317,7 +317,7 @@ fn size_with_unit(format: SizeFormat, bytes: u64) -> String {
 }
 
 impl RowView {
-    /// The `..` row, whose marker, size, and time columns and color describe the location itself.
+    // The `..` row, whose marker, size, and time columns and color describe the location itself.
     pub(crate) fn parent(own: Option<&Entry>, size_format: SizeFormat) -> Self {
         let (size, modified) =
             own.map_or_else(Default::default, |own| size_and_modified(own, size_format));

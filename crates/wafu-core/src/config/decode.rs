@@ -154,7 +154,6 @@ impl<'a> Reader<'a> {
         self.choice(key, "a color like #rrggbb", Color::parse)
     }
 
-    /// Takes every remaining item, for tables whose keys are user-defined.
     fn entries(&mut self) -> Vec<(String, Value)> {
         std::mem::take(&mut self.table).into_iter().collect()
     }
