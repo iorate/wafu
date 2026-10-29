@@ -297,14 +297,18 @@ impl Color {
         if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
             return None;
         }
-        let digits: Vec<u8> = hex
-            .chars()
-            .filter_map(|c| c.to_digit(16))
-            .map(|d| u8::try_from(d).unwrap_or(0))
-            .collect();
-        let [r, g, b] = match digits.as_slice() {
-            [r1, r2, g1, g2, b1, b2] => [r1 * 16 + r2, g1 * 16 + g2, b1 * 16 + b2],
-            [r, g, b] => [r * 17, g * 17, b * 17],
+        let channel = |digits: &str| u8::from_str_radix(digits, 16).ok();
+        let [r, g, b] = match hex.len() {
+            6 => [
+                channel(&hex[0..2])?,
+                channel(&hex[2..4])?,
+                channel(&hex[4..6])?,
+            ],
+            3 => [
+                channel(&hex[0..1])? * 17,
+                channel(&hex[1..2])? * 17,
+                channel(&hex[2..3])? * 17,
+            ],
             _ => return None,
         };
         Some(Self::new(r, g, b))
@@ -415,9 +419,12 @@ mod tests {
     fn color_parses_long_and_short_forms() {
         assert_eq!(Color::parse("#1e1e1e"), Some(Color::new(0x1e, 0x1e, 0x1e)));
         assert_eq!(Color::parse("#ABC"), Some(Color::new(0xaa, 0xbb, 0xcc)));
+        assert_eq!(Color::parse("#"), None);
         assert_eq!(Color::parse("#12345"), None);
         assert_eq!(Color::parse("1e1e1e"), None);
         assert_eq!(Color::parse("#1e1e1g"), None);
+        assert_eq!(Color::parse("#+1+1+1"), None);
+        assert_eq!(Color::parse("#é1"), None);
     }
 
     #[test]

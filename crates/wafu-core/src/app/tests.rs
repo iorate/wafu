@@ -97,13 +97,7 @@ fn extension_column_includes_the_dot() {
         .left
         .rows
         .iter()
-        .map(|row| {
-            (
-                row.name.as_str(),
-                row.extension.as_str(),
-                row.marker.as_str(),
-            )
-        })
+        .map(|row| (row.name.as_str(), row.extension.as_str(), row.marker))
         .collect();
     assert_eq!(
         columns,
@@ -141,7 +135,7 @@ fn marker_column_follows_ls_f_and_directories_and_special_files_have_no_size() {
         .left
         .rows
         .iter()
-        .map(|row| (row.name.as_str(), row.marker.as_str(), row.size.as_str()))
+        .map(|row| (row.name.as_str(), row.marker, row.size.as_str()))
         .collect();
     assert_eq!(
         columns,
@@ -319,7 +313,7 @@ fn status_line_on_the_parent_row_spells_out_the_directory_itself() {
     assert_eq!(
         (
             row.name.as_str(),
-            row.marker.as_str(),
+            row.marker,
             row.size.as_str(),
             row.modified.as_str()
         ),
@@ -352,11 +346,7 @@ fn status_line_on_the_parent_row_of_an_archive_root_describes_the_archive_file()
     assert_eq!(harness.view().status, ".. | -rw-r--r-- | 1234 bytes");
     let row = &harness.view().left.rows[0];
     assert_eq!(
-        (
-            row.marker.as_str(),
-            row.size.as_str(),
-            row.modified.as_str()
-        ),
+        (row.marker, row.size.as_str(), row.modified.as_str()),
         ("", "1234", "")
     );
 }
@@ -418,7 +408,7 @@ fn size_and_time_columns_follow_symlink_targets() {
         .map(|row| {
             (
                 row.name.as_str(),
-                row.marker.as_str(),
+                row.marker,
                 row.size.as_str(),
                 row.modified.as_str(),
             )

@@ -794,7 +794,7 @@ fn row(row: &RowView) -> Row {
         },
         name: row.name.as_str().into(),
         extension: row.extension.as_str().into(),
-        marker: row.marker.as_str().into(),
+        marker: row.marker.into(),
         size: row.size.as_str().into(),
         modified: row.modified.as_str().into(),
     }
