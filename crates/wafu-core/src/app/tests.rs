@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::{MAIN_SEPARATOR, Path, PathBuf};
 
 use super::*;
 use crate::config::Theme;
@@ -2100,7 +2100,10 @@ fn go_to_path_to_a_missing_place_logs_an_error_and_stays() {
     harness.take_effects();
     harness.fail_resolve(Side::Left);
 
-    assert_eq!(harness.log(), ["/nowhere does not exist"]);
+    assert_eq!(
+        harness.log(),
+        [format!("{MAIN_SEPARATOR}nowhere does not exist")]
+    );
     assert_eq!(harness.view().left.path, "/home/user");
     assert_eq!(
         harness.take_effects(),

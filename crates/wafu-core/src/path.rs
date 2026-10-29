@@ -1,4 +1,5 @@
-use std::path::{Component, Path, PathBuf, Prefix};
+use std::ffi::{OsStr, OsString};
+use std::path::{Component, MAIN_SEPARATOR_STR, Path, PathBuf, Prefix};
 
 /// Replaces a leading `~` with the home directory. `~user` is left alone.
 #[must_use]
@@ -34,33 +35,37 @@ pub fn resolve_input(text: &str, home: &Path, base: &Path) -> PathBuf {
 }
 
 /// Folds `.` and `..` lexically. Symbolic links are not followed, so the
-/// result names the path the user typed rather than where it leads. A path
-/// with nothing to fold is returned as written.
+/// result names the path the user typed rather than where it leads.
 #[must_use]
 pub fn normalize(path: &Path) -> PathBuf {
-    let needs_folding = path
-        .components()
-        .any(|component| matches!(component, Component::CurDir | Component::ParentDir));
-    if !needs_folding {
-        return path.to_path_buf();
-    }
-    let mut result = PathBuf::new();
+    let mut prefix = None;
+    let mut has_root = false;
+    let mut parts: Vec<&OsStr> = Vec::new();
     for component in path.components() {
         match component {
-            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
-                result.push(component.as_os_str());
-            }
+            Component::Prefix(value) => prefix = Some(value.as_os_str()),
+            Component::RootDir => has_root = true,
+            Component::Normal(part) => parts.push(part),
             Component::CurDir => {}
             Component::ParentDir => {
-                let is_normal =
-                    matches!(result.components().next_back(), Some(Component::Normal(_)));
-                if is_normal {
-                    result.pop();
-                }
+                parts.pop();
             }
         }
     }
-    result
+    let mut result = OsString::new();
+    if let Some(prefix) = prefix {
+        result.push(prefix);
+    }
+    if has_root {
+        result.push(MAIN_SEPARATOR_STR);
+    }
+    for (index, part) in parts.into_iter().enumerate() {
+        if index > 0 {
+            result.push(MAIN_SEPARATOR_STR);
+        }
+        result.push(part);
+    }
+    PathBuf::from(result)
 }
 
 /// The root of the path: `/`, `C:\`, or `\\server\share\`. `None` for an empty path.
@@ -158,6 +163,17 @@ mod tests {
     }
 
     #[test]
+    fn resolve_input_keeps_a_drive_like_part_under_home() {
+        let home = Path::new("/home/user");
+        let base = Path::new("/var/log");
+
+        let result = resolve_input("~/C:/docs", home, base);
+
+        assert!(result.starts_with(home));
+        assert!(result.ends_with("docs"));
+    }
+
+    #[test]
     fn normalize_folds_dot_and_dot_dot() {
         assert_eq!(
             normalize(Path::new("/a/./b/../c")),
@@ -169,8 +185,42 @@ mod tests {
     }
 
     #[test]
-    fn normalize_leaves_a_path_with_nothing_to_fold_as_written() {
-        assert_eq!(normalize(Path::new("/home/user")).as_os_str(), "/home/user");
+    fn normalize_drops_trailing_and_repeated_separators() {
+        assert_eq!(
+            normalize(Path::new("/home//user/")),
+            Path::new("/home").join("user")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_unifies_separators_on_windows() {
+        assert!(
+            !normalize(Path::new("/home//user/"))
+                .to_string_lossy()
+                .contains('/')
+        );
+        assert!(
+            !normalize(Path::new("C:/Users/me"))
+                .to_string_lossy()
+                .contains('/')
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_keeps_a_windows_prefix() {
+        for text in [r"C:\Users\me", r"\\server\share\x", r"\\?\C:\x"] {
+            assert_eq!(normalize(Path::new(text)), PathBuf::from(text));
+        }
+    }
+
+    #[test]
+    fn normalize_keeps_a_drive_like_part_under_its_parent() {
+        let result = normalize(Path::new("/home/user/C:/docs"));
+
+        assert!(result.starts_with("/home/user"));
+        assert!(result.ends_with("docs"));
     }
 
     #[test]
