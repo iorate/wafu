@@ -7,7 +7,13 @@ pub fn expand_tilde(text: &str, home: &Path) -> PathBuf {
         Some("") => home.to_path_buf(),
         Some(rest) if rest.starts_with('/') || (cfg!(windows) && rest.starts_with('\\')) => {
             let mut path = home.as_os_str().to_owned();
-            path.push(rest);
+            for part in rest
+                .split(std::path::is_separator)
+                .filter(|part| !part.is_empty())
+            {
+                path.push(std::path::MAIN_SEPARATOR_STR);
+                path.push(part);
+            }
             PathBuf::from(path)
         }
         _ => PathBuf::from(text),
