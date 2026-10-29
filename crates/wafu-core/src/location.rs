@@ -28,8 +28,7 @@ impl ArchiveFormat {
     /// The format a file name stands for, by its extension. Case does not matter.
     #[must_use]
     pub fn from_name(name: &OsStr) -> Option<Self> {
-        let name = name.to_string_lossy();
-        let (_, extension) = name.rsplit_once('.')?;
+        let extension = Path::new(name).extension()?;
         if extension.eq_ignore_ascii_case("zip") {
             Some(Self::Zip)
         } else {
@@ -239,6 +238,7 @@ mod tests {
         );
         assert_eq!(ArchiveFormat::from_name(OsStr::new("a.txt")), None);
         assert_eq!(ArchiveFormat::from_name(OsStr::new("zip")), None);
+        assert_eq!(ArchiveFormat::from_name(OsStr::new(".zip")), None);
         assert_eq!(ArchiveFormat::from_name(OsStr::new("a.zip.bak")), None);
         assert_eq!(ArchiveFormat::Zip.extension(), "zip");
     }
