@@ -58,6 +58,9 @@ impl Log {
 
     pub fn set_viewport_rows(&mut self, rows: usize) {
         self.viewport_rows = rows.max(1);
+        if !self.follow && self.scroll_top >= self.max_top() {
+            self.follow = true;
+        }
     }
 
     pub fn scroll_up(&mut self) {
@@ -141,6 +144,18 @@ mod tests {
         assert_eq!(log.scroll_top(), 3);
         log.push("g".to_owned());
         assert_eq!(log.scroll_top(), 4);
+    }
+
+    #[test]
+    fn growing_the_viewport_to_show_the_tail_resumes_following() {
+        let mut log = log_with(10, 3);
+
+        log.scroll_up();
+        log.set_viewport_rows(4);
+        assert_eq!(log.scroll_top(), 6);
+        log.push("k".to_owned());
+
+        assert_eq!(log.scroll_top(), 7);
     }
 
     #[test]
