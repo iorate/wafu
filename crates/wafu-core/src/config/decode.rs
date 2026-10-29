@@ -79,6 +79,16 @@ impl<'a> Reader<'a> {
         );
     }
 
+    fn missing(&mut self, item: &str) {
+        let path = self.path.clone();
+        self.report(
+            path,
+            DiagnosticKind::MissingItem {
+                item: item.to_owned(),
+            },
+        );
+    }
+
     fn table(&mut self, key: &str) -> Option<Reader<'_>> {
         if let Value::Table(table) = self.table.remove(key)? {
             let path = self.path_of(key);
@@ -314,7 +324,9 @@ fn read_bookmarks(root: &mut Reader<'_>, config: &mut Config) {
         };
         let path = root.path_of(&key);
         let mut reader = Reader::new(table, path, root.diagnostics);
-        if let Some(path) = reader.string("path") {
+        if !reader.table.contains_key("path") {
+            reader.missing("path");
+        } else if let Some(path) = reader.string("path") {
             config.bookmarks.push(PathBuf::from(path));
         }
         reader.finish();
@@ -332,7 +344,9 @@ fn read_commands(root: &mut Reader<'_>, config: &mut Config) {
         };
         let path = commands.path_of(&name);
         let mut reader = Reader::new(table, path, commands.diagnostics);
-        if let Some(run) = reader.string("run") {
+        if !reader.table.contains_key("run") {
+            reader.missing("run");
+        } else if let Some(run) = reader.string("run") {
             match CommandLine::parse(&run) {
                 Ok(line) => {
                     config.commands.insert(name, line);
@@ -774,7 +788,65 @@ path = "/b"
         assert_eq!(config.bookmarks, [PathBuf::from("/a")]);
         assert_eq!(
             paths(&diagnostics),
-            ["bookmarks[0]", "bookmarks[1].x", "bookmarks[2].name"]
+            [
+                "bookmarks[0]",
+                "bookmarks[1].x",
+                "bookmarks[2]",
+                "bookmarks[2].name"
+            ]
+        );
+        assert_eq!(
+            diagnostics[2].kind,
+            DiagnosticKind::MissingItem {
+                item: "path".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn definitions_without_a_required_item_are_dropped_alone() {
+        let text = r#"
+[[bookmarks]]
+[[bookmarks]]
+path = "/a"
+[commands.norun]
+[commands.term]
+run = "wt"
+[keys.filelist]
+"F1" = "$norun"
+"F2" = "$term"
+"#;
+
+        let (config, diagnostics) = parse(text, Os::Linux).unwrap();
+
+        assert_eq!(config.bookmarks, [PathBuf::from("/a")]);
+        assert_eq!(
+            config
+                .commands
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            ["term"]
+        );
+        assert_eq!(
+            paths(&diagnostics),
+            ["bookmarks[0]", "commands.norun", "keys.filelist.F1"]
+        );
+        assert_eq!(
+            diagnostics[0].kind,
+            DiagnosticKind::MissingItem {
+                item: "path".to_owned()
+            }
+        );
+        assert_eq!(
+            diagnostics[1].kind,
+            DiagnosticKind::MissingItem {
+                item: "run".to_owned()
+            }
+        );
+        assert_eq!(
+            diagnostics[0].to_string(),
+            "config: missing path in bookmarks[0]"
         );
     }
 

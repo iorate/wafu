@@ -201,6 +201,7 @@ pub struct Diagnostic {
 pub enum DiagnosticKind {
     UnknownItem,
     InvalidValue { expected: String },
+    MissingItem { item: String },
     InvalidKey { key: String },
     UnknownCommand { command: String },
     Unavailable { command: String },
@@ -340,6 +341,9 @@ impl fmt::Display for Diagnostic {
             DiagnosticKind::UnknownItem => write!(f, "config: unknown item {path}"),
             DiagnosticKind::InvalidValue { expected } => {
                 write!(f, "config: invalid value for {path} (expected {expected})")
+            }
+            DiagnosticKind::MissingItem { item } => {
+                write!(f, "config: missing {item} in {path}")
             }
             DiagnosticKind::InvalidKey { key } => {
                 write!(f, "config: invalid key {key:?} in {path}")
