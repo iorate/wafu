@@ -69,7 +69,13 @@ impl Key {
                 (KeyBase::Char(c.to_ascii_uppercase()), input.shift)
             }
             (Some(c), None) => (KeyBase::Char(c), false),
-            _ => (KeyBase::Named(input.text.parse().ok()?), input.shift),
+            _ => {
+                let named = input.text.parse::<NamedKey>().ok()?;
+                if named.to_string() != input.text {
+                    return None;
+                }
+                (KeyBase::Named(named), input.shift)
+            }
         };
         Some(Self {
             base,
@@ -164,8 +170,12 @@ impl FromStr for NamedKey {
             "end" => Self::End,
             "insert" => Self::Insert,
             "delete" => Self::Delete,
-            lower => match lower.strip_prefix('f').and_then(|n| n.parse::<u8>().ok()) {
-                Some(n @ 1..=12) if !lower[1..].starts_with('0') => Self::F(n),
+            lower => match lower
+                .strip_prefix('f')
+                .filter(|digits| digits.bytes().all(|b| b.is_ascii_digit()))
+                .and_then(|digits| digits.parse::<u8>().ok())
+            {
+                Some(n @ 1..=12) if !lower.starts_with("f0") => Self::F(n),
                 _ => return Err(KeyParseError(s.to_owned())),
             },
         };
@@ -256,6 +266,9 @@ mod tests {
         assert!("F0".parse::<Key>().is_err());
         assert!("F13".parse::<Key>().is_err());
         assert!("F01".parse::<Key>().is_err());
+        assert!("F+1".parse::<Key>().is_err());
+        assert!("F-1".parse::<Key>().is_err());
+        assert!("F 1".parse::<Key>().is_err());
     }
 
     #[test]
@@ -357,6 +370,25 @@ mod tests {
                 ..key(KeyBase::Named(NamedKey::PageUp))
             })
         );
+    }
+
+    #[test]
+    fn from_input_accepts_canonical_named_keys_only() {
+        assert_eq!(
+            Key::from_input(&input("Up", false, false)),
+            Some(key(KeyBase::Named(NamedKey::Up)))
+        );
+        assert_eq!(
+            Key::from_input(&input("F12", false, false)),
+            Some(key(KeyBase::Named(NamedKey::F(12))))
+        );
+        for text in ["up", "END", "tab", "bs", "f1", "F+1"] {
+            assert_eq!(
+                Key::from_input(&input(text, false, false)),
+                None,
+                "{text:?}"
+            );
+        }
     }
 
     #[test]
