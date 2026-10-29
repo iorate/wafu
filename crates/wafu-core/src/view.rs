@@ -3,7 +3,6 @@ use std::sync::Arc;
 use crate::app::Os;
 use crate::config::{ColorSet, Config, SizeFormat, Theme, monospace_family};
 use crate::entry::{Entry, EntryKind, SpecialKind, TargetKind};
-
 use crate::pane::Pane;
 use crate::preview::ImageData;
 
@@ -270,54 +269,8 @@ impl PaneView {
     }
 }
 
-pub(crate) fn status_line(pane: &Pane) -> String {
-    if let Some(entry) = pane.cursor_entry() {
-        let name = entry.name.to_string_lossy().into_owned();
-        return entry_status(entry, name, pane.size_format());
-    }
-    if !pane.has_parent() || pane.cursor() != 0 {
-        return String::new();
-    }
-    match pane.listing().own() {
-        Some(own) => entry_status(own, "..".to_owned(), pane.size_format()),
-        None => "..".to_owned(),
-    }
-}
-
-fn entry_status(entry: &Entry, mut name: String, size_format: SizeFormat) -> String {
-    match entry.kind {
-        EntryKind::Symlink { target } => {
-            if let Some(link_target) = &entry.link_target {
-                let marker = target.map_or("", TargetKind::marker);
-                name = format!("{name} -> {}{marker}", link_target.to_string_lossy());
-            }
-        }
-        kind => name.push_str(kind.marker()),
-    }
-    let mut segments = vec![name, entry.permissions_text()];
-    if entry.kind.is_broken_link() {
-        segments.push("?".to_owned());
-        segments.push("?".to_owned());
-    } else {
-        if !entry.kind.is_dir_like() && !entry.kind.is_special() {
-            segments.push(size_with_unit(size_format, entry.size));
-        }
-        if let Some(modified) = entry.modified {
-            segments.push(modified.local.to_string());
-        }
-    }
-    segments.join(" | ")
-}
-
-fn size_with_unit(format: SizeFormat, bytes: u64) -> String {
-    match format {
-        SizeFormat::Human => SizeFormat::Human.format(bytes),
-        format => format!("{} bytes", format.format(bytes)),
-    }
-}
-
 impl RowView {
-    /// The `..` row, whose marker, size, and time columns and color describe the location itself.
+    // The `..` row, whose marker, size, and time columns and color describe the location itself.
     pub(crate) fn parent(own: Option<&Entry>, size_format: SizeFormat) -> Self {
         let (size, modified) =
             own.map_or_else(Default::default, |own| size_and_modified(own, size_format));
@@ -378,4 +331,50 @@ fn size_and_modified(entry: &Entry, size_format: SizeFormat) -> (String, String)
         .map(|t| t.local.to_string())
         .unwrap_or_default();
     (size, modified)
+}
+
+pub(crate) fn status_line(pane: &Pane) -> String {
+    if let Some(entry) = pane.cursor_entry() {
+        let name = entry.name.to_string_lossy().into_owned();
+        return entry_status(entry, name, pane.size_format());
+    }
+    if !pane.has_parent() || pane.cursor() != 0 {
+        return String::new();
+    }
+    match pane.listing().own() {
+        Some(own) => entry_status(own, "..".to_owned(), pane.size_format()),
+        None => "..".to_owned(),
+    }
+}
+
+fn entry_status(entry: &Entry, mut name: String, size_format: SizeFormat) -> String {
+    match entry.kind {
+        EntryKind::Symlink { target } => {
+            if let Some(link_target) = &entry.link_target {
+                let marker = target.map_or("", TargetKind::marker);
+                name = format!("{name} -> {}{marker}", link_target.to_string_lossy());
+            }
+        }
+        kind => name.push_str(kind.marker()),
+    }
+    let mut segments = vec![name, entry.permissions_text()];
+    if entry.kind.is_broken_link() {
+        segments.push("?".to_owned());
+        segments.push("?".to_owned());
+    } else {
+        if !entry.kind.is_dir_like() && !entry.kind.is_special() {
+            segments.push(size_with_unit(size_format, entry.size));
+        }
+        if let Some(modified) = entry.modified {
+            segments.push(modified.local.to_string());
+        }
+    }
+    segments.join(" | ")
+}
+
+fn size_with_unit(format: SizeFormat, bytes: u64) -> String {
+    match format {
+        SizeFormat::Human => SizeFormat::Human.format(bytes),
+        format => format!("{} bytes", format.format(bytes)),
+    }
 }

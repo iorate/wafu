@@ -4,13 +4,7 @@ use crate::app::Os;
 use crate::command::{Command, Context};
 use crate::key::Key;
 
-/// Key bindings per context.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct KeyMap {
-    maps: HashMap<Context, HashMap<Key, Command>>,
-}
-
-// The jump commands are generated in `Default`.
+// The jump commands are generated in `default_for`.
 const DEFAULT_FILELIST: &[(&str, &str)] = &[
     ("Up", "cursor_up"),
     ("Down", "cursor_down"),
@@ -77,6 +71,12 @@ const DEFAULT_FILELIST: &[(&str, &str)] = &[
     ("Shift+PageUp", "log_page_up"),
     ("Shift+PageDown", "log_page_down"),
 ];
+
+/// Key bindings per context.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeyMap {
+    maps: HashMap<Context, HashMap<Key, Command>>,
+}
 
 impl KeyMap {
     /// The default bindings for the OS. The image preview reuses the file
