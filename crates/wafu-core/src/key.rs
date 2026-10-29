@@ -86,14 +86,17 @@ impl FromStr for Key {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let error = || KeyParseError(s.to_owned());
         let (modifiers, base) = if s == "+" {
-            ("", "+")
+            (None, "+")
         } else if let Some(rest) = s.strip_suffix("++") {
-            (rest, "+")
+            (Some(rest), "+")
         } else {
-            s.rsplit_once('+').unwrap_or(("", s))
+            match s.rsplit_once('+') {
+                Some((modifiers, base)) => (Some(modifiers), base),
+                None => (None, s),
+            }
         };
         let (mut ctrl, mut shift, mut alt) = (false, false, false);
-        for modifier in modifiers.split('+').filter(|m| !m.is_empty()) {
+        for modifier in modifiers.into_iter().flat_map(|m| m.split('+')) {
             let flag = match modifier.to_ascii_lowercase().as_str() {
                 "ctrl" => &mut ctrl,
                 "shift" => &mut shift,
@@ -261,6 +264,10 @@ mod tests {
             "",
             "Ctrl+",
             "Ctrl+Ctrl+A",
+            "+A",
+            "Ctrl++A",
+            "++",
+            "Ctrl+++",
             "Meta+A",
             "Shift+!",
             "Shift+1",
