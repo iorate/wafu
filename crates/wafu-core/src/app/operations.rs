@@ -12,7 +12,7 @@ use crate::operation::{
     ArchiveEntries, ArchiveOutput, OperationEvent, OperationKind, OperationSpec, Outcome,
     OutcomeLine, Reply, Sources,
 };
-use crate::pane::{HistoryMove, TargetRule};
+use crate::pane::HistoryMove;
 use crate::popup::{
     ChoiceKind, ChoicePopup, ConflictPopup, InputKind, InputPopup, PasswordPurpose, Popup,
 };
@@ -119,11 +119,11 @@ impl App {
         }
         let entries = match anchor {
             MenuAnchor::Pointer => match pane.cursor_entry() {
-                Some(entry) if pane.is_marked(entry) => pane.targets(TargetRule::Multiple),
+                Some(entry) if pane.is_marked(entry) => pane.targets(),
                 Some(entry) => vec![entry],
                 None => Vec::new(),
             },
-            MenuAnchor::Row { .. } => pane.targets(TargetRule::Multiple),
+            MenuAnchor::Row { .. } => pane.targets(),
         };
         let base = &pane.location().base;
         let paths = if entries.is_empty() {
@@ -548,7 +548,7 @@ impl App {
         let pane = self.active_pane();
         let location = pane.location();
         let lines: Vec<String> = pane
-            .targets(TargetRule::Multiple)
+            .targets()
             .into_iter()
             .map(|entry| {
                 if full_paths {
@@ -565,7 +565,7 @@ impl App {
 
     fn target_names(&self) -> Vec<OsString> {
         self.active_pane()
-            .targets(TargetRule::Multiple)
+            .targets()
             .into_iter()
             .map(|entry| entry.name.clone())
             .collect()

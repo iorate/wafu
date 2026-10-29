@@ -41,16 +41,6 @@ impl Log {
         Arc::clone(&self.lines)
     }
 
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.lines.len()
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.lines.is_empty()
-    }
-
     /// The first visible line.
     #[must_use]
     pub fn scroll_top(&self) -> usize {
@@ -106,6 +96,11 @@ impl Log {
             self.follow = false;
             self.scroll_top = top;
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.lines.len()
     }
 
     fn max_top(&self) -> usize {

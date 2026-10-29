@@ -34,10 +34,10 @@ pub fn resolve_input(text: &str, home: &Path, base: &Path) -> PathBuf {
     normalize(&path)
 }
 
-/// Folds `.` and `..` lexically. Symbolic links are not followed, so the
-/// result names the path the user typed rather than where it leads.
+// Folds `.` and `..` lexically. Symbolic links are not followed, so the
+// result names the path the user typed rather than where it leads.
 #[must_use]
-pub fn normalize(path: &Path) -> PathBuf {
+fn normalize(path: &Path) -> PathBuf {
     let mut prefix = None;
     let mut has_root = false;
     let mut parts: Vec<&OsStr> = Vec::new();
