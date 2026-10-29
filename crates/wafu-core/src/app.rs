@@ -588,17 +588,17 @@ impl App {
     }
 
     #[must_use]
-    pub fn pane(&self, side: Side) -> &Pane {
-        &self.panes[side.index()]
-    }
-
-    #[must_use]
     pub fn active(&self) -> Side {
         self.active
     }
 
     #[must_use]
-    pub fn config(&self) -> &Config {
+    pub(crate) fn pane(&self, side: Side) -> &Pane {
+        &self.panes[side.index()]
+    }
+
+    #[cfg(test)]
+    pub(crate) fn config(&self) -> &Config {
         &self.config
     }
 

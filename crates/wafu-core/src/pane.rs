@@ -88,15 +88,6 @@ pub enum HistoryMove {
     Position(usize),
 }
 
-/// How a command picks the entries it works on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TargetRule {
-    /// The entry under the cursor, ignoring marks.
-    Single,
-    /// The marked entries, or the entry under the cursor when nothing is marked.
-    Multiple,
-}
-
 impl Pane {
     #[must_use]
     pub fn new(location: Location) -> Self {
@@ -119,18 +110,6 @@ impl Pane {
             size_format: SizeFormat::Plain,
             rows: Arc::from([]),
             mark_flags: Arc::from([]),
-        }
-    }
-
-    #[must_use]
-    pub fn size_format(&self) -> SizeFormat {
-        self.size_format
-    }
-
-    pub fn set_size_format(&mut self, format: SizeFormat) {
-        if self.size_format != format {
-            self.size_format = format;
-            self.rebuild_rows();
         }
     }
 
@@ -245,8 +224,8 @@ impl Pane {
     }
 
     #[must_use]
-    pub fn targets(&self, rule: TargetRule) -> Vec<&Entry> {
-        if rule == TargetRule::Multiple && !self.marks.is_empty() {
+    pub fn targets(&self) -> Vec<&Entry> {
+        if !self.marks.is_empty() {
             return self.marked_entries().collect();
         }
         self.cursor_entry().into_iter().collect()
@@ -513,6 +492,18 @@ impl Pane {
             .checked_sub(1)
             .unwrap_or(self.row_count().saturating_sub(1));
         self.search_from(start, prefix, false)
+    }
+
+    #[must_use]
+    pub(crate) fn size_format(&self) -> SizeFormat {
+        self.size_format
+    }
+
+    pub(crate) fn set_size_format(&mut self, format: SizeFormat) {
+        if self.size_format != format {
+            self.size_format = format;
+            self.rebuild_rows();
+        }
     }
 
     pub(crate) fn archive_password(&self) -> Option<&str> {
@@ -1158,19 +1149,16 @@ mod tests {
     #[test]
     fn targets_follow_the_rule() {
         let mut pane = pane_with("/home", &["a", "b", "c"]);
-        assert_eq!(pane.targets(TargetRule::Single), Vec::<&Entry>::new());
-        assert_eq!(pane.targets(TargetRule::Multiple), Vec::<&Entry>::new());
+        assert_eq!(pane.targets(), Vec::<&Entry>::new());
 
         pane.set_cursor(1);
-        assert_eq!(names(pane.targets(TargetRule::Single)), ["a"]);
-        assert_eq!(names(pane.targets(TargetRule::Multiple)), ["a"]);
+        assert_eq!(names(pane.targets()), ["a"]);
 
         pane.set_cursor(3);
         pane.mark_up();
         pane.mark_up();
         pane.set_cursor(1);
-        assert_eq!(names(pane.targets(TargetRule::Single)), ["a"]);
-        assert_eq!(names(pane.targets(TargetRule::Multiple)), ["b", "c"]);
+        assert_eq!(names(pane.targets()), ["b", "c"]);
     }
 
     #[test]

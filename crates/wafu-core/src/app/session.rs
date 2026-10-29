@@ -9,7 +9,6 @@ use crate::error::{AppError, IoError};
 use crate::external::{CommandLine, Expansion};
 use crate::history::History;
 use crate::listing::{SortKey, SortSpec};
-use crate::pane::TargetRule;
 use crate::state::{PaneState, StateError, StateFile};
 use crate::view::Style;
 
@@ -235,11 +234,7 @@ impl App {
         Expansion {
             cursor_path: pane.cursor_entry().map(full),
             marked_paths: pane.marked_entries().map(full).collect(),
-            paths: pane
-                .targets(TargetRule::Multiple)
-                .into_iter()
-                .map(full)
-                .collect(),
+            paths: pane.targets().into_iter().map(full).collect(),
             dir: pane.location().dir().to_path_buf(),
             other_dir: self
                 .pane(self.active.other())
