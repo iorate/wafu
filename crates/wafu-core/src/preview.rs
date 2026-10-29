@@ -110,8 +110,9 @@ impl Document {
             DocumentMode::Text => self
                 .lines
                 .iter()
+                .rev()
                 .map(|line| line.number)
-                .max()
+                .find(|&number| number != 0)
                 .map_or(0, |number| number.to_string().len()),
             DocumentMode::Binary => 0,
         }
@@ -382,6 +383,7 @@ mod tests {
             ["a".repeat(20), TRUNCATED_NOTE.to_owned()]
         );
         assert_eq!(numbers(&document), [1, 0]);
+        assert_eq!(document.digits(DocumentMode::Text), 1);
         assert_eq!(document.line_count(DocumentMode::Binary), 3);
         assert_eq!(
             shown(&document, DocumentMode::Binary, 2, 5),
