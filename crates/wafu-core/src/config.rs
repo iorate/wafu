@@ -17,6 +17,7 @@ pub const CONFIG_TEMPLATE: &str = include_str!("../config.template.toml");
 const FONT_SIZE_DEFAULT: u16 = 12;
 const FONT_SIZE_MIN: u16 = 6;
 const FONT_SIZE_MAX: u16 = 72;
+const HUMAN_UNITS: [&str; 6] = ["K", "M", "G", "T", "P", "E"];
 
 /// The configuration after the OS section has been merged in and every
 /// unusable item has been replaced by its default.
@@ -100,31 +101,6 @@ impl SizeFormat {
             Self::Human => human_readable(bytes),
         }
     }
-}
-
-const HUMAN_UNITS: [&str; 6] = ["K", "M", "G", "T", "P", "E"];
-
-fn human_readable(bytes: u64) -> String {
-    if bytes < 1024 {
-        return bytes.to_string();
-    }
-    let bytes = u128::from(bytes);
-    let mut unit = 0;
-    let mut scale: u128 = 1024;
-    while unit + 1 < HUMAN_UNITS.len() && bytes >= scale * 1024 {
-        scale *= 1024;
-        unit += 1;
-    }
-    let tenths = (bytes * 10).div_ceil(scale);
-    if tenths < 100 {
-        return format!("{}.{}{}", tenths / 10, tenths % 10, HUMAN_UNITS[unit]);
-    }
-    let whole = bytes.div_ceil(scale);
-    // Rounding up can reach the next unit, as 1048575 bytes does.
-    if whole >= 1024 && unit + 1 < HUMAN_UNITS.len() {
-        return format!("1.0{}", HUMAN_UNITS[unit + 1]);
-    }
-    format!("{whole}{}", HUMAN_UNITS[unit])
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -386,8 +362,33 @@ fn default_editor(os: Os) -> CommandLine {
     CommandLine::parse(text).expect("the default editor should parse")
 }
 
+fn human_readable(bytes: u64) -> String {
+    if bytes < 1024 {
+        return bytes.to_string();
+    }
+    let bytes = u128::from(bytes);
+    let mut unit = 0;
+    let mut scale: u128 = 1024;
+    while unit + 1 < HUMAN_UNITS.len() && bytes >= scale * 1024 {
+        scale *= 1024;
+        unit += 1;
+    }
+    let tenths = (bytes * 10).div_ceil(scale);
+    if tenths < 100 {
+        return format!("{}.{}{}", tenths / 10, tenths % 10, HUMAN_UNITS[unit]);
+    }
+    let whole = bytes.div_ceil(scale);
+    // Rounding up can reach the next unit, as 1048575 bytes does.
+    if whole >= 1024 && unit + 1 < HUMAN_UNITS.len() {
+        return format!("1.0{}", HUMAN_UNITS[unit + 1]);
+    }
+    format!("{whole}{}", HUMAN_UNITS[unit])
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn size_formats_follow_ls() {
         use super::SizeFormat::{Comma, Human, Plain};
@@ -409,8 +410,6 @@ mod tests {
         assert_eq!(Human.format(345 * 1024 * 1024), "345M");
         assert_eq!(Human.format(u64::MAX), "16E");
     }
-
-    use super::*;
 
     #[test]
     fn color_parses_long_and_short_forms() {
