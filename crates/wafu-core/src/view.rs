@@ -78,7 +78,7 @@ pub struct RowView {
     /// The extension with its leading dot, or empty.
     pub extension: String,
     /// The mark `ls -F` prints after the name (`/`, `*`, `@`, `|`, `=`), or empty.
-    pub marker: String,
+    pub marker: &'static str,
     pub size: String,
     pub modified: String,
 }
@@ -278,7 +278,7 @@ impl RowView {
             kind: own.map_or(RowKind::File, |own| RowKind::from_entry_kind(own.kind)),
             name: "..".to_owned(),
             extension: String::new(),
-            marker: own.map_or("", |own| own.kind.marker()).to_owned(),
+            marker: own.map_or("", |own| own.kind.marker()),
             size,
             modified,
         }
@@ -296,7 +296,7 @@ impl RowView {
             kind: RowKind::from_entry_kind(entry.kind),
             name,
             extension,
-            marker: entry.kind.marker().to_owned(),
+            marker: entry.kind.marker(),
             size,
             modified,
         }
