@@ -2,13 +2,6 @@ use std::fmt;
 
 use crate::app::Os;
 
-const JUMP_NAMES: [&str; 36] = [
-    "jump_a", "jump_b", "jump_c", "jump_d", "jump_e", "jump_f", "jump_g", "jump_h", "jump_i",
-    "jump_j", "jump_k", "jump_l", "jump_m", "jump_n", "jump_o", "jump_p", "jump_q", "jump_r",
-    "jump_s", "jump_t", "jump_u", "jump_v", "jump_w", "jump_x", "jump_y", "jump_z", "jump_0",
-    "jump_1", "jump_2", "jump_3", "jump_4", "jump_5", "jump_6", "jump_7", "jump_8", "jump_9",
-];
-
 const NAMES: &[(Command, &str)] = &[
     (Command::Open, "open"),
     (Command::OpenWithOs, "open_with_os"),
@@ -186,7 +179,7 @@ impl Command {
         before
             .iter()
             .map(|(command, _)| command.clone())
-            .chain(JUMP_NAMES.iter().map(|name| Self::Jump(jump_char(name))))
+            .chain(('a'..='z').chain('0'..='9').map(Self::Jump))
             .chain(after.iter().map(|(command, _)| command.clone()))
     }
 
@@ -239,8 +232,14 @@ impl Command {
         if let Some(external) = name.strip_prefix('$') {
             return (!external.is_empty()).then(|| Self::External(external.to_owned()));
         }
-        if let Some(name) = JUMP_NAMES.iter().find(|&&n| n == name) {
-            return Some(Self::Jump(jump_char(name)));
+        if let Some(rest) = name.strip_prefix("jump_") {
+            let mut chars = rest.chars();
+            return match (chars.next(), chars.next()) {
+                (Some(c), None) if c.is_ascii_lowercase() || c.is_ascii_digit() => {
+                    Some(Self::Jump(c))
+                }
+                _ => None,
+            };
         }
         NAMES
             .iter()
@@ -252,13 +251,7 @@ impl Command {
 impl fmt::Display for Command {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Jump(c) => {
-                let name = JUMP_NAMES
-                    .iter()
-                    .find(|name| jump_char(name) == *c)
-                    .map_or("jump_?", |name| name);
-                f.write_str(name)
-            }
+            Self::Jump(c) => write!(f, "jump_{c}"),
             Self::External(name) => write!(f, "${name}"),
             _ => {
                 let name = NAMES
@@ -269,10 +262,6 @@ impl fmt::Display for Command {
             }
         }
     }
-}
-
-fn jump_char(name: &str) -> char {
-    name.chars().next_back().unwrap_or('?')
 }
 
 #[cfg(test)]
@@ -295,7 +284,7 @@ mod tests {
         unique.sort_by_key(ToString::to_string);
         unique.dedup();
 
-        assert_eq!(commands.len(), NAMES.len() + JUMP_NAMES.len());
+        assert_eq!(commands.len(), NAMES.len() + 36);
         assert_eq!(unique.len(), commands.len());
     }
 
@@ -305,6 +294,15 @@ mod tests {
         assert_eq!(Command::Jump('9').to_string(), "jump_9");
         assert_eq!(Command::from_name("jump_z"), Some(Command::Jump('z')));
         assert_eq!(Command::from_name("jump_A"), None);
+    }
+
+    #[test]
+    fn jump_names_need_one_lower_case_letter_or_digit() {
+        assert_eq!(Command::from_name("jump_"), None);
+        assert_eq!(Command::from_name("jump_ab"), None);
+        assert_eq!(Command::from_name("jump_A"), None);
+        assert_eq!(Command::from_name("jump_-"), None);
+        assert_eq!(Command::from_name("jump_é"), None);
     }
 
     #[test]
