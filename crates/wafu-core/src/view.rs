@@ -7,7 +7,6 @@ use crate::entry::{Entry, EntryKind, SpecialKind, TargetKind};
 use crate::pane::Pane;
 use crate::preview::ImageData;
 
-/// How many characters of a name stay visible at the end when it is elided in the middle.
 /// A read-only snapshot of the state for rendering.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct View {
@@ -77,8 +76,7 @@ pub struct PaneView {
 pub struct RowView {
     pub kind: RowKind,
     pub name: String,
-    /// The last characters of the name, kept visible when eliding in the middle.
-    /// Empty for short names.
+    /// The extension with its leading dot, or empty.
     pub extension: String,
     /// The mark `ls -F` prints after the name (`/`, `*`, `@`, `|`, `=`), or empty.
     pub marker: String,
