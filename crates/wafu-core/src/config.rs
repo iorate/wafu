@@ -203,6 +203,7 @@ pub enum DiagnosticKind {
     InvalidValue { expected: String },
     MissingItem { item: String },
     InvalidKey { key: String },
+    DuplicateKey { key: String, spellings: Vec<String> },
     UnknownCommand { command: String },
     Unavailable { command: String },
     InvalidCommandLine(CommandLineError),
@@ -347,6 +348,13 @@ impl fmt::Display for Diagnostic {
             }
             DiagnosticKind::InvalidKey { key } => {
                 write!(f, "config: invalid key {key:?} in {path}")
+            }
+            DiagnosticKind::DuplicateKey { key, spellings } => {
+                write!(
+                    f,
+                    "config: key {key} is written more than once in {path} ({}); all ignored",
+                    spellings.join(", ")
+                )
             }
             DiagnosticKind::UnknownCommand { command } => {
                 write!(f, "config: unknown command {command:?} for {path}")
