@@ -35,8 +35,8 @@ pub struct PaneState {
 pub struct WindowState {
     pub x: Option<i32>,
     pub y: Option<i32>,
-    pub width: u32,
-    pub height: u32,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -80,8 +80,8 @@ mod tests {
             window: Some(WindowState {
                 x: Some(-10),
                 y: Some(20),
-                width: 960,
-                height: 640,
+                width: Some(960),
+                height: Some(640),
             }),
             split_percent: Some(60),
             log_rows: Some(8),
@@ -109,8 +109,8 @@ mod tests {
             window: Some(WindowState {
                 x: None,
                 y: None,
-                width: 1,
-                height: 2,
+                width: Some(1),
+                height: Some(2),
             }),
             ..StateFile::default()
         };
@@ -118,6 +118,21 @@ mod tests {
         let text = state.to_toml().unwrap();
 
         assert_eq!(StateFile::from_toml(&text), Ok(state));
+    }
+
+    #[test]
+    fn a_window_without_a_size_has_no_width_or_height() {
+        let state = StateFile::from_toml("[window]\nx = 10\ny = 20\n").unwrap();
+
+        assert_eq!(
+            state.window,
+            Some(WindowState {
+                x: Some(10),
+                y: Some(20),
+                width: None,
+                height: None,
+            })
+        );
     }
 
     #[test]

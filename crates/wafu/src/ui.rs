@@ -200,9 +200,11 @@ impl Ui {
             return;
         };
         let window = self.window.window();
-        // Sizes are small enough to be exact as floats.
-        #[allow(clippy::cast_precision_loss)]
-        window.set_size(LogicalSize::new(state.width as f32, state.height as f32));
+        if let (Some(width), Some(height)) = (state.width, state.height) {
+            // Sizes are small enough to be exact as floats.
+            #[allow(clippy::cast_precision_loss)]
+            window.set_size(LogicalSize::new(width as f32, height as f32));
+        }
         if let (Some(x), Some(y)) = (state.x, state.y)
             && !wafu_io::is_wayland()
         {
@@ -287,8 +289,8 @@ impl Ui {
         state.window = Some(WindowState {
             x,
             y,
-            width: round(size.width).unsigned_abs(),
-            height: round(size.height).unsigned_abs(),
+            width: Some(round(size.width).unsigned_abs()),
+            height: Some(round(size.height).unsigned_abs()),
         });
         state
     }
