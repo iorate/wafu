@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ops::Range;
 use std::path::PathBuf;
 
@@ -370,12 +371,32 @@ fn read_keys(root: &mut Reader<'_>, config: &mut Config) {
         let Some(mut reader) = keys.table(name) else {
             continue;
         };
+        let mut spellings: HashMap<Key, Vec<String>> = HashMap::new();
+        let mut entries = Vec::new();
         for (text, value) in reader.entries() {
             let Ok(key) = text.parse::<Key>() else {
                 let path = reader.path.clone();
                 reader.report(path, DiagnosticKind::InvalidKey { key: text });
                 continue;
             };
+            spellings.entry(key).or_default().push(text.clone());
+            entries.push((text, key, value));
+        }
+        for (text, key, value) in entries {
+            let same = &spellings[&key];
+            if same.len() > 1 {
+                if same[0] == text {
+                    let path = reader.path.clone();
+                    reader.report(
+                        path,
+                        DiagnosticKind::DuplicateKey {
+                            key: key.to_string(),
+                            spellings: same.clone(),
+                        },
+                    );
+                }
+                continue;
+            }
             let Value::String(name) = value else {
                 reader.invalid(&text, "a command name");
                 continue;
@@ -427,7 +448,7 @@ fn merge_os_section(table: &mut Table, os: Os, diagnostics: &mut Vec<Diagnostic>
             continue;
         }
         match section {
-            Value::Table(section) => merge_into(table, section),
+            Value::Table(section) => merge_os_items(table, section),
             _ => diagnostics.push(Diagnostic {
                 path: format!("os.{name}"),
                 kind: DiagnosticKind::InvalidValue {
@@ -442,6 +463,36 @@ fn merge_os_section(table: &mut Table, os: Os, diagnostics: &mut Vec<Diagnostic>
             kind: DiagnosticKind::UnknownItem,
         });
     }
+}
+
+fn merge_os_items(base: &mut Table, mut overlay: Table) {
+    if let Some(Value::Table(overlay_keys)) = overlay.get_mut("keys")
+        && let Some(Value::Table(base_keys)) = base.get_mut("keys")
+    {
+        for (context, value) in std::mem::take(overlay_keys) {
+            match (base_keys.get_mut(&context), value) {
+                (Some(Value::Table(below)), Value::Table(above)) => merge_key_table(below, above),
+                (_, value) => {
+                    base_keys.insert(context, value);
+                }
+            }
+        }
+    }
+    merge_into(base, overlay);
+}
+
+fn merge_key_table(base: &mut Table, overlay: Table) {
+    let overlaid: Vec<Key> = overlay
+        .keys()
+        .filter_map(|spelling| spelling.parse().ok())
+        .collect();
+    base.retain(|spelling, _| {
+        spelling
+            .parse::<Key>()
+            .ok()
+            .is_none_or(|key| !overlaid.contains(&key))
+    });
+    base.extend(overlay);
 }
 
 fn merge_into(base: &mut Table, overlay: Table) {
@@ -745,6 +796,100 @@ run = "x {nope}"
                     command: "copy".to_owned(),
                 }
         }));
+    }
+
+    #[test]
+    fn spellings_of_one_key_in_a_table_are_all_ignored() {
+        let text = r#"
+[keys.filelist]
+"a" = "copy"
+"A" = "move"
+"ctrl+b" = "copy"
+"Ctrl+B" = "move"
+"Ctrl+b" = "delete"
+"F1" = "copy"
+"#;
+
+        let (config, diagnostics) = parse(text, Os::Linux).unwrap();
+
+        let default = Config::default_for(Os::Linux);
+        for key in ["a", "A", "Ctrl+B"] {
+            let key: Key = key.parse().unwrap();
+            assert_eq!(
+                config.keys.lookup(Context::FileList, &key),
+                default.keys.lookup(Context::FileList, &key)
+            );
+        }
+        assert_eq!(
+            config
+                .keys
+                .lookup(Context::FileList, &"F1".parse().unwrap()),
+            Some(Command::Copy)
+        );
+        assert_eq!(paths(&diagnostics), ["keys.filelist", "keys.filelist"]);
+        assert_eq!(
+            diagnostics[0].kind,
+            DiagnosticKind::DuplicateKey {
+                key: "A".to_owned(),
+                spellings: vec!["A".to_owned(), "a".to_owned()],
+            }
+        );
+        assert_eq!(
+            diagnostics[1].kind,
+            DiagnosticKind::DuplicateKey {
+                key: "Ctrl+B".to_owned(),
+                spellings: vec![
+                    "Ctrl+B".to_owned(),
+                    "Ctrl+b".to_owned(),
+                    "ctrl+b".to_owned()
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn os_sections_overlay_keys_by_normalized_key() {
+        let text = r#"
+[keys.filelist]
+"a" = "copy"
+[os.linux.keys.filelist]
+"A" = "move"
+"#;
+        let key: Key = "a".parse().unwrap();
+
+        let (linux, diagnostics) = parse(text, Os::Linux).unwrap();
+        assert_eq!(diagnostics, Vec::new());
+        assert_eq!(
+            linux.keys.lookup(Context::FileList, &key),
+            Some(Command::Move)
+        );
+
+        let (macos, diagnostics) = parse(text, Os::MacOs).unwrap();
+        assert_eq!(diagnostics, Vec::new());
+        assert_eq!(
+            macos.keys.lookup(Context::FileList, &key),
+            Some(Command::Copy)
+        );
+    }
+
+    #[test]
+    fn spellings_of_one_key_in_different_tables_do_not_collide() {
+        let text = r#"
+[keys.filelist]
+"a" = "copy"
+[keys.image]
+"A" = "nop"
+"#;
+
+        let (config, diagnostics) = parse(text, Os::Linux).unwrap();
+
+        assert_eq!(diagnostics, Vec::new());
+        let key: Key = "a".parse().unwrap();
+        assert_eq!(
+            config.keys.lookup(Context::FileList, &key),
+            Some(Command::Copy)
+        );
+        assert_eq!(config.keys.lookup(Context::Image, &key), None);
     }
 
     #[test]
