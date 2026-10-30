@@ -3100,6 +3100,20 @@ fn a_syntax_error_on_reload_keeps_the_previous_configuration() {
 }
 
 #[test]
+fn config_watch_failure_is_logged() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+
+    harness.send(Msg::Io(IoEvent::ConfigWatchFailed {
+        error: IoError::new("too many watches"),
+    }));
+
+    assert_eq!(
+        harness.log(),
+        [format!("cannot watch {CONFIG_PATH}: too many watches")]
+    );
+}
+
+#[test]
 fn quit_saves_the_state() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a")]);
