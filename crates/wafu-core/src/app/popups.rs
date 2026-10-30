@@ -290,7 +290,7 @@ impl App {
                 let name = text;
                 let same = dest
                     .file_name()
-                    .is_some_and(|current| current == name.as_str());
+                    .is_some_and(|current| current.to_string_lossy() == name);
                 if name.is_empty() || same {
                     self.popup = Some(Popup::Conflict(ConflictPopup::new(source, dest, all)));
                 } else {

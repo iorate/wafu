@@ -352,6 +352,25 @@ fn rename_in_a_conflict_asks_for_a_name() {
     assert_eq!(harness.view().popup.unwrap().title, "Copying");
 }
 
+#[cfg(unix)]
+#[test]
+fn rename_in_a_conflict_left_unchanged_on_a_non_utf8_name_goes_back() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let mut harness = copying();
+    harness.operation(OperationEvent::Conflict {
+        source: path(LEFT, "a"),
+        dest: PathBuf::from(RIGHT).join(OsStr::from_bytes(b"a\xff")),
+    });
+    harness.press("R");
+
+    harness.press("Enter");
+
+    assert_eq!(harness.view().popup.unwrap().title, "File exists");
+    assert_eq!(harness.take_effects(), vec![]);
+}
+
 #[test]
 fn closing_the_window_during_an_operation_asks_first() {
     let mut harness = conflicting();
@@ -631,6 +650,44 @@ fn rename_takes_the_directory_the_popup_was_opened_in() {
         vec![Effect::Rename {
             from: path(LEFT, "a"),
             to: path(LEFT, "z"),
+        }]
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn rename_left_unchanged_on_a_non_utf8_name_only_closes() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    use crate::entry::Entry;
+
+    let name = OsStr::from_bytes(b"a\xff");
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(
+        Side::Left,
+        vec![Entry {
+            name: name.to_owned(),
+            ..file("")
+        }],
+    );
+    harness.press("Down");
+    harness.take_effects();
+    harness.press("R");
+
+    harness.press("Enter");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.view().popup, None);
+
+    harness.press("R");
+    harness.edit("b");
+    harness.press("Enter");
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Rename {
+            from: PathBuf::from(LEFT).join(name),
+            to: path(LEFT, "b"),
         }]
     );
 }

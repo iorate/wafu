@@ -398,7 +398,7 @@ impl App {
         let path = base.join(text);
         match kind {
             InputKind::Rename { original, .. } => {
-                if OsStr::new(text) != original {
+                if original.to_string_lossy() != text {
                     effects.push(Effect::Rename {
                         from: base.join(&original),
                         to: path,
