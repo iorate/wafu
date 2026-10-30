@@ -502,6 +502,28 @@ fn delete_counts_several_targets_and_enter_confirms() {
 }
 
 #[test]
+fn delete_takes_the_directory_the_confirmation_was_opened_in() {
+    let mut harness = three_files();
+    cursor_only(&mut harness);
+    harness.press("Down");
+    harness.press("D");
+    harness.vanish(Side::Left, "/home", vec![file("a")]);
+    assert_eq!(harness.view().left.path, "/home");
+
+    harness.press("Y");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::StartOperation(OperationSpec {
+            kind: OperationKind::Delete,
+            sources: Sources::Paths(vec![path(LEFT, "a")]),
+            dest: None,
+            output: None,
+        })]
+    );
+}
+
+#[test]
 fn trash_starts_at_once() {
     let mut harness = three_files();
     cursor_only(&mut harness);
@@ -591,6 +613,26 @@ fn rename_opens_with_the_name_and_selects_everything_but_the_extension() {
         }]
     );
     assert_eq!(harness.view().popup, None);
+}
+
+#[test]
+fn rename_takes_the_directory_the_popup_was_opened_in() {
+    let mut harness = three_files();
+    harness.press("Down");
+    harness.press("R");
+    harness.vanish(Side::Left, "/home", vec![file("a")]);
+    assert_eq!(harness.view().left.path, "/home");
+
+    harness.edit("z");
+    harness.press("Enter");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Rename {
+            from: path(LEFT, "a"),
+            to: path(LEFT, "z"),
+        }]
+    );
 }
 
 #[test]

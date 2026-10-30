@@ -421,6 +421,23 @@ fn compress_takes_the_password_typed_in_the_second_field() {
 }
 
 #[test]
+fn compress_takes_the_directories_of_both_panes_when_the_popup_was_opened() {
+    let mut harness = outside();
+    harness.press("Down");
+    harness.press("P");
+    harness.vanish(Side::Left, "/home", vec![file("note.txt")]);
+    harness.vanish(Side::Right, "/", vec![]);
+    assert_eq!(harness.view().left.path, "/home");
+    assert_eq!(harness.view().right.path, "/");
+
+    harness.press("Enter");
+
+    let spec = harness.start_operation().unwrap();
+    assert_eq!(spec.sources, Sources::Paths(vec![path(LEFT, "note.txt")]));
+    assert_eq!(spec.dest, Some(PathBuf::from(RIGHT)));
+}
+
+#[test]
 fn compress_names_the_archive_after_the_directory_for_several_targets() {
     let mut harness = outside();
     harness.press("Space");

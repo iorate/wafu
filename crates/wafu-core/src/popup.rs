@@ -41,6 +41,7 @@ pub enum InputKind {
     MarkGlob,
     GoToPath,
     Rename {
+        dir: PathBuf,
         original: OsString,
     },
     Mkdir,
@@ -58,8 +59,11 @@ pub enum InputKind {
         retry: bool,
         purpose: PasswordPurpose,
     },
-    /// The name of the archive to make and its password, for the entries named.
+    /// The name of the archive to make and its password, for the entries
+    /// named in `dir`, to be put in `dest`.
     Compress {
+        dir: PathBuf,
+        dest: PathBuf,
         names: Vec<OsString>,
     },
 }
@@ -99,8 +103,8 @@ pub struct ChoicePopup {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChoiceKind {
-    /// The entries to delete, taken when the question was asked.
-    DeleteConfirm { names: Vec<OsString> },
+    /// The entries to delete and their directory, taken when the question was asked.
+    DeleteConfirm { dir: PathBuf, names: Vec<OsString> },
     /// Asked while an operation runs. The popup that was open, if any, comes
     /// back when the operation is left running.
     QuitDuringOperation { resume: Option<Box<Popup>> },
@@ -304,10 +308,15 @@ impl InputPopup {
     /// Asks for the name of a new archive, with the part before the extension
     /// selected, and an optional password.
     #[must_use]
-    pub fn compress(names: Vec<OsString>, initial_name: String) -> Self {
+    pub fn compress(
+        dir: PathBuf,
+        dest: PathBuf,
+        names: Vec<OsString>,
+        initial_name: String,
+    ) -> Self {
         let select = stem_selection(&initial_name);
         Self {
-            kind: InputKind::Compress { names },
+            kind: InputKind::Compress { dir, dest, names },
             fields: vec![
                 InputField {
                     label: "Name",
@@ -411,13 +420,13 @@ const QUIT_CHOICES: [Choice; 2] = [
 impl ChoicePopup {
     /// Asks before deleting; the first answer deletes.
     #[must_use]
-    pub fn delete_confirm(names: Vec<OsString>) -> Self {
+    pub fn delete_confirm(dir: PathBuf, names: Vec<OsString>) -> Self {
         let message = match names.as_slice() {
             [name] => format!("Delete \"{}\"?", name.to_string_lossy()),
             _ => format!("Delete {} items?", names.len()),
         };
         Self {
-            kind: ChoiceKind::DeleteConfirm { names },
+            kind: ChoiceKind::DeleteConfirm { dir, names },
             message,
             cursor: 0,
         }
@@ -804,7 +813,7 @@ mod tests {
 
     #[test]
     fn delete_confirm_names_one_item_and_counts_more() {
-        let one = ChoicePopup::delete_confirm(vec![OsString::from("a.txt")]);
+        let one = ChoicePopup::delete_confirm(PathBuf::from("/d"), vec![OsString::from("a.txt")]);
         assert_eq!(one.message, "Delete \"a.txt\"?");
         assert_eq!(one.title(), "Delete");
         let labels: Vec<String> = one.items().into_iter().map(|item| item.label).collect();
@@ -813,11 +822,14 @@ mod tests {
         assert_eq!(one.choice_for_letter('n'), Some(1));
         assert_eq!(one.choice_for_letter('x'), None);
 
-        let three = ChoicePopup::delete_confirm(vec![
-            OsString::from("a"),
-            OsString::from("b"),
-            OsString::from("c"),
-        ]);
+        let three = ChoicePopup::delete_confirm(
+            PathBuf::from("/d"),
+            vec![
+                OsString::from("a"),
+                OsString::from("b"),
+                OsString::from("c"),
+            ],
+        );
         assert_eq!(three.message, "Delete 3 items?");
     }
 

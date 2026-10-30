@@ -276,6 +276,14 @@ impl Harness {
         }));
     }
 
+    pub(crate) fn vanish(&mut self, side: Side, ancestor: &str, entries: Vec<Entry>) {
+        self.changed(side);
+        self.fail_load(side, "No such file or directory");
+        self.resolve(side, ancestor, None);
+        self.load(side, entries);
+        self.take_effects();
+    }
+
     /// Reports something from the operation worker.
     pub(crate) fn operation(&mut self, event: OperationEvent) {
         self.send(Msg::Io(IoEvent::Operation(event)));

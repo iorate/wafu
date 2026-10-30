@@ -82,7 +82,11 @@ impl App {
             Command::Copy => self.start_transfer(OperationKind::Copy, effects),
             Command::Move => self.start_transfer(OperationKind::Move, effects),
             Command::Delete => self.confirm_delete(),
-            Command::Trash => self.start_removal(OperationKind::Trash, None, effects),
+            Command::Trash => {
+                let dir = self.active_pane().location().base.clone();
+                let names = self.target_names();
+                self.start_removal(OperationKind::Trash, dir, names, effects);
+            }
             Command::Rename => self.open_rename(),
             Command::Mkdir => self.open_input(InputKind::Mkdir),
             Command::NewFile => self.open_input(InputKind::NewFile),
@@ -143,12 +147,14 @@ impl App {
         };
         let names = self.target_names();
         let location = self.active_pane().location();
+        let source_dir = location.base.clone();
         if location.in_archive() {
             let entries = self.archive_entries(location, &names);
-            self.start_operation(kind, names, Sources::Entries(entries), Some(dest), effects);
+            let sources = Sources::Entries(entries);
+            self.start_operation(kind, source_dir, names, sources, Some(dest), effects);
         } else {
-            let sources = self.source_paths(&names);
-            self.start_operation(kind, names, sources, Some(dest), effects);
+            let sources = source_paths(&source_dir, &names);
+            self.start_operation(kind, source_dir, names, sources, Some(dest), effects);
         }
     }
 
@@ -157,29 +163,38 @@ impl App {
             return;
         };
         let names = self.target_names();
-        let sources = self.source_paths(&names);
-        self.start_operation(OperationKind::Extract, names, sources, Some(dest), effects);
+        let source_dir = self.active_pane().location().base.clone();
+        let sources = source_paths(&source_dir, &names);
+        let kind = OperationKind::Extract;
+        self.start_operation(kind, source_dir, names, sources, Some(dest), effects);
     }
 
     fn open_compress(&mut self) {
         let names = self.target_names();
-        if names.is_empty() || self.other_dest("compress").is_none() {
+        if names.is_empty() {
             return;
         }
-        let base = &self.active_pane().location().base;
+        let Some(dest) = self.other_dest("compress") else {
+            return;
+        };
+        let dir = self.active_pane().location().base.clone();
         let stem = match names.as_slice() {
             [name] => name.to_string_lossy().into_owned(),
-            _ => base.file_name().map_or_else(
+            _ => dir.file_name().map_or_else(
                 || DEFAULT_ARCHIVE_STEM.to_owned(),
                 |name| name.to_string_lossy().into_owned(),
             ),
         };
         let initial = format!("{stem}.{}", ArchiveFormat::Zip.extension());
-        self.popup = Some(Popup::Input(InputPopup::compress(names, initial)));
+        self.popup = Some(Popup::Input(InputPopup::compress(
+            dir, dest, names, initial,
+        )));
     }
 
     pub(super) fn confirm_compress(
         &mut self,
+        dir: PathBuf,
+        dest: PathBuf,
         names: Vec<OsString>,
         name: &str,
         password: &str,
@@ -188,17 +203,15 @@ impl App {
         if name.is_empty() {
             return;
         }
-        let Some(dest) = self.other_dest("compress") else {
-            return;
-        };
         let output = ArchiveOutput {
             format: ArchiveFormat::from_name(OsStr::new(name)).unwrap_or(ArchiveFormat::Zip),
             name: OsString::from(name),
             password: (!password.is_empty()).then(|| password.to_owned()),
         };
-        let sources = self.source_paths(&names);
+        let sources = source_paths(&dir, &names);
         self.begin_operation(
             OperationKind::Compress,
+            dir,
             names,
             sources,
             Some(dest),
@@ -211,21 +224,22 @@ impl App {
     pub(super) fn confirm_delete(&mut self) {
         let names = self.target_names();
         if !names.is_empty() {
-            self.popup = Some(Popup::Choice(ChoicePopup::delete_confirm(names)));
+            let dir = self.active_pane().location().base.clone();
+            self.popup = Some(Popup::Choice(ChoicePopup::delete_confirm(dir, names)));
         }
     }
 
-    /// Starts a delete or trash. The names come from the confirmation when
-    /// there was one, so that what was asked about is what goes.
+    /// Starts a delete or trash. The directory and names come from the
+    /// confirmation when there was one, so that what was asked about is what goes.
     pub(super) fn start_removal(
         &mut self,
         kind: OperationKind,
-        names: Option<Vec<OsString>>,
+        dir: PathBuf,
+        names: Vec<OsString>,
         effects: &mut Vec<Effect>,
     ) {
-        let names = names.unwrap_or_else(|| self.target_names());
-        let sources = self.source_paths(&names);
-        self.start_operation(kind, names, sources, None, effects);
+        let sources = source_paths(&dir, &names);
+        self.start_operation(kind, dir, names, sources, None, effects);
     }
 
     pub(super) fn confirm_quit(&mut self) {
@@ -360,10 +374,11 @@ impl App {
         let Some(entry) = pane.cursor_entry() else {
             return;
         };
+        let dir = pane.location().base.clone();
         let original = entry.name.clone();
         let text = original.to_string_lossy().into_owned();
         self.popup = Some(Popup::Input(InputPopup::single(
-            InputKind::Rename { original },
+            InputKind::Rename { dir, original },
             text,
             rename_selection(entry),
         )));
@@ -373,13 +388,16 @@ impl App {
         if text.is_empty() {
             return;
         }
-        let base = self.active_pane().location().base.clone();
+        let base = match &kind {
+            InputKind::Rename { dir, .. } => dir.clone(),
+            _ => self.active_pane().location().base.clone(),
+        };
         if base.as_os_str().is_empty() {
             return;
         }
         let path = base.join(text);
         match kind {
-            InputKind::Rename { original } => {
+            InputKind::Rename { original, .. } => {
                 if OsStr::new(text) != original {
                     effects.push(Effect::Rename {
                         from: base.join(&original),
@@ -586,11 +604,6 @@ impl App {
         Some(other.base.clone())
     }
 
-    fn source_paths(&self, names: &[OsString]) -> Sources {
-        let base = &self.active_pane().location().base;
-        Sources::Paths(names.iter().map(|name| base.join(name)).collect())
-    }
-
     fn temp_open(name: OsString) -> Temp {
         Temp {
             action: TempAction::OpenWithOs,
@@ -617,8 +630,10 @@ impl App {
 
     fn start_temp(&mut self, temp: Temp, entries: ArchiveEntries, effects: &mut Vec<Effect>) {
         let names = entries.names.iter().map(OsString::from).collect();
+        let source_dir = self.active_pane().location().base.clone();
         self.begin_operation(
             OperationKind::ExtractToTemp,
+            source_dir,
             names,
             Sources::Entries(entries),
             None,
@@ -631,18 +646,20 @@ impl App {
     fn start_operation(
         &mut self,
         kind: OperationKind,
+        source_dir: PathBuf,
         names: Vec<OsString>,
         sources: Sources,
         dest: Option<PathBuf>,
         effects: &mut Vec<Effect>,
     ) {
-        self.begin_operation(kind, names, sources, dest, None, None, effects);
+        self.begin_operation(kind, source_dir, names, sources, dest, None, None, effects);
     }
 
     #[allow(clippy::too_many_arguments)]
     fn begin_operation(
         &mut self,
         kind: OperationKind,
+        source_dir: PathBuf,
         names: Vec<OsString>,
         sources: Sources,
         dest: Option<PathBuf>,
@@ -653,7 +670,6 @@ impl App {
         if names.is_empty() {
             return;
         }
-        let source_dir = self.active_pane().location().base.clone();
         if source_dir.as_os_str().is_empty() {
             return;
         }
@@ -772,6 +788,10 @@ impl App {
             }
         }
     }
+}
+
+fn source_paths(dir: &Path, names: &[OsString]) -> Sources {
+    Sources::Paths(names.iter().map(|name| dir.join(name)).collect())
 }
 
 // The commands that require_marks keeps from acting on the cursor row alone.

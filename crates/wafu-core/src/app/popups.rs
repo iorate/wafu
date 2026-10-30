@@ -282,8 +282,8 @@ impl App {
                 self.preview_password(popup, effects);
                 return;
             }
-            InputKind::Compress { names } => {
-                self.confirm_compress(names, &text, &password, effects);
+            InputKind::Compress { dir, dest, names } => {
+                self.confirm_compress(dir, dest, names, &text, &password, effects);
                 return;
             }
             InputKind::ConflictRename { source, dest, all } => {
@@ -349,9 +349,9 @@ impl App {
             return;
         };
         match popup.kind {
-            ChoiceKind::DeleteConfirm { names } => {
+            ChoiceKind::DeleteConfirm { dir, names } => {
                 if choice == Some(0) {
-                    self.start_removal(OperationKind::Delete, Some(names), effects);
+                    self.start_removal(OperationKind::Delete, dir, names, effects);
                 }
             }
             ChoiceKind::QuitDuringOperation { resume } => {
