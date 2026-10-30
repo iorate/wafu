@@ -1969,6 +1969,32 @@ fn history_popup_lists_newest_first_and_picks_by_key() {
 }
 
 #[test]
+fn go_home_goes_to_the_home_directory() {
+    let mut harness = Harness::start("/tmp", "/tmp");
+    harness.take_effects();
+
+    harness.press("~");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![
+            Effect::Watch {
+                side: Side::Left,
+                path: PathBuf::from(HOME),
+            },
+            Effect::ReadDir {
+                side: Side::Left,
+                location: Location::new(PathBuf::from(HOME)),
+                request: harness.latest_request(Side::Left),
+            },
+        ]
+    );
+    harness.load(Side::Left, vec![]);
+    assert_eq!(harness.view().left.path, HOME);
+    assert_eq!(harness.history(Side::Left), ["/tmp", HOME]);
+}
+
+#[test]
 fn go_home_at_home_does_nothing() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a"), file("b")]);
@@ -2319,6 +2345,19 @@ fn swap_panes_does_nothing_when_a_pane_has_no_place() {
 
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(harness.log(), Vec::<String>::new());
+}
+
+#[test]
+fn moving_gives_a_pane_without_a_place_its_place_and_history() {
+    let mut harness = right_pane_without_a_place();
+    harness.press("Right");
+
+    harness.press("~");
+    harness.load(Side::Right, vec![file("a")]);
+
+    assert_eq!(harness.view().right.path, HOME);
+    assert_eq!(harness.names(Side::Right), ["..", "a"]);
+    assert_eq!(harness.history(Side::Right), [HOME]);
 }
 
 #[test]

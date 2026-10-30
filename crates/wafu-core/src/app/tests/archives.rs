@@ -1033,6 +1033,19 @@ fn a_vanished_archive_falls_back_to_its_directory() {
 }
 
 #[test]
+fn go_to_path_inside_an_archive_starts_with_the_archive_path() {
+    let mut harness = inside();
+    harness.press("Down");
+    harness.press("Enter");
+    harness.load(Side::Left, vec![file("c.txt")]);
+
+    harness.press("Shift+J");
+
+    assert_eq!(harness.view().popup.unwrap().title, "Go to path");
+    assert_eq!(harness.popup_fields(), [archive().display().to_string()]);
+}
+
+#[test]
 fn go_to_path_naming_the_archive_leaves_it_with_the_cursor_on_the_file() {
     let mut harness = inside();
 
