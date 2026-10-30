@@ -1942,41 +1942,66 @@ fn history_popup_lists_newest_first_and_picks_by_key() {
 }
 
 #[test]
-fn going_to_the_current_place_does_nothing() {
+fn go_home_at_home_does_nothing() {
     let mut harness = Harness::start("/home/user", "/tmp");
-    harness.load(Side::Left, vec![file("a")]);
+    harness.load(Side::Left, vec![file("a"), file("b")]);
     harness.press("Down");
     harness.press("Space");
     harness.take_effects();
 
     harness.press("~");
-    harness.press("Shift+O");
-    harness.press("F1");
-    harness.edit("swap_panes");
-    harness.press("Enter");
 
+    assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(harness.marks(Side::Left), ["a"]);
-    assert_eq!(
-        harness.take_effects(),
-        vec![
-            Effect::Watch {
-                side: Side::Right,
-                path: PathBuf::from("/home/user"),
-            },
-            Effect::ReadDir {
-                side: Side::Right,
-                location: Location::new(PathBuf::from("/home/user")),
-                request: harness.latest_request(Side::Right),
-            },
-        ]
-    );
-    harness.load(Side::Right, vec![]);
+    assert_eq!(harness.cursor_name(Side::Left), "b");
+}
+
+#[test]
+fn sync_to_other_at_the_same_place_does_nothing() {
+    let mut harness = Harness::start("/home/user", "/home/user");
+    harness.load(Side::Left, vec![file("a"), file("b")]);
+    harness.press("Down");
+    harness.press("Space");
+    harness.take_effects();
+
+    harness.press("O");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.marks(Side::Left), ["a"]);
+    assert_eq!(harness.cursor_name(Side::Left), "b");
+}
+
+#[test]
+fn sync_other_to_this_at_the_same_place_does_nothing() {
+    let mut harness = Harness::start("/home/user", "/home/user");
+    harness.load(Side::Left, vec![file("a"), file("b")]);
+    harness.press("Down");
+    harness.press("Space");
+    harness.press("Tab");
+    harness.take_effects();
+
+    harness.press("Shift+O");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.marks(Side::Left), ["a"]);
+    assert_eq!(harness.cursor_name(Side::Left), "b");
+}
+
+#[test]
+fn swap_panes_at_the_same_place_does_nothing() {
+    let mut harness = Harness::start("/home/user", "/home/user");
+    harness.load(Side::Left, vec![file("a"), file("b")]);
+    harness.press("Down");
+    harness.press("Space");
     harness.take_effects();
 
     harness.press("F1");
     harness.edit("swap_panes");
     harness.press("Enter");
+
     assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.marks(Side::Left), ["a"]);
+    assert_eq!(harness.cursor_name(Side::Left), "b");
 }
 
 #[test]
