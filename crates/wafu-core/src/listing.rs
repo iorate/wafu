@@ -145,10 +145,12 @@ impl Keys {
         } else {
             Vec::new()
         };
-        Self {
-            name: sort_key(collator, &entry.name.to_string_lossy()),
-            extension,
-        }
+        let name = if key == SortKey::None {
+            Vec::new()
+        } else {
+            sort_key(collator, &entry.name.to_string_lossy())
+        };
+        Self { name, extension }
     }
 }
 
