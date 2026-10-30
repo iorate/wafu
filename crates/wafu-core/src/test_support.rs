@@ -20,8 +20,8 @@ pub(crate) const LEFT: &str = HOME;
 pub(crate) const RIGHT: &str = "/tmp";
 pub(crate) const CONFIG_PATH: &str = "/home/user/.config/wafu/config.toml";
 
-/// Drives an [`App`] with messages and records the effects, so that scenario
-/// tests read like a script: press a key, answer an I/O request, look at the view.
+// Drives an `App` with messages and records the effects, so that scenario
+// tests read like a script: press a key, answer an I/O request, look at the view.
 pub(crate) struct Harness {
     app: App,
     effects: Vec<Effect>,
@@ -31,7 +31,7 @@ pub(crate) struct Harness {
 }
 
 impl Harness {
-    /// Starts on Linux with both panes loaded empty, so that keys work at once.
+    // Starts on Linux with both panes loaded empty, so that keys work at once.
     pub(crate) fn start(left: &str, right: &str) -> Self {
         Self::start_on(Os::Linux, left, right)
     }
@@ -58,7 +58,7 @@ impl Harness {
         harness
     }
 
-    /// Starts with both panes waiting for their listings.
+    // Starts with both panes waiting for their listings.
     pub(crate) fn start_both_pending(os: Os, left: &str, right: &str) -> Self {
         let mut harness = Self::start_unresolved(os, left, right);
         harness.resolve(Side::Left, left, None);
@@ -66,13 +66,13 @@ impl Harness {
         harness
     }
 
-    /// Starts without answering the resolves, for tests of the start-up itself.
+    // Starts without answering the resolves, for tests of the start-up itself.
     pub(crate) fn start_unresolved(os: Os, left: &str, right: &str) -> Self {
         Self::start_from(start_msg(os, Some(left), Some(right)))
     }
 
-    /// Starts from a `Start` message built by [`start_msg`] and changed as the
-    /// test needs, without answering anything.
+    // Starts from a `Start` message built by `start_msg` and changed as the
+    // test needs, without answering anything.
     pub(crate) fn start_from(msg: Msg) -> Self {
         let mut harness = Self {
             app: App::new(),
@@ -104,14 +104,14 @@ impl Harness {
         self.effects.extend(effects);
     }
 
-    /// Reloads the configuration from text, as the watch does after an edit.
+    // Reloads the configuration from text, as the watch does after an edit.
     pub(crate) fn config(&mut self, text: &str) {
         self.send(Msg::Io(IoEvent::ConfigLoaded {
             result: Ok(text.to_owned()),
         }));
     }
 
-    /// Presses a key written as in the configuration, simulating what the UI would deliver.
+    // Presses a key written as in the configuration, simulating what the UI would deliver.
     pub(crate) fn press(&mut self, key: &str) {
         let key: Key = key.parse().expect("test key should parse");
         let text = match key.base {
@@ -129,7 +129,7 @@ impl Harness {
         }));
     }
 
-    /// Edits the popup's first input field, as the UI does after every keystroke.
+    // Edits the popup's first input field, as the UI does after every keystroke.
     pub(crate) fn edit(&mut self, text: &str) {
         self.edit_field(0, text);
     }
@@ -174,7 +174,6 @@ impl Harness {
         self.send(Msg::Mouse(MouseInput::PreviewWheel { rows }));
     }
 
-    /// Answers the latest preview request with a decoded document.
     pub(crate) fn preview_loaded(&mut self, document: Document) {
         let request = self.latest_preview_request();
         self.send(Msg::Io(IoEvent::PreviewLoaded {
@@ -191,7 +190,7 @@ impl Harness {
         }));
     }
 
-    /// Answers the latest image request with a blank image of the given size.
+    // Answers the latest image request with a blank image of the given size.
     pub(crate) fn image_loaded(&mut self, width: u32, height: u32) {
         let request = self.latest_preview_request();
         self.send(Msg::Io(IoEvent::ImageLoaded {
@@ -218,7 +217,6 @@ impl Harness {
             .expect("a LoadPreview or LoadImage request should have been issued")
     }
 
-    /// The texts of the lines a text or binary preview shows.
     pub(crate) fn preview_lines(&self) -> Vec<String> {
         self.preview_content()
             .into_iter()
@@ -226,7 +224,6 @@ impl Harness {
             .collect()
     }
 
-    /// The line numbers beside the lines a preview shows.
     pub(crate) fn preview_numbers(&self) -> Vec<String> {
         self.preview_content()
             .into_iter()
@@ -241,13 +238,13 @@ impl Harness {
         }
     }
 
-    /// Delivers a listing to a side: answers its pending read, or, when none
-    /// is pending, reports a change first so that the side reads again.
+    // Delivers a listing to a side: answers its pending read, or, when none
+    // is pending, reports a change first so that the side reads again.
     pub(crate) fn load(&mut self, side: Side, entries: Vec<Entry>) {
         self.load_directory(side, Directory { own: None, entries });
     }
 
-    /// Like `load`, with the location itself as an entry.
+    // Like `load`, with the location itself as an entry.
     pub(crate) fn load_directory(&mut self, side: Side, directory: Directory) {
         if self.app.pane(side).loading().is_none() {
             self.changed(side);
@@ -269,8 +266,8 @@ impl Harness {
         }));
     }
 
-    /// Answers the latest `Resolve` request of a side with a directory and,
-    /// optionally, a file to put the cursor on.
+    // Answers the latest `Resolve` request of a side with a directory and,
+    // optionally, a file to put the cursor on.
     pub(crate) fn resolve(&mut self, side: Side, dir: &str, file: Option<&str>) {
         let request = self.latest_resolve(side);
         self.send(Msg::Io(IoEvent::Resolved {
@@ -283,7 +280,7 @@ impl Harness {
         }));
     }
 
-    /// Answers the latest `Resolve` request of a side with "nothing exists".
+    // Answers the latest `Resolve` request of a side with "nothing exists".
     pub(crate) fn fail_resolve(&mut self, side: Side) {
         let request = self.latest_resolve(side);
         self.send(Msg::Io(IoEvent::Resolved {
@@ -301,7 +298,6 @@ impl Harness {
         self.take_effects();
     }
 
-    /// Reports something from the operation worker.
     pub(crate) fn operation(&mut self, event: OperationEvent) {
         self.send(Msg::Io(IoEvent::Operation(event)));
     }
@@ -321,7 +317,7 @@ impl Harness {
         self.load(side, entries);
     }
 
-    /// Takes the `StartOperation` out of the recorded effects.
+    // Takes the `StartOperation` out of the recorded effects.
     pub(crate) fn start_operation(&mut self) -> Option<OperationSpec> {
         self.take_effects()
             .into_iter()
@@ -331,7 +327,6 @@ impl Harness {
             })
     }
 
-    /// Reports the result of a rename or a creation.
     pub(crate) fn changed_result(&mut self, change: Change, error: Option<&str>) {
         self.send(Msg::Io(IoEvent::Changed {
             change,
@@ -346,7 +341,7 @@ impl Harness {
         }));
     }
 
-    /// Reports a change in the directory a side is showing.
+    // Reports a change in the directory a side is showing.
     pub(crate) fn changed(&mut self, side: Side) {
         let path = self.app.pane(side).location().base.clone();
         self.send(Msg::Io(IoEvent::LocationChanged { side, path }));
@@ -423,7 +418,6 @@ impl Harness {
             .collect()
     }
 
-    /// The texts of the popup's input fields.
     pub(crate) fn popup_fields(&self) -> Vec<String> {
         self.view()
             .popup
@@ -439,7 +433,7 @@ impl Harness {
     }
 }
 
-/// A `Start` on the given OS with an empty configuration and no state file.
+// A `Start` on the given OS with an empty configuration and no state file.
 pub(crate) fn start_msg(os: Os, left: Option<&str>, right: Option<&str>) -> Msg {
     start_msg_with(os, left, right, ConfigSource::Text(String::new()), Ok(None))
 }

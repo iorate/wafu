@@ -1434,7 +1434,7 @@ fn windows_files() -> Harness {
     harness
 }
 
-/// A copy of `a` and `c` is running.
+// A copy of `a` and `c` is running.
 fn copying() -> Harness {
     let mut harness = three_files();
     harness.press("Down");
@@ -1447,7 +1447,7 @@ fn copying() -> Harness {
     harness
 }
 
-/// A copy is waiting for the answer to a conflict on `a`.
+// A copy is waiting for the answer to a conflict on `a`.
 fn conflicting() -> Harness {
     let mut harness = copying();
     harness.operation(OperationEvent::Conflict {
