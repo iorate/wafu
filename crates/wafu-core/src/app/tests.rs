@@ -1392,12 +1392,6 @@ fn log_keys_scroll_and_clear() {
     harness.press("Shift+Down");
     assert_eq!(harness.view().log.scroll_top, 2);
 
-    harness.send(Msg::Key(KeyInput {
-        text: "clear_log".to_owned(),
-        ctrl: false,
-        shift: false,
-        alt: false,
-    }));
     harness.press("F1");
     harness.edit("clear_log");
     harness.press("Enter");

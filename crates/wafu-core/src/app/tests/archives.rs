@@ -7,7 +7,6 @@ use crate::operation::{
     ArchiveEntries, ArchiveOutput, OperationEvent, OperationKind, OperationSpec, Outcome, Reply,
     Sources,
 };
-use crate::pane::RequestId;
 use crate::test_support::{Harness, LEFT, RIGHT, dir, file, path, shown};
 
 const TEMP: &str = "/tmp/wafu/x1";
@@ -1055,6 +1054,7 @@ fn stale_archive_replies_are_ignored() {
     let stale = harness.latest_request(Side::Left);
     harness.press("Esc");
     harness.take_effects();
+    let names = harness.names(Side::Left);
 
     harness.send(Msg::Io(IoEvent::DirLoaded {
         side: Side::Left,
@@ -1066,7 +1066,7 @@ fn stale_archive_replies_are_ignored() {
     }));
 
     assert_eq!(harness.view().left.path, LEFT);
-    assert_eq!(stale, RequestId(stale.0));
+    assert_eq!(harness.names(Side::Left), names);
 }
 
 // The left pane shows a directory with an archive, with the cursor on it.
