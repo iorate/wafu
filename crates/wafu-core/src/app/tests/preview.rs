@@ -241,6 +241,20 @@ fn an_image_filling_the_window_hides_the_log() {
 }
 
 #[test]
+fn the_status_line_stays_in_a_preview_that_hides_the_log() {
+    let mut harness = listing();
+    harness.config("[general]\nhide_log_in_preview = true\n");
+    harness.press("Down");
+
+    harness.press("Enter");
+    harness.preview_loaded(Document::decode(b"l0\n".to_vec(), false));
+
+    let view = harness.view();
+    assert!(view.hide_log);
+    assert_eq!(view.status, "note.txt | -????????? | 0 bytes");
+}
+
+#[test]
 fn an_image_opened_from_the_left_pane_uses_the_right_area_and_follows_the_cursor() {
     let mut harness = listing();
     harness.press("Down");
@@ -299,6 +313,17 @@ fn an_image_opened_from_the_left_pane_uses_the_right_area_and_follows_the_cursor
         harness.take_effects().as_slice(),
         [Effect::LoadImage { .. }]
     ));
+}
+
+#[test]
+fn the_status_line_follows_the_cursor_of_an_image_preview() {
+    let mut harness = image();
+    assert_eq!(harness.view().status, "one.png | -????????? | 0 bytes");
+
+    harness.press("Down");
+
+    assert!(harness.view().preview.is_some());
+    assert_eq!(harness.view().status, "two.JPG | -????????? | 0 bytes");
 }
 
 #[test]
