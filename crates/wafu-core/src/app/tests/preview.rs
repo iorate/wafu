@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use crate::app::{Effect, IoEvent, MouseInput, Msg, PreviewError, PreviewSource, Side};
-use crate::entry::SpecialKind;
+use crate::entry::{Entry, EntryKind, SpecialKind, TargetKind};
 use crate::error::IoError;
 use crate::location::{ArchiveFormat, ArchivePath};
 use crate::preview::{Document, truncated_note};
@@ -339,6 +339,53 @@ fn a_special_file_named_like_an_image_is_not_requested() {
     harness.press("Down");
 
     assert_eq!(harness.cursor_name(Side::Left), "pipe.png");
+    assert_eq!(harness.take_effects(), vec![]);
+    let preview = harness.view().preview.unwrap();
+    assert_eq!(preview.content, PreviewContent::Image(None));
+    assert_eq!(preview.detail, "");
+}
+
+#[test]
+fn a_broken_link_named_like_an_image_is_not_requested() {
+    let mut harness = image();
+    harness.image_loaded(2, 1);
+    let link = Entry {
+        kind: EntryKind::Symlink { target: None },
+        ..file("two.png")
+    };
+    harness.load(Side::Left, vec![file("one.png"), link]);
+    harness.take_effects();
+
+    harness.press("Down");
+
+    assert_eq!(harness.cursor_name(Side::Left), "two.png");
+    assert_eq!(harness.take_effects(), vec![]);
+    let preview = harness.view().preview.unwrap();
+    assert_eq!(preview.content, PreviewContent::Image(None));
+    assert_eq!(preview.detail, "");
+}
+
+#[test]
+fn a_link_inside_an_archive_named_like_an_image_is_not_requested() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("a.zip")]);
+    harness.press("Down");
+    harness.press("Enter");
+    let link = Entry {
+        kind: EntryKind::Symlink {
+            target: Some(TargetKind::File { executable: false }),
+        },
+        ..file("link.png")
+    };
+    harness.load(Side::Left, vec![file("b.png"), link]);
+    harness.press("Down");
+    harness.press("Enter");
+    harness.image_loaded(2, 1);
+    harness.take_effects();
+
+    harness.press("Down");
+
+    assert_eq!(harness.cursor_name(Side::Left), "link.png");
     assert_eq!(harness.take_effects(), vec![]);
     let preview = harness.view().preview.unwrap();
     assert_eq!(preview.content, PreviewContent::Image(None));

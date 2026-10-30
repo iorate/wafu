@@ -2,6 +2,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use super::navigation::is_link_in_archive;
 use super::{App, Effect, MouseInput, PreviewError, PreviewSource, Side};
 use crate::command::Context;
 use crate::entry::Entry;
@@ -110,11 +111,15 @@ impl App {
         let Some(Preview::Image(preview)) = &self.preview else {
             return;
         };
-        let target = self
-            .active_pane()
+        let pane = self.active_pane();
+        let target = pane
             .cursor_entry()
             .filter(|entry| {
-                !entry.kind.is_dir_like() && !entry.kind.is_special() && is_image_name(&entry.name)
+                !entry.kind.is_dir_like()
+                    && !entry.kind.is_special()
+                    && !entry.kind.is_broken_link()
+                    && !is_link_in_archive(pane.location(), entry.kind)
+                    && is_image_name(&entry.name)
             })
             .map(|entry| entry.name.clone());
         if target == preview.shown {
