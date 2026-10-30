@@ -509,6 +509,7 @@ fn go_parent_at_root_does_nothing() {
     harness.press("BS");
 
     assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.log(), Vec::<String>::new());
 }
 
 #[test]
@@ -520,6 +521,7 @@ fn focus_left_when_already_left_does_nothing() {
 
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(harness.app().active(), Side::Left);
+    assert_eq!(harness.log(), Vec::<String>::new());
 }
 
 #[test]
@@ -660,6 +662,7 @@ fn escape_cancels_a_move_and_stays_put() {
         }),
     }));
     assert_eq!(harness.view().left.path, "/home/user");
+    assert_eq!(harness.log(), Vec::<String>::new());
 }
 
 #[test]
@@ -1044,6 +1047,21 @@ fn clear_filter_restores_the_listing_and_clears_marks() {
 }
 
 #[test]
+fn clear_filter_without_a_filter_does_nothing_and_keeps_the_marks() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a"), file("b")]);
+    harness.press("Down");
+    harness.press("Space");
+    harness.take_effects();
+
+    harness.press("*");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.marks(Side::Left), ["a"]);
+    assert_eq!(harness.log(), Vec::<String>::new());
+}
+
+#[test]
 fn empty_filter_text_clears_the_filter() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a.png"), file("b.txt")]);
@@ -1291,6 +1309,20 @@ fn jump_moves_to_the_next_entry_starting_with_the_letter() {
     assert_eq!(harness.cursor_name(Side::Left), "Bravo");
     harness.press("Ctrl+B");
     assert_eq!(harness.cursor_name(Side::Left), "beta");
+}
+
+#[test]
+fn jump_without_a_match_does_nothing() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("alpha"), file("beta")]);
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("Ctrl+Z");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.cursor_name(Side::Left), "alpha");
+    assert_eq!(harness.log(), Vec::<String>::new());
 }
 
 // Palette
@@ -1888,6 +1920,7 @@ fn history_back_and_forward_move_without_recording_and_stop_at_the_ends() {
 
     harness.press("Ctrl+Shift+Right");
     assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.log(), Vec::<String>::new());
 }
 
 #[test]
@@ -2007,6 +2040,7 @@ fn go_home_at_home_does_nothing() {
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(harness.marks(Side::Left), ["a"]);
     assert_eq!(harness.cursor_name(Side::Left), "b");
+    assert_eq!(harness.log(), Vec::<String>::new());
 }
 
 #[test]
@@ -2022,6 +2056,7 @@ fn sync_to_other_at_the_same_place_does_nothing() {
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(harness.marks(Side::Left), ["a"]);
     assert_eq!(harness.cursor_name(Side::Left), "b");
+    assert_eq!(harness.log(), Vec::<String>::new());
 }
 
 #[test]
@@ -2038,6 +2073,7 @@ fn sync_other_to_this_at_the_same_place_does_nothing() {
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(harness.marks(Side::Left), ["a"]);
     assert_eq!(harness.cursor_name(Side::Left), "b");
+    assert_eq!(harness.log(), Vec::<String>::new());
 }
 
 #[test]
@@ -2055,6 +2091,7 @@ fn swap_panes_at_the_same_place_does_nothing() {
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(harness.marks(Side::Left), ["a"]);
     assert_eq!(harness.cursor_name(Side::Left), "b");
+    assert_eq!(harness.log(), Vec::<String>::new());
 }
 
 #[test]

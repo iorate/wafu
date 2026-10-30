@@ -1088,6 +1088,20 @@ fn open_with_os_opens_the_cursor_entry_only() {
 }
 
 #[test]
+fn a_successful_open_with_os_is_not_logged() {
+    let mut harness = three_files();
+    harness.press("Down");
+    harness.press("Ctrl+Enter");
+
+    harness.send(Msg::Io(IoEvent::Opened {
+        path: path(LEFT, "a"),
+        error: None,
+    }));
+
+    assert_eq!(harness.log(), Vec::<String>::new());
+}
+
+#[test]
 fn open_with_os_on_the_parent_row_opens_the_directory_itself() {
     let mut harness = three_files();
     harness.press("Down");
