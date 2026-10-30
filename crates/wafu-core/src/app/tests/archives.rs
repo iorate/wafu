@@ -8,10 +8,8 @@ use crate::operation::{
     Sources,
 };
 use crate::pane::RequestId;
-use crate::test_support::{Harness, dir, file};
+use crate::test_support::{Harness, LEFT, RIGHT, dir, file, path, shown};
 
-const LEFT: &str = "/home/user";
-const RIGHT: &str = "/tmp";
 const TEMP: &str = "/tmp/wafu/x1";
 
 #[test]
@@ -1102,7 +1100,7 @@ fn copying_inside() -> Harness {
     harness
 }
 
-fn contents() -> Vec<crate::entry::Entry> {
+fn contents() -> Vec<Entry> {
     vec![
         dir("docs"),
         file("b.txt"),
@@ -1129,12 +1127,4 @@ fn entries(names: &[&str], password: Option<&str>) -> ArchiveEntries {
         names: names.iter().map(|name| (*name).to_owned()).collect(),
         password: password.map(ToOwned::to_owned),
     }
-}
-
-fn path(dir: &str, name: &str) -> PathBuf {
-    PathBuf::from(dir).join(name)
-}
-
-fn shown(dir: &str, name: &str) -> String {
-    path(dir, name).display().to_string()
 }

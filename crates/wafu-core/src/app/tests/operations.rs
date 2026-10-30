@@ -1,15 +1,13 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-use crate::app::{Change, ConfigSource, Effect, IoEvent, MenuAnchor, Msg, Os, Side};
+use crate::app::{Change, Effect, IoEvent, MenuAnchor, Msg, Os, Side};
 use crate::error::IoError;
 use crate::operation::{OperationEvent, OperationKind, OperationSpec, Outcome, Reply, Sources};
 use crate::popup::Popup;
-use crate::test_support::{Harness, dir, file, start_msg_with};
+use crate::test_support::{Harness, LEFT, RIGHT, dir, file, path, shown};
 use crate::view::ItemMark;
 
-const LEFT: &str = "/home/user";
-const RIGHT: &str = "/tmp";
 const WIN_LEFT: &str = r"C:\Users\me";
 const WIN_RIGHT: &str = r"D:\";
 
@@ -63,14 +61,14 @@ fn move_without_marks_takes_the_cursor_entry() {
 
 #[test]
 fn copy_on_the_parent_row_without_marks_does_nothing() {
-    let mut harness = three_files();
-    cursor_only(&mut harness);
+    let mut harness = Harness::start_with_config(LEFT, RIGHT, "[general]\nrequire_marks = false\n");
+    harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
     harness.take_effects();
 
     harness.press("C");
 
     assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(harness.log(), ["config reloaded"]);
+    assert_eq!(harness.log(), Vec::<String>::new());
     assert_eq!(harness.view().popup, None);
 }
 
@@ -226,7 +224,7 @@ fn a_failure_is_logged_with_the_path() {
 
     harness.finish(Outcome::Failed {
         path: path(LEFT, "a"),
-        error: crate::error::IoError::new("permission denied"),
+        error: IoError::new("permission denied"),
         done: 0,
     });
 
@@ -848,17 +846,9 @@ fn mkdir_creates_nested_directories_and_enters_the_new_one() {
 
 #[test]
 fn mkdir_without_entering_puts_the_cursor_on_the_first_component() {
-    let mut harness = Harness::start_from(start_msg_with(
-        Os::Linux,
-        Some(LEFT),
-        Some(RIGHT),
-        ConfigSource::Text("[general]\nmkdir_then_enter = false\n".to_owned()),
-        Ok(None),
-    ));
-    harness.resolve(Side::Left, LEFT, None);
-    harness.resolve(Side::Right, RIGHT, None);
+    let mut harness =
+        Harness::start_with_config(LEFT, RIGHT, "[general]\nmkdir_then_enter = false\n");
     harness.load(Side::Left, vec![file("x")]);
-    harness.load(Side::Right, vec![]);
     harness.take_effects();
 
     harness.press("K");
@@ -1037,9 +1027,9 @@ fn open_with_os_opens_the_cursor_entry_only() {
     );
     assert_eq!(harness.cursor_name(Side::Left), "c");
 
-    harness.send(Msg::Io(crate::app::IoEvent::Opened {
+    harness.send(Msg::Io(IoEvent::Opened {
         path: path(LEFT, "c"),
-        error: Some(crate::error::IoError::new("no application")),
+        error: Some(IoError::new("no application")),
     }));
     assert_eq!(
         harness.log().last().cloned(),
@@ -1105,9 +1095,9 @@ fn copy_path_and_copy_name_join_the_targets_with_newlines() {
         vec![Effect::Clipboard("a\nc".to_owned())]
     );
 
-    harness.send(Msg::Io(crate::app::IoEvent::ClipboardSet {
+    harness.send(Msg::Io(IoEvent::ClipboardSet {
         text: String::new(),
-        error: Some(crate::error::IoError::new("no clipboard")),
+        error: Some(IoError::new("no clipboard")),
     }));
     assert_eq!(
         harness.log().last().map(String::as_str),
@@ -1126,9 +1116,9 @@ fn copy_log_copies_every_kept_line_and_nothing_when_empty() {
     assert_eq!(harness.take_effects(), vec![]);
 
     for name in ["one", "two"] {
-        harness.send(Msg::Io(crate::app::IoEvent::ClipboardSet {
+        harness.send(Msg::Io(IoEvent::ClipboardSet {
             text: String::new(),
-            error: Some(crate::error::IoError::new(name)),
+            error: Some(IoError::new(name)),
         }));
     }
     harness.press("F1");
@@ -1429,17 +1419,9 @@ fn three_files() -> Harness {
 }
 
 fn three_files_not_creating_text() -> Harness {
-    let mut harness = Harness::start_from(start_msg_with(
-        Os::Linux,
-        Some(LEFT),
-        Some(RIGHT),
-        ConfigSource::Text("[general]\nnew_text_creates_file = false\n".to_owned()),
-        Ok(None),
-    ));
-    harness.resolve(Side::Left, LEFT, None);
-    harness.resolve(Side::Right, RIGHT, None);
+    let mut harness =
+        Harness::start_with_config(LEFT, RIGHT, "[general]\nnew_text_creates_file = false\n");
     harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
-    harness.load(Side::Right, vec![]);
     harness.take_effects();
     harness
 }
@@ -1474,13 +1456,4 @@ fn conflicting() -> Harness {
     });
     assert!(matches!(harness.popup(), Some(Popup::Conflict(_))));
     harness
-}
-
-fn path(dir: &str, name: &str) -> PathBuf {
-    PathBuf::from(dir).join(name)
-}
-
-// The path as the log shows it, with the separator of the OS running the test.
-fn shown(dir: &str, name: &str) -> String {
-    path(dir, name).display().to_string()
 }

@@ -2,7 +2,9 @@ use std::path::{MAIN_SEPARATOR, Path, PathBuf};
 
 use super::*;
 use crate::config::Theme;
-use crate::entry::{Directory, Entry, EntryKind, SpecialKind, TargetKind};
+use crate::entry::{
+    Directory, Entry, EntryKind, LocalDateTime, SpecialKind, TargetKind, Timestamp,
+};
 use crate::external::CommandLine;
 use crate::listing::{SortKey, SortSpec};
 use crate::pane::InFlight;
@@ -153,22 +155,12 @@ fn marker_column_follows_ls_f_and_directories_and_special_files_have_no_size() {
 
 #[test]
 fn status_line_spells_out_the_cursor_entry_of_the_active_pane() {
-    use crate::entry::{LocalDateTime, Permissions, Timestamp};
+    use crate::entry::Permissions;
 
     let mut harness = Harness::start("/home/user", "/tmp");
     let plain = Entry {
         size: 1234,
-        modified: Some(Timestamp {
-            at: std::time::SystemTime::UNIX_EPOCH,
-            local: LocalDateTime {
-                year: 2026,
-                month: 1,
-                day: 2,
-                hour: 3,
-                minute: 4,
-                second: 5,
-            },
-        }),
+        modified: Some(timestamp()),
         permissions: Some(Permissions::Mode(0o644)),
         ..file("a_long_name.txt")
     };
@@ -279,21 +271,11 @@ fn status_line_is_empty_for_an_empty_root() {
 
 #[test]
 fn status_line_on_the_parent_row_spells_out_the_directory_itself() {
-    use crate::entry::{LocalDateTime, Permissions, Timestamp};
+    use crate::entry::Permissions;
 
     let mut harness = Harness::start("/home/user", "/tmp");
     let own = Entry {
-        modified: Some(Timestamp {
-            at: std::time::SystemTime::UNIX_EPOCH,
-            local: LocalDateTime {
-                year: 2026,
-                month: 1,
-                day: 2,
-                hour: 3,
-                minute: 4,
-                second: 5,
-            },
-        }),
+        modified: Some(timestamp()),
         permissions: Some(Permissions::Mode(0o755)),
         ..dir("user")
     };
@@ -2863,17 +2845,11 @@ fn start_without_a_saved_history_position_continues_from_the_newest_place() {
 
 #[test]
 fn start_without_a_state_file_uses_initial() {
-    let mut harness = Harness::start_from(start_msg_with(
-        Os::Linux,
-        Some("/home/user"),
-        Some("/tmp"),
-        ConfigSource::Text(
-            "[initial]\nsort = \"extension\"\ndescending = true\nshow_hidden = true\n".to_owned(),
-        ),
-        Ok(None),
-    ));
-    harness.resolve(Side::Left, "/home/user", None);
-    harness.load(Side::Left, vec![]);
+    let harness = Harness::start_with_config(
+        "/home/user",
+        "/tmp",
+        "[initial]\nsort = \"extension\"\ndescending = true\nshow_hidden = true\n",
+    );
 
     let pane = harness.app().pane(Side::Left);
     assert_eq!(pane.sort().key, SortKey::Extension);
@@ -3188,19 +3164,11 @@ fn external_commands_run_from_the_palette_with_no_targets() {
 
 #[test]
 fn edit_config_opens_the_configuration_in_the_editor() {
-    let mut harness = Harness::start_from(start_msg_with(
-        Os::Linux,
-        Some("/home/user"),
-        Some("/tmp"),
-        ConfigSource::Text(
-            "[general]\neditor = \"code -w {paths}\"\n[os.macos.general]\neditor = \"open -t {paths}\"\n".to_owned(),
-        ),
-        Ok(None),
-    ));
-    harness.resolve(Side::Left, "/home/user", None);
-    harness.resolve(Side::Right, "/tmp", None);
-    harness.load(Side::Left, vec![]);
-    harness.load(Side::Right, vec![]);
+    let mut harness = Harness::start_with_config(
+        "/home/user",
+        "/tmp",
+        "[general]\neditor = \"code -w {paths}\"\n[os.macos.general]\neditor = \"open -t {paths}\"\n",
+    );
     harness.take_effects();
 
     harness.press("Z");
@@ -3228,4 +3196,18 @@ fn right_pane_without_a_place() -> Harness {
     harness.press("Esc");
     harness.take_effects();
     harness
+}
+
+fn timestamp() -> Timestamp {
+    Timestamp {
+        at: std::time::SystemTime::UNIX_EPOCH,
+        local: LocalDateTime {
+            year: 2026,
+            month: 1,
+            day: 2,
+            hour: 3,
+            minute: 4,
+            second: 5,
+        },
+    }
 }

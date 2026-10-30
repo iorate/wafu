@@ -5,11 +5,8 @@ use crate::entry::SpecialKind;
 use crate::error::IoError;
 use crate::location::{ArchiveFormat, ArchivePath};
 use crate::preview::{Document, truncated_note};
-use crate::test_support::{Harness, file, special};
+use crate::test_support::{Harness, LEFT, RIGHT, file, special};
 use crate::view::{PreviewContent, PreviewPlacement};
-
-const LEFT: &str = "/home/user";
-const RIGHT: &str = "/tmp";
 
 #[test]
 fn enter_on_a_text_file_opens_an_empty_preview_and_reads_the_file() {

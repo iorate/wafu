@@ -16,6 +16,8 @@ use crate::state::{StateError, StateFile};
 use crate::view::View;
 
 pub(crate) const HOME: &str = "/home/user";
+pub(crate) const LEFT: &str = HOME;
+pub(crate) const RIGHT: &str = "/tmp";
 pub(crate) const CONFIG_PATH: &str = "/home/user/.config/wafu/config.toml";
 
 /// Drives an [`App`] with messages and records the effects, so that scenario
@@ -36,6 +38,21 @@ impl Harness {
 
     pub(crate) fn start_on(os: Os, left: &str, right: &str) -> Self {
         let mut harness = Self::start_both_pending(os, left, right);
+        harness.load(Side::Left, Vec::new());
+        harness.load(Side::Right, Vec::new());
+        harness
+    }
+
+    pub(crate) fn start_with_config(left: &str, right: &str, config: &str) -> Self {
+        let mut harness = Self::start_from(start_msg_with(
+            Os::Linux,
+            Some(left),
+            Some(right),
+            ConfigSource::Text(config.to_owned()),
+            Ok(None),
+        ));
+        harness.resolve(Side::Left, left, None);
+        harness.resolve(Side::Right, right, None);
         harness.load(Side::Left, Vec::new());
         harness.load(Side::Right, Vec::new());
         harness
@@ -443,6 +460,15 @@ pub(crate) fn start_msg_with(
         config,
         state,
     }))
+}
+
+pub(crate) fn path(dir: &str, name: &str) -> PathBuf {
+    PathBuf::from(dir).join(name)
+}
+
+// The path as the log shows it, with the separator of the OS running the test.
+pub(crate) fn shown(dir: &str, name: &str) -> String {
+    path(dir, name).display().to_string()
 }
 
 pub(crate) fn file(name: &str) -> Entry {
