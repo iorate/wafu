@@ -226,7 +226,7 @@ impl App {
         ));
     }
 
-    /// The placeholder values for the active pane, outside an archive.
+    // The placeholder values for the active pane, outside an archive.
     pub(super) fn expansion(&self) -> Expansion {
         let pane = self.active_pane();
         let base = &pane.location().base;

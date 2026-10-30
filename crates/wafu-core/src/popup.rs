@@ -89,7 +89,6 @@ pub struct PalettePopup {
     pub query: String,
     pub matches: Vec<Command>,
     pub cursor: usize,
-    /// The names of the external commands, listed after the built-in ones.
     externals: Vec<String>,
 }
 
@@ -171,7 +170,6 @@ pub enum ListTarget {
     Drive(char),
 }
 
-/// The keys given to the first 36 items of a history or bookmark list.
 const ITEM_KEYS: &str = "0123456789abcdefghijklmnopqrstuvwxyz";
 
 const SORT_KEYS: [(SortKey, &str, char); 6] = [

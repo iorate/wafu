@@ -10,7 +10,6 @@ use crate::pane::{HistoryMove, InFlight, Pane, RequestId};
 use crate::path::{drive_letter, root_of};
 
 impl App {
-    /// Whether a move is waiting for its listing. Such a move is modal.
     pub(super) fn navigating(&self) -> bool {
         self.panes.iter().any(|pane| {
             matches!(
@@ -20,7 +19,6 @@ impl App {
         })
     }
 
-    /// The places being read, for the progress popup.
     pub(super) fn navigation_targets(&self) -> Vec<String> {
         self.panes
             .iter()
@@ -65,8 +63,6 @@ impl App {
         }));
     }
 
-    /// Moves to the existing directory at the path, or, when `climb` is set,
-    /// the nearest one above it, with the I/O layer deciding what exists.
     pub(super) fn resolve(
         &mut self,
         side: Side,
@@ -296,7 +292,6 @@ impl App {
         }
     }
 
-    /// Enters the file under the cursor as an archive, whatever its name.
     pub(super) fn enter_as_archive(&mut self, effects: &mut Vec<Effect>) {
         let Some(entry) = self.active_pane().cursor_entry() else {
             return;
