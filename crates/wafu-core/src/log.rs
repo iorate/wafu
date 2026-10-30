@@ -6,9 +6,9 @@ const MAX_LINES: usize = 1000;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Log {
     lines: Arc<[Arc<str>]>,
-    /// The first visible line when not following the tail.
+    // The first visible line when not following the tail.
     scroll_top: usize,
-    /// Whether new lines keep the tail in view.
+    // Whether new lines keep the tail in view.
     follow: bool,
     viewport_rows: usize,
 }
