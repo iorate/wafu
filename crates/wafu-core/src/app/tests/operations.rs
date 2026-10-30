@@ -119,6 +119,25 @@ fn copy_without_a_location_on_the_other_side_is_logged() {
 }
 
 #[test]
+fn copy_and_extract_on_the_parent_row_say_nothing_about_a_missing_location() {
+    let mut harness = Harness::start_both_pending(Os::Linux, LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("a")]);
+    harness.fail_load(Side::Right, "gone");
+    cursor_only(&mut harness);
+    harness.take_effects();
+    assert_eq!(harness.cursor_name(Side::Left), "..");
+    let log = harness.log();
+
+    for key in ["C", "M", "U"] {
+        harness.press(key);
+    }
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.view().popup, None);
+    assert_eq!(harness.log(), log);
+}
+
+#[test]
 fn an_operation_blocks_everything_but_cancel_and_new_window() {
     let mut harness = copying();
 
