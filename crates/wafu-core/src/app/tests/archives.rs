@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use crate::app::{Effect, IoEvent, Msg, Os, Side};
-use crate::entry::Directory;
+use crate::entry::{Directory, Entry, EntryKind, TargetKind};
 use crate::location::{ArchiveFormat, ArchivePath, Location};
 use crate::operation::{
     ArchiveEntries, ArchiveOutput, OperationEvent, OperationKind, OperationSpec, Outcome, Reply,
@@ -189,6 +189,27 @@ fn archives_inside_an_archive_cannot_be_entered() {
         root()
     );
     assert_eq!(harness.log(), [message.clone(), message]);
+}
+
+#[test]
+fn enter_on_a_link_named_like_an_archive_inside_an_archive_does_nothing() {
+    let mut harness = outside();
+    let link = Entry {
+        kind: EntryKind::Symlink {
+            target: Some(TargetKind::File { executable: false }),
+        },
+        ..file("link.zip")
+    };
+    harness.enter_archive(Side::Left, vec![link]);
+    harness.press("Down");
+    harness.take_effects();
+    assert_eq!(harness.cursor_name(Side::Left), "link.zip");
+
+    harness.press("Enter");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.view().left.path, root().to_string());
+    assert_eq!(harness.log(), Vec::<String>::new());
 }
 
 #[test]

@@ -281,14 +281,14 @@ impl App {
                 let path = location.base.join(&entry.name);
                 self.log.push(AppError::NotRegularFile { path }.to_string());
             }
+            // A link inside an archive leads nowhere until extracted.
+            Some(entry)
+                if location.in_archive() && matches!(entry.kind, EntryKind::Symlink { .. }) => {}
             Some(entry) => {
                 if let Some(format) = ArchiveFormat::from_name(&entry.name) {
                     let name = entry.name.clone();
                     self.enter_archive(&name, format, effects);
-                } else if !(location.in_archive()
-                    && matches!(entry.kind, EntryKind::Symlink { .. }))
-                {
-                    // A link inside an archive leads nowhere until extracted.
+                } else {
                     let entry = entry.clone();
                     self.open_preview(&entry, effects);
                 }
