@@ -705,6 +705,25 @@ fn edit_inside_an_archive_extracts_to_a_temporary_directory_and_then_starts_the_
 }
 
 #[test]
+fn edit_inside_an_archive_keeps_the_marks_of_the_extracted_entries() {
+    let mut harness = inside();
+    harness.press("Down");
+    harness.press("Down");
+    harness.press("Space");
+    harness.take_effects();
+
+    harness.press("E");
+    harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
+    harness.operation(OperationEvent::ItemDone { index: 0 });
+    harness.finish(Outcome::Completed {
+        done: 1,
+        skipped: 0,
+    });
+
+    assert_eq!(harness.marks(Side::Left), ["b.txt"]);
+}
+
+#[test]
 fn open_with_os_inside_an_archive_extracts_the_cursor_entry() {
     let mut harness = inside();
     harness.press("Down");
