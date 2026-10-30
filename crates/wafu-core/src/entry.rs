@@ -90,13 +90,7 @@ impl Entry {
             return (name.into_owned(), String::new());
         }
         // A leading dot alone does not start an extension.
-        let dot = name
-            .char_indices()
-            .skip(1)
-            .filter(|&(_, c)| c == '.')
-            .map(|(index, _)| index)
-            .last();
-        match dot {
+        match name.rfind('.').filter(|&index| index > 0) {
             Some(index) => (name[..index].to_owned(), name[index + 1..].to_owned()),
             None => (name.into_owned(), String::new()),
         }

@@ -595,7 +595,7 @@ impl Pane {
             return None;
         }
         (0..count)
-            .map(|offset| (start + count - offset % count) % count)
+            .map(|offset| (start + count - offset) % count)
             .find(|&row| pred(self, row))
     }
 

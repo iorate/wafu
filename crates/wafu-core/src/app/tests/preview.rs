@@ -4,7 +4,7 @@ use crate::app::{Effect, IoEvent, MouseInput, Msg, PreviewError, PreviewSource, 
 use crate::entry::SpecialKind;
 use crate::error::IoError;
 use crate::location::{ArchiveFormat, ArchivePath};
-use crate::preview::{Document, TRUNCATED_NOTE};
+use crate::preview::{Document, truncated_note};
 use crate::test_support::{Harness, file, special};
 use crate::view::{PreviewContent, PreviewPlacement};
 
@@ -147,7 +147,7 @@ fn a_binary_file_opens_as_a_hex_dump_with_the_note() {
     let lines = harness.preview_lines();
     assert_eq!(lines.len(), 2);
     assert!(lines[0].starts_with("00000000  61 62 00"));
-    assert_eq!(lines[1], TRUNCATED_NOTE);
+    assert_eq!(lines[1], truncated_note());
     assert_eq!(harness.view().preview.unwrap().detail, "");
 }
 

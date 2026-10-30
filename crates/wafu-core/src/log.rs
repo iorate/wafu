@@ -101,11 +101,6 @@ impl Log {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn len(&self) -> usize {
-        self.lines.len()
-    }
-
     fn max_top(&self) -> usize {
         self.lines.len().saturating_sub(self.viewport_rows)
     }
@@ -215,7 +210,7 @@ mod tests {
             log.push(i.to_string());
         }
 
-        assert_eq!(log.len(), MAX_LINES);
+        assert_eq!(log.lines().len(), MAX_LINES);
         assert_eq!(&*log.lines()[0], "2");
     }
 
@@ -257,7 +252,7 @@ mod tests {
 
         log.clear();
 
-        assert_eq!(log.len(), 0);
+        assert_eq!(log.lines().len(), 0);
         assert_eq!(log.scroll_top(), 0);
         log.push("a".to_owned());
         log.push("b".to_owned());

@@ -60,8 +60,7 @@ impl History {
         {
             return;
         }
-        self.items
-            .truncate(self.pos.saturating_add(1).min(self.items.len()));
+        self.items.truncate(self.pos + 1);
         self.items.push(path);
         if self.items.len() > MAX_ITEMS {
             self.items.remove(0);
