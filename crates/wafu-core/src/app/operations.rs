@@ -330,7 +330,9 @@ impl App {
                 operation.done = done;
             }
             OperationEvent::ItemDone { index } => {
-                if let Some(name) = operation.names.get(index) {
+                if operation.kind != OperationKind::ExtractToTemp
+                    && let Some(name) = operation.names.get(index)
+                {
                     self.panes[operation.side.index()].unmark(name);
                 }
             }
