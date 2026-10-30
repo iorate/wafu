@@ -231,7 +231,9 @@ impl App {
                 preview.error = None;
             }
             Err(PreviewError::PasswordRequired { retry }) => {
-                self.ask_preview_password(archive, retry);
+                if self.popup.is_none() {
+                    self.ask_preview_password(archive, retry);
+                }
             }
             Err(PreviewError::Failed(source)) => {
                 let line = AppError::PreviewFailed {

@@ -643,6 +643,27 @@ fn an_encrypted_image_asks_once_and_shows_nothing_on_esc() {
 }
 
 #[test]
+fn an_encrypted_image_does_not_replace_an_open_popup() {
+    let mut harness = inside_archive();
+    harness.press("Down");
+    harness.press("Enter");
+    harness.take_effects();
+
+    harness.press("@");
+    harness.fail_image(PreviewError::PasswordRequired { retry: false });
+
+    assert_eq!(harness.view().popup.unwrap().title, "Mark");
+    harness.edit("*.png");
+    harness.press("Enter");
+    assert_eq!(harness.marks(Side::Left), ["c.png"]);
+    assert!(harness.view().popup.is_none());
+    assert_eq!(
+        harness.view().preview.unwrap().content,
+        PreviewContent::Image(None)
+    );
+}
+
+#[test]
 fn a_link_inside_an_archive_is_not_previewed() {
     let mut harness = inside_archive();
     harness.press("Down");

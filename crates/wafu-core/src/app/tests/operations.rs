@@ -407,6 +407,22 @@ fn closing_the_window_during_an_operation_asks_first() {
 }
 
 #[test]
+fn a_conflict_during_the_quit_confirmation_waits_behind_it() {
+    let mut harness = copying();
+    harness.send(Msg::CloseRequested);
+
+    harness.operation(OperationEvent::Conflict {
+        source: path(LEFT, "a"),
+        dest: path(RIGHT, "a"),
+    });
+
+    assert_eq!(harness.view().popup.unwrap().title, "Quit");
+    harness.press("Enter");
+    assert_eq!(harness.view().popup.unwrap().title, "File exists");
+    assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
 fn delete_asks_once_and_names_a_single_target() {
     let mut harness = three_files();
     cursor_only(&mut harness);

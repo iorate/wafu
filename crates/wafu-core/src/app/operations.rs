@@ -315,13 +315,13 @@ impl App {
                 }
             }
             OperationEvent::Conflict { source, dest } => {
-                self.popup = Some(Popup::Conflict(ConflictPopup::new(source, dest, false)));
+                self.show_operation_popup(Popup::Conflict(ConflictPopup::new(source, dest, false)));
             }
             OperationEvent::NeedPassword { archive, retry } => {
                 if retry && operation.remember_password {
                     self.panes[operation.side.index()].set_archive_password(None);
                 }
-                self.popup = Some(Popup::Input(InputPopup::password(
+                self.show_operation_popup(Popup::Input(InputPopup::password(
                     archive,
                     retry,
                     PasswordPurpose::Operation,
@@ -678,6 +678,18 @@ impl App {
             temp_dir: None,
             remember_password,
         });
+    }
+
+    fn show_operation_popup(&mut self, popup: Popup) {
+        if let Some(Popup::Choice(ChoicePopup {
+            kind: ChoiceKind::QuitDuringOperation { resume },
+            ..
+        })) = &mut self.popup
+        {
+            *resume = Some(Box::new(popup));
+        } else {
+            self.popup = Some(popup);
+        }
     }
 
     fn finished(&mut self, outcome: &Outcome, effects: &mut Vec<Effect>) {

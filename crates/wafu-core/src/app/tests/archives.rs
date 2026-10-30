@@ -526,6 +526,22 @@ fn a_password_is_asked_once_and_remembered_inside_the_archive() {
 }
 
 #[test]
+fn a_password_request_during_the_quit_confirmation_waits_behind_it() {
+    let mut harness = copying_inside();
+    harness.send(Msg::CloseRequested);
+
+    harness.operation(OperationEvent::NeedPassword {
+        archive: archive(),
+        retry: false,
+    });
+
+    assert_eq!(harness.view().popup.unwrap().title, "Quit");
+    harness.press("Enter");
+    assert_eq!(harness.view().popup.unwrap().title, "Password");
+    assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
 fn a_wrong_password_is_asked_again_and_forgotten() {
     let mut harness = copying_inside();
     harness.operation(OperationEvent::NeedPassword {
