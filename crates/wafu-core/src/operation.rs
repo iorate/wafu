@@ -165,21 +165,6 @@ impl OperationKind {
     }
 }
 
-impl Sources {
-    #[must_use]
-    pub fn len(&self) -> usize {
-        match self {
-            Self::Paths(paths) => paths.len(),
-            Self::Entries(entries) => entries.names.len(),
-        }
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-}
-
 impl fmt::Display for OutcomeLine<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let kind = self.kind;
