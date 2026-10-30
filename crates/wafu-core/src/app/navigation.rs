@@ -385,11 +385,17 @@ impl App {
 
     pub(super) fn sync_to_other(&mut self, effects: &mut Vec<Effect>) {
         let target = self.panes[self.active.other().index()].location().clone();
+        if target.base.as_os_str().is_empty() {
+            return;
+        }
         self.navigate(self.active, target, None, HistoryMove::Visit, effects);
     }
 
     pub(super) fn sync_other_to_this(&mut self, effects: &mut Vec<Effect>) {
         let target = self.active_pane().location().clone();
+        if target.base.as_os_str().is_empty() {
+            return;
+        }
         self.navigate(
             self.active.other(),
             target,
@@ -402,6 +408,9 @@ impl App {
     pub(super) fn swap_panes(&mut self, effects: &mut Vec<Effect>) {
         let left = self.panes[0].location().clone();
         let right = self.panes[1].location().clone();
+        if left.base.as_os_str().is_empty() || right.base.as_os_str().is_empty() {
+            return;
+        }
         self.navigate(Side::Left, right, None, HistoryMove::Visit, effects);
         self.navigate(Side::Right, left, None, HistoryMove::Visit, effects);
     }
