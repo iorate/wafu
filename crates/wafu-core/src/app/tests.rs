@@ -629,6 +629,18 @@ fn keys_and_mouse_are_dropped_while_a_move_is_in_progress() {
 }
 
 #[test]
+fn new_window_is_dropped_while_a_move_is_in_progress() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.press("BS");
+    harness.take_effects();
+
+    harness.press("Alt+Z");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert!(harness.app().pane(Side::Left).loading().is_some());
+}
+
+#[test]
 fn escape_cancels_a_move_and_stays_put() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a")]);
