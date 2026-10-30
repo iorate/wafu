@@ -2195,6 +2195,41 @@ fn swap_panes_exchanges_the_locations_and_keeps_the_active_pane() {
 }
 
 #[test]
+fn sync_to_other_does_nothing_when_the_other_pane_has_no_place() {
+    let mut harness = right_pane_without_a_place();
+
+    harness.press("O");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.log(), Vec::<String>::new());
+}
+
+#[test]
+fn sync_other_to_this_does_nothing_when_this_pane_has_no_place() {
+    let mut harness = right_pane_without_a_place();
+    harness.press("Right");
+    harness.take_effects();
+
+    harness.press("Shift+O");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.log(), Vec::<String>::new());
+}
+
+#[test]
+fn swap_panes_does_nothing_when_a_pane_has_no_place() {
+    let mut harness = right_pane_without_a_place();
+
+    harness.press("F1");
+    harness.edit("swap_panes");
+    harness.take_effects();
+    harness.press("Enter");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.log(), Vec::<String>::new());
+}
+
+#[test]
 fn a_vanished_place_is_left_for_the_nearest_ancestor() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a")]);
@@ -3104,4 +3139,13 @@ fn edit_config_opens_the_configuration_in_the_editor() {
         default.app().config().general.editor,
         CommandLine::parse("open -t {paths}").unwrap()
     );
+}
+
+fn right_pane_without_a_place() -> Harness {
+    let mut harness = Harness::start_unresolved(Os::Linux, "/home/user", "/tmp");
+    harness.resolve(Side::Left, "/home/user", None);
+    harness.load(Side::Left, vec![]);
+    harness.press("Esc");
+    harness.take_effects();
+    harness
 }
