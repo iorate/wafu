@@ -263,6 +263,25 @@ fn nothing_can_be_sent_into_an_archive_on_the_other_side() {
 }
 
 #[test]
+fn with_no_target_nothing_is_said_about_an_archive_on_the_other_side() {
+    let mut harness = inside();
+    harness.config("[general]\nrequire_marks = false\n");
+    harness.press("Tab");
+    harness.load(Side::Right, vec![file("r.txt")]);
+    harness.take_effects();
+    assert_eq!(harness.cursor_name(Side::Right), "..");
+    let log = harness.log();
+
+    for key in ["C", "M", "U"] {
+        harness.press(key);
+    }
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert!(harness.popup().is_none());
+    assert_eq!(harness.log(), log);
+}
+
+#[test]
 fn copy_inside_an_archive_extracts_the_marked_entries_to_the_other_side() {
     let mut harness = inside();
     harness.press("Down");

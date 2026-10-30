@@ -142,10 +142,13 @@ impl App {
     }
 
     fn start_transfer(&mut self, kind: OperationKind, effects: &mut Vec<Effect>) {
+        let names = self.target_names();
+        if names.is_empty() {
+            return;
+        }
         let Some(dest) = self.other_dest(kind.noun()) else {
             return;
         };
-        let names = self.target_names();
         let location = self.active_pane().location();
         let source_dir = location.base.clone();
         if location.in_archive() {
@@ -159,10 +162,13 @@ impl App {
     }
 
     fn start_extract(&mut self, effects: &mut Vec<Effect>) {
+        let names = self.target_names();
+        if names.is_empty() {
+            return;
+        }
         let Some(dest) = self.other_dest("extract") else {
             return;
         };
-        let names = self.target_names();
         let source_dir = self.active_pane().location().base.clone();
         let sources = source_paths(&source_dir, &names);
         let kind = OperationKind::Extract;
