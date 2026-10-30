@@ -557,7 +557,6 @@ impl ListPopup {
     /// The history, newest first.
     #[must_use]
     pub fn history(history: &History) -> Self {
-        let count = history.items().len();
         let items = history
             .items()
             .iter()
@@ -567,7 +566,7 @@ impl ListPopup {
             .map(|((pos, path), key)| ListItem {
                 key,
                 label: path.display().to_string(),
-                current: count > 0 && pos == history.pos(),
+                current: pos == history.pos(),
                 target: ListTarget::HistoryPos(pos),
             })
             .collect();
