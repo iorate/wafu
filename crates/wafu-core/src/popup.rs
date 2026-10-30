@@ -735,7 +735,7 @@ fn matches(context: Context, os: Os, externals: &[String], query: &str) -> Vec<C
         .into_iter()
         .chain(externals)
         .filter(|(_, command)| command.available_in(context) && command.available_on(os))
-        .filter(|(name, _)| name.contains(&query))
+        .filter(|(name, _)| name.to_lowercase().contains(&query))
         .map(|(_, command)| command)
         .collect()
 }
@@ -933,6 +933,17 @@ mod tests {
             popup.matches,
             [Command::External("open_terminal".to_owned())]
         );
+    }
+
+    #[test]
+    fn palette_filters_external_commands_ignoring_case() {
+        let mut popup =
+            PalettePopup::new(Context::FileList, Os::Windows, vec!["MyTerm".to_owned()]);
+
+        popup.set_query("myterm".to_owned());
+        assert_eq!(popup.matches, [Command::External("MyTerm".to_owned())]);
+        popup.set_query("MYTERM".to_owned());
+        assert_eq!(popup.matches, [Command::External("MyTerm".to_owned())]);
     }
 
     #[test]
