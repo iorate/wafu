@@ -1457,6 +1457,21 @@ fn reload_reads_again_without_emptying_and_the_cursor_follows_the_entry() {
 }
 
 #[test]
+fn reload_lets_keys_and_mouse_through_without_a_progress_popup() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a"), file("b")]);
+
+    harness.press("F5");
+
+    assert!(harness.view().popup.is_none());
+    harness.press("Down");
+    assert_eq!(harness.cursor_name(Side::Left), "a");
+    harness.click(Side::Left, 2);
+    assert_eq!(harness.cursor_name(Side::Left), "b");
+    assert!(harness.app().pane(Side::Left).loading().is_some());
+}
+
+#[test]
 fn change_in_the_watched_directory_reloads_it() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a"), file("b")]);
@@ -1479,6 +1494,21 @@ fn change_in_the_watched_directory_reloads_it() {
     assert_eq!(harness.names(Side::Left), ["..", "a", "c"]);
     assert_eq!(harness.cursor_name(Side::Left), "c");
     assert_eq!(harness.marks(Side::Left), Vec::<String>::new());
+}
+
+#[test]
+fn change_in_the_watched_directory_lets_keys_and_mouse_through_without_a_progress_popup() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a"), file("b")]);
+
+    harness.changed(Side::Left);
+
+    assert!(harness.view().popup.is_none());
+    harness.press("Down");
+    assert_eq!(harness.cursor_name(Side::Left), "a");
+    harness.click(Side::Left, 2);
+    assert_eq!(harness.cursor_name(Side::Left), "b");
+    assert!(harness.app().pane(Side::Left).loading().is_some());
 }
 
 #[test]
