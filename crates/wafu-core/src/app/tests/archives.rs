@@ -802,6 +802,31 @@ fn an_external_command_inside_an_archive_extracts_the_cursor_and_the_marks() {
 }
 
 #[test]
+fn an_external_command_on_the_parent_row_inside_an_archive_starts_without_extracting() {
+    let mut harness = inside();
+    harness.config(
+        "[commands.show]\nrun = \"show {cursor_path} {marked_paths} {paths} {dir} {other_dir}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
+    );
+    harness.take_effects();
+    assert_eq!(harness.cursor_name(Side::Left), "..");
+
+    harness.press("F2");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Spawn {
+            program: "show".into(),
+            args: vec![
+                PathBuf::from(LEFT).into_os_string(),
+                PathBuf::from(RIGHT).into_os_string(),
+            ],
+            cwd: PathBuf::from(LEFT),
+        }]
+    );
+    assert!(harness.popup().is_none());
+}
+
+#[test]
 fn a_cancelled_temporary_extraction_starts_nothing() {
     let mut harness = inside();
     harness.press("Down");

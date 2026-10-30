@@ -552,6 +552,21 @@ impl App {
         {
             names.push(cursor.clone());
         }
+        if names.is_empty() {
+            let expansion = Expansion {
+                dir: pane.location().dir().to_path_buf(),
+                other_dir: self
+                    .pane(self.active.other())
+                    .location()
+                    .dir()
+                    .to_path_buf(),
+                ..Expansion::default()
+            };
+            if let Some(line) = self.config.commands.get(name) {
+                Self::spawn(line, &expansion, effects);
+            }
+            return;
+        }
         let temp = Temp {
             action: TempAction::External(name.to_owned()),
             cursor,
