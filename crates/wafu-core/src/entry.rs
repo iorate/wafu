@@ -172,6 +172,16 @@ impl TargetKind {
     }
 }
 
+impl fmt::Display for LocalDateTime {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{:04}/{:02}/{:02} {:02}:{:02}:{:02}",
+            self.year, self.month, self.day, self.hour, self.minute, self.second
+        )
+    }
+}
+
 fn mode_text(mode: u32) -> String {
     let mut text = String::with_capacity(9);
     for (shift, special, special_char) in [(6, 0o4000, 's'), (3, 0o2000, 's'), (0, 0o1000, 't')] {
@@ -198,16 +208,6 @@ fn attributes_text(kind: EntryKind, readonly: bool) -> String {
         base.replace('w', "-")
     } else {
         base.to_owned()
-    }
-}
-
-impl fmt::Display for LocalDateTime {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{:04}/{:02}/{:02} {:02}:{:02}:{:02}",
-            self.year, self.month, self.day, self.hour, self.minute, self.second
-        )
     }
 }
 
