@@ -222,7 +222,7 @@ impl App {
         pane.set_show_hidden(state.show_hidden.unwrap_or(initial.show_hidden));
         pane.restore_history(History::restore(
             state.history.clone(),
-            state.history_pos.unwrap_or(0),
+            state.history_pos.unwrap_or(usize::MAX),
         ));
     }
 
