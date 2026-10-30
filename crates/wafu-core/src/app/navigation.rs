@@ -264,8 +264,7 @@ impl App {
                 self.log.push(AppError::NotRegularFile { path }.to_string());
             }
             // A link inside an archive leads nowhere until extracted.
-            Some(entry)
-                if location.in_archive() && matches!(entry.kind, EntryKind::Symlink { .. }) => {}
+            Some(entry) if is_link_in_archive(&location, entry.kind) => {}
             Some(entry) => {
                 if let Some(format) = ArchiveFormat::from_name(&entry.name) {
                     let name = entry.name.clone();
@@ -493,6 +492,10 @@ impl App {
             });
         }
     }
+}
+
+pub(super) fn is_link_in_archive(location: &Location, kind: EntryKind) -> bool {
+    location.in_archive() && matches!(kind, EntryKind::Symlink { .. })
 }
 
 // Whether a resolve of the pane's base found it where it is: the directory
