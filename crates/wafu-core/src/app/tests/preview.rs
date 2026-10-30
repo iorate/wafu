@@ -230,6 +230,20 @@ fn hiding_the_log_follows_the_setting_and_the_placement() {
 }
 
 #[test]
+fn an_image_filling_the_window_hides_the_log() {
+    let mut harness = listing();
+    harness.config("[general]\nhide_log_in_preview = true\n");
+    harness.press("Tab");
+    harness.press("Down");
+
+    harness.press("Enter");
+
+    let view = harness.view();
+    assert_eq!(view.preview.unwrap().placement, PreviewPlacement::Full);
+    assert!(view.hide_log);
+}
+
+#[test]
 fn an_image_opened_from_the_left_pane_uses_the_right_area_and_follows_the_cursor() {
     let mut harness = listing();
     harness.press("Down");
