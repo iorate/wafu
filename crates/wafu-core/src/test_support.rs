@@ -380,7 +380,12 @@ impl Harness {
     }
 
     pub(crate) fn log(&self) -> Vec<String> {
-        self.view().log.lines.to_vec()
+        self.view()
+            .log
+            .lines
+            .iter()
+            .map(ToString::to_string)
+            .collect()
     }
 
     pub(crate) fn history(&self, side: Side) -> Vec<String> {

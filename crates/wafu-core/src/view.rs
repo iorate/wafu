@@ -86,7 +86,7 @@ pub struct RowView {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LogView {
     /// Shared with the log; the same allocation is returned until the lines change.
-    pub lines: Arc<[String]>,
+    pub lines: Arc<[Arc<str>]>,
     pub scroll_top: usize,
 }
 
