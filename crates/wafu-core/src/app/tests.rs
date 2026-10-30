@@ -2782,6 +2782,30 @@ fn start_restores_the_saved_display_state_and_ignores_initial() {
 }
 
 #[test]
+fn start_without_a_saved_history_position_continues_from_the_newest_place() {
+    let state = StateFile {
+        left: PaneState {
+            history: vec![PathBuf::from("/a"), PathBuf::from("/b")],
+            history_pos: None,
+            ..PaneState::default()
+        },
+        ..StateFile::default()
+    };
+    let mut harness = Harness::start_from(start_msg_with(
+        Os::Linux,
+        Some("/home/user"),
+        Some("/tmp"),
+        ConfigSource::Text(String::new()),
+        Ok(Some(state)),
+    ));
+    harness.resolve(Side::Left, "/home/user", None);
+    harness.load(Side::Left, vec![]);
+
+    assert_eq!(harness.history(Side::Left), ["/a", "/b", "/home/user"]);
+    assert_eq!(harness.app().pane(Side::Left).history().pos(), 2);
+}
+
+#[test]
 fn start_without_a_state_file_uses_initial() {
     let mut harness = Harness::start_from(start_msg_with(
         Os::Linux,
