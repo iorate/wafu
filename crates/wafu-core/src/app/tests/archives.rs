@@ -195,7 +195,14 @@ fn go_root_inside_an_archive_goes_to_the_archive_root_and_stays_there() {
 
     harness.press("/");
 
-    assert_eq!(harness.take_effects(), vec![]);
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::Watch { path, .. }, Effect::ReadDir { location, .. }]
+            if *path == archive() && *location == root()
+    ));
+    harness.load(Side::Left, contents());
+    assert_eq!(harness.view().left.path, root().to_string());
+    assert_eq!(harness.history(Side::Left), [LEFT]);
 }
 
 #[test]

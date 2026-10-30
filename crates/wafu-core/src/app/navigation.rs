@@ -37,9 +37,6 @@ impl App {
         history: HistoryMove,
         effects: &mut Vec<Effect>,
     ) {
-        if *self.panes[side.index()].location() == target && cursor.is_none() {
-            return;
-        }
         Self::cancel_loading(&mut self.panes[side.index()], effects);
         // Watching before reading means a change during the read is not missed.
         effects.push(Effect::Watch {
@@ -189,10 +186,6 @@ impl App {
                     self.log
                         .push(AppError::ReadDir { path, source }.to_string());
                 }
-                Self::rewatch(side, pane, effects);
-            }
-            // The pane is already there; only its watch needs restoring.
-            Some(Resolved { dir, file: None }) if dir == pane.location().base => {
                 Self::rewatch(side, pane, effects);
             }
             Some(Resolved { dir, file }) => {
