@@ -205,8 +205,8 @@ impl App {
                 Self::rewatch(side, pane, effects);
             }
             // Home is only for a pane with nowhere else to be; a pane that is
-            // somewhere stays there.
-            None if !pane.location().base.as_os_str().is_empty() => {
+            // somewhere and fails to move elsewhere stays there.
+            None if failed.is_none() && !pane.location().base.as_os_str().is_empty() => {
                 self.log.push(AppError::Unavailable { path }.to_string());
                 Self::rewatch(side, pane, effects);
             }
