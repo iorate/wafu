@@ -770,6 +770,34 @@ fn a_rename_puts_the_cursor_on_the_new_name() {
 }
 
 #[test]
+fn a_rename_into_another_directory_reloads_both_directories() {
+    let mut harness = three_files();
+    harness.take_effects();
+
+    harness.changed_result(
+        Change::Renamed {
+            from: path(LEFT, "a"),
+            to: path(RIGHT, "a"),
+        },
+        None,
+    );
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [
+            Effect::ReadDir {
+                side: Side::Right,
+                ..
+            },
+            Effect::ReadDir {
+                side: Side::Left,
+                ..
+            }
+        ]
+    ));
+}
+
+#[test]
 fn a_change_reloads_every_pane_showing_the_directory() {
     let mut harness = Harness::start(LEFT, LEFT);
     harness.take_effects();

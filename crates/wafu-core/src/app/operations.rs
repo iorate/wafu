@@ -453,6 +453,11 @@ impl App {
                 if let Some(dir) = to.parent() {
                     self.show_created(dir, to.file_name().map(OsString::from), effects);
                 }
+                if let Some(dir) = from.parent()
+                    && Some(dir) != to.parent()
+                {
+                    self.refresh_showing(dir, effects);
+                }
             }
             (Change::Renamed { from, .. }, Some(source)) => {
                 self.log
