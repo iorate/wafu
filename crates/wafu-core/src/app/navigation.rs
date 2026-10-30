@@ -19,15 +19,12 @@ impl App {
         })
     }
 
-    pub(super) fn navigation_targets(&self) -> Vec<String> {
-        self.panes
-            .iter()
-            .filter_map(|pane| match pane.loading() {
-                Some(InFlight::Resolve { path, .. }) => Some(path.display().to_string()),
-                Some(InFlight::Navigate { target, .. }) => Some(target.to_string()),
-                _ => None,
-            })
-            .collect()
+    pub(super) fn navigation_target(&self) -> Option<String> {
+        match self.earliest_navigation()?.1 {
+            InFlight::Resolve { path, .. } => Some(path.display().to_string()),
+            InFlight::Navigate { target, .. } => Some(target.to_string()),
+            InFlight::Refresh { .. } => None,
+        }
     }
 
     // The pane keeps showing where it is until the new listing arrives, so a
@@ -106,17 +103,13 @@ impl App {
         self.panes[side.index()].set_loading(Some(InFlight::Refresh { request }));
     }
 
-    pub(super) fn cancel_navigations(&mut self, effects: &mut Vec<Effect>) {
-        for side in [Side::Left, Side::Right] {
-            let pane = &mut self.panes[side.index()];
-            if matches!(
-                pane.loading(),
-                Some(InFlight::Resolve { .. } | InFlight::Navigate { .. })
-            ) {
-                Self::cancel_loading(pane, effects);
-                Self::rewatch(side, pane, effects);
-            }
-        }
+    pub(super) fn cancel_navigation(&mut self, effects: &mut Vec<Effect>) {
+        let Some((side, _)) = self.earliest_navigation() else {
+            return;
+        };
+        let pane = &mut self.panes[side.index()];
+        Self::cancel_loading(pane, effects);
+        Self::rewatch(side, pane, effects);
     }
 
     pub(super) fn dir_loaded(
@@ -473,6 +466,18 @@ impl App {
         let request = RequestId(self.next_request);
         self.next_request += 1;
         request
+    }
+
+    fn earliest_navigation(&self) -> Option<(Side, &InFlight)> {
+        [Side::Left, Side::Right]
+            .into_iter()
+            .filter_map(|side| match self.panes[side.index()].loading() {
+                Some(in_flight @ (InFlight::Resolve { .. } | InFlight::Navigate { .. })) => {
+                    Some((side, in_flight))
+                }
+                _ => None,
+            })
+            .min_by_key(|(_, in_flight)| in_flight.request())
     }
 
     fn cancel_loading(pane: &mut Pane, effects: &mut Vec<Effect>) {

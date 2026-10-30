@@ -678,6 +678,58 @@ fn escape_cancels_a_move_and_stays_put() {
 }
 
 #[test]
+fn escape_with_both_panes_moving_cancels_only_the_earliest_move() {
+    let mut harness = Harness::start_both_pending(Os::Linux, "/home/user", "/tmp");
+    let left = harness.latest_request(Side::Left);
+    harness.take_effects();
+
+    harness.press("Esc");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::CancelRead { request: left }]
+    );
+    assert!(harness.app().pane(Side::Left).loading().is_none());
+    assert_eq!(
+        harness.view().popup.unwrap().message,
+        Some("Reading /tmp".to_owned())
+    );
+
+    harness.load(Side::Right, vec![file("a")]);
+
+    assert_eq!(harness.view().left.path, "");
+    assert_eq!(harness.view().right.path, "/tmp");
+    assert_eq!(harness.names(Side::Right), ["..", "a"]);
+    assert!(harness.view().popup.is_none());
+}
+
+#[test]
+fn escape_cancels_the_move_requested_first_even_when_the_other_pane_moved_on() {
+    let mut harness = Harness::start_unresolved(Os::Linux, "/home/user", "/tmp");
+    harness.resolve(Side::Left, "/home/user", None);
+    let right = harness.latest_resolve(Side::Right);
+    assert_eq!(
+        harness.view().popup.unwrap().message,
+        Some("Reading /tmp".to_owned())
+    );
+    harness.take_effects();
+
+    harness.press("Esc");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::CancelRead { request: right }]
+    );
+    assert!(harness.app().pane(Side::Right).loading().is_none());
+
+    harness.load(Side::Left, vec![file("a")]);
+
+    assert_eq!(harness.view().left.path, "/home/user");
+    assert_eq!(harness.view().right.path, "");
+    assert!(harness.view().popup.is_none());
+}
+
+#[test]
 fn read_error_is_logged_and_the_pane_stays_where_it_was() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a")]);
@@ -1762,14 +1814,18 @@ fn a_move_to_a_drive_with_nothing_on_it_stays_put() {
 }
 
 #[test]
-fn loading_popup_names_every_pane_being_read() {
-    let harness = Harness::start_both_pending(Os::Linux, "/home/user", "/tmp");
+fn loading_popup_names_only_the_earliest_move() {
+    let mut harness = Harness::start_both_pending(Os::Linux, "/home/user", "/tmp");
 
     let popup = harness.view().popup.unwrap();
-
-    assert_eq!(popup.message, Some("Reading /home/user, /tmp".to_owned()));
+    assert_eq!(popup.message, Some("Reading /home/user".to_owned()));
     assert!(popup.progress);
     assert_eq!(popup.fields, Vec::new());
+
+    harness.load(Side::Left, vec![]);
+
+    let popup = harness.view().popup.unwrap();
+    assert_eq!(popup.message, Some("Reading /tmp".to_owned()));
 }
 
 #[test]

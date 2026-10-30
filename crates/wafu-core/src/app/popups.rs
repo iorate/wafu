@@ -190,8 +190,11 @@ impl App {
     }
 
     fn loading_view(&self) -> Option<PopupView> {
-        let mut targets = self.navigation_targets();
-        targets.extend(self.preview_loading_name());
+        let targets: Vec<String> = self
+            .navigation_target()
+            .into_iter()
+            .chain(self.preview_loading_name())
+            .collect();
         (!targets.is_empty()).then(|| PopupView {
             title: "Loading".to_owned(),
             message: Some(format!("Reading {}", targets.join(", "))),
