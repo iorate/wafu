@@ -104,6 +104,12 @@ pub enum Outcome {
     },
 }
 
+/// The log line for an outcome.
+pub struct OutcomeLine<'a> {
+    pub kind: OperationKind,
+    pub outcome: &'a Outcome,
+}
+
 /// The answer to a conflict or a password request, or a cancellation at any time.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Reply {
@@ -172,12 +178,6 @@ impl Sources {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
-}
-
-/// The log line for an outcome.
-pub struct OutcomeLine<'a> {
-    pub kind: OperationKind,
-    pub outcome: &'a Outcome,
 }
 
 impl fmt::Display for OutcomeLine<'_> {

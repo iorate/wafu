@@ -13,33 +13,6 @@ use crate::popup::{InputPopup, PasswordPurpose, Popup};
 use crate::preview::{Document, DocumentMode, ImageData, is_image_name};
 use crate::view::{PreviewContent, PreviewPlacement, PreviewView, SharedImage};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Preview {
-    Document(DocumentPreview),
-    Image(ImagePreview),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct DocumentPreview {
-    name: String,
-    // Kept so that the file can be read again with a password.
-    source: PreviewSource,
-    loading: Option<RequestId>,
-    document: Option<Document>,
-    mode: DocumentMode,
-    scroll_top: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ImagePreview {
-    placement: PreviewPlacement,
-    // The entry being shown or requested; `None` when the cursor is not on an image.
-    shown: Option<OsString>,
-    loading: Option<RequestId>,
-    image: Option<Arc<ImageData>>,
-    error: Option<String>,
-}
-
 impl App {
     pub(super) fn open_preview(&mut self, entry: &Entry, effects: &mut Vec<Effect>) {
         if is_image_name(&entry.name) {
@@ -388,6 +361,50 @@ impl App {
     }
 }
 
+impl PreviewSource {
+    /// The path as the user sees it, with the entry's place inside the archive.
+    #[must_use]
+    pub fn shown(&self) -> PathBuf {
+        match &self.entry {
+            None => self.path.clone(),
+            Some((archive, name)) => {
+                let location = Location {
+                    base: self.path.clone(),
+                    archive: Some(archive.clone()),
+                };
+                PathBuf::from(location.child_display(OsStr::new(name)))
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Preview {
+    Document(DocumentPreview),
+    Image(ImagePreview),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DocumentPreview {
+    name: String,
+    // Kept so that the file can be read again with a password.
+    source: PreviewSource,
+    loading: Option<RequestId>,
+    document: Option<Document>,
+    mode: DocumentMode,
+    scroll_top: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ImagePreview {
+    placement: PreviewPlacement,
+    // The entry being shown or requested; `None` when the cursor is not on an image.
+    shown: Option<OsString>,
+    loading: Option<RequestId>,
+    image: Option<Arc<ImageData>>,
+    error: Option<String>,
+}
+
 impl DocumentPreview {
     fn line_count(&self) -> usize {
         self.document
@@ -412,23 +429,6 @@ impl DocumentPreview {
             DocumentMode::Binary => DocumentMode::Text,
         };
         self.scroll_top = 0;
-    }
-}
-
-impl PreviewSource {
-    /// The path as the user sees it, with the entry's place inside the archive.
-    #[must_use]
-    pub fn shown(&self) -> PathBuf {
-        match &self.entry {
-            None => self.path.clone(),
-            Some((archive, name)) => {
-                let location = Location {
-                    base: self.path.clone(),
-                    archive: Some(archive.clone()),
-                };
-                PathBuf::from(location.child_display(OsStr::new(name)))
-            }
-        }
     }
 }
 

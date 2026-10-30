@@ -20,41 +20,6 @@ use crate::view::PopupView;
 
 const DEFAULT_ARCHIVE_STEM: &str = "archive";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Operation {
-    kind: OperationKind,
-    side: Side,
-    names: Vec<OsString>,
-    // The directory of the sources, or the archive they are in.
-    source_dir: PathBuf,
-    dest: Option<PathBuf>,
-    current: Option<PathBuf>,
-    done: usize,
-    cancelling: bool,
-    quit_after: bool,
-    temp: Option<Temp>,
-    temp_dir: Option<PathBuf>,
-    // A password typed for this operation is kept by the pane, which is
-    // inside the archive.
-    remember_password: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Temp {
-    action: TempAction,
-    cursor: Option<OsString>,
-    marked: Vec<OsString>,
-    // The entries `{paths}` stands for.
-    targets: Vec<OsString>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum TempAction {
-    Edit,
-    OpenWithOs,
-    External(String),
-}
-
 impl App {
     pub(super) fn run_file_command(&mut self, command: Command, effects: &mut Vec<Effect>) {
         if self.active_pane().location().in_archive() && !allowed_in_archive(&command) {
@@ -801,6 +766,41 @@ impl App {
             }
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Operation {
+    kind: OperationKind,
+    side: Side,
+    names: Vec<OsString>,
+    // The directory of the sources, or the archive they are in.
+    source_dir: PathBuf,
+    dest: Option<PathBuf>,
+    current: Option<PathBuf>,
+    done: usize,
+    cancelling: bool,
+    quit_after: bool,
+    temp: Option<Temp>,
+    temp_dir: Option<PathBuf>,
+    // A password typed for this operation is kept by the pane, which is
+    // inside the archive.
+    remember_password: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Temp {
+    action: TempAction,
+    cursor: Option<OsString>,
+    marked: Vec<OsString>,
+    // The entries `{paths}` stands for.
+    targets: Vec<OsString>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TempAction {
+    Edit,
+    OpenWithOs,
+    External(String),
 }
 
 fn source_paths(dir: &Path, names: &[OsString]) -> Sources {
