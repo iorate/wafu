@@ -8,7 +8,7 @@ use crate::operation::{
     ArchiveEntries, ArchiveOutput, OperationEvent, OperationKind, OperationSpec, Outcome, Reply,
     Sources,
 };
-use crate::test_support::{Harness, LEFT, RIGHT, dir, file, path, shown};
+use crate::test_support::{HOME, Harness, LEFT, RIGHT, dir, file, path, shown};
 
 const TEMP: &str = "/tmp/wafu/x1";
 
@@ -1166,6 +1166,41 @@ fn a_vanished_archive_falls_back_to_its_directory() {
         [Effect::Watch { .. }, Effect::ReadDir { location, .. }]
             if *location == Location::new(PathBuf::from(LEFT))
     ));
+}
+
+#[test]
+fn a_vanished_archive_without_an_ancestor_falls_back_to_home() {
+    let mut harness = Harness::start("/mnt/usb", RIGHT);
+    harness.load(Side::Left, vec![file("a.zip")]);
+    harness.press("Down");
+    harness.enter_archive(Side::Left, contents());
+    harness.changed(Side::Left);
+    harness.fail_load(Side::Left, "gone");
+    harness.take_effects();
+
+    harness.fail_resolve(Side::Left);
+
+    assert_eq!(
+        harness.log(),
+        [format!(
+            "{} is not available; moved to {HOME}",
+            shown("/mnt/usb", "a.zip")
+        )]
+    );
+    assert_eq!(
+        harness.take_effects(),
+        vec![
+            Effect::Watch {
+                side: Side::Left,
+                path: PathBuf::from(HOME),
+            },
+            Effect::ReadDir {
+                side: Side::Left,
+                location: Location::new(PathBuf::from(HOME)),
+                request: harness.latest_request(Side::Left),
+            },
+        ]
+    );
 }
 
 #[test]

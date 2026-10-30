@@ -2566,6 +2566,36 @@ fn a_vanished_place_is_left_for_the_nearest_ancestor() {
 }
 
 #[test]
+fn a_vanished_place_without_an_ancestor_is_left_for_home() {
+    let mut harness = Harness::start("/mnt/usb", "/tmp");
+    harness.load(Side::Left, vec![file("a")]);
+    harness.changed(Side::Left);
+    harness.fail_load(Side::Left, "No such file or directory");
+    harness.take_effects();
+
+    harness.fail_resolve(Side::Left);
+
+    assert_eq!(
+        harness.log(),
+        ["/mnt/usb is not available; moved to /home/user"]
+    );
+    assert_eq!(
+        harness.take_effects(),
+        vec![
+            Effect::Watch {
+                side: Side::Left,
+                path: PathBuf::from(HOME),
+            },
+            Effect::ReadDir {
+                side: Side::Left,
+                location: Location::new(PathBuf::from(HOME)),
+                request: harness.latest_request(Side::Left),
+            },
+        ]
+    );
+}
+
+#[test]
 fn a_failed_reload_of_a_place_that_still_exists_only_logs() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a")]);
