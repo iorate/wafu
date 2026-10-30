@@ -71,20 +71,21 @@ impl Location {
         self.archive.is_some()
     }
 
+    /// Whether `parent` returns a place, without building it.
+    #[must_use]
+    pub fn has_parent(&self) -> bool {
+        match &self.archive {
+            Some(archive) if !archive.inner.is_empty() => true,
+            _ => self.base.parent().is_some(),
+        }
+    }
+
     /// The place above this one: the directory above a directory, the
     /// directory holding an archive above its root.
     #[must_use]
     pub fn parent(&self) -> Option<Self> {
         match &self.archive {
-            None => self
-                .base
-                .parent()
-                .map(|parent| Self::new(parent.to_path_buf())),
-            Some(archive) if archive.inner.is_empty() => self
-                .base
-                .parent()
-                .map(|parent| Self::new(parent.to_path_buf())),
-            Some(archive) => {
+            Some(archive) if !archive.inner.is_empty() => {
                 let mut inner = archive.inner.clone();
                 inner.pop();
                 Some(Self {
@@ -95,6 +96,10 @@ impl Location {
                     }),
                 })
             }
+            _ => self
+                .base
+                .parent()
+                .map(|parent| Self::new(parent.to_path_buf())),
         }
     }
 
@@ -163,6 +168,7 @@ mod tests {
         let root = Location::new(PathBuf::from("/"));
 
         assert_eq!(root.parent(), None);
+        assert!(!root.has_parent());
     }
 
     #[test]
@@ -173,6 +179,7 @@ mod tests {
             location.parent(),
             Some(Location::new(PathBuf::from("/home")))
         );
+        assert!(location.has_parent());
         assert_eq!(location.leaf_name(), Some(OsString::from("user")));
     }
 
@@ -188,6 +195,7 @@ mod tests {
         let location = inside(&["d", "e"]);
 
         assert_eq!(location.parent(), Some(inside(&["d"])));
+        assert!(location.has_parent());
         assert_eq!(location.leaf_name(), Some(OsString::from("e")));
     }
 
@@ -196,6 +204,7 @@ mod tests {
         let root = inside(&[]);
 
         assert_eq!(root.parent(), Some(Location::new(PathBuf::from("/a/b"))));
+        assert!(root.has_parent());
         assert_eq!(root.leaf_name(), Some(OsString::from("c.zip")));
         assert!(root.in_archive());
     }
