@@ -1977,7 +1977,8 @@ fn a_visit_after_going_back_drops_the_forward_side() {
     harness.take_effects();
 
     harness.press("~");
-    assert_eq!(harness.take_effects(), vec![]);
+    harness.load(Side::Left, vec![]);
+    assert_eq!(harness.history(Side::Left), ["/home/user", "/home"]);
     harness.press("/");
     harness.load(Side::Left, vec![]);
 
@@ -2057,7 +2058,7 @@ fn go_home_goes_to_the_home_directory() {
 }
 
 #[test]
-fn go_home_at_home_does_nothing() {
+fn go_home_at_home_reads_it_again_without_recording_history() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a"), file("b")]);
     harness.press("Down");
@@ -2066,14 +2067,29 @@ fn go_home_at_home_does_nothing() {
 
     harness.press("~");
 
-    assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(harness.marks(Side::Left), ["a"]);
-    assert_eq!(harness.cursor_name(Side::Left), "b");
+    assert_eq!(
+        harness.take_effects(),
+        vec![
+            Effect::Watch {
+                side: Side::Left,
+                path: PathBuf::from("/home/user"),
+            },
+            Effect::ReadDir {
+                side: Side::Left,
+                location: Location::new(PathBuf::from("/home/user")),
+                request: harness.latest_request(Side::Left),
+            },
+        ]
+    );
+    harness.load(Side::Left, vec![file("a"), file("b")]);
+    assert_eq!(harness.marks(Side::Left), Vec::<String>::new());
+    assert_eq!(harness.cursor_name(Side::Left), "..");
+    assert_eq!(harness.history(Side::Left), ["/home/user"]);
     assert_eq!(harness.log(), Vec::<String>::new());
 }
 
 #[test]
-fn sync_to_other_at_the_same_place_does_nothing() {
+fn sync_to_other_at_the_same_place_reads_it_again_without_recording_history() {
     let mut harness = Harness::start("/home/user", "/home/user");
     harness.load(Side::Left, vec![file("a"), file("b")]);
     harness.press("Down");
@@ -2082,14 +2098,29 @@ fn sync_to_other_at_the_same_place_does_nothing() {
 
     harness.press("O");
 
-    assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(harness.marks(Side::Left), ["a"]);
-    assert_eq!(harness.cursor_name(Side::Left), "b");
+    assert_eq!(
+        harness.take_effects(),
+        vec![
+            Effect::Watch {
+                side: Side::Left,
+                path: PathBuf::from("/home/user"),
+            },
+            Effect::ReadDir {
+                side: Side::Left,
+                location: Location::new(PathBuf::from("/home/user")),
+                request: harness.latest_request(Side::Left),
+            },
+        ]
+    );
+    harness.load(Side::Left, vec![file("a"), file("b")]);
+    assert_eq!(harness.marks(Side::Left), Vec::<String>::new());
+    assert_eq!(harness.cursor_name(Side::Left), "..");
+    assert_eq!(harness.history(Side::Left), ["/home/user"]);
     assert_eq!(harness.log(), Vec::<String>::new());
 }
 
 #[test]
-fn sync_other_to_this_at_the_same_place_does_nothing() {
+fn sync_other_to_this_at_the_same_place_reads_it_again_without_recording_history() {
     let mut harness = Harness::start("/home/user", "/home/user");
     harness.load(Side::Left, vec![file("a"), file("b")]);
     harness.press("Down");
@@ -2099,14 +2130,29 @@ fn sync_other_to_this_at_the_same_place_does_nothing() {
 
     harness.press("Shift+O");
 
-    assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(harness.marks(Side::Left), ["a"]);
-    assert_eq!(harness.cursor_name(Side::Left), "b");
+    assert_eq!(
+        harness.take_effects(),
+        vec![
+            Effect::Watch {
+                side: Side::Left,
+                path: PathBuf::from("/home/user"),
+            },
+            Effect::ReadDir {
+                side: Side::Left,
+                location: Location::new(PathBuf::from("/home/user")),
+                request: harness.latest_request(Side::Left),
+            },
+        ]
+    );
+    harness.load(Side::Left, vec![file("a"), file("b")]);
+    assert_eq!(harness.marks(Side::Left), Vec::<String>::new());
+    assert_eq!(harness.cursor_name(Side::Left), "..");
+    assert_eq!(harness.history(Side::Left), ["/home/user"]);
     assert_eq!(harness.log(), Vec::<String>::new());
 }
 
 #[test]
-fn swap_panes_at_the_same_place_does_nothing() {
+fn swap_panes_at_the_same_place_reads_both_again_without_recording_history() {
     let mut harness = Harness::start("/home/user", "/home/user");
     harness.load(Side::Left, vec![file("a"), file("b")]);
     harness.press("Down");
@@ -2117,9 +2163,35 @@ fn swap_panes_at_the_same_place_does_nothing() {
     harness.edit("swap_panes");
     harness.press("Enter");
 
-    assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(harness.marks(Side::Left), ["a"]);
-    assert_eq!(harness.cursor_name(Side::Left), "b");
+    assert_eq!(
+        harness.take_effects(),
+        vec![
+            Effect::Watch {
+                side: Side::Left,
+                path: PathBuf::from("/home/user"),
+            },
+            Effect::ReadDir {
+                side: Side::Left,
+                location: Location::new(PathBuf::from("/home/user")),
+                request: harness.latest_request(Side::Left),
+            },
+            Effect::Watch {
+                side: Side::Right,
+                path: PathBuf::from("/home/user"),
+            },
+            Effect::ReadDir {
+                side: Side::Right,
+                location: Location::new(PathBuf::from("/home/user")),
+                request: harness.latest_request(Side::Right),
+            },
+        ]
+    );
+    harness.load(Side::Left, vec![file("a"), file("b")]);
+    harness.load(Side::Right, vec![]);
+    assert_eq!(harness.marks(Side::Left), Vec::<String>::new());
+    assert_eq!(harness.cursor_name(Side::Left), "..");
+    assert_eq!(harness.history(Side::Left), ["/home/user"]);
+    assert_eq!(harness.history(Side::Right), ["/home/user"]);
     assert_eq!(harness.log(), Vec::<String>::new());
 }
 
@@ -2250,8 +2322,11 @@ fn go_to_path_to_a_file_in_the_current_place_rereads_it_with_the_cursor_on_the_f
 }
 
 #[test]
-fn go_to_path_to_the_current_place_only_watches_it_again() {
+fn go_to_path_to_the_current_place_reads_it_again_without_recording_history() {
     let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a"), file("b")]);
+    harness.press("Down");
+    harness.press("Space");
     harness.take_effects();
 
     harness.press("Shift+J");
@@ -2261,11 +2336,22 @@ fn go_to_path_to_the_current_place_only_watches_it_again() {
 
     assert_eq!(
         harness.take_effects(),
-        vec![Effect::Watch {
-            side: Side::Left,
-            path: PathBuf::from("/home/user"),
-        }]
+        vec![
+            Effect::Watch {
+                side: Side::Left,
+                path: PathBuf::from("/home/user"),
+            },
+            Effect::ReadDir {
+                side: Side::Left,
+                location: Location::new(PathBuf::from("/home/user")),
+                request: harness.latest_request(Side::Left),
+            },
+        ]
     );
+    harness.load(Side::Left, vec![file("a"), file("b")]);
+    assert_eq!(harness.marks(Side::Left), Vec::<String>::new());
+    assert_eq!(harness.cursor_name(Side::Left), "..");
+    assert_eq!(harness.history(Side::Left), ["/home/user"]);
     assert_eq!(harness.log(), Vec::<String>::new());
 }
 
