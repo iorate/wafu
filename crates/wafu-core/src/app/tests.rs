@@ -2886,51 +2886,64 @@ fn start_without_a_state_file_uses_initial() {
 }
 
 #[test]
-fn start_logs_how_the_configuration_and_state_were_found() {
-    let created = Harness::start_from(start_msg_with(
+fn start_logs_a_created_configuration() {
+    let harness = Harness::start_from(start_msg_with(
         Os::Linux,
         Some("/home/user"),
         Some("/tmp"),
         ConfigSource::Created,
         Ok(None),
     ));
-    assert_eq!(created.log(), [format!("created {CONFIG_PATH}")]);
 
-    let unreadable = Harness::start_from(start_msg_with(
+    assert_eq!(harness.log(), [format!("created {CONFIG_PATH}")]);
+}
+
+#[test]
+fn start_logs_an_unreadable_configuration_and_state_file() {
+    let harness = Harness::start_from(start_msg_with(
         Os::Linux,
         Some("/home/user"),
         Some("/tmp"),
         ConfigSource::Unreadable(IoError::new("permission denied")),
         Err(StateFile::from_toml("[left\n").unwrap_err()),
     ));
-    let log = unreadable.log();
+
+    let log = harness.log();
     assert_eq!(log.len(), 2);
     assert_eq!(
         log[0],
         format!("cannot read {CONFIG_PATH}: permission denied")
     );
     assert!(log[1].starts_with("cannot read the state file: "));
+}
 
-    let broken = Harness::start_from(start_msg_with(
+#[test]
+fn start_logs_a_broken_configuration_item_and_keeps_its_default() {
+    let harness = Harness::start_from(start_msg_with(
         Os::Linux,
         Some("/home/user"),
         Some("/tmp"),
         ConfigSource::Text("[general]\nmkdir_then_enter =\n".to_owned()),
         Ok(None),
     ));
-    let log = broken.log();
+
+    let log = harness.log();
     assert_eq!(log.len(), 1);
     assert!(log[0].starts_with(&format!("config: {CONFIG_PATH}:2: ")));
-    assert!(broken.app().config().general.mkdir_then_enter);
+    assert!(harness.app().config().general.mkdir_then_enter);
+}
 
-    let warned = Harness::start_from(start_msg_with(
+#[test]
+fn start_logs_an_unknown_configuration_item() {
+    let harness = Harness::start_from(start_msg_with(
         Os::Linux,
         Some("/home/user"),
         Some("/tmp"),
         ConfigSource::Text("[general]\nfoo = 1\n".to_owned()),
         Ok(None),
     ));
-    assert_eq!(warned.log(), ["config: unknown item general.foo"]);
+
+    assert_eq!(harness.log(), ["config: unknown item general.foo"]);
 }
 
 #[test]
@@ -3018,7 +3031,7 @@ fn a_syntax_error_on_reload_keeps_the_previous_configuration() {
 }
 
 #[test]
-fn quit_saves_the_state_and_shift_q_does_not() {
+fn quit_saves_the_state() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a")]);
     harness.press("Space");
@@ -3059,11 +3072,25 @@ fn quit_saves_the_state_and_shift_q_does_not() {
         harness.take_effects(),
         vec![Effect::SaveState(state), Effect::Quit]
     );
+}
+
+#[test]
+fn shift_q_quits_without_saving_the_state() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.take_effects();
 
     harness.press("Shift+Q");
+
     assert_eq!(harness.take_effects(), vec![Effect::Quit]);
+}
+
+#[test]
+fn closing_the_window_saves_the_state_and_quits() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.take_effects();
 
     harness.send(Msg::CloseRequested);
+
     assert!(matches!(
         harness.take_effects().as_slice(),
         [Effect::SaveState(_), Effect::Quit]
@@ -3205,10 +3232,14 @@ fn edit_config_opens_the_configuration_in_the_editor() {
             cwd: PathBuf::from(HOME),
         }]
     );
+}
 
-    let default = Harness::start_on(Os::MacOs, "/home/user", "/tmp");
+#[test]
+fn the_default_editor_on_macos_is_open_t() {
+    let harness = Harness::start_on(Os::MacOs, "/home/user", "/tmp");
+
     assert_eq!(
-        default.app().config().general.editor,
+        harness.app().config().general.editor,
         CommandLine::parse("open -t {paths}").unwrap()
     );
 }

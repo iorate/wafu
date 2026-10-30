@@ -628,19 +628,47 @@ fn rename_opens_with_the_name_and_selects_everything_but_the_extension() {
         Some("a.tar.gz")
     );
     assert_eq!(popup.fields[0].select, Some((0, 5)));
+}
 
+#[test]
+fn rename_to_the_same_name_does_nothing() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("a.tar.gz")]);
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("R");
     harness.edit("a.tar.gz");
     harness.press("Enter");
+
     assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
+fn rename_to_an_empty_name_does_nothing() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("a.tar.gz")]);
+    harness.press("Down");
+    harness.take_effects();
 
     harness.press("R");
     harness.edit("");
     harness.press("Enter");
+
     assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
+fn rename_to_a_new_name_renames_and_closes() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("a.tar.gz")]);
+    harness.press("Down");
+    harness.take_effects();
 
     harness.press("R");
     harness.edit("b.txt");
     harness.press("Enter");
+
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Rename {
@@ -752,6 +780,12 @@ fn a_rename_puts_the_cursor_on_the_new_name() {
         harness.log().last().map(String::as_str),
         Some("renamed a to z")
     );
+}
+
+#[test]
+fn a_failed_rename_only_logs() {
+    let mut harness = three_files();
+    harness.take_effects();
 
     harness.changed_result(
         Change::Renamed {
@@ -760,6 +794,7 @@ fn a_rename_puts_the_cursor_on_the_new_name() {
         },
         Some("busy"),
     );
+
     assert_eq!(
         harness.log().last().cloned(),
         Some(format!("cannot rename {}: busy", shown(LEFT, "z")))
@@ -851,11 +886,6 @@ fn mkdir_without_entering_puts_the_cursor_on_the_first_component() {
     harness.load(Side::Left, vec![file("x")]);
     harness.take_effects();
 
-    harness.press("K");
-    harness.edit("");
-    harness.press("Enter");
-    assert_eq!(harness.take_effects(), vec![]);
-
     harness.changed_result(Change::DirCreated(PathBuf::from(LEFT).join("a/b")), None);
     assert!(matches!(
         harness.take_effects().as_slice(),
@@ -873,8 +903,28 @@ fn mkdir_without_entering_puts_the_cursor_on_the_first_component() {
             PathBuf::from(LEFT).join("a/b").display()
         ))
     );
+}
+
+#[test]
+fn mkdir_with_an_empty_name_does_nothing() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.take_effects();
+
+    harness.press("K");
+    harness.edit("");
+    harness.press("Enter");
+
+    assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
+fn a_failed_mkdir_is_logged() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("x")]);
+    harness.take_effects();
 
     harness.changed_result(Change::DirCreated(path(LEFT, "x")), Some("already exists"));
+
     assert_eq!(
         harness.log().last().cloned(),
         Some(format!(
