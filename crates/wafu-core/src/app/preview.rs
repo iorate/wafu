@@ -271,8 +271,10 @@ impl App {
     /// Esc on the password question: a document cannot be shown without it,
     /// an image preview just shows nothing until the cursor moves.
     pub(super) fn preview_password_refused(&mut self, effects: &mut Vec<Effect>) {
-        if let Some(Preview::Document(_)) = &self.preview {
-            self.close_preview(effects);
+        match &mut self.preview {
+            Some(Preview::Document(_)) => self.close_preview(effects),
+            Some(Preview::Image(preview)) => preview.image = None,
+            None => {}
         }
     }
 

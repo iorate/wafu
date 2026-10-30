@@ -643,6 +643,28 @@ fn an_encrypted_image_asks_once_and_shows_nothing_on_esc() {
 }
 
 #[test]
+fn esc_on_the_password_of_an_encrypted_image_clears_the_previous_image() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("a.zip")]);
+    harness.press("Down");
+    harness.press("Enter");
+    harness.load(Side::Left, vec![file("b.png"), file("c.png")]);
+    harness.press("Down");
+    harness.press("Enter");
+    harness.image_loaded(1, 1);
+    assert_eq!(harness.view().preview.unwrap().detail, "png");
+
+    harness.press("Down");
+    harness.fail_image(PreviewError::PasswordRequired { retry: false });
+    harness.press("Esc");
+
+    let preview = harness.view().preview.unwrap();
+    assert!(harness.view().popup.is_none());
+    assert_eq!(preview.content, PreviewContent::Image(None));
+    assert_eq!(preview.detail, "");
+}
+
+#[test]
 fn an_encrypted_image_does_not_replace_an_open_popup() {
     let mut harness = inside_archive();
     harness.press("Down");
