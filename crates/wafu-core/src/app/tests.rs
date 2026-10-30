@@ -875,6 +875,23 @@ fn mark_glob_with_empty_text_does_nothing() {
 }
 
 #[test]
+fn mark_glob_with_an_invalid_pattern_is_logged_and_keeps_the_marks() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a.png"), file("b.png")]);
+    harness.press("Down");
+    harness.press("Space");
+
+    harness.press("@");
+    harness.edit("[");
+    harness.press("Enter");
+
+    assert_eq!(harness.popup(), None);
+    assert_eq!(harness.log().len(), 1);
+    assert!(harness.log()[0].starts_with("invalid pattern [: "));
+    assert_eq!(harness.marks(Side::Left), ["a.png"]);
+}
+
+#[test]
 fn next_mark_cycles_through_marks() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
