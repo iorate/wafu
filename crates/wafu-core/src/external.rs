@@ -41,12 +41,6 @@ pub enum CommandLineError {
     UnknownPlaceholder(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Arg {
-    Literal(String),
-    Placeholder(Placeholder),
-}
-
 impl CommandLine {
     /// Splits the text at spaces, keeping double-quoted parts together. A
     /// backslash is an ordinary character so that Windows paths survive.
@@ -113,6 +107,12 @@ impl Expansion {
         };
         single.into_iter().chain(many)
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Arg {
+    Literal(String),
+    Placeholder(Placeholder),
 }
 
 fn split(text: &str) -> Result<Vec<String>, CommandLineError> {

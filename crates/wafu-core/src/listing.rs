@@ -131,8 +131,8 @@ impl Default for SortSpec {
     }
 }
 
-/// Collation keys of one entry, computed once per rebuild because comparing
-/// strings through the collator on every comparison is several times slower.
+// Collation keys of one entry, computed once per rebuild because comparing
+// strings through the collator on every comparison is several times slower.
 struct Keys {
     name: Vec<u8>,
     extension: Vec<u8>,

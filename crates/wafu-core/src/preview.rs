@@ -432,6 +432,17 @@ mod tests {
         assert_eq!(document.lines(DocumentMode::Text, 99, 1)[0].number, "100");
     }
 
+    #[test]
+    fn image_names_are_recognized_by_extension() {
+        assert!(is_image_name(OsStr::new("a.png")));
+        assert!(is_image_name(OsStr::new("A.JPG")));
+        assert!(is_image_name(OsStr::new("photo.jpeg")));
+        assert!(is_image_name(OsStr::new("a.webp")));
+        assert!(!is_image_name(OsStr::new("a.txt")));
+        assert!(!is_image_name(OsStr::new(".png")));
+        assert!(!is_image_name(OsStr::new("png")));
+    }
+
     fn texts(document: &Document) -> Vec<String> {
         document
             .lines
@@ -450,16 +461,5 @@ mod tests {
             .into_iter()
             .map(|line| line.text)
             .collect()
-    }
-
-    #[test]
-    fn image_names_are_recognized_by_extension() {
-        assert!(is_image_name(OsStr::new("a.png")));
-        assert!(is_image_name(OsStr::new("A.JPG")));
-        assert!(is_image_name(OsStr::new("photo.jpeg")));
-        assert!(is_image_name(OsStr::new("a.webp")));
-        assert!(!is_image_name(OsStr::new("a.txt")));
-        assert!(!is_image_name(OsStr::new(".png")));
-        assert!(!is_image_name(OsStr::new("png")));
     }
 }
