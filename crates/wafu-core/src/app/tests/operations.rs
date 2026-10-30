@@ -1,15 +1,13 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-use crate::app::{Change, ConfigSource, Effect, IoEvent, MenuAnchor, Msg, Os, Side};
+use crate::app::{Change, Effect, IoEvent, MenuAnchor, Msg, Os, Side};
 use crate::error::IoError;
 use crate::operation::{OperationEvent, OperationKind, OperationSpec, Outcome, Reply, Sources};
 use crate::popup::Popup;
-use crate::test_support::{Harness, dir, file, start_msg_with};
+use crate::test_support::{Harness, LEFT, RIGHT, dir, file, path, shown};
 use crate::view::ItemMark;
 
-const LEFT: &str = "/home/user";
-const RIGHT: &str = "/tmp";
 const WIN_LEFT: &str = r"C:\Users\me";
 const WIN_RIGHT: &str = r"D:\";
 
@@ -63,14 +61,14 @@ fn move_without_marks_takes_the_cursor_entry() {
 
 #[test]
 fn copy_on_the_parent_row_without_marks_does_nothing() {
-    let mut harness = three_files();
-    cursor_only(&mut harness);
+    let mut harness = Harness::start_with_config(LEFT, RIGHT, "[general]\nrequire_marks = false\n");
+    harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
     harness.take_effects();
 
     harness.press("C");
 
     assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(harness.log(), ["config reloaded"]);
+    assert_eq!(harness.log(), Vec::<String>::new());
     assert_eq!(harness.view().popup, None);
 }
 
@@ -119,7 +117,7 @@ fn copy_without_a_location_on_the_other_side_is_logged() {
 }
 
 #[test]
-fn copy_and_extract_on_the_parent_row_say_nothing_about_a_missing_location() {
+fn copy_move_and_extract_on_the_parent_row_say_nothing_about_a_missing_location() {
     let mut harness = Harness::start_both_pending(Os::Linux, LEFT, RIGHT);
     harness.load(Side::Left, vec![file("a")]);
     harness.fail_load(Side::Right, "gone");
@@ -226,7 +224,7 @@ fn a_failure_is_logged_with_the_path() {
 
     harness.finish(Outcome::Failed {
         path: path(LEFT, "a"),
-        error: crate::error::IoError::new("permission denied"),
+        error: IoError::new("permission denied"),
         done: 0,
     });
 
@@ -445,6 +443,31 @@ fn closing_the_window_during_an_operation_asks_first() {
 }
 
 #[test]
+fn closing_the_window_while_renaming_in_a_conflict_puts_the_input_back_on_continue() {
+    let mut harness = conflicting();
+    harness.press("R");
+    harness.edit("a (co");
+    harness.take_effects();
+
+    harness.send(Msg::CloseRequested);
+    assert_eq!(harness.view().popup.unwrap().title, "Quit");
+    harness.press("Enter");
+
+    let popup = harness.view().popup.unwrap();
+    assert_eq!(popup.title, "Rename");
+    assert_eq!(harness.popup_fields(), ["a (co"]);
+    assert_eq!(harness.take_effects(), vec![]);
+
+    harness.press("Enter");
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::OperationReply(Reply::Rename(OsString::from(
+            "a (co"
+        )))]
+    );
+}
+
+#[test]
 fn a_conflict_during_the_quit_confirmation_waits_behind_it() {
     let mut harness = copying();
     harness.send(Msg::CloseRequested);
@@ -630,19 +653,47 @@ fn rename_opens_with_the_name_and_selects_everything_but_the_extension() {
         Some("a.tar.gz")
     );
     assert_eq!(popup.fields[0].select, Some((0, 5)));
+}
 
+#[test]
+fn rename_to_the_same_name_does_nothing() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("a.tar.gz")]);
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("R");
     harness.edit("a.tar.gz");
     harness.press("Enter");
+
     assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
+fn rename_to_an_empty_name_does_nothing() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("a.tar.gz")]);
+    harness.press("Down");
+    harness.take_effects();
 
     harness.press("R");
     harness.edit("");
     harness.press("Enter");
+
     assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
+fn rename_to_a_new_name_renames_and_closes() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("a.tar.gz")]);
+    harness.press("Down");
+    harness.take_effects();
 
     harness.press("R");
     harness.edit("b.txt");
     harness.press("Enter");
+
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Rename {
@@ -754,6 +805,12 @@ fn a_rename_puts_the_cursor_on_the_new_name() {
         harness.log().last().map(String::as_str),
         Some("renamed a to z")
     );
+}
+
+#[test]
+fn a_failed_rename_only_logs() {
+    let mut harness = three_files();
+    harness.take_effects();
 
     harness.changed_result(
         Change::Renamed {
@@ -762,6 +819,7 @@ fn a_rename_puts_the_cursor_on_the_new_name() {
         },
         Some("busy"),
     );
+
     assert_eq!(
         harness.log().last().cloned(),
         Some(format!("cannot rename {}: busy", shown(LEFT, "z")))
@@ -848,23 +906,10 @@ fn mkdir_creates_nested_directories_and_enters_the_new_one() {
 
 #[test]
 fn mkdir_without_entering_puts_the_cursor_on_the_first_component() {
-    let mut harness = Harness::start_from(start_msg_with(
-        Os::Linux,
-        Some(LEFT),
-        Some(RIGHT),
-        ConfigSource::Text("[general]\nmkdir_then_enter = false\n".to_owned()),
-        Ok(None),
-    ));
-    harness.resolve(Side::Left, LEFT, None);
-    harness.resolve(Side::Right, RIGHT, None);
+    let mut harness =
+        Harness::start_with_config(LEFT, RIGHT, "[general]\nmkdir_then_enter = false\n");
     harness.load(Side::Left, vec![file("x")]);
-    harness.load(Side::Right, vec![]);
     harness.take_effects();
-
-    harness.press("K");
-    harness.edit("");
-    harness.press("Enter");
-    assert_eq!(harness.take_effects(), vec![]);
 
     harness.changed_result(Change::DirCreated(PathBuf::from(LEFT).join("a/b")), None);
     assert!(matches!(
@@ -883,8 +928,28 @@ fn mkdir_without_entering_puts_the_cursor_on_the_first_component() {
             PathBuf::from(LEFT).join("a/b").display()
         ))
     );
+}
+
+#[test]
+fn mkdir_with_an_empty_name_does_nothing() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.take_effects();
+
+    harness.press("K");
+    harness.edit("");
+    harness.press("Enter");
+
+    assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
+fn a_failed_mkdir_is_logged() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("x")]);
+    harness.take_effects();
 
     harness.changed_result(Change::DirCreated(path(LEFT, "x")), Some("already exists"));
+
     assert_eq!(
         harness.log().last().cloned(),
         Some(format!(
@@ -1037,14 +1102,28 @@ fn open_with_os_opens_the_cursor_entry_only() {
     );
     assert_eq!(harness.cursor_name(Side::Left), "c");
 
-    harness.send(Msg::Io(crate::app::IoEvent::Opened {
+    harness.send(Msg::Io(IoEvent::Opened {
         path: path(LEFT, "c"),
-        error: Some(crate::error::IoError::new("no application")),
+        error: Some(IoError::new("no application")),
     }));
     assert_eq!(
         harness.log().last().cloned(),
         Some(format!("cannot open {}: no application", shown(LEFT, "c")))
     );
+}
+
+#[test]
+fn a_successful_open_with_os_is_not_logged() {
+    let mut harness = three_files();
+    harness.press("Down");
+    harness.press("Ctrl+Enter");
+
+    harness.send(Msg::Io(IoEvent::Opened {
+        path: path(LEFT, "a"),
+        error: None,
+    }));
+
+    assert_eq!(harness.log(), Vec::<String>::new());
 }
 
 #[test]
@@ -1105,9 +1184,9 @@ fn copy_path_and_copy_name_join_the_targets_with_newlines() {
         vec![Effect::Clipboard("a\nc".to_owned())]
     );
 
-    harness.send(Msg::Io(crate::app::IoEvent::ClipboardSet {
+    harness.send(Msg::Io(IoEvent::ClipboardSet {
         text: String::new(),
-        error: Some(crate::error::IoError::new("no clipboard")),
+        error: Some(IoError::new("no clipboard")),
     }));
     assert_eq!(
         harness.log().last().map(String::as_str),
@@ -1126,9 +1205,9 @@ fn copy_log_copies_every_kept_line_and_nothing_when_empty() {
     assert_eq!(harness.take_effects(), vec![]);
 
     for name in ["one", "two"] {
-        harness.send(Msg::Io(crate::app::IoEvent::ClipboardSet {
+        harness.send(Msg::Io(IoEvent::ClipboardSet {
             text: String::new(),
-            error: Some(crate::error::IoError::new(name)),
+            error: Some(IoError::new(name)),
         }));
     }
     harness.press("F1");
@@ -1429,17 +1508,9 @@ fn three_files() -> Harness {
 }
 
 fn three_files_not_creating_text() -> Harness {
-    let mut harness = Harness::start_from(start_msg_with(
-        Os::Linux,
-        Some(LEFT),
-        Some(RIGHT),
-        ConfigSource::Text("[general]\nnew_text_creates_file = false\n".to_owned()),
-        Ok(None),
-    ));
-    harness.resolve(Side::Left, LEFT, None);
-    harness.resolve(Side::Right, RIGHT, None);
+    let mut harness =
+        Harness::start_with_config(LEFT, RIGHT, "[general]\nnew_text_creates_file = false\n");
     harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
-    harness.load(Side::Right, vec![]);
     harness.take_effects();
     harness
 }
@@ -1452,7 +1523,7 @@ fn windows_files() -> Harness {
     harness
 }
 
-/// A copy of `a` and `c` is running.
+// A copy of `a` and `c` is running.
 fn copying() -> Harness {
     let mut harness = three_files();
     harness.press("Down");
@@ -1465,7 +1536,7 @@ fn copying() -> Harness {
     harness
 }
 
-/// A copy is waiting for the answer to a conflict on `a`.
+// A copy is waiting for the answer to a conflict on `a`.
 fn conflicting() -> Harness {
     let mut harness = copying();
     harness.operation(OperationEvent::Conflict {
@@ -1474,13 +1545,4 @@ fn conflicting() -> Harness {
     });
     assert!(matches!(harness.popup(), Some(Popup::Conflict(_))));
     harness
-}
-
-fn path(dir: &str, name: &str) -> PathBuf {
-    PathBuf::from(dir).join(name)
-}
-
-// The path as the log shows it, with the separator of the OS running the test.
-fn shown(dir: &str, name: &str) -> String {
-    path(dir, name).display().to_string()
 }

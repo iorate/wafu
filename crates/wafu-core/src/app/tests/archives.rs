@@ -2,16 +2,14 @@ use std::path::PathBuf;
 
 use crate::app::{Effect, IoEvent, Msg, Os, Side};
 use crate::entry::{Directory, Entry, EntryKind, TargetKind};
+use crate::error::IoError;
 use crate::location::{ArchiveFormat, ArchivePath, Location};
 use crate::operation::{
     ArchiveEntries, ArchiveOutput, OperationEvent, OperationKind, OperationSpec, Outcome, Reply,
     Sources,
 };
-use crate::pane::RequestId;
-use crate::test_support::{Harness, dir, file};
+use crate::test_support::{Harness, LEFT, RIGHT, dir, file, path, shown};
 
-const LEFT: &str = "/home/user";
-const RIGHT: &str = "/tmp";
 const TEMP: &str = "/tmp/wafu/x1";
 
 #[test]
@@ -48,6 +46,63 @@ fn enter_on_a_zip_watches_the_archive_and_shows_its_path() {
 }
 
 #[test]
+fn enter_on_a_zip_with_an_upper_case_extension_enters_it() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("A.ZIP")]);
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("Enter");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![
+            Effect::Watch {
+                side: Side::Left,
+                path: path(LEFT, "A.ZIP"),
+            },
+            Effect::ReadDir {
+                side: Side::Left,
+                location: Location::archive_root(path(LEFT, "A.ZIP"), ArchiveFormat::Zip),
+                request: harness.latest_request(Side::Left),
+            },
+        ]
+    );
+}
+
+#[test]
+fn enter_on_a_link_named_like_an_archive_opens_its_target_as_an_archive() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    let link = Entry {
+        kind: EntryKind::Symlink {
+            target: Some(TargetKind::File { executable: false }),
+        },
+        link_target: Some("target.bin".into()),
+        ..file("link.zip")
+    };
+    harness.load(Side::Left, vec![link]);
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("Enter");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![
+            Effect::Watch {
+                side: Side::Left,
+                path: path(LEFT, "link.zip"),
+            },
+            Effect::ReadDir {
+                side: Side::Left,
+                location: Location::archive_root(path(LEFT, "link.zip"), ArchiveFormat::Zip),
+                request: harness.latest_request(Side::Left),
+            },
+        ]
+    );
+}
+
+#[test]
 fn enter_as_archive_opens_any_file_but_not_a_directory() {
     let mut harness = outside();
     harness.press("Down");
@@ -70,6 +125,19 @@ fn enter_as_archive_opens_any_file_but_not_a_directory() {
 
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(harness.cursor_name(Side::Left), "d");
+}
+
+#[test]
+fn enter_as_archive_on_the_parent_row_does_nothing() {
+    let mut harness = outside();
+    harness.press("Home");
+    harness.take_effects();
+
+    harness.press("Shift+U");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.view().left.path, LEFT);
+    assert_eq!(harness.log(), Vec::<String>::new());
 }
 
 #[test]
@@ -218,9 +286,12 @@ fn commands_that_change_things_are_refused_inside_an_archive() {
     harness.press("Down");
     harness.press("Down");
 
-    for key in ["M", "D", "Shift+D", "R", "K", "Shift+E", "U", "P", "\\"] {
+    for key in ["M", "D", "Shift+D", "R", "K", "Shift+E", "U", "P"] {
         harness.press(key);
     }
+    harness.press("F1");
+    harness.edit("new_file");
+    harness.press("Enter");
 
     assert_eq!(harness.take_effects(), vec![]);
     assert!(harness.popup().is_none());
@@ -235,7 +306,27 @@ fn commands_that_change_things_are_refused_inside_an_archive() {
             "new_text is not available inside an archive",
             "extract is not available inside an archive",
             "compress is not available inside an archive",
+            "new_file is not available inside an archive",
         ]
+    );
+}
+
+#[test]
+fn shell_menu_key_inside_an_archive_on_windows_is_refused() {
+    let mut harness = Harness::start_on(Os::Windows, r"C:\Users\me", r"D:\");
+    harness.load(Side::Left, vec![file("a.zip")]);
+    harness.press("Down");
+    harness.enter_archive(Side::Left, contents());
+    harness.press("Down");
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("\\");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log(),
+        ["shell_menu is not available inside an archive"]
     );
 }
 
@@ -599,6 +690,34 @@ fn a_password_request_during_the_quit_confirmation_waits_behind_it() {
 }
 
 #[test]
+fn a_password_typed_for_a_temporary_extraction_is_remembered_inside_the_archive() {
+    let mut harness = inside();
+    harness.press("Down");
+    harness.press("Down");
+    harness.press("E");
+    harness.operation(OperationEvent::NeedPassword {
+        archive: archive(),
+        retry: false,
+    });
+    harness.edit("pw");
+    harness.press("Enter");
+    harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
+    harness.finish(Outcome::Completed {
+        done: 1,
+        skipped: 0,
+    });
+    harness.take_effects();
+
+    harness.press("E");
+
+    let spec = harness.start_operation().unwrap();
+    assert_eq!(
+        spec.sources,
+        Sources::Entries(entries(&["b.txt"], Some("pw")))
+    );
+}
+
+#[test]
 fn a_wrong_password_is_asked_again_and_forgotten() {
     let mut harness = copying_inside();
     harness.operation(OperationEvent::NeedPassword {
@@ -909,6 +1028,36 @@ fn a_cancelled_temporary_extraction_starts_nothing() {
 }
 
 #[test]
+fn a_failed_temporary_extraction_starts_nothing() {
+    let mut harness = inside();
+    harness.press("Down");
+    harness.press("Down");
+    harness.press("E");
+    harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
+    harness.take_effects();
+
+    harness.finish(Outcome::Failed {
+        path: path(TEMP, "b.txt"),
+        error: IoError::new("disk full"),
+        done: 0,
+    });
+
+    let effects = harness.take_effects();
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Spawn { .. }))
+    );
+    assert_eq!(
+        harness.log().last().cloned(),
+        Some(format!(
+            "cannot extract {}: disk full",
+            shown(TEMP, "b.txt")
+        ))
+    );
+}
+
+#[test]
 fn history_back_inside_an_archive_leaves_it_without_recording_it() {
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.load(Side::Left, vec![dir("d")]);
@@ -1013,6 +1162,19 @@ fn a_vanished_archive_falls_back_to_its_directory() {
 }
 
 #[test]
+fn go_to_path_inside_an_archive_starts_with_the_archive_path() {
+    let mut harness = inside();
+    harness.press("Down");
+    harness.press("Enter");
+    harness.load(Side::Left, vec![file("c.txt")]);
+
+    harness.press("Shift+J");
+
+    assert_eq!(harness.view().popup.unwrap().title, "Go to path");
+    assert_eq!(harness.popup_fields(), [archive().display().to_string()]);
+}
+
+#[test]
 fn go_to_path_naming_the_archive_leaves_it_with_the_cursor_on_the_file() {
     let mut harness = inside();
 
@@ -1057,6 +1219,7 @@ fn stale_archive_replies_are_ignored() {
     let stale = harness.latest_request(Side::Left);
     harness.press("Esc");
     harness.take_effects();
+    let names = harness.names(Side::Left);
 
     harness.send(Msg::Io(IoEvent::DirLoaded {
         side: Side::Left,
@@ -1068,7 +1231,7 @@ fn stale_archive_replies_are_ignored() {
     }));
 
     assert_eq!(harness.view().left.path, LEFT);
-    assert_eq!(stale, RequestId(stale.0));
+    assert_eq!(harness.names(Side::Left), names);
 }
 
 // The left pane shows a directory with an archive, with the cursor on it.
@@ -1102,7 +1265,7 @@ fn copying_inside() -> Harness {
     harness
 }
 
-fn contents() -> Vec<crate::entry::Entry> {
+fn contents() -> Vec<Entry> {
     vec![
         dir("docs"),
         file("b.txt"),
@@ -1129,12 +1292,4 @@ fn entries(names: &[&str], password: Option<&str>) -> ArchiveEntries {
         names: names.iter().map(|name| (*name).to_owned()).collect(),
         password: password.map(ToOwned::to_owned),
     }
-}
-
-fn path(dir: &str, name: &str) -> PathBuf {
-    PathBuf::from(dir).join(name)
-}
-
-fn shown(dir: &str, name: &str) -> String {
-    path(dir, name).display().to_string()
 }
