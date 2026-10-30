@@ -312,6 +312,9 @@ fn status_line_on_the_parent_row_of_an_archive_root_describes_the_archive_file()
     use crate::entry::Permissions;
 
     let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a.zip")]);
+    harness.press("Down");
+    harness.press("Enter");
     let own = Entry {
         size: 1234,
         permissions: Some(Permissions::Mode(0o644)),
@@ -2472,7 +2475,7 @@ fn empty_bookmarks_popup_says_so_and_enter_closes_it() {
 }
 
 #[test]
-fn drive_keys_are_unbound_on_other_systems() {
+fn windows_only_keys_are_unbound_on_other_systems() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.take_effects();
 
@@ -2786,7 +2789,7 @@ fn start_takes_paths_from_the_arguments_then_the_state_then_home() {
 }
 
 #[test]
-fn start_restores_the_saved_display_state_and_ignores_initial() {
+fn start_prefers_the_saved_display_state_and_falls_back_to_initial() {
     let state = StateFile {
         left: PaneState {
             sort: Some("size".to_owned()),

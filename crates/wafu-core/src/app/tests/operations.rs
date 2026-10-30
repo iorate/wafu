@@ -117,7 +117,7 @@ fn copy_without_a_location_on_the_other_side_is_logged() {
 }
 
 #[test]
-fn copy_and_extract_on_the_parent_row_say_nothing_about_a_missing_location() {
+fn copy_move_and_extract_on_the_parent_row_say_nothing_about_a_missing_location() {
     let mut harness = Harness::start_both_pending(Os::Linux, LEFT, RIGHT);
     harness.load(Side::Left, vec![file("a")]);
     harness.fail_load(Side::Right, "gone");
