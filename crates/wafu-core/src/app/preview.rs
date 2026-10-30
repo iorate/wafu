@@ -301,9 +301,16 @@ impl App {
 
     pub(super) fn hide_log(&self) -> bool {
         self.config.general.hide_log_in_preview
-            && self
-                .preview_view()
-                .is_some_and(|preview| preview.placement == PreviewPlacement::Full)
+            && matches!(
+                &self.preview,
+                Some(
+                    Preview::Document(_)
+                        | Preview::Image(ImagePreview {
+                            placement: PreviewPlacement::Full,
+                            ..
+                        })
+                )
+            )
     }
 
     fn close_preview(&mut self, effects: &mut Vec<Effect>) {
