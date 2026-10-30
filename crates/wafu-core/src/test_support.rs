@@ -310,12 +310,12 @@ impl Harness {
         self.operation(OperationEvent::Finished(outcome));
     }
 
-    /// Enters the archive under the cursor with Enter and answers the read
-    /// with the given entries.
     pub(crate) fn right_click(&mut self, side: Side, row: usize) {
         self.send(Msg::Mouse(MouseInput::RightClick { side, row }));
     }
 
+    // Enters the archive under the cursor with Enter and answers the read
+    // with the given entries.
     pub(crate) fn enter_archive(&mut self, side: Side, entries: Vec<Entry>) {
         self.press("Enter");
         self.load(side, entries);
