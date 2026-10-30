@@ -443,6 +443,31 @@ fn closing_the_window_during_an_operation_asks_first() {
 }
 
 #[test]
+fn closing_the_window_while_renaming_in_a_conflict_puts_the_input_back_on_continue() {
+    let mut harness = conflicting();
+    harness.press("R");
+    harness.edit("a (co");
+    harness.take_effects();
+
+    harness.send(Msg::CloseRequested);
+    assert_eq!(harness.view().popup.unwrap().title, "Quit");
+    harness.press("Enter");
+
+    let popup = harness.view().popup.unwrap();
+    assert_eq!(popup.title, "Rename");
+    assert_eq!(harness.popup_fields(), ["a (co"]);
+    assert_eq!(harness.take_effects(), vec![]);
+
+    harness.press("Enter");
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::OperationReply(Reply::Rename(OsString::from(
+            "a (co"
+        )))]
+    );
+}
+
+#[test]
 fn a_conflict_during_the_quit_confirmation_waits_behind_it() {
     let mut harness = copying();
     harness.send(Msg::CloseRequested);
