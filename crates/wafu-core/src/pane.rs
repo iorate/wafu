@@ -161,7 +161,7 @@ impl Pane {
 
     #[must_use]
     pub fn has_parent(&self) -> bool {
-        self.location.parent().is_some()
+        self.location.has_parent()
     }
 
     #[must_use]
