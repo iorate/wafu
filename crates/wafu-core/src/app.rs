@@ -36,7 +36,7 @@ const LOG_ROWS_MAX: usize = 30;
 pub enum Msg {
     /// The application has started.
     Start(Box<Start>),
-    /// The window's close button, or the Quit item of the menu bar.
+    /// The window's close button, or the Close Window item of the macOS menu.
     CloseRequested,
     Key(KeyInput),
     Mouse(MouseInput),
