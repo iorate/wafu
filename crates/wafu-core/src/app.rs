@@ -36,7 +36,7 @@ const LOG_ROWS_MAX: usize = 30;
 pub enum Msg {
     /// The application has started.
     Start(Box<Start>),
-    /// The window's close button, or the Quit item of the menu bar.
+    /// The window's close button, or the Close Window item of the macOS menu.
     CloseRequested,
     Key(KeyInput),
     Mouse(MouseInput),
@@ -346,6 +346,25 @@ pub enum Side {
     Right,
 }
 
+impl Side {
+    #[must_use]
+    pub fn other(self) -> Self {
+        match self {
+            Self::Left => Self::Right,
+            Self::Right => Self::Left,
+        }
+    }
+
+    /// `0` for the left side and `1` for the right, for indexing a pair.
+    #[must_use]
+    pub fn index(self) -> usize {
+        match self {
+            Self::Left => 0,
+            Self::Right => 1,
+        }
+    }
+}
+
 /// The whole application state.
 #[derive(Debug)]
 pub struct App {
@@ -367,25 +386,6 @@ pub struct App {
     next_request: u64,
     home: PathBuf,
     os: Os,
-}
-
-impl Side {
-    #[must_use]
-    pub fn other(self) -> Self {
-        match self {
-            Self::Left => Self::Right,
-            Self::Right => Self::Left,
-        }
-    }
-
-    /// `0` for the left side and `1` for the right, for indexing a pair.
-    #[must_use]
-    pub fn index(self) -> usize {
-        match self {
-            Self::Left => 0,
-            Self::Right => 1,
-        }
-    }
 }
 
 impl App {
@@ -491,80 +491,6 @@ impl App {
             effects.push(Effect::SetTitle(title));
         }
         effects
-    }
-
-    fn io_event(&mut self, event: IoEvent, effects: &mut Vec<Effect>) {
-        match event {
-            IoEvent::DirLoaded {
-                side,
-                request,
-                result,
-            } => self.dir_loaded(side, request, result, effects),
-            IoEvent::Resolved {
-                side,
-                request,
-                result,
-            } => self.resolved(side, request, result, effects),
-            IoEvent::PreviewLoaded { request, result } => {
-                self.preview_loaded(request, result, effects);
-            }
-            IoEvent::ImageLoaded { request, result } => self.image_loaded(request, result),
-            IoEvent::LocationChanged { side, path } => {
-                self.location_changed(side, &path, effects);
-            }
-            IoEvent::Drives { purpose, letters } => {
-                self.drives(purpose, letters, effects);
-            }
-            IoEvent::WatchFailed { path, error, .. } => {
-                self.log.push(
-                    AppError::Watch {
-                        path,
-                        source: error,
-                    }
-                    .to_string(),
-                );
-            }
-            IoEvent::ConfigLoaded { result } => self.config_loaded(result),
-            IoEvent::ConfigWatchFailed { error } => {
-                self.log.push(
-                    AppError::Watch {
-                        path: self.config_path.clone(),
-                        source: error,
-                    }
-                    .to_string(),
-                );
-            }
-            IoEvent::Spawned { kind, error } => self.spawned(kind, error),
-            IoEvent::Operation(event) => self.operation_event(event, effects),
-            IoEvent::Changed { change, error } => {
-                self.changed(change, error, effects);
-            }
-            IoEvent::ClipboardSet { text, error } => {
-                if let Some(source) = error {
-                    self.log
-                        .push(AppError::ClipboardFailed { source }.to_string());
-                } else {
-                    let lines = text.lines().count();
-                    self.log.push(if lines == 1 {
-                        format!("copied to clipboard: {text}")
-                    } else {
-                        format!("copied {lines} lines to clipboard")
-                    });
-                }
-            }
-            IoEvent::Opened { path, error } => {
-                if let Some(source) = error {
-                    self.log
-                        .push(AppError::OpenFailed { path, source }.to_string());
-                }
-            }
-            IoEvent::ShellMenuClosed { error } => {
-                if let Some(source) = error {
-                    self.log
-                        .push(AppError::ShellMenuFailed { source }.to_string());
-                }
-            }
-        }
     }
 
     #[must_use]
@@ -742,6 +668,80 @@ impl App {
             MouseInput::LogWheel { rows } => self.log.scroll_by(i64::from(rows)),
             MouseInput::LogScrollTo { top } => self.log.scroll_to(top),
             MouseInput::PreviewWheel { .. } | MouseInput::PreviewDoubleClick => {}
+        }
+    }
+
+    fn io_event(&mut self, event: IoEvent, effects: &mut Vec<Effect>) {
+        match event {
+            IoEvent::DirLoaded {
+                side,
+                request,
+                result,
+            } => self.dir_loaded(side, request, result, effects),
+            IoEvent::Resolved {
+                side,
+                request,
+                result,
+            } => self.resolved(side, request, result, effects),
+            IoEvent::PreviewLoaded { request, result } => {
+                self.preview_loaded(request, result, effects);
+            }
+            IoEvent::ImageLoaded { request, result } => self.image_loaded(request, result),
+            IoEvent::LocationChanged { side, path } => {
+                self.location_changed(side, &path, effects);
+            }
+            IoEvent::Drives { purpose, letters } => {
+                self.drives(purpose, letters, effects);
+            }
+            IoEvent::WatchFailed { path, error, .. } => {
+                self.log.push(
+                    AppError::Watch {
+                        path,
+                        source: error,
+                    }
+                    .to_string(),
+                );
+            }
+            IoEvent::ConfigLoaded { result } => self.config_loaded(result),
+            IoEvent::ConfigWatchFailed { error } => {
+                self.log.push(
+                    AppError::Watch {
+                        path: self.config_path.clone(),
+                        source: error,
+                    }
+                    .to_string(),
+                );
+            }
+            IoEvent::Spawned { kind, error } => self.spawned(kind, error),
+            IoEvent::Operation(event) => self.operation_event(event, effects),
+            IoEvent::Changed { change, error } => {
+                self.changed(change, error, effects);
+            }
+            IoEvent::ClipboardSet { text, error } => {
+                if let Some(source) = error {
+                    self.log
+                        .push(AppError::ClipboardFailed { source }.to_string());
+                } else {
+                    let lines = text.lines().count();
+                    self.log.push(if lines == 1 {
+                        format!("copied to clipboard: {text}")
+                    } else {
+                        format!("copied {lines} lines to clipboard")
+                    });
+                }
+            }
+            IoEvent::Opened { path, error } => {
+                if let Some(source) = error {
+                    self.log
+                        .push(AppError::OpenFailed { path, source }.to_string());
+                }
+            }
+            IoEvent::ShellMenuClosed { error } => {
+                if let Some(source) = error {
+                    self.log
+                        .push(AppError::ShellMenuFailed { source }.to_string());
+                }
+            }
         }
     }
 

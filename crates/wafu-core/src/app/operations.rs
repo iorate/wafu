@@ -18,51 +18,7 @@ use crate::popup::{
 };
 use crate::view::PopupView;
 
-/// The name of an archive made from several entries when the directory has no name.
 const DEFAULT_ARCHIVE_STEM: &str = "archive";
-
-/// A file operation in progress on the worker.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Operation {
-    kind: OperationKind,
-    /// The pane the operation started from, whose marks it clears.
-    side: Side,
-    /// The names of the sources, in the same order.
-    names: Vec<OsString>,
-    /// The directory of the sources, or the archive they are in.
-    source_dir: PathBuf,
-    dest: Option<PathBuf>,
-    current: Option<PathBuf>,
-    done: usize,
-    /// `Cancel` was sent; waiting for the worker to finish.
-    cancelling: bool,
-    /// Quit once the operation has finished.
-    quit_after: bool,
-    /// What to do with the entries once they are in the temporary directory.
-    temp: Option<Temp>,
-    temp_dir: Option<PathBuf>,
-    /// A password typed for this operation is kept by the pane, which is
-    /// inside the archive.
-    remember_password: bool,
-}
-
-/// A program to hand the extracted entries to, with the entries each
-/// placeholder stands for.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Temp {
-    action: TempAction,
-    cursor: Option<OsString>,
-    marked: Vec<OsString>,
-    /// The entries `{paths}` stands for.
-    targets: Vec<OsString>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum TempAction {
-    Edit,
-    OpenWithOs,
-    External(String),
-}
 
 impl App {
     pub(super) fn run_file_command(&mut self, command: Command, effects: &mut Vec<Effect>) {
@@ -111,9 +67,6 @@ impl App {
         }
     }
 
-    /// Asks for the shell menu of the targets. From the keyboard the targets
-    /// follow the usual rule; a right click takes the marked entries only when
-    /// the clicked row is one of them, else just that row.
     pub(super) fn shell_menu(&mut self, anchor: MenuAnchor, effects: &mut Vec<Effect>) {
         let pane = self.active_pane();
         if pane.location().in_archive() {
@@ -235,8 +188,8 @@ impl App {
         }
     }
 
-    /// Starts a delete or trash. The directory and names come from the
-    /// confirmation when there was one, so that what was asked about is what goes.
+    // The directory and names come from the confirmation when there was one, so
+    // that what was asked about is what goes.
     pub(super) fn start_removal(
         &mut self,
         kind: OperationKind,
@@ -260,7 +213,6 @@ impl App {
         self.popup = Some(Popup::Choice(ChoicePopup::quit_during_operation(resume)));
     }
 
-    /// Chooses the first answer of a quit confirmation.
     pub(super) fn continue_operation(&mut self, resume: Option<Box<Popup>>) {
         self.popup = resume.map(|popup| *popup);
     }
@@ -305,7 +257,6 @@ impl App {
         }
     }
 
-    /// Answers a password request. An empty password keeps the question open.
     pub(super) fn confirm_password(&mut self, popup: InputPopup, effects: &mut Vec<Effect>) {
         let password = popup.text(0).to_owned();
         if password.is_empty() {
@@ -548,9 +499,8 @@ impl App {
         }
     }
 
-    /// Runs an external command on entries inside an archive, once they are
-    /// extracted. Every placeholder may be used, so the cursor entry and the
-    /// marked entries are all extracted.
+    // Every placeholder may be used, so the cursor entry and the marked entries
+    // are all extracted.
     pub(super) fn run_external_in_archive(&mut self, name: &str, effects: &mut Vec<Effect>) {
         let pane = self.active_pane();
         let cursor = pane.cursor_entry().map(|entry| entry.name.clone());
@@ -816,6 +766,41 @@ impl App {
             }
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Operation {
+    kind: OperationKind,
+    side: Side,
+    names: Vec<OsString>,
+    // The directory of the sources, or the archive they are in.
+    source_dir: PathBuf,
+    dest: Option<PathBuf>,
+    current: Option<PathBuf>,
+    done: usize,
+    cancelling: bool,
+    quit_after: bool,
+    temp: Option<Temp>,
+    temp_dir: Option<PathBuf>,
+    // A password typed for this operation is kept by the pane, which is
+    // inside the archive.
+    remember_password: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Temp {
+    action: TempAction,
+    cursor: Option<OsString>,
+    marked: Vec<OsString>,
+    // The entries `{paths}` stands for.
+    targets: Vec<OsString>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TempAction {
+    Edit,
+    OpenWithOs,
+    External(String),
 }
 
 fn source_paths(dir: &Path, names: &[OsString]) -> Sources {

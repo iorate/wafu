@@ -7,6 +7,53 @@ use crate::history::History;
 use crate::listing::{SortKey, SortSpec};
 use crate::view::{InputField, ItemMark, PopupItem};
 
+const ITEM_KEYS: &str = "0123456789abcdefghijklmnopqrstuvwxyz";
+
+const SORT_KEYS: [(SortKey, &str, char); 6] = [
+    (SortKey::None, "None", 'N'),
+    (SortKey::Name, "Name", 'F'),
+    (SortKey::Extension, "Extension", 'E'),
+    (SortKey::Size, "Size", 'S'),
+    (SortKey::Time, "Time", 'T'),
+    (SortKey::Natural, "Name (natural)", 'X'),
+];
+
+const SORT_TOGGLES: [(&str, char); 3] = [
+    ("Descending", 'D'),
+    ("Directories first", 'G'),
+    ("Case-insensitive", 'C'),
+];
+
+const DELETE_CHOICES: [Choice; 2] = [
+    Choice {
+        label: "Delete",
+        key: Some('Y'),
+    },
+    Choice {
+        label: "Cancel",
+        key: Some('N'),
+    },
+];
+
+const QUIT_CHOICES: [Choice; 2] = [
+    Choice {
+        label: "Continue the operation",
+        key: None,
+    },
+    Choice {
+        label: "Cancel the operation and quit",
+        key: None,
+    },
+];
+
+const CONFLICT_ROWS: [(ConflictRow, &str, &str); 5] = [
+    (ConflictRow::Overwrite, "Overwrite", "O"),
+    (ConflictRow::Skip, "Skip", "S"),
+    (ConflictRow::Rename, "Rename", "R"),
+    (ConflictRow::ApplyToAll, "Apply to all", "A"),
+    (ConflictRow::Abort, "Abort", "Esc"),
+];
+
 /// A modal that takes all keys while it is open.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Popup {
@@ -89,7 +136,6 @@ pub struct PalettePopup {
     pub query: String,
     pub matches: Vec<Command>,
     pub cursor: usize,
-    /// The names of the external commands, listed after the built-in ones.
     externals: Vec<String>,
 }
 
@@ -170,24 +216,6 @@ pub enum ListTarget {
     Path(PathBuf),
     Drive(char),
 }
-
-/// The keys given to the first 36 items of a history or bookmark list.
-const ITEM_KEYS: &str = "0123456789abcdefghijklmnopqrstuvwxyz";
-
-const SORT_KEYS: [(SortKey, &str, char); 6] = [
-    (SortKey::None, "None", 'N'),
-    (SortKey::Name, "Name", 'F'),
-    (SortKey::Extension, "Extension", 'E'),
-    (SortKey::Size, "Size", 'S'),
-    (SortKey::Time, "Time", 'T'),
-    (SortKey::Natural, "Name (natural)", 'X'),
-];
-
-const SORT_TOGGLES: [(&str, char); 3] = [
-    ("Descending", 'D'),
-    ("Directories first", 'G'),
-    ("Case-insensitive", 'C'),
-];
 
 impl SortPopup {
     pub const ROWS: usize = SORT_KEYS.len() + SORT_TOGGLES.len();
@@ -383,40 +411,6 @@ impl InputKind {
     }
 }
 
-/// The part of a file name to select when editing it: everything but the
-/// extension, or nothing special when there is none.
-#[must_use]
-pub fn stem_selection(name: &str) -> Option<(usize, usize)> {
-    name.char_indices()
-        .skip(1)
-        .filter(|&(_, c)| c == '.')
-        .map(|(index, _)| index)
-        .last()
-        .map(|index| (0, index))
-}
-
-const DELETE_CHOICES: [Choice; 2] = [
-    Choice {
-        label: "Delete",
-        key: Some('Y'),
-    },
-    Choice {
-        label: "Cancel",
-        key: Some('N'),
-    },
-];
-
-const QUIT_CHOICES: [Choice; 2] = [
-    Choice {
-        label: "Continue the operation",
-        key: None,
-    },
-    Choice {
-        label: "Cancel the operation and quit",
-        key: None,
-    },
-];
-
 impl ChoicePopup {
     /// Asks before deleting; the first answer deletes.
     #[must_use]
@@ -492,14 +486,6 @@ impl ChoicePopup {
         self.cursor = (self.cursor + 1) % self.choices().len();
     }
 }
-
-const CONFLICT_ROWS: [(ConflictRow, &str, &str); 5] = [
-    (ConflictRow::Overwrite, "Overwrite", "O"),
-    (ConflictRow::Skip, "Skip", "S"),
-    (ConflictRow::Rename, "Rename", "R"),
-    (ConflictRow::ApplyToAll, "Apply to all", "A"),
-    (ConflictRow::Abort, "Abort", "Esc"),
-];
 
 impl ConflictPopup {
     #[must_use]
@@ -679,10 +665,6 @@ impl ListPopup {
     }
 }
 
-fn item_keys() -> impl Iterator<Item = Option<char>> {
-    ITEM_KEYS.chars().map(Some).chain(std::iter::repeat(None))
-}
-
 impl PalettePopup {
     #[must_use]
     pub fn new(context: Context, os: Os, externals: Vec<String>) -> Self {
@@ -718,6 +700,22 @@ impl PalettePopup {
             self.cursor = (self.cursor + 1) % self.matches.len();
         }
     }
+}
+
+/// The part of a file name to select when editing it: everything but the
+/// extension, or nothing special when there is none.
+#[must_use]
+pub fn stem_selection(name: &str) -> Option<(usize, usize)> {
+    name.char_indices()
+        .skip(1)
+        .filter(|&(_, c)| c == '.')
+        .map(|(index, _)| index)
+        .last()
+        .map(|index| (0, index))
+}
+
+fn item_keys() -> impl Iterator<Item = Option<char>> {
+    ITEM_KEYS.chars().map(Some).chain(std::iter::repeat(None))
 }
 
 fn matches(context: Context, os: Os, externals: &[String], query: &str) -> Vec<Command> {
