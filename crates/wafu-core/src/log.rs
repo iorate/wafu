@@ -5,7 +5,7 @@ const MAX_LINES: usize = 1000;
 /// The log shown at the bottom of the window.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Log {
-    lines: Arc<[String]>,
+    lines: Arc<[Arc<str>]>,
     /// The first visible line when not following the tail.
     scroll_top: usize,
     /// Whether new lines keep the tail in view.
@@ -31,13 +31,13 @@ impl Log {
             // Keep the same lines in view after the oldest one is dropped.
             self.scroll_top = self.scroll_top.saturating_sub(1);
         }
-        self.lines = kept.iter().cloned().chain([line]).collect();
+        self.lines = kept.iter().cloned().chain([Arc::from(line)]).collect();
     }
 
     /// The lines in order. The same allocation is returned until a line is
     /// added or the log is cleared.
     #[must_use]
-    pub fn lines(&self) -> Arc<[String]> {
+    pub fn lines(&self) -> Arc<[Arc<str>]> {
         Arc::clone(&self.lines)
     }
 
@@ -216,7 +216,7 @@ mod tests {
         }
 
         assert_eq!(log.len(), MAX_LINES);
-        assert_eq!(log.lines()[0], "2");
+        assert_eq!(&*log.lines()[0], "2");
     }
 
     #[test]
@@ -229,7 +229,10 @@ mod tests {
 
         log.push("c".to_owned());
         assert!(!Arc::ptr_eq(&before, &log.lines()));
-        assert_eq!(log.lines().as_ref(), ["0", "1", "c"]);
+        assert_eq!(
+            log.lines().iter().map(|line| &**line).collect::<Vec<_>>(),
+            ["0", "1", "c"]
+        );
     }
 
     #[test]

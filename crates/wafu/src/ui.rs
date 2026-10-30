@@ -63,7 +63,7 @@ struct Rendered {
     right_rows: Arc<[RowView]>,
     left_marks: Arc<[bool]>,
     right_marks: Arc<[bool]>,
-    log: Arc<[String]>,
+    log: Arc<[Arc<str>]>,
     popup: Option<PopupView>,
     preview: Option<PreviewView>,
     // The image last handed to Slint, so that it is converted only once.
@@ -526,7 +526,7 @@ impl Ui {
                 view.log
                     .lines
                     .iter()
-                    .map(SharedString::from)
+                    .map(|line| SharedString::from(&**line))
                     .collect::<Vec<_>>(),
             );
             rendered.log = Arc::clone(&view.log.lines);
