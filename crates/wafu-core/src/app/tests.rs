@@ -739,9 +739,11 @@ fn unbound_key_does_nothing() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.take_effects();
 
-    harness.press("F1");
+    harness.press("F3");
 
     assert_eq!(harness.take_effects(), vec![]);
+    assert!(harness.view().popup.is_none());
+    assert_eq!(harness.log(), Vec::<String>::new());
 }
 
 // Marks
@@ -1623,7 +1625,7 @@ fn wheel_scrolls_without_moving_the_cursor_and_a_key_brings_it_back() {
     assert_eq!(harness.view().left.scroll_top, 3);
     assert_eq!(harness.view().left.cursor, Some(0));
 
-    harness.press("F1");
+    harness.press("F3");
     assert_eq!(harness.view().left.scroll_top, 0);
 }
 
