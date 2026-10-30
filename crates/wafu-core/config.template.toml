@@ -32,9 +32,8 @@
 # size_format = "plain"
 
 ## The default font. A family set here applies everywhere. An empty family uses
-## the built-in default: the system font for the popups, and the monospaced
-## font of the OS (Consolas on Windows, Menlo on macOS, DejaVu Sans Mono on
-## Linux) everywhere else. Generic names such as "monospace" do not work, and a
+## the monospaced font of the OS (Consolas on Windows, Menlo on macOS, DejaVu
+## Sans Mono on Linux). Generic names such as "monospace" do not work, and a
 ## family that is not installed falls back to the system font. The size is in
 ## pixels.
 [appearance.font]

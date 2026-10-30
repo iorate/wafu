@@ -49,7 +49,7 @@ pub struct Fonts {
     pub popup: ResolvedFont,
 }
 
-/// A font to use. An empty family means the system font.
+/// A font to use.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedFont {
     pub family: String,
@@ -221,21 +221,21 @@ impl Style {
     pub(crate) fn from_config(config: &Config, os: Os) -> Self {
         let font = &config.appearance.font;
         let monospace = monospace_family(os);
-        let resolve = |area: &crate::config::Font, family: &str| {
-            let (family, size) = area.resolve(&font.default, family);
+        let resolve = |area: &crate::config::Font| {
+            let (family, size) = area.resolve(&font.default, monospace);
             ResolvedFont { family, size }
         };
         Self {
             theme: config.appearance.theme,
             size_sample: config.appearance.size_format.column_sample(),
             fonts: Fonts {
-                path: resolve(&font.path, monospace),
-                filelist: resolve(&font.filelist, monospace),
-                info: resolve(&font.info, monospace),
-                log: resolve(&font.log, monospace),
-                status: resolve(&font.status, monospace),
-                preview: resolve(&font.preview, monospace),
-                popup: resolve(&font.popup, ""),
+                path: resolve(&font.path),
+                filelist: resolve(&font.filelist),
+                info: resolve(&font.info),
+                log: resolve(&font.log),
+                status: resolve(&font.status),
+                preview: resolve(&font.preview),
+                popup: resolve(&font.popup),
             },
             colors: config.colors.clone(),
         }

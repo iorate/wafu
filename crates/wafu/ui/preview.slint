@@ -118,6 +118,8 @@ export component PreviewWidget inherits Rectangle {
         y: (root.height - self.height) / 2;
         wrap: word-wrap;
         horizontal-alignment: center;
+        font-family: Theme.preview-font-family;
+        font-size: Theme.preview-font-size;
         color: Theme.colors.fg;
     }
 
@@ -133,6 +135,8 @@ export component PreviewWidget inherits Rectangle {
 
         overlay := Text {
             text: root.data.detail;
+            font-family: Theme.preview-font-family;
+            font-size: Theme.preview-font-size;
             color: Palette.foreground;
         }
     }
