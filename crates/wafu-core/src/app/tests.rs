@@ -1545,6 +1545,25 @@ fn double_click_opens_the_row() {
 }
 
 #[test]
+fn double_click_past_the_last_row_only_activates_the_pane() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Right, vec![dir("docs")]);
+    harness.click(Side::Right, 1);
+    harness.press("Tab");
+    harness.take_effects();
+
+    harness.double_click(Side::Right, 5);
+
+    assert_eq!(harness.app().active(), Side::Right);
+    assert_eq!(harness.cursor_name(Side::Right), "docs");
+    assert_eq!(harness.view().right.path, "/tmp");
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::SetTitle("wafu - /tmp".to_owned())]
+    );
+}
+
+#[test]
 fn right_click_moves_the_cursor_only() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![dir("docs")]);

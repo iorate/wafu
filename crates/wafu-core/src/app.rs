@@ -731,8 +731,11 @@ impl App {
             }
             MouseInput::DoubleClick { side, row } => {
                 self.active = side;
-                self.panes[side.index()].set_cursor(row);
-                self.run_command(Command::Open, effects);
+                let pane = &mut self.panes[side.index()];
+                if row < pane.row_count() {
+                    pane.set_cursor(row);
+                    self.run_command(Command::Open, effects);
+                }
             }
             MouseInput::Wheel { side, rows } => self.panes[side.index()].scroll_by(rows),
             MouseInput::ScrollTo { side, top } => self.panes[side.index()].scroll_to(top),
