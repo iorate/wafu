@@ -84,6 +84,7 @@ impl Worker<'_> {
             dest,
         )?;
         let prefix = &entries.path.inner;
+        let mut done = Vec::new();
         for (index, name) in entries.names.iter().enumerate() {
             let selected: Vec<usize> = extraction
                 .reader
@@ -105,12 +106,15 @@ impl Worker<'_> {
                     "not found in the archive",
                 ));
             }
-            let complete = self.extract_indices(&mut extraction, &selected, prefix.len())?;
-            if complete {
-                (self.report)(OperationEvent::ItemDone { index });
+            if self.extract_indices(&mut extraction, &selected, prefix.len())? {
+                done.push(index);
             }
         }
-        finish_extraction(extraction)
+        finish_extraction(extraction)?;
+        for index in done {
+            (self.report)(OperationEvent::ItemDone { index });
+        }
+        Ok(())
     }
 
     pub(super) fn extract_to_temp(&mut self, entries: &ArchiveEntries) -> Result<(), Stop> {
@@ -733,6 +737,33 @@ mod tests {
             PathBuf::from("f.txt")
         );
         assert_eq!(fs::read(dest.join("link")).unwrap(), b"f");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copied_items_are_reported_done_after_their_links_are_made() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("l.zip");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        write_zip(&archive, None, |writer| {
+            writer.add_symlink("link", "f.txt", None).unwrap();
+            writer.start_file("f.txt", 1, None, None).unwrap();
+            writer.write_all(b"f").unwrap();
+        });
+        let spec = copy_entries(&archive, &[], &["link", "f.txt"], &dest);
+        let (_sender, replies) = mpsc::channel();
+        let link_at_done = Mutex::new(Vec::new());
+        let report = |event: OperationEvent| {
+            if let OperationEvent::ItemDone { index } = event {
+                let made = fs::symlink_metadata(dest.join("link")).is_ok();
+                link_at_done.lock().unwrap().push((index, made));
+            }
+        };
+
+        run_operation(&spec, None, &replies, &report);
+
+        assert_eq!(link_at_done.into_inner().unwrap(), [(0, true), (1, true)]);
     }
 
     #[cfg(unix)]
