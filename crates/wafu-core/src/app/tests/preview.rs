@@ -519,6 +519,25 @@ fn a_stale_image_is_discarded() {
 }
 
 #[test]
+fn esc_cancels_a_move_started_beside_an_image_and_keeps_the_preview() {
+    let mut harness = image();
+    harness.changed(Side::Left);
+    harness.fail_load(Side::Left, "gone");
+    let request = harness.latest_resolve(Side::Left);
+    harness.take_effects();
+
+    harness.press("Esc");
+
+    assert!(harness.app().pane(Side::Left).loading().is_none());
+    assert!(harness.view().preview.is_some());
+    assert!(
+        harness
+            .take_effects()
+            .contains(&Effect::CancelRead { request })
+    );
+}
+
+#[test]
 fn double_click_on_a_document_preview_closes_it() {
     let mut harness = document();
 
