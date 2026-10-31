@@ -12,7 +12,6 @@ use zip::{AesMode, CompressionMethod, ExtraField, ZipArchive, ZipWriter};
 use super::names::{decode_name, split_name};
 use super::{ArchiveEntry, ArchiveEntryKind, ArchiveError, ArchiveReader, ArchiveWriter};
 
-/// Files this large need ZIP64 fields.
 const ZIP64_THRESHOLD: u64 = 4 * 1024 * 1024 * 1024;
 
 pub(crate) struct ZipReader {
@@ -141,7 +140,6 @@ fn entry_of(file: &ZipFile<'_, File>) -> ArchiveEntry {
         size: file.size(),
         modified,
         mode: file.unix_mode(),
-        encrypted: file.encrypted(),
     }
 }
 
@@ -251,7 +249,6 @@ mod tests {
         // DOS times are local and even-second; the written instant is even.
         assert_eq!(entries[1].modified, Some(modified));
         assert_eq!(entries[2].kind, ArchiveEntryKind::Symlink);
-        assert!(!entries[1].encrypted);
 
         let mut content = String::new();
         reader
@@ -285,7 +282,6 @@ mod tests {
 
         let mut reader = ZipReader::open(&path).unwrap();
 
-        assert!(reader.entries()[0].encrypted);
         assert!(matches!(
             reader.open(0, None),
             Err(ArchiveError::PasswordRequired)

@@ -410,10 +410,7 @@ fn ensure_dir(shown: &Path, root: &Path, dst: &Path) -> Result<(), Stop> {
                 fs::create_dir(&path).map_err(fail(shown))?;
             }
             Err(error) => {
-                return Err(Stop::Failed {
-                    path: shown.to_path_buf(),
-                    error,
-                });
+                return Err(fail(shown)(error));
             }
         }
     }
@@ -1076,7 +1073,6 @@ mod tests {
 
         assert!(matches!(outcome, Outcome::Completed { done: 1, .. }));
         let mut reader = open_archive(&dest.join("a.zip"), ArchiveFormat::Zip).unwrap();
-        assert!(reader.entries()[0].encrypted);
         assert!(matches!(
             reader.open(0, None),
             Err(ArchiveError::PasswordRequired)

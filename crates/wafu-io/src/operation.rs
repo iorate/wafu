@@ -193,10 +193,7 @@ impl Worker<'_> {
                 fs::create_dir(dst).map_err(fail(src))?;
             }
             Err(error) => {
-                return Err(Stop::Failed {
-                    path: src.to_path_buf(),
-                    error,
-                });
+                return Err(fail(src)(error));
             }
         }
         let mut complete = true;
@@ -254,10 +251,7 @@ impl Worker<'_> {
                 Ok(existing) => existing,
                 Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Some(dst)),
                 Err(error) => {
-                    return Err(Stop::Failed {
-                        path: src.to_path_buf(),
-                        error,
-                    });
+                    return Err(fail(src)(error));
                 }
             };
             if existing.is_dir() {
@@ -354,10 +348,7 @@ impl Worker<'_> {
                 return self.move_to_free_path(src, dst);
             }
             Err(error) => {
-                return Err(Stop::Failed {
-                    path: src.to_path_buf(),
-                    error,
-                });
+                return Err(fail(src)(error));
             }
         };
         if meta.is_dir() && existing.is_dir() {
@@ -408,10 +399,7 @@ impl Worker<'_> {
             Err(error) if error.kind() == io::ErrorKind::CrossesDevices => {
                 self.transfer_item(src, dst, Transfer::MoveByCopy)
             }
-            Err(error) => Err(Stop::Failed {
-                path: src.to_path_buf(),
-                error,
-            }),
+            Err(error) => Err(fail(src)(error)),
         }
     }
 
