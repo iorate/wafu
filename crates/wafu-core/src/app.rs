@@ -472,10 +472,10 @@ impl App {
                 }
             }
             Msg::Mouse(input) => {
-                if self.operation.is_some() || self.popup.is_some() {
+                if self.operation.is_some() || self.popup.is_some() || self.navigating() {
                 } else if self.preview.is_some() {
                     self.preview_mouse(input, &mut effects);
-                } else if !self.navigating() {
+                } else {
                     self.mouse(input, &mut effects);
                 }
             }

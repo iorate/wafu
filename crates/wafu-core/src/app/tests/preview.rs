@@ -538,6 +538,19 @@ fn esc_cancels_a_move_started_beside_an_image_and_keeps_the_preview() {
 }
 
 #[test]
+fn the_mouse_is_ignored_during_a_move_started_beside_an_image() {
+    let mut harness = image();
+    harness.changed(Side::Left);
+    harness.fail_load(Side::Left, "gone");
+
+    harness.click(Side::Left, 3);
+    harness.preview_double_click();
+
+    assert_eq!(harness.cursor_name(Side::Left), "one.png");
+    assert!(harness.view().preview.is_some());
+}
+
+#[test]
 fn double_click_on_a_document_preview_closes_it() {
     let mut harness = document();
 
