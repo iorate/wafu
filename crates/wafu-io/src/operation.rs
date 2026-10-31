@@ -380,6 +380,9 @@ impl Worker<'_> {
         }
         match self.resolve_conflict(src, dst)? {
             Resolution::Overwrite => {
+                if same_file::is_same_file(src, dst).unwrap_or(false) {
+                    return Err(failure(src, "the destination is the same file"));
+                }
                 remove_file(dst).map_err(fail(src))?;
                 self.move_to_free_path(src, dst)
             }
@@ -919,6 +922,23 @@ mod tests {
         assert_eq!(fs::read(dst.join("b2")).unwrap(), b"src b");
         assert!(!src.join("a").exists());
         assert!(!src.join("b").exists());
+    }
+
+    #[test]
+    fn moving_a_file_onto_itself_is_an_error() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("a"), b"a").unwrap();
+
+        let (outcome, _) = run(
+            &mv(&[dir.path().join("a")], dir.path()),
+            [Reply::Overwrite { all: false }],
+        );
+
+        let Outcome::Failed { error, .. } = outcome else {
+            panic!("expected a failure, got {outcome:?}");
+        };
+        assert_eq!(error.to_string(), "the destination is the same file");
+        assert_eq!(fs::read(dir.path().join("a")).unwrap(), b"a");
     }
 
     // A move across devices cannot be set up in a temporary directory, so
