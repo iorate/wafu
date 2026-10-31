@@ -529,9 +529,11 @@ fn remove_dir(path: &Path) -> io::Result<()> {
 
 #[cfg(windows)]
 fn remove_file_or_link(path: &Path) -> io::Result<()> {
+    use std::os::windows::fs::FileTypeExt;
+
     // A link to a directory is a directory to the removal functions.
     let meta = fs::symlink_metadata(path)?;
-    if meta.is_symlink() && meta.is_dir() {
+    if meta.file_type().is_symlink_dir() {
         fs::remove_dir(path)
     } else {
         fs::remove_file(path)
@@ -863,6 +865,25 @@ mod tests {
         assert!(matches!(outcome, Outcome::Completed { done: 1, .. }));
         assert!(!src.join("link").exists());
         assert!(src.join("real").is_file());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_link_to_a_directory_is_deleted_without_its_target() {
+        let dir = TempDir::new().unwrap();
+        let real = dir.path().join("real");
+        let link = dir.path().join("link");
+        fs::create_dir(&real).unwrap();
+        fs::write(real.join("a"), b"a").unwrap();
+        if std::os::windows::fs::symlink_dir(&real, &link).is_err() {
+            return;
+        }
+
+        let (outcome, _) = run(&delete(std::slice::from_ref(&link)), []);
+
+        assert!(matches!(outcome, Outcome::Completed { done: 1, .. }));
+        assert!(fs::symlink_metadata(&link).is_err());
+        assert!(real.join("a").is_file());
     }
 
     #[test]
