@@ -3229,7 +3229,7 @@ fn reloading_the_configuration_changes_keys_and_style_but_not_initial() {
 }
 
 #[test]
-fn default_fonts_are_monospaced_except_in_the_popups() {
+fn default_fonts_are_monospaced() {
     let harness = Harness::start_on(Os::MacOs, "/Users/user", "/tmp");
 
     let fonts = harness.view().style.fonts.clone();
@@ -3239,7 +3239,7 @@ fn default_fonts_are_monospaced_except_in_the_popups() {
     assert_eq!(fonts.log.family, "Menlo");
     assert_eq!(fonts.status.family, "Menlo");
     assert_eq!(fonts.preview.family, "Menlo");
-    assert_eq!(fonts.popup.family, "");
+    assert_eq!(fonts.popup.family, "Menlo");
 }
 
 #[test]
