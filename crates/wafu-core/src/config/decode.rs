@@ -12,7 +12,6 @@ use crate::app::Os;
 use crate::command::{Command, Context};
 use crate::external::CommandLine;
 use crate::key::Key;
-use crate::listing::SortKey;
 
 const CONTEXTS: [(&str, Context); 4] = [
     ("filelist", Context::FileList),
@@ -33,7 +32,6 @@ pub(super) fn parse(text: &str, os: Os) -> Result<(Config, Vec<Diagnostic>), Syn
     read_general(&mut root, &mut config);
     read_appearance(&mut root, &mut config);
     read_colors(&mut root, &mut config);
-    read_initial(&mut root, &mut config);
     read_bookmarks(&mut root, &mut config);
     read_commands(&mut root, &mut config);
     read_keys(&mut root, &mut config);
@@ -283,31 +281,6 @@ fn read_colors(root: &mut Reader<'_>, config: &mut Config) {
     colors.finish();
 }
 
-fn read_initial(root: &mut Reader<'_>, config: &mut Config) {
-    let Some(mut initial) = root.table("initial") else {
-        return;
-    };
-    if let Some(key) = initial.choice(
-        "sort",
-        "none, name, extension, size, time, or natural",
-        SortKey::from_name,
-    ) {
-        config.initial.sort.key = key;
-    }
-    let sort = &mut config.initial.sort;
-    for (item, flag) in [
-        ("descending", &mut sort.descending),
-        ("dirs_first", &mut sort.dirs_first),
-        ("ignore_case", &mut sort.ignore_case),
-        ("show_hidden", &mut config.initial.show_hidden),
-    ] {
-        if let Some(value) = initial.bool(item) {
-            *flag = value;
-        }
-    }
-    initial.finish();
-}
-
 fn read_bookmarks(root: &mut Reader<'_>, config: &mut Config) {
     let Some(value) = root.table.remove("bookmarks") else {
         return;
@@ -522,7 +495,6 @@ fn line_of(text: &str, span: Option<Range<usize>>) -> usize {
 mod tests {
     use super::*;
     use crate::external::CommandLineError;
-    use crate::listing::SortSpec;
 
     const EXAMPLE: &str = r##"
 [general]
@@ -558,13 +530,6 @@ mark = "#ff0000"
 cursor = "#ffffff"
 dir = "#0000ff"
 link = "#00ff00"
-
-[initial]                      # when there is no state file
-sort = "name"
-descending = false
-dirs_first = true
-ignore_case = true
-show_hidden = false
 
 [[bookmarks]]
 path = "~/Downloads"
@@ -696,9 +661,6 @@ size = 200
 [colors.light]
 fg = "red"
 mark = "#123"
-[initial]
-sort = "date"
-descending = "yes"
 [general]
 editor = "\"unterminated"
 "##;
@@ -709,7 +671,6 @@ editor = "\"unterminated"
         assert_eq!(config.appearance, default.appearance);
         assert_eq!(config.colors.light.fg, default.colors.light.fg);
         assert_eq!(config.colors.light.mark, Color::new(0x11, 0x22, 0x33));
-        assert_eq!(config.initial.sort, SortSpec::default());
         assert_eq!(config.general.editor, default.general.editor);
         assert_eq!(
             paths(&diagnostics),
@@ -719,8 +680,6 @@ editor = "\"unterminated"
                 "appearance.font.log.size",
                 "appearance.font.size",
                 "colors.light.fg",
-                "initial.sort",
-                "initial.descending",
             ]
         );
         assert_eq!(

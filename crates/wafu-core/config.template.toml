@@ -90,15 +90,6 @@
 # fifo = "#f0c050"
 # socket = "#e58ae0"
 
-## The display state of the panes when there is no state file yet.
-[initial]
-## How the entries are sorted: none, name, extension, size, time, or natural.
-# sort = "name"
-# descending = false
-# dirs_first = true
-# ignore_case = true
-# show_hidden = false
-
 ## Bookmarks, in the order they are listed. A leading ~ is the home directory.
 ## For example:
 ##
