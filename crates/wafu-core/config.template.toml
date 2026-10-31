@@ -15,6 +15,10 @@
 ## open -t on macOS). Set to false to pass the path to the editor as it is,
 ## for editors that treat a missing path as a new file.
 # new_text_creates_file = true
+## Make extract create a directory named after the archive (a.zip unpacks into
+## a) in the other pane and unpack into it. Set to false to unpack straight
+## into the other pane.
+# extract_creates_dir = true
 ## Make copy, move, delete, and trash act only on marked entries; with no
 ## marks they do nothing. Set to false to let them act on the cursor row.
 # require_marks = true

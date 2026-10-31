@@ -36,6 +36,7 @@ pub struct Config {
 pub struct General {
     pub mkdir_then_enter: bool,
     pub new_text_creates_file: bool,
+    pub extract_creates_dir: bool,
     pub require_marks: bool,
     pub editor: CommandLine,
     pub hide_log_in_preview: bool,
@@ -197,6 +198,7 @@ impl Config {
             general: General {
                 mkdir_then_enter: true,
                 new_text_creates_file: true,
+                extract_creates_dir: true,
                 require_marks: true,
                 editor: default_editor(os),
                 hide_log_in_preview: false,

@@ -50,8 +50,11 @@ pub enum OperationKind {
     Move,
     Delete,
     Trash,
-    /// Unpacks whole archives into the destination.
-    Extract,
+    /// Unpacks whole archives into the destination, each into a directory
+    /// named after it when `into_dir`.
+    Extract {
+        into_dir: bool,
+    },
     /// Packs the sources into one archive in the destination.
     Compress,
     /// Unpacks archive entries into a fresh temporary directory, to hand to
@@ -133,7 +136,7 @@ impl OperationKind {
             Self::Copy => "copied",
             Self::Move | Self::Trash => "moved",
             Self::Delete => "deleted",
-            Self::Extract | Self::ExtractToTemp => "extracted",
+            Self::Extract { .. } | Self::ExtractToTemp => "extracted",
             Self::Compress => "compressed",
         }
     }
@@ -146,7 +149,7 @@ impl OperationKind {
             Self::Move => "move",
             Self::Delete => "delete",
             Self::Trash => "trash",
-            Self::Extract | Self::ExtractToTemp => "extract",
+            Self::Extract { .. } | Self::ExtractToTemp => "extract",
             Self::Compress => "compress",
         }
     }
@@ -159,7 +162,7 @@ impl OperationKind {
             Self::Move => "Moving",
             Self::Delete => "Deleting",
             Self::Trash => "Moving to trash",
-            Self::Extract | Self::ExtractToTemp => "Extracting",
+            Self::Extract { .. } | Self::ExtractToTemp => "Extracting",
             Self::Compress => "Compressing",
         }
     }
@@ -233,7 +236,7 @@ mod tests {
         );
         assert_eq!(
             line(
-                OperationKind::Extract,
+                OperationKind::Extract { into_dir: true },
                 &Outcome::Completed {
                     done: 4,
                     skipped: 0

@@ -124,7 +124,9 @@ impl App {
         };
         let source_dir = self.active_pane().location().base.clone();
         let sources = source_paths(&source_dir, &names);
-        let kind = OperationKind::Extract;
+        let kind = OperationKind::Extract {
+            into_dir: self.config.general.extract_creates_dir,
+        };
         self.start_operation(kind, source_dir, names, sources, Some(dest), effects);
     }
 

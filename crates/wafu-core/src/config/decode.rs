@@ -174,6 +174,9 @@ fn read_general(root: &mut Reader<'_>, config: &mut Config) {
     if let Some(value) = general.bool("new_text_creates_file") {
         config.general.new_text_creates_file = value;
     }
+    if let Some(value) = general.bool("extract_creates_dir") {
+        config.general.extract_creates_dir = value;
+    }
     if let Some(value) = general.bool("require_marks") {
         config.general.require_marks = value;
     }
@@ -500,6 +503,7 @@ mod tests {
 [general]
 mkdir_then_enter = true
 new_text_creates_file = false
+extract_creates_dir = false
 require_marks = false
 editor = "notepad {paths}"
 hide_log_in_preview = false
@@ -601,6 +605,7 @@ editor = "open -t {paths}"
         );
         assert!(config.general.mkdir_then_enter);
         assert!(!config.general.new_text_creates_file);
+        assert!(!config.general.extract_creates_dir);
         assert!(!config.general.require_marks);
         assert_eq!(
             config

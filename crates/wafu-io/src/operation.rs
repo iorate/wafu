@@ -100,7 +100,9 @@ impl Worker<'_> {
 
     fn run_all(&mut self, spec: &OperationSpec) -> Result<(), Stop> {
         match (&spec.sources, spec.kind) {
-            (Sources::Paths(paths), OperationKind::Extract) => self.extract_archives(paths, spec),
+            (Sources::Paths(paths), OperationKind::Extract { into_dir }) => {
+                self.extract_archives(paths, spec, into_dir)
+            }
             (Sources::Paths(paths), OperationKind::Compress) => self.compress(paths, spec),
             (Sources::Paths(paths), kind) => self.run_paths(paths, kind, spec),
             (Sources::Entries(entries), OperationKind::ExtractToTemp) => {
@@ -134,7 +136,9 @@ impl Worker<'_> {
                 }
                 OperationKind::Delete => self.delete_item(source)?,
                 OperationKind::Trash => self.trash_item(source)?,
-                OperationKind::Extract | OperationKind::Compress | OperationKind::ExtractToTemp => {
+                OperationKind::Extract { .. }
+                | OperationKind::Compress
+                | OperationKind::ExtractToTemp => {
                     return Err(failure(source, "unsupported operation"));
                 }
             };
