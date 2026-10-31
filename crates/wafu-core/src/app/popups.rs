@@ -358,7 +358,7 @@ impl App {
                 }
             }
             ChoiceKind::QuitDuringOperation { resume } => {
-                if choice == Some(1) {
+                if choice == Some(0) {
                     self.cancel_and_quit(effects);
                 } else {
                     self.continue_operation(resume);

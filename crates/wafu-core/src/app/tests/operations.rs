@@ -399,15 +399,12 @@ fn closing_the_window_during_an_operation_asks_first() {
     assert_eq!(popup.title, "Quit");
     assert_eq!(
         popup.message.as_deref(),
-        Some("An operation is in progress")
+        Some("An operation is in progress. Quit anyway?")
     );
-    assert_eq!(
-        harness.popup_labels(),
-        ["Continue the operation", "Cancel the operation and quit"]
-    );
+    assert_eq!(harness.popup_labels(), ["Quit", "Keep running"]);
     assert_eq!(popup.cursor, Some(0));
 
-    harness.press("Enter");
+    harness.press("N");
     assert_eq!(harness.view().popup.unwrap().title, "File exists");
     assert_eq!(harness.take_effects(), vec![]);
 
@@ -418,6 +415,10 @@ fn closing_the_window_during_an_operation_asks_first() {
 
     harness.send(Msg::CloseRequested);
     harness.press("Down");
+    harness.press("Enter");
+    assert_eq!(harness.view().popup.unwrap().title, "File exists");
+
+    harness.send(Msg::CloseRequested);
     harness.press("Enter");
     assert_eq!(
         harness.take_effects(),
@@ -451,7 +452,7 @@ fn closing_the_window_while_renaming_in_a_conflict_puts_the_input_back_on_contin
 
     harness.send(Msg::CloseRequested);
     assert_eq!(harness.view().popup.unwrap().title, "Quit");
-    harness.press("Enter");
+    harness.press("N");
 
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Rename");
@@ -478,7 +479,7 @@ fn a_conflict_during_the_quit_confirmation_waits_behind_it() {
     });
 
     assert_eq!(harness.view().popup.unwrap().title, "Quit");
-    harness.press("Enter");
+    harness.press("N");
     assert_eq!(harness.view().popup.unwrap().title, "File exists");
     assert_eq!(harness.take_effects(), vec![]);
 }

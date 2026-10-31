@@ -691,7 +691,7 @@ fn a_password_request_during_the_quit_confirmation_waits_behind_it() {
     });
 
     assert_eq!(harness.view().popup.unwrap().title, "Quit");
-    harness.press("Enter");
+    harness.press("N");
     assert_eq!(harness.view().popup.unwrap().title, "Password");
     assert_eq!(harness.take_effects(), vec![]);
 }
