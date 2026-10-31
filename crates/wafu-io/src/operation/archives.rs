@@ -53,15 +53,24 @@ impl Worker<'_> {
         &mut self,
         archives: &[PathBuf],
         spec: &OperationSpec,
+        into_dir: bool,
     ) -> Result<(), Stop> {
         for (index, archive) in archives.iter().enumerate() {
-            let dest = spec
+            let root = spec
                 .dest
                 .as_deref()
                 .ok_or_else(|| failure(archive, "no destination"))?;
-            let format = ArchiveFormat::from_name(archive.file_name().unwrap_or_default())
-                .unwrap_or(ArchiveFormat::Zip);
-            let mut extraction = Extraction::open(archive, format, None, dest)?;
+            let name = archive.file_name().unwrap_or_default();
+            let format = ArchiveFormat::from_name(name).unwrap_or(ArchiveFormat::Zip);
+            let dest = if into_dir {
+                root.join(archive.file_stem().unwrap_or(name))
+            } else {
+                root.to_path_buf()
+            };
+            let mut extraction = Extraction::open(archive, format, None, &dest)?;
+            if into_dir {
+                ensure_dir(archive, root, &dest)?;
+            }
             let all: Vec<usize> = (0..extraction.reader.entries().len()).collect();
             let complete = self.extract_indices(&mut extraction, &all, 0)?;
             finish_extraction(extraction)?;
@@ -598,6 +607,81 @@ mod tests {
             fs::read(dest.join("x").join("y").join("z.txt")).unwrap(),
             b"z"
         );
+        assert_eq!(done_indices(&events), [0]);
+    }
+
+    #[test]
+    fn extract_into_dirs_unpacks_each_archive_into_a_directory_named_after_it() {
+        let dir = TempDir::new().unwrap();
+        let a = dir.path().join("a.zip");
+        let b = dir.path().join("b.jar");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        write_zip(&a, None, |writer| {
+            writer.start_file("x.txt", 1, None, None).unwrap();
+            writer.write_all(b"x").unwrap();
+        });
+        write_zip(&b, None, |writer| {
+            writer.start_file("y.txt", 1, None, None).unwrap();
+            writer.write_all(b"y").unwrap();
+        });
+
+        let (outcome, events) = run(&extract_into_dirs(&[a, b], &dest), []);
+
+        assert_eq!(
+            outcome,
+            Outcome::Completed {
+                done: 2,
+                skipped: 0
+            }
+        );
+        assert_eq!(fs::read(dest.join("a").join("x.txt")).unwrap(), b"x");
+        assert_eq!(fs::read(dest.join("b").join("y.txt")).unwrap(), b"y");
+        assert_eq!(done_indices(&events), [0, 1]);
+    }
+
+    #[test]
+    fn extract_into_dirs_makes_the_directory_even_for_an_empty_archive() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.zip");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        write_zip(&archive, None, |_| {});
+
+        let (outcome, _) = run(&extract_into_dirs(&[archive], &dest), []);
+
+        assert_eq!(
+            outcome,
+            Outcome::Completed {
+                done: 0,
+                skipped: 0
+            }
+        );
+        assert!(dest.join("a").is_dir());
+    }
+
+    #[test]
+    fn extract_into_dirs_reuses_an_existing_directory_but_not_a_file() {
+        let dir = TempDir::new().unwrap();
+        let a = dir.path().join("a.zip");
+        let b = dir.path().join("b.zip");
+        let dest = dir.path().join("out");
+        fs::create_dir_all(dest.join("a")).unwrap();
+        fs::write(dest.join("a").join("old.txt"), b"old").unwrap();
+        fs::write(dest.join("b"), b"file").unwrap();
+        for archive in [&a, &b] {
+            write_zip(archive, None, |writer| {
+                writer.start_file("x.txt", 1, None, None).unwrap();
+                writer.write_all(b"x").unwrap();
+            });
+        }
+
+        let (outcome, events) = run(&extract_into_dirs(&[a, b.clone()], &dest), []);
+
+        assert!(matches!(outcome, Outcome::Failed { path, .. } if path == b));
+        assert_eq!(fs::read(dest.join("a").join("old.txt")).unwrap(), b"old");
+        assert_eq!(fs::read(dest.join("a").join("x.txt")).unwrap(), b"x");
+        assert_eq!(fs::read(dest.join("b")).unwrap(), b"file");
         assert_eq!(done_indices(&events), [0]);
     }
 
@@ -1291,10 +1375,17 @@ mod tests {
 
     fn extract(archives: &[PathBuf], dest: &Path) -> OperationSpec {
         OperationSpec {
-            kind: OperationKind::Extract,
+            kind: OperationKind::Extract { into_dir: false },
             sources: Sources::Paths(archives.to_vec()),
             dest: Some(dest.to_path_buf()),
             output: None,
+        }
+    }
+
+    fn extract_into_dirs(archives: &[PathBuf], dest: &Path) -> OperationSpec {
+        OperationSpec {
+            kind: OperationKind::Extract { into_dir: true },
+            ..extract(archives, dest)
         }
     }
 

@@ -452,7 +452,7 @@ fn extract_unpacks_the_targets_into_the_other_side() {
     assert_eq!(
         harness.start_operation(),
         Some(OperationSpec {
-            kind: OperationKind::Extract,
+            kind: OperationKind::Extract { into_dir: true },
             sources: Sources::Paths(vec![archive()]),
             dest: Some(PathBuf::from(RIGHT)),
             output: None,
@@ -468,6 +468,23 @@ fn extract_unpacks_the_targets_into_the_other_side() {
     assert_eq!(
         harness.log().last().map(String::as_str),
         Some("extracted 5 items")
+    );
+}
+
+#[test]
+fn extract_unpacks_straight_into_the_other_side_when_configured() {
+    let mut harness =
+        Harness::start_with_config(LEFT, RIGHT, "[general]\nextract_creates_dir = false\n");
+    harness.load(Side::Left, vec![file("a.zip")]);
+    harness.load(Side::Right, Vec::new());
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("U");
+
+    assert_eq!(
+        harness.start_operation().map(|spec| spec.kind),
+        Some(OperationKind::Extract { into_dir: false })
     );
 }
 
