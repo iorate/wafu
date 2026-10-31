@@ -13,8 +13,7 @@ use crate::archive::{
     create_archive, open_archive,
 };
 
-/// Where temporary extractions go, under the system's temporary directory.
-const TEMP_SUBDIR: &str = "wafu";
+const TEMP_PREFIX: &str = "wafu-";
 
 // One archive being unpacked. Links are made after everything else so that
 // no entry can be written through a link to somewhere outside the
@@ -464,9 +463,10 @@ fn make_link(target: &str, dst: &Path) -> std::io::Result<()> {
 // A fresh directory under the system's temporary directory, left for the OS
 // to clean up.
 fn make_temp_dir() -> std::io::Result<PathBuf> {
-    let root = std::env::temp_dir().join(TEMP_SUBDIR);
-    fs::create_dir_all(&root)?;
-    Ok(tempfile::TempDir::new_in(&root)?.keep())
+    Ok(tempfile::Builder::new()
+        .prefix(TEMP_PREFIX)
+        .tempdir_in(std::env::temp_dir())?
+        .keep())
 }
 
 #[cfg(test)]
@@ -1130,7 +1130,13 @@ mod tests {
         let Some(OperationEvent::TempDir(temp)) = events.first() else {
             panic!("expected TempDir first, got {events:?}");
         };
-        assert!(temp.starts_with(std::env::temp_dir().join(TEMP_SUBDIR)));
+        assert_eq!(temp.parent(), Some(std::env::temp_dir().as_path()));
+        assert!(
+            temp.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with(TEMP_PREFIX)
+        );
         assert_eq!(fs::read(temp.join("a.txt")).unwrap(), b"a");
         fs::remove_dir_all(temp).unwrap();
     }
