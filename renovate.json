@@ -8,7 +8,17 @@
   "platformCommit": "enabled",
   "semanticCommits": "disabled",
 
-  "enabledManagers": ["cargo", "rust-toolchain", "github-actions"],
+  "enabledManagers": ["cargo", "rust-toolchain", "github-actions", "custom.regex"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Update tools installed with taiki-e/install-action in workflows",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "matchStrings": ["(?m)^\\s*tool:\\s*(?<depName>[^@\\s]+)@(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)"],
+      "datasourceTemplate": "crate",
+      "versioningTemplate": "semver"
+    }
+  ],
 
   "minimumReleaseAge": "3 days",
   "packageRules": [
@@ -18,8 +28,15 @@
       "schedule": ["* * * * 5"]
     },
     {
-      "description": "Treat minor updates of 0.x crates like majors: separate PRs, no automerge",
-      "matchManagers": ["cargo"],
+      "description": "First-party actions; update immediately in their own group",
+      "matchPackageNames": ["iorate/*"],
+      "groupName": "first-party packages",
+      "minimumReleaseAge": null,
+      "schedule": null
+    },
+    {
+      "description": "Treat minor updates of 0.x crates and tools like majors: separate PRs, no automerge",
+      "matchManagers": ["cargo", "custom.regex"],
       "matchDatasources": ["crate"],
       "matchCurrentVersion": "<1",
       "matchUpdateTypes": ["minor"],

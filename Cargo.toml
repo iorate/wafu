@@ -9,11 +9,11 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.92.0"
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/iorate/wafu"
 repository = "https://github.com/iorate/wafu"
 authors = ["iorate"]
-publish = false
 
 [workspace.dependencies]
 arboard = { version = "3.7.0", default-features = false, features = ["wayland-data-control"] }
@@ -40,8 +40,8 @@ trash = "5.2.9"
 windows = "0.62.2"
 winresource = "0.1.34"
 zip = { version = "9.0.5", default-features = false, features = ["aes-crypto", "bzip2", "deflate", "deflate64"] }
-wafu-core = { path = "crates/wafu-core" }
-wafu-io = { path = "crates/wafu-io" }
+wafu-core = { version = "=0.1.0", path = "crates/wafu-core" }
+wafu-io = { version = "=0.1.0", path = "crates/wafu-io" }
 
 # The release profile trades build time for a smaller, faster binary.
 [profile.release]

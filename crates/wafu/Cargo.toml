@@ -2,13 +2,15 @@
 name = "wafu"
 description = "A keyboard-driven dual-pane file manager built with Rust and Slint"
 readme = "../../README.md"
+keywords = ["file-manager", "dual-pane", "keyboard", "slint", "gui"]
+categories = ["filesystem", "gui"]
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 homepage.workspace = true
 repository.workspace = true
 authors.workspace = true
-publish.workspace = true
 
 [dependencies]
 clap = { workspace = true, features = ["derive"] }

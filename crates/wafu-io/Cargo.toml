@@ -1,13 +1,15 @@
 [package]
 name = "wafu-io"
-description = "Effect runtime of the wafu file manager: file system, archives, and OS integration"
+description = "Internal crate of the wafu file manager (effect runtime: file system, archives, and OS integration); not intended for standalone use"
+keywords = ["wafu", "file-manager"]
+categories = ["filesystem"]
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 homepage.workspace = true
 repository.workspace = true
 authors.workspace = true
-publish.workspace = true
 
 [dependencies]
 arboard.workspace = true

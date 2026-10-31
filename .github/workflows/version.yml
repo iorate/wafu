@@ -1,0 +1,188 @@
+name: Version
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: ${{ github.workflow }}
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install changesette
+        uses: iorate/changesette/setup@b370e56da41258dce8313c46a75eb4c5647f0fd6 # v7.2.2
+
+      - name: Install cargo-edit
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-edit@0.13.13
+
+      - name: Bump versions
+        id: version
+        run: |
+          plan="$(changesette version --allow-no-changesets --output -)"
+          if jq -e 'any(.releases[]; .type != "none")' <<< "$plan" > /dev/null; then
+            jq -re '.releases[] | select(.type != "none") | .name + " " + .newVersion' <<< "$plan" \
+              | while read -r name version; do
+                  cargo set-version -p "$name" "$version"
+                done
+            cargo update -w
+            title="Release $(jq -re '[.releases[] | select(.type != "none") | .name + " v" + .newVersion] | join(" and ")' <<< "$plan")"
+            echo "title=$title" >> "$GITHUB_OUTPUT"
+            delim="$(openssl rand -hex 16)"
+            {
+              echo "body<<$delim"
+              jq -r '[.releases[] | select(.type != "none") | "## \(.name)@\(.newVersion)\n\n\(.changelogEntry)"] | join("\n\n")' <<< "$plan"
+              echo "$delim"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "title=Consume changesets" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate token
+        id: generate-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.BOT_CLIENT_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Create pull request
+        id: pr
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ steps.generate-token.outputs.token }}
+          branch: changesette/release
+          commit-message: ${{ steps.version.outputs.title }}
+          title: ${{ steps.version.outputs.title }}
+          body: ${{ steps.version.outputs.body }}
+          delete-branch: true
+          sign-commits: true
+
+      - name: Determine crates to release
+        id: release
+        if: steps.pr.outputs.pull-request-number == ''
+        run: |
+          for name in wafu-core wafu-io wafu; do
+            version="$(jq -re .version "crates/$name/package.json")"
+            prefix="${name:0:2}/${name:2:2}"
+            if curl -fsS "https://index.crates.io/$prefix/$name" \
+                | jq -e --arg v "$version" 'select(.vers == $v)' > /dev/null; then
+              version=""
+            fi
+            echo "$name=$version" >> "$GITHUB_OUTPUT"
+          done
+          tag_version="$(jq -re .version crates/wafu/package.json)"
+          if [[ -n "$(git ls-remote origin "refs/tags/v$tag_version")" ]]; then
+            tag_version=""
+          fi
+          echo "tag=$tag_version" >> "$GITHUB_OUTPUT"
+
+    outputs:
+      release-wafu-core: ${{ steps.release.outputs.wafu-core }}
+      release-wafu-io: ${{ steps.release.outputs.wafu-io }}
+      release-wafu: ${{ steps.release.outputs.wafu }}
+      release-tag: ${{ steps.release.outputs.tag }}
+
+  release:
+    needs: version
+
+    if: needs.version.outputs.release-wafu-core != '' || needs.version.outputs.release-wafu-io != '' || needs.version.outputs.release-wafu != '' || needs.version.outputs.release-tag != ''
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write # crates.io Trusted Publishing (OIDC)
+
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Linux dependencies
+        if: needs.version.outputs.release-wafu-core != '' || needs.version.outputs.release-wafu-io != '' || needs.version.outputs.release-wafu != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libxkbcommon-x11-dev libfontconfig-dev libwayland-dev
+
+      - name: Authenticate with crates.io
+        id: auth
+        if: needs.version.outputs.release-wafu-core != '' || needs.version.outputs.release-wafu-io != '' || needs.version.outputs.release-wafu != ''
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
+      - name: Publish wafu-core to crates.io
+        if: needs.version.outputs.release-wafu-core != ''
+        run: |
+          if curl -fsS https://index.crates.io/wa/fu/wafu-core \
+              | jq -e --arg v "$VERSION" 'select(.vers == $v)' > /dev/null; then
+            echo "wafu-core $VERSION already on crates.io; skipping publish" >&2
+          else
+            cargo publish -p wafu-core
+          fi
+        env:
+          VERSION: ${{ needs.version.outputs.release-wafu-core }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+
+      - name: Publish wafu-io to crates.io
+        if: needs.version.outputs.release-wafu-io != ''
+        run: |
+          if curl -fsS https://index.crates.io/wa/fu/wafu-io \
+              | jq -e --arg v "$VERSION" 'select(.vers == $v)' > /dev/null; then
+            echo "wafu-io $VERSION already on crates.io; skipping publish" >&2
+          else
+            cargo publish -p wafu-io
+          fi
+        env:
+          VERSION: ${{ needs.version.outputs.release-wafu-io }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+
+      - name: Publish wafu to crates.io
+        if: needs.version.outputs.release-wafu != ''
+        run: |
+          if curl -fsS https://index.crates.io/wa/fu/wafu \
+              | jq -e --arg v "$VERSION" 'select(.vers == $v)' > /dev/null; then
+            echo "wafu $VERSION already on crates.io; skipping publish" >&2
+          else
+            cargo publish -p wafu
+          fi
+        env:
+          VERSION: ${{ needs.version.outputs.release-wafu }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+
+      - name: Generate token
+        id: generate-token
+        if: needs.version.outputs.release-tag != ''
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.BOT_CLIENT_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+          permission-contents: write
+
+      - name: Push release tag
+        if: needs.version.outputs.release-tag != ''
+        run: |
+          git tag "v$VERSION"
+          git -c credential.helper='!gh auth git-credential' \
+            push origin "v$VERSION"
+        env:
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+          VERSION: ${{ needs.version.outputs.release-tag }}

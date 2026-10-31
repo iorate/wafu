@@ -1,0 +1,9 @@
+{
+  "name": "wafu",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "wafu-core": "workspace:*",
+    "wafu-io": "workspace:*"
+  }
+}
