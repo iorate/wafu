@@ -25,7 +25,6 @@ pub(crate) struct ArchiveEntry {
     pub modified: Option<SystemTime>,
     // Unix permission bits, when the archive records them.
     pub mode: Option<u32>,
-    pub encrypted: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -328,7 +327,6 @@ mod tests {
             size,
             modified: Some(SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000)),
             mode: None,
-            encrypted: false,
         }
     }
 

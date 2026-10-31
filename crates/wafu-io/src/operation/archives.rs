@@ -1076,7 +1076,6 @@ mod tests {
 
         assert!(matches!(outcome, Outcome::Completed { done: 1, .. }));
         let mut reader = open_archive(&dest.join("a.zip"), ArchiveFormat::Zip).unwrap();
-        assert!(reader.entries()[0].encrypted);
         assert!(matches!(
             reader.open(0, None),
             Err(ArchiveError::PasswordRequired)
