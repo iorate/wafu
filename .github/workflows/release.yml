@@ -1,0 +1,135 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - v*
+  workflow_dispatch:
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  windows:
+    runs-on: windows-latest
+
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        with:
+          cache: false
+
+      - name: Build
+        run: cargo build --release --locked -p wafu
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+
+      - name: Package
+        run: |
+          version="$(jq -re .version crates/wafu/package.json)"
+          mkdir dist
+          cp target/release/wafu.exe "dist/wafu-v$version-portable.exe"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows
+          path: dist/*
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-latest
+
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
+        with:
+          cache: false
+
+      - name: Build
+        run: cargo build --release --locked -p wafu
+
+      - name: Package
+        run: |
+          version="$(jq -re .version crates/wafu/package.json)"
+          image="$RUNNER_TEMP/image"
+          app="$image/wafu.app"
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+          cp target/release/wafu "$app/Contents/MacOS/"
+          cp crates/wafu/assets/Info.plist "$app/Contents/"
+          cp crates/wafu/assets/wafu.icns "$app/Contents/Resources/"
+          plutil -replace CFBundleShortVersionString -string "$version" "$app/Contents/Info.plist"
+          plutil -replace CFBundleVersion -string "$version" "$app/Contents/Info.plist"
+          codesign --force --deep --sign - "$app"
+          ln -s /Applications "$image/Applications"
+          mkdir dist
+          hdiutil create -volname wafu -srcfolder "$image" -ov -format UDZO "dist/wafu-v$version.dmg"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macos
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs:
+      - windows
+      - macos
+
+    if: github.event_name == 'push'
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write # create the draft release and attach the files
+
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install changesette
+        uses: iorate/changesette/setup@b370e56da41258dce8313c46a75eb4c5647f0fd6 # v7.2.2
+
+      - name: Download artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create draft release
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if [[ "$version" != "$(jq -re .version crates/wafu/package.json)" ]]; then
+            echo "::error::$GITHUB_REF_NAME does not match the version of wafu"
+            exit 1
+          fi
+          changesette get-changelog-entry wafu "$version" > "$RUNNER_TEMP/notes.md"
+          gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "$GITHUB_REF_NAME" \
+            --notes-file "$RUNNER_TEMP/notes.md" dist/*
+        env:
+          GH_TOKEN: ${{ github.token }}
