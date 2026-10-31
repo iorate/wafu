@@ -1,136 +1,82 @@
-## wafu configuration
-##
-## Every item below is commented out with "# " and shows its default value.
-## Uncomment an item to change it; whatever stays commented keeps following the
-## built-in default. Lines starting with "## " are explanations, and the
-## examples in them are not defaults. The section headers are not commented
-## out, so an item only needs its own line uncommented. Changes take effect as
-## soon as the file is saved.
+## wafu configuration. Changes take effect as soon as the file is saved.
+## Items are set to their defaults; a removed item falls back to its default.
 
 [general]
-## Enter the directory that mkdir created.
-# mkdir_then_enter = true
-## Make new_text create an empty file before opening it in the editor, for
-## editors that do nothing when given a path that does not exist yet (such as
-## open -t on macOS). Set to false to pass the path to the editor as it is,
-## for editors that treat a missing path as a new file.
-# new_text_creates_file = true
-## Make extract create a directory named after the archive (a.zip unpacks into
-## a) in the other pane and unpack into it. Set to false to unpack straight
-## into the other pane.
-# extract_creates_dir = true
-## Make copy, move, delete, and trash act only on marked entries; with no
-## marks they do nothing. Set to false to let them act on the cursor row.
-# require_marks = true
-## Hide the log while a preview is open.
-# hide_log_in_preview = false
-## The editor used by edit, new_text, and edit_config, written like the run
-## item of a command (see [commands]). The default depends on the OS and is
-## shown in the [os.*] sections at the end.
+mkdir_then_enter = true       # Enter the directory that mkdir created
+new_text_creates_file = true  # Create the file before opening it in the editor
+extract_creates_dir = true    # Extract into a directory named after the archive
+require_marks = true          # Copy, move, delete, and trash act on marks only
+hide_log_in_preview = false   # Hide the log while a preview is open
 
 [appearance]
-## auto follows the OS; light and dark force a theme.
-# theme = "auto"
-## How sizes are written: plain (bytes), comma (1,234,567), or human (1.2M,
-## like ls -h).
-# size_format = "plain"
+theme = "auto"                # auto, light, or dark
+size_format = "plain"         # plain, comma (1,234,567), or human (1.2M)
 
-## The default font. A family set here applies everywhere. An empty family uses
-## the monospaced font of the OS (Consolas on Windows, Menlo on macOS, DejaVu
-## Sans Mono on Linux). Generic names such as "monospace" do not work, and a
-## family that is not installed falls back to the system font. The size is in
-## pixels.
 [appearance.font]
-# family = ""
-# size = 12
+family = ""                   # Empty for the monospaced font of the OS
+size = 12                     # In pixels
 
-## Each area may have its own font: the path lines, the file lists, the
-## information lines, the log, the status line, the preview, and the popups
-## (the command palette among them). An item that is not set here falls back to
-## the default font. For example, size = 14 under [appearance.font.filelist]
-## makes only the file lists larger.
+## Fonts for each area, with the same items. Missing items follow
+## [appearance.font].
 [appearance.font.path]
-# family = ""
+# family = "Consolas"
+# size = 16
 [appearance.font.filelist]
-# family = ""
 [appearance.font.info]
-# family = ""
 [appearance.font.log]
-# family = ""
 [appearance.font.status]
-# family = ""
 [appearance.font.preview]
-# family = ""
 [appearance.font.popup]
-# family = ""
 
-## Colors are written as #rrggbb. fg and bg are the text and the background,
-## mark the background of the marked rows, and cursor the cursor line. The
-## text of a row takes, like ls --color, the first of these that applies:
-## broken for a broken symbolic link, link for a symbolic link, dir for a
-## directory, exec for an executable file, fifo for a FIFO or a device, socket
-## for a socket, and fg otherwise. Marking a row does not change its text color.
+## Colors of the file lists. A row's text takes the first color that applies:
+## broken, link, dir, exec, fifo (also devices), socket, then fg.
 [colors.light]
-# fg = "#1e1e1e"
-# bg = "#ffffff"
-# mark = "#dcdcdc"
-# cursor = "#1e1e1e"
-# dir = "#1f5fbf"
-# link = "#0e7c86"
-# exec = "#2a8c2a"
-# broken = "#c0392b"
-# fifo = "#b8860b"
-# socket = "#b03a9a"
+fg = "#1e1e1e"
+bg = "#ffffff"
+mark = "#dcdcdc"              # Background of marked rows
+cursor = "#1e1e1e"            # Cursor line
+dir = "#1f5fbf"
+link = "#0e7c86"
+exec = "#2a8c2a"
+broken = "#c0392b"
+fifo = "#b8860b"
+socket = "#b03a9a"
 
 [colors.dark]
-# fg = "#d4d4d4"
-# bg = "#1e1e1e"
-# mark = "#3c3c3c"
-# cursor = "#d4d4d4"
-# dir = "#6fa8ff"
-# link = "#4fd1e0"
-# exec = "#5fd75f"
-# broken = "#ff6b6b"
-# fifo = "#f0c050"
-# socket = "#e58ae0"
+fg = "#d4d4d4"
+bg = "#1e1e1e"
+mark = "#3c3c3c"
+cursor = "#d4d4d4"
+dir = "#6fa8ff"
+link = "#4fd1e0"
+exec = "#5fd75f"
+broken = "#ff6b6b"
+fifo = "#f0c050"
+socket = "#e58ae0"
 
-## Bookmarks, in the order they are listed. A leading ~ is the home directory.
-## For example:
-##
-##   [[bookmarks]]
-##   path = "~/Downloads"
+## Bookmarks, in order. A leading ~ is the home directory.
+# [[bookmarks]]
+# path = "~/Downloads"
 
-## External commands. The run item is split at spaces; quote an argument that
-## contains spaces. The command is started directly, without a shell, in the
-## active pane's directory. Placeholders stand for one argument each:
-##   {cursor_path}   the item under the cursor
-##   {marked_paths}  every marked item
-##   {paths}         the marked items, or the item under the cursor
-##   {dir}           the active pane's directory
-##   {other_dir}     the other pane's directory
-## For example:
-##
-##   [commands.open_terminal]
-##   run = "wt -d {dir}"
+## External commands, run without a shell in the active pane's directory.
+## Placeholders: {cursor_path}, {marked_paths}, {paths} (marked items or the
+## cursor item), {dir}, and {other_dir}.
+# [commands.open_terminal]
+# run = "wt -d {dir}"
 
-## Keys. Each entry replaces the built-in binding of that key; bind nop to
-## remove one. A command from [commands] is written with a leading $.
-## Modifiers are Ctrl, Shift, and Alt; symbols are written as typed. For
-## example, under [keys.filelist]:
+## Keys that replace the built-in bindings. "nop" unbinds a key, and "$name"
+## runs a command from [commands].
 [keys.filelist]
-##   "F2" = "$open_terminal"
-##   "Ctrl+C" = "copy_path"
-##   "Q" = "nop"
-[keys.image]
-[keys.text]
+# "Q" = "nop"
+# "F2" = "$open_terminal"
 [keys.binary]
+[keys.text]
+[keys.image]
 
-## Items under [os.windows], [os.macos], and [os.linux] apply on that OS only
-## and override the items above. A table overrides item by item, and
-## [[bookmarks]] replaces the common list as a whole.
+## Items for one OS, overriding the items above.
 [os.windows.general]
-# editor = "notepad {paths}"
+editor = "notepad {paths}"    # Used by edit, new_text, and edit_config
 [os.macos.general]
-# editor = "open -t {paths}"
+editor = "open -t {paths}"
 [os.linux.general]
-# editor = "xdg-open {paths}"
+editor = "xdg-open {paths}"
