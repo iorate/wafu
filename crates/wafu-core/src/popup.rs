@@ -37,12 +37,12 @@ const DELETE_CHOICES: [Choice; 2] = [
 
 const QUIT_CHOICES: [Choice; 2] = [
     Choice {
-        label: "Continue the operation",
-        key: None,
+        label: "Quit",
+        key: Some('Y'),
     },
     Choice {
-        label: "Cancel the operation and quit",
-        key: None,
+        label: "Keep running",
+        key: Some('N'),
     },
 ];
 
@@ -426,14 +426,14 @@ impl ChoicePopup {
         }
     }
 
-    /// Asks whether to quit while an operation runs; the first answer keeps it running.
+    /// Asks whether to quit while an operation runs; the first answer cancels it and quits.
     #[must_use]
     pub fn quit_during_operation(resume: Option<Popup>) -> Self {
         Self {
             kind: ChoiceKind::QuitDuringOperation {
                 resume: resume.map(Box::new),
             },
-            message: "An operation is in progress".to_owned(),
+            message: "An operation is in progress. Quit anyway?".to_owned(),
             cursor: 0,
         }
     }
@@ -838,7 +838,9 @@ mod tests {
         assert_eq!(popup.cursor, 1);
         popup.cursor_down();
         assert_eq!(popup.cursor, 0);
-        assert_eq!(popup.choice_for_letter('Y'), None);
+        assert_eq!(popup.choice_for_letter('Y'), Some(0));
+        assert_eq!(popup.choice_for_letter('n'), Some(1));
+        assert_eq!(popup.choice_for_letter('Q'), None);
     }
 
     #[test]
