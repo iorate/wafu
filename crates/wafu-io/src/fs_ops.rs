@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::fs::{self, OpenOptions};
 use std::io;
 use std::path::Path;
@@ -5,7 +6,9 @@ use std::path::Path;
 /// Renames within a directory. An existing name is an error unless it is the
 /// same file under another spelling of its case.
 pub fn rename(from: &Path, to: &Path) -> io::Result<()> {
-    if fs::symlink_metadata(to).is_ok() && !same_file::is_same_file(from, to).unwrap_or(false) {
+    if fs::symlink_metadata(to).is_ok()
+        && !(differ_only_in_case(from, to) && same_file::is_same_file(from, to).unwrap_or(false))
+    {
         return Err(already_exists());
     }
     fs::rename(from, to)
@@ -52,6 +55,17 @@ pub fn set_clipboard(
         *clipboard = None;
     }
     result
+}
+
+fn differ_only_in_case(a: &Path, b: &Path) -> bool {
+    a.parent() == b.parent()
+        && match (
+            a.file_name().and_then(OsStr::to_str),
+            b.file_name().and_then(OsStr::to_str),
+        ) {
+            (Some(a), Some(b)) => a.to_lowercase() == b.to_lowercase(),
+            _ => false,
+        }
 }
 
 fn already_exists() -> io::Error {
@@ -104,6 +118,63 @@ mod tests {
             .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
         assert_eq!(names, ["A.txt"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rename_refuses_a_link_onto_its_target() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("target"), "data").unwrap();
+        std::os::unix::fs::symlink("target", dir.path().join("link")).unwrap();
+
+        let error = rename(&dir.path().join("link"), &dir.path().join("target")).unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert!(
+            fs::symlink_metadata(dir.path().join("link"))
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(
+            fs::read_to_string(dir.path().join("target")).unwrap(),
+            "data"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rename_refuses_a_target_onto_its_link() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("target"), "data").unwrap();
+        std::os::unix::fs::symlink("target", dir.path().join("link")).unwrap();
+
+        let error = rename(&dir.path().join("target"), &dir.path().join("link")).unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert!(
+            fs::symlink_metadata(dir.path().join("link"))
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(
+            fs::read_to_string(dir.path().join("target")).unwrap(),
+            "data"
+        );
+    }
+
+    #[test]
+    fn rename_refuses_another_hard_link_to_the_same_file() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("a"), "data").unwrap();
+        fs::hard_link(dir.path().join("a"), dir.path().join("b")).unwrap();
+
+        let error = rename(&dir.path().join("a"), &dir.path().join("b")).unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert!(dir.path().join("a").exists());
+        assert!(dir.path().join("b").exists());
     }
 
     #[test]
