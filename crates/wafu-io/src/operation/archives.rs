@@ -17,14 +17,15 @@ const TEMP_PREFIX: &str = "wafu-";
 
 // One archive being unpacked. Links are made after everything else so that
 // no entry can be written through a link to somewhere outside the
-// destination, and directory times are set once their contents are in.
+// destination, and directory times and permissions are set once their
+// contents are in.
 struct Extraction {
     archive: PathBuf,
     reader: Box<dyn ArchiveReader>,
     password: Option<String>,
     dest: PathBuf,
     links: Vec<(PathBuf, String)>,
-    dir_times: Vec<(PathBuf, SystemTime)>,
+    dirs: Vec<(PathBuf, ArchiveEntry)>,
 }
 
 impl Extraction {
@@ -42,7 +43,7 @@ impl Extraction {
             password,
             dest: dest.to_path_buf(),
             links: Vec::new(),
-            dir_times: Vec::new(),
+            dirs: Vec::new(),
         })
     }
 }
@@ -191,9 +192,7 @@ impl Worker<'_> {
         match entry.kind {
             ArchiveEntryKind::Dir => {
                 ensure_dir(&shown, &extraction.dest, &dst)?;
-                if let Some(modified) = entry.modified {
-                    extraction.dir_times.push((dst, modified));
-                }
+                extraction.dirs.push((dst, entry));
             }
             ArchiveEntryKind::File => {
                 ensure_parent(&shown, &extraction.dest, &dst)?;
@@ -363,8 +362,8 @@ fn finish_extraction(extraction: Extraction) -> Result<(), Stop> {
         make_link(&target, &dst).map_err(fail(&dst))?;
     }
     // Children were written after their directories, so deeper first.
-    for (dir, modified) in extraction.dir_times.iter().rev() {
-        set_modified(dir, *modified);
+    for (dir, entry) in extraction.dirs.iter().rev() {
+        set_entry_metadata(dir, entry);
     }
     Ok(())
 }
@@ -539,6 +538,39 @@ mod tests {
             events.first(),
             Some(OperationEvent::Progress { current, done: 0 }) if *current == archive.join("d")
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn directory_permissions_are_restored_after_their_contents_are_written() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.zip");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        write_zip(&archive, None, |writer| {
+            writer.add_dir("ro", None, Some(0o555)).unwrap();
+            writer.start_file("ro/f.txt", 1, None, Some(0o644)).unwrap();
+            writer.write_all(b"f").unwrap();
+        });
+
+        let (outcome, _) = run(&extract(&[archive], &dest), []);
+
+        assert_eq!(
+            outcome,
+            Outcome::Completed {
+                done: 2,
+                skipped: 0
+            }
+        );
+        let ro = dest.join("ro");
+        assert_eq!(fs::read(ro.join("f.txt")).unwrap(), b"f");
+        assert_eq!(
+            fs::metadata(&ro).unwrap().permissions().mode() & 0o777,
+            0o555
+        );
+        fs::set_permissions(&ro, fs::Permissions::from_mode(0o755)).unwrap();
     }
 
     #[test]
