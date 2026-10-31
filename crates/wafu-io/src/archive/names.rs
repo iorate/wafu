@@ -11,10 +11,11 @@ pub(crate) fn decode_name(raw: &[u8]) -> String {
 }
 
 /// Splits a name at `/` and `\` (old Windows tools wrote the latter),
-/// dropping empty parts such as the trailing separator of a directory.
+/// dropping empty parts such as the trailing separator of a directory and
+/// `.` parts such as a leading `./`.
 pub(crate) fn split_name(name: &str) -> Vec<String> {
     name.split(['/', '\\'])
-        .filter(|part| !part.is_empty())
+        .filter(|part| !part.is_empty() && *part != ".")
         .map(ToOwned::to_owned)
         .collect()
 }
@@ -140,6 +141,10 @@ mod tests {
         assert_eq!(split_name("a\\b\\c.txt"), ["a", "b", "c.txt"]);
         assert_eq!(split_name("/abs//x"), ["abs", "x"]);
         assert_eq!(split_name(""), Vec::<String>::new());
+        assert_eq!(split_name("./a.txt"), ["a.txt"]);
+        assert_eq!(split_name("a/./b"), ["a", "b"]);
+        assert_eq!(split_name("./"), Vec::<String>::new());
+        assert_eq!(split_name("../.../a"), ["..", "...", "a"]);
     }
 
     #[test]
