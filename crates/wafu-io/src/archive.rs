@@ -162,9 +162,10 @@ pub(crate) fn dir_entry(entries: &[ArchiveEntry], inner: &[String]) -> Option<En
     })
 }
 
-/// The index of the entry named `name` directly inside the directory `inner`.
+/// The index of the last entry named `name` directly inside the directory
+/// `inner`.
 pub(crate) fn find_entry(entries: &[ArchiveEntry], inner: &[String], name: &str) -> Option<usize> {
-    entries.iter().position(|entry| {
+    entries.iter().rposition(|entry| {
         entry.components.len() == inner.len() + 1
             && entry.components[..inner.len()] == *inner
             && entry.components[inner.len()] == name
@@ -303,6 +304,14 @@ mod tests {
         assert_eq!(find_entry(&entries, &["d".to_owned()], "a.txt"), Some(0));
         assert_eq!(find_entry(&entries, &[], "d"), Some(2));
         assert_eq!(find_entry(&entries, &[], "b.txt"), None);
+
+        let duplicated = [
+            file(&["a.txt"], 1),
+            file(&["b.txt"], 2),
+            file(&["a.txt"], 3),
+        ];
+
+        assert_eq!(find_entry(&duplicated, &[], "a.txt"), Some(2));
     }
 
     #[test]
