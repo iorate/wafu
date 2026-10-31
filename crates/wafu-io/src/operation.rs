@@ -178,7 +178,7 @@ impl Worker<'_> {
         meta: &Metadata,
         transfer: Transfer,
     ) -> Step {
-        if dst.starts_with(src) {
+        if is_within(dst, src) {
             return Err(failure(src, "the destination is inside the source"));
         }
         match fs::symlink_metadata(dst) {
@@ -473,6 +473,18 @@ fn children(dir: &Path) -> Result<Vec<PathBuf>, Stop> {
         .map_err(fail(dir))?;
     paths.sort();
     Ok(paths)
+}
+
+fn is_within(path: &Path, base: &Path) -> bool {
+    path.starts_with(base)
+        || real_path(path)
+            .zip(real_path(base))
+            .is_some_and(|(path, base)| path.starts_with(base))
+}
+
+fn real_path(path: &Path) -> Option<PathBuf> {
+    let parent = fs::canonicalize(path.parent()?).ok()?;
+    Some(parent.join(path.file_name()?))
 }
 
 // Best effort: a file that could not take its time or mode is still copied.
@@ -835,6 +847,24 @@ mod tests {
         fs::create_dir_all(d.join("sub")).unwrap();
 
         let (outcome, _) = run(&copy(std::slice::from_ref(&d), &d.join("sub")), []);
+
+        let Outcome::Failed { error, .. } = outcome else {
+            panic!("expected a failure, got {outcome:?}");
+        };
+        assert_eq!(error.to_string(), "the destination is inside the source");
+        assert!(!d.join("sub").join("d").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copying_a_directory_into_itself_through_a_link_is_an_error() {
+        let dir = TempDir::new().unwrap();
+        let d = dir.path().join("d");
+        fs::create_dir_all(d.join("sub")).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(d.join("sub"), &link).unwrap();
+
+        let (outcome, _) = run(&copy(std::slice::from_ref(&d), &link), []);
 
         let Outcome::Failed { error, .. } = outcome else {
             panic!("expected a failure, got {outcome:?}");

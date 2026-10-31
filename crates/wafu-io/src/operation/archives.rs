@@ -5,7 +5,9 @@ use std::time::SystemTime;
 
 use wafu_core::{ArchiveEntries, ArchiveFormat, OperationEvent, OperationSpec, Reply};
 
-use super::{CHUNK_SIZE, NOT_REGULAR, Step, Stop, Worker, children, fail, failure, open_for_times};
+use super::{
+    CHUNK_SIZE, NOT_REGULAR, Step, Stop, Worker, children, fail, failure, is_within, open_for_times,
+};
 use crate::archive::{
     ArchiveEntry, ArchiveEntryKind, ArchiveError, ArchiveReader, ArchiveWriter, check_component,
     create_archive, open_archive,
@@ -130,10 +132,7 @@ impl Worker<'_> {
             .as_ref()
             .ok_or_else(|| failure(first, "no output"))?;
         let out = dest.join(&output.name);
-        if paths
-            .iter()
-            .any(|path| out == *path || out.starts_with(path))
-        {
+        if paths.iter().any(|path| is_within(&out, path)) {
             return Err(failure(&out, "the output is inside the source"));
         }
         // The first source stands for the operation in the conflict, since
@@ -1019,6 +1018,28 @@ mod tests {
             outcome,
             Outcome::Failed { error, .. } if error.to_string() == "the output is inside the source"
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_output_inside_the_source_through_a_link_is_an_error() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("src");
+        fs::create_dir(&src).unwrap();
+        fs::write(src.join("a.txt"), b"a").unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&src, &link).unwrap();
+
+        let (outcome, _) = run(
+            &compress(std::slice::from_ref(&src), &link, "a.zip", None),
+            [],
+        );
+
+        assert!(matches!(
+            outcome,
+            Outcome::Failed { error, .. } if error.to_string() == "the output is inside the source"
+        ));
+        assert!(!src.join("a.zip").exists());
     }
 
     #[test]
