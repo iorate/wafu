@@ -2,8 +2,9 @@ use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Sender};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
 
 use notify::RecommendedWatcher;
@@ -25,6 +26,8 @@ use crate::watch::{Watcher, watch_config};
 
 pub(crate) type OnEvent = Arc<dyn Fn(IoEvent) + Send + Sync>;
 
+const MAX_ABANDONED_PREVIEW_READERS: usize = 2;
+
 /// Where the runtime writes the state, and the configuration path to pass on
 /// to a new instance when it was given on the command line.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,7 +41,9 @@ pub struct Paths {
 /// worker threads, or on the caller's thread for effects that finish at once.
 pub struct Runtime {
     paths: Paths,
-    jobs: Sender<Job>,
+    left: Lane,
+    right: Lane,
+    preview: Lane,
     pending: Arc<Mutex<HashSet<RequestId>>>,
     watcher: Mutex<Watcher>,
     config_watcher: Mutex<Option<RecommendedWatcher>>,
@@ -75,66 +80,17 @@ enum Job {
 impl Runtime {
     pub fn new(paths: Paths, on_event: impl Fn(IoEvent) + Send + Sync + 'static) -> Self {
         let on_event: OnEvent = Arc::new(on_event);
-        let (jobs, receiver) = mpsc::channel::<Job>();
         let pending = Arc::new(Mutex::new(HashSet::new()));
-        let worker_pending = Arc::clone(&pending);
-        let worker_event = Arc::clone(&on_event);
-        thread::Builder::new()
-            .name("wafu-io-reader".to_owned())
-            .spawn(move || {
-                let mut cache: Option<CachedArchive> = None;
-                for job in receiver {
-                    let request = match &job {
-                        Job::ReadDir { request, .. }
-                        | Job::Resolve { request, .. }
-                        | Job::LoadPreview { request, .. }
-                        | Job::LoadImage { request, .. } => *request,
-                    };
-                    if !lock(&worker_pending).contains(&request) {
-                        continue;
-                    }
-                    let event = match job {
-                        Job::ReadDir { side, location, .. } => {
-                            let cancelled = || !lock(&worker_pending).contains(&request);
-                            let result = match &location.archive {
-                                None => read_dir_with(&location.base, cancelled),
-                                Some(archive) => {
-                                    list_archive(&mut cache, &location.base, archive, cancelled)
-                                }
-                            }
-                            .map_err(|error| IoError::new(error.to_string()));
-                            IoEvent::DirLoaded {
-                                side,
-                                request,
-                                result,
-                            }
-                        }
-                        Job::Resolve {
-                            side, path, climb, ..
-                        } => IoEvent::Resolved {
-                            side,
-                            request,
-                            result: resolve(&path, climb),
-                        },
-                        Job::LoadPreview { source, .. } => IoEvent::PreviewLoaded {
-                            request,
-                            result: load_preview(&source),
-                        },
-                        Job::LoadImage { source, .. } => IoEvent::ImageLoaded {
-                            request,
-                            result: load_image(&source),
-                        },
-                    };
-                    if !lock(&worker_pending).remove(&request) {
-                        continue;
-                    }
-                    worker_event(event);
-                }
-            })
-            .expect("the reader thread should start");
         Self {
             paths,
-            jobs,
+            left: Lane::new("left", None, &pending, &on_event),
+            right: Lane::new("right", None, &pending, &on_event),
+            preview: Lane::new(
+                "preview",
+                Some(MAX_ABANDONED_PREVIEW_READERS),
+                &pending,
+                &on_event,
+            ),
             pending,
             watcher: Mutex::new(Watcher::new()),
             config_watcher: Mutex::new(None),
@@ -165,7 +121,7 @@ impl Runtime {
                 request,
             } => {
                 lock(&self.pending).insert(request);
-                let _ = self.jobs.send(Job::ReadDir {
+                self.send(Job::ReadDir {
                     side,
                     location,
                     request,
@@ -184,7 +140,7 @@ impl Runtime {
                     .unwrap_or_else(PoisonError::into_inner)
                     .unwatch(side);
                 lock(&self.pending).insert(request);
-                let _ = self.jobs.send(Job::Resolve {
+                self.send(Job::Resolve {
                     side,
                     path,
                     climb,
@@ -193,14 +149,17 @@ impl Runtime {
             }
             Effect::CancelRead { request } => {
                 lock(&self.pending).remove(&request);
+                for lane in [&self.left, &self.right, &self.preview] {
+                    lane.cancel(request);
+                }
             }
             Effect::LoadPreview { source, request } => {
                 lock(&self.pending).insert(request);
-                let _ = self.jobs.send(Job::LoadPreview { source, request });
+                self.send(Job::LoadPreview { source, request });
             }
             Effect::LoadImage { source, request } => {
                 lock(&self.pending).insert(request);
-                let _ = self.jobs.send(Job::LoadImage { source, request });
+                self.send(Job::LoadImage { source, request });
             }
             Effect::Watch { side, path } => {
                 self.watcher
@@ -253,6 +212,20 @@ impl Runtime {
                 });
             }
             effect => self.run_file_effect(effect),
+        }
+    }
+
+    fn send(&self, job: Job) {
+        self.lane(&job).send(job);
+    }
+
+    fn lane(&self, job: &Job) -> &Lane {
+        match job {
+            Job::ReadDir { side, .. } | Job::Resolve { side, .. } => match side {
+                Side::Left => &self.left,
+                Side::Right => &self.right,
+            },
+            Job::LoadPreview { .. } | Job::LoadImage { .. } => &self.preview,
         }
     }
 
@@ -330,6 +303,113 @@ impl Runtime {
     }
 }
 
+impl Job {
+    fn request(&self) -> RequestId {
+        match self {
+            Job::ReadDir { request, .. }
+            | Job::Resolve { request, .. }
+            | Job::LoadPreview { request, .. }
+            | Job::LoadImage { request, .. } => *request,
+        }
+    }
+}
+
+struct Lane {
+    name: &'static str,
+    limit: Option<usize>,
+    abandoned: Arc<AtomicUsize>,
+    pending: Arc<Mutex<HashSet<RequestId>>>,
+    on_event: OnEvent,
+    reader: Mutex<Reader>,
+}
+
+impl Lane {
+    fn new(
+        name: &'static str,
+        limit: Option<usize>,
+        pending: &Arc<Mutex<HashSet<RequestId>>>,
+        on_event: &OnEvent,
+    ) -> Self {
+        let abandoned = Arc::new(AtomicUsize::new(0));
+        let reader = Reader::spawn(name, &abandoned, pending, on_event);
+        Self {
+            name,
+            limit,
+            abandoned,
+            pending: Arc::clone(pending),
+            on_event: Arc::clone(on_event),
+            reader: Mutex::new(reader),
+        }
+    }
+
+    fn send(&self, job: Job) {
+        let _ = lock(&self.reader).jobs.send(job);
+    }
+
+    fn cancel(&self, request: RequestId) {
+        let mut reader = lock(&self.reader);
+        if *lock(&reader.running) != Some(request)
+            || self
+                .limit
+                .is_some_and(|limit| self.abandoned.load(Ordering::SeqCst) >= limit)
+        {
+            return;
+        }
+        reader.abandoned.store(true, Ordering::SeqCst);
+        self.abandoned.fetch_add(1, Ordering::SeqCst);
+        *reader = Reader::spawn(self.name, &self.abandoned, &self.pending, &self.on_event);
+    }
+}
+
+struct Reader {
+    jobs: Sender<Job>,
+    running: Arc<Mutex<Option<RequestId>>>,
+    abandoned: Arc<AtomicBool>,
+}
+
+impl Reader {
+    fn spawn(
+        name: &str,
+        lane_abandoned: &Arc<AtomicUsize>,
+        pending: &Arc<Mutex<HashSet<RequestId>>>,
+        on_event: &OnEvent,
+    ) -> Self {
+        let (jobs, receiver) = mpsc::channel::<Job>();
+        let running = Arc::new(Mutex::new(None));
+        let abandoned = Arc::new(AtomicBool::new(false));
+        let reader = Self {
+            jobs,
+            running: Arc::clone(&running),
+            abandoned: Arc::clone(&abandoned),
+        };
+        let lane_abandoned = Arc::clone(lane_abandoned);
+        let pending = Arc::clone(pending);
+        let on_event = Arc::clone(on_event);
+        thread::Builder::new()
+            .name(format!("wafu-io-reader-{name}"))
+            .spawn(move || {
+                let mut cache: Option<CachedArchive> = None;
+                for job in receiver {
+                    let request = job.request();
+                    *lock(&running) = Some(request);
+                    let live = lock(&pending).contains(&request);
+                    let event = live.then(|| read(job, &mut cache, &pending));
+                    *lock(&running) = None;
+                    if let Some(event) = event
+                        && lock(&pending).remove(&request)
+                    {
+                        on_event(event);
+                    }
+                }
+                if abandoned.load(Ordering::SeqCst) {
+                    lane_abandoned.fetch_sub(1, Ordering::SeqCst);
+                }
+            })
+            .expect("the reader thread should start");
+        reader
+    }
+}
+
 // The table of contents of the archive read last, so that moving between
 // its directories does not read it again. A changed archive misses the cache.
 struct CachedArchive {
@@ -337,6 +417,44 @@ struct CachedArchive {
     len: u64,
     modified: Option<std::time::SystemTime>,
     entries: Vec<ArchiveEntry>,
+}
+
+fn read(
+    job: Job,
+    cache: &mut Option<CachedArchive>,
+    pending: &Mutex<HashSet<RequestId>>,
+) -> IoEvent {
+    let request = job.request();
+    match job {
+        Job::ReadDir { side, location, .. } => {
+            let cancelled = || !lock(pending).contains(&request);
+            let result = match &location.archive {
+                None => read_dir_with(&location.base, cancelled),
+                Some(archive) => list_archive(cache, &location.base, archive, cancelled),
+            }
+            .map_err(|error| IoError::new(error.to_string()));
+            IoEvent::DirLoaded {
+                side,
+                request,
+                result,
+            }
+        }
+        Job::Resolve {
+            side, path, climb, ..
+        } => IoEvent::Resolved {
+            side,
+            request,
+            result: resolve(&path, climb),
+        },
+        Job::LoadPreview { source, .. } => IoEvent::PreviewLoaded {
+            request,
+            result: load_preview(&source),
+        },
+        Job::LoadImage { source, .. } => IoEvent::ImageLoaded {
+            request,
+            result: load_image(&source),
+        },
+    }
 }
 
 fn list_archive(
@@ -369,8 +487,8 @@ fn io_error(result: std::io::Result<()>) -> Option<IoError> {
     result.err().map(|error| IoError::new(error.to_string()))
 }
 
-fn lock(pending: &Mutex<HashSet<RequestId>>) -> std::sync::MutexGuard<'_, HashSet<RequestId>> {
-    pending.lock().unwrap_or_else(PoisonError::into_inner)
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 #[cfg(test)]
@@ -429,12 +547,12 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let (runtime, events) = runtime();
 
-        with_worker_held(&runtime, |pending, jobs| {
+        with_worker_held(&runtime, |pending, send| {
             pending.insert(RequestId(1));
-            jobs.send(read_job(dir.path(), 1)).unwrap();
+            send(read_job(dir.path(), 1));
             pending.remove(&RequestId(1));
             pending.insert(RequestId(2));
-            jobs.send(read_job(dir.path(), 2)).unwrap();
+            send(read_job(dir.path(), 2));
         });
 
         let IoEvent::DirLoaded { request, .. } = events.recv_timeout(TIMEOUT).unwrap() else {
@@ -475,15 +593,14 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let (runtime, events) = runtime();
 
-        with_worker_held(&runtime, |pending, jobs| {
+        with_worker_held(&runtime, |pending, send| {
             pending.insert(RequestId(1));
-            jobs.send(Job::Resolve {
+            send(Job::Resolve {
                 side: Side::Left,
                 path: dir.path().to_path_buf(),
                 climb: true,
                 request: RequestId(1),
-            })
-            .unwrap();
+            });
             pending.remove(&RequestId(1));
         });
 
@@ -502,20 +619,18 @@ mod tests {
             password: None,
         };
 
-        with_worker_held(&runtime, |pending, jobs| {
+        with_worker_held(&runtime, |pending, send| {
             pending.insert(RequestId(1));
-            jobs.send(Job::LoadPreview {
+            send(Job::LoadPreview {
                 source: source.clone(),
                 request: RequestId(1),
-            })
-            .unwrap();
+            });
             pending.remove(&RequestId(1));
             pending.insert(RequestId(2));
-            jobs.send(Job::LoadPreview {
+            send(Job::LoadPreview {
                 source,
                 request: RequestId(2),
-            })
-            .unwrap();
+            });
         });
 
         let event = events.recv_timeout(TIMEOUT).unwrap();
@@ -524,6 +639,89 @@ mod tests {
         };
         assert_eq!(request, RequestId(2));
         assert_eq!(result.unwrap().lines[0].text, "hello");
+        assert!(events.recv_timeout(Duration::from_millis(100)).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cancelling_a_stuck_read_lets_the_next_read_through() {
+        let dir = TempDir::new().unwrap();
+        let fifo = fifo(dir.path(), "stuck.zip");
+        let (runtime, events) = runtime();
+
+        runtime.run(read_archive(&fifo, Side::Left, 1));
+        wait_until(|| running(&runtime.left) == Some(RequestId(1)));
+        runtime.run(Effect::CancelRead {
+            request: RequestId(1),
+        });
+        runtime.run(read(dir.path(), 2));
+
+        let event = events.recv_timeout(TIMEOUT).unwrap();
+        let IoEvent::DirLoaded { request, .. } = event else {
+            panic!("expected DirLoaded, got {event:?}");
+        };
+        assert_eq!(request, RequestId(2));
+        release(&fifo);
+        wait_until(|| runtime.left.abandoned.load(Ordering::SeqCst) == 0);
+        assert!(events.recv_timeout(Duration::from_millis(100)).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_stuck_read_in_one_pane_does_not_hold_up_the_other() {
+        let dir = TempDir::new().unwrap();
+        let fifo = fifo(dir.path(), "stuck.zip");
+        let (runtime, events) = runtime();
+
+        runtime.run(read_archive(&fifo, Side::Left, 1));
+        runtime.run(Effect::ReadDir {
+            side: Side::Right,
+            location: Location::new(dir.path().to_path_buf()),
+            request: RequestId(2),
+        });
+
+        let event = events.recv_timeout(TIMEOUT).unwrap();
+        let IoEvent::DirLoaded { side, request, .. } = event else {
+            panic!("expected DirLoaded, got {event:?}");
+        };
+        assert_eq!((side, request), (Side::Right, RequestId(2)));
+        release(&fifo);
+        let event = events.recv_timeout(TIMEOUT).unwrap();
+        let IoEvent::DirLoaded { side, request, .. } = event else {
+            panic!("expected DirLoaded, got {event:?}");
+        };
+        assert_eq!((side, request), (Side::Left, RequestId(1)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_preview_lane_waits_once_two_readers_are_abandoned() {
+        let dir = TempDir::new().unwrap();
+        let text = dir.path().join("a.txt");
+        fs::write(&text, b"hello\n").unwrap();
+        let fifos: Vec<PathBuf> = ["1", "2", "3"]
+            .into_iter()
+            .map(|name| fifo(dir.path(), name))
+            .collect();
+        let (runtime, events) = runtime();
+
+        for (request, fifo) in (1..).map(RequestId).zip(&fifos) {
+            runtime.run(load_preview_of(fifo, request));
+            wait_until(|| running(&runtime.preview) == Some(request));
+            runtime.run(Effect::CancelRead { request });
+        }
+        runtime.run(load_preview_of(&text, RequestId(4)));
+
+        assert!(events.recv_timeout(Duration::from_millis(200)).is_err());
+        release(&fifos[2]);
+        let event = events.recv_timeout(TIMEOUT).unwrap();
+        let IoEvent::PreviewLoaded { request, .. } = event else {
+            panic!("expected PreviewLoaded, got {event:?}");
+        };
+        assert_eq!(request, RequestId(4));
+        release(&fifos[0]);
+        release(&fifos[1]);
+        wait_until(|| runtime.preview.abandoned.load(Ordering::SeqCst) == 0);
         assert!(events.recv_timeout(Duration::from_millis(100)).is_err());
     }
 
@@ -929,15 +1127,66 @@ mod tests {
         }
     }
 
-    // Queues jobs and cancellations as `run` would, but with the worker held
+    // Queues jobs and cancellations as `run` would, but with the workers held
     // off the pending set until all of them are in, so that a cancellation
     // cannot lose the race against a read that finishes at once.
     fn with_worker_held(
         runtime: &Runtime,
-        queue: impl FnOnce(&mut HashSet<RequestId>, &Sender<Job>),
+        queue: impl FnOnce(&mut HashSet<RequestId>, &dyn Fn(Job)),
     ) {
         let mut pending = lock(&runtime.pending);
-        queue(&mut pending, &runtime.jobs);
+        queue(&mut pending, &|job| runtime.send(job));
+    }
+
+    #[cfg(unix)]
+    fn read_archive(path: &Path, side: Side, request: u64) -> Effect {
+        Effect::ReadDir {
+            side,
+            location: Location::archive_root(path.to_path_buf(), wafu_core::ArchiveFormat::Zip),
+            request: RequestId(request),
+        }
+    }
+
+    #[cfg(unix)]
+    fn load_preview_of(path: &Path, request: RequestId) -> Effect {
+        Effect::LoadPreview {
+            source: PreviewSource {
+                path: path.to_path_buf(),
+                entry: None,
+                password: None,
+            },
+            request,
+        }
+    }
+
+    #[cfg(unix)]
+    fn fifo(dir: &Path, name: &str) -> PathBuf {
+        let path = dir.join(name);
+        let status = std::process::Command::new("mkfifo")
+            .arg(&path)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        path
+    }
+
+    #[cfg(unix)]
+    fn release(fifo: &Path) {
+        fs::OpenOptions::new().write(true).open(fifo).unwrap();
+    }
+
+    #[cfg(unix)]
+    fn running(lane: &Lane) -> Option<RequestId> {
+        *lock(&lock(&lane.reader).running)
+    }
+
+    #[cfg(unix)]
+    fn wait_until(condition: impl Fn() -> bool) {
+        let deadline = std::time::Instant::now() + TIMEOUT;
+        while !condition() {
+            assert!(std::time::Instant::now() < deadline, "timed out");
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 
     fn watch(path: &Path) -> Effect {
