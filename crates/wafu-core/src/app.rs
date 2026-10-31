@@ -455,13 +455,13 @@ impl App {
                         self.operation_key(key, &mut effects);
                     } else if self.popup.is_some() {
                         self.popup_key(key, &mut effects);
-                    } else if self.preview.is_some() {
-                        self.preview_key(key, &mut effects);
                     } else if self.navigating() {
                         // A move in progress is modal: only Esc, which cancels it, gets through.
                         if key.base == KeyBase::Named(NamedKey::Escape) {
                             self.cancel_navigation(&mut effects);
                         }
+                    } else if self.preview.is_some() {
+                        self.preview_key(key, &mut effects);
                     } else {
                         if let Some(command) = self.config.keys.lookup(Context::FileList, &key) {
                             self.run_command(command, &mut effects);
