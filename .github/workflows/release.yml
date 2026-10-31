@@ -42,7 +42,7 @@ jobs:
         run: |
           version="$(jq -re .version crates/wafu/package.json)"
           mkdir dist
-          cp target/release/wafu.exe "dist/wafu-v$version-portable.exe"
+          cp target/release/wafu.exe "dist/wafu-v$version.exe"
 
       - name: Upload artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

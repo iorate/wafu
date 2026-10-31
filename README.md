@@ -8,7 +8,7 @@ A keyboard-driven dual-pane file manager for Windows, Linux, and macOS, built wi
 
 ### Windows
 
-Download `wafu-vX.Y.Z-portable.exe` from [GitHub Releases](https://github.com/iorate/wafu/releases) and run it.
+Download `wafu-vX.Y.Z.exe` from [GitHub Releases](https://github.com/iorate/wafu/releases) and run it.
 
 The executable is not signed, so Microsoft Defender SmartScreen may block it on the first run. Click "More info" and then "Run anyway".
 
