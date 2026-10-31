@@ -191,13 +191,13 @@ impl Worker<'_> {
         }
         match entry.kind {
             ArchiveEntryKind::Dir => {
-                ensure_dir(&shown, &dst)?;
+                ensure_dir(&shown, &extraction.dest, &dst)?;
                 if let Some(modified) = entry.modified {
                     extraction.dir_times.push((dst, modified));
                 }
             }
             ArchiveEntryKind::File => {
-                ensure_parent(&shown, &dst)?;
+                ensure_parent(&shown, &extraction.dest, &dst)?;
                 self.unlock(extraction, index, &shown)?;
                 let Some(dst) = self.clear_destination(&shown, &dst)? else {
                     return Ok(false);
@@ -218,7 +218,7 @@ impl Worker<'_> {
                     .map_err(|error| failure(&shown, &error.to_string()))?
                     .read_to_string(&mut target)
                     .map_err(fail(&shown))?;
-                ensure_parent(&shown, &dst)?;
+                ensure_parent(&shown, &extraction.dest, &dst)?;
                 let Some(dst) = self.clear_destination(&shown, &dst)? else {
                     return Ok(false);
                 };
@@ -389,27 +389,39 @@ fn archive_name(path: &Path, base: &Path) -> Result<String, Stop> {
         .join("/"))
 }
 
-fn ensure_dir(shown: &Path, dst: &Path) -> Result<(), Stop> {
-    match fs::symlink_metadata(dst) {
-        Ok(existing) if existing.is_dir() => Ok(()),
-        Ok(_) => Err(failure(
-            shown,
-            "the destination exists and is not a directory",
-        )),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            fs::create_dir_all(dst).map_err(fail(shown))
+fn ensure_dir(shown: &Path, root: &Path, dst: &Path) -> Result<(), Stop> {
+    let relative = dst
+        .strip_prefix(root)
+        .map_err(|_| failure(shown, "the entry name is unsafe"))?;
+    let mut path = root.to_path_buf();
+    for component in relative.components() {
+        path.push(component);
+        match fs::symlink_metadata(&path) {
+            Ok(existing) if existing.is_dir() => {}
+            Ok(_) => {
+                return Err(failure(
+                    shown,
+                    "the destination exists and is not a directory",
+                ));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                fs::create_dir(&path).map_err(fail(shown))?;
+            }
+            Err(error) => {
+                return Err(Stop::Failed {
+                    path: shown.to_path_buf(),
+                    error,
+                });
+            }
         }
-        Err(error) => Err(Stop::Failed {
-            path: shown.to_path_buf(),
-            error,
-        }),
     }
+    Ok(())
 }
 
 // Archives need not list a directory before the files in it.
-fn ensure_parent(shown: &Path, dst: &Path) -> Result<(), Stop> {
+fn ensure_parent(shown: &Path, root: &Path, dst: &Path) -> Result<(), Stop> {
     match dst.parent() {
-        Some(parent) => ensure_dir(shown, parent),
+        Some(parent) => ensure_dir(shown, root, parent),
         None => Ok(()),
     }
 }
@@ -689,6 +701,34 @@ mod tests {
             PathBuf::from("f.txt")
         );
         assert_eq!(fs::read(dest.join("link")).unwrap(), b"f");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn existing_links_in_the_destination_are_not_followed() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("l.zip");
+        let dest = dir.path().join("out");
+        let elsewhere = dir.path().join("elsewhere");
+        fs::create_dir(&dest).unwrap();
+        fs::create_dir(&elsewhere).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, dest.join("link")).unwrap();
+        write_zip(&archive, None, |writer| {
+            writer.start_file("link/sub/f.txt", 1, None, None).unwrap();
+            writer.write_all(b"f").unwrap();
+        });
+
+        let (outcome, _) = run(&extract(&[archive], &dest), []);
+
+        assert!(
+            matches!(
+                &outcome,
+                Outcome::Failed { error, .. }
+                    if error.to_string() == "the destination exists and is not a directory"
+            ),
+            "{outcome:?}"
+        );
+        assert_eq!(fs::read_dir(&elsewhere).unwrap().count(), 0);
     }
 
     #[cfg(windows)]
