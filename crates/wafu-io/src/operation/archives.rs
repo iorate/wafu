@@ -324,9 +324,14 @@ impl Worker<'_> {
         #[cfg(not(unix))]
         let mode = None;
         if meta.is_symlink() {
-            let target = fs::read_link(path).map_err(fail(path))?;
+            let target = fs::read_link(path)
+                .map_err(fail(path))?
+                .to_string_lossy()
+                .into_owned();
+            #[cfg(windows)]
+            let target = target.replace('\\', "/");
             writer
-                .add_symlink(&name, &target.to_string_lossy(), modified)
+                .add_symlink(&name, &target, modified)
                 .map_err(fail(path))?;
         } else if meta.is_dir() {
             writer.add_dir(&name, modified, mode).map_err(fail(path))?;
@@ -434,10 +439,15 @@ fn make_link(target: &str, dst: &Path) -> std::io::Result<()> {
     std::os::unix::fs::symlink(target, dst)
 }
 
-// Whether the target is a directory is not known, so every link is a file link.
 #[cfg(windows)]
 fn make_link(target: &str, dst: &Path) -> std::io::Result<()> {
-    std::os::windows::fs::symlink_file(target, dst)
+    let target = target.replace('/', "\\");
+    let resolved = dst.parent().unwrap_or(Path::new("")).join(&target);
+    if fs::metadata(resolved).is_ok_and(|meta| meta.is_dir()) {
+        std::os::windows::fs::symlink_dir(target, dst)
+    } else {
+        std::os::windows::fs::symlink_file(target, dst)
+    }
 }
 
 // A fresh directory under the system's temporary directory, left for the OS
@@ -682,6 +692,38 @@ mod tests {
         assert_eq!(fs::read(dest.join("link")).unwrap(), b"f");
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn links_to_directories_are_made_as_directory_links_with_backslashes() {
+        let dir = TempDir::new().unwrap();
+        if std::os::windows::fs::symlink_file("x", dir.path().join("probe")).is_err() {
+            return;
+        }
+        let archive = dir.path().join("l.zip");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        write_zip(&archive, None, |writer| {
+            writer.add_symlink("link", "d/sub", None).unwrap();
+            writer.start_file("d/sub/g.txt", 1, None, None).unwrap();
+            writer.write_all(b"g").unwrap();
+        });
+
+        let (outcome, _) = run(&extract(&[archive], &dest), []);
+
+        assert_eq!(
+            outcome,
+            Outcome::Completed {
+                done: 2,
+                skipped: 0
+            }
+        );
+        assert_eq!(
+            fs::read_link(dest.join("link")).unwrap(),
+            Path::new("d").join("sub")
+        );
+        assert_eq!(fs::read(dest.join("link").join("g.txt")).unwrap(), b"g");
+    }
+
     #[test]
     fn a_password_is_asked_for_until_it_is_right() {
         let dir = TempDir::new().unwrap();
@@ -857,6 +899,40 @@ mod tests {
             .unwrap();
         assert_eq!(content, "hello");
         assert!(reader.entries()[1].modified.is_some());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn compress_records_link_targets_with_slashes() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("src");
+        fs::create_dir_all(src.join("sub")).unwrap();
+        fs::write(src.join("sub").join("f.txt"), b"f").unwrap();
+        if std::os::windows::fs::symlink_file(Path::new("sub").join("f.txt"), src.join("link"))
+            .is_err()
+        {
+            return;
+        }
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+
+        let (outcome, _) = run(&compress(&[src.join("link")], &dest, "x.zip", None), []);
+
+        assert_eq!(
+            outcome,
+            Outcome::Completed {
+                done: 1,
+                skipped: 0
+            }
+        );
+        let mut reader = open_archive(&dest.join("x.zip"), ArchiveFormat::Zip).unwrap();
+        let mut target = String::new();
+        reader
+            .open(0, None)
+            .unwrap()
+            .read_to_string(&mut target)
+            .unwrap();
+        assert_eq!(target, "sub/f.txt");
     }
 
     #[cfg(unix)]
