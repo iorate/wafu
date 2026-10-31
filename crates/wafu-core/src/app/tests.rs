@@ -3040,7 +3040,7 @@ fn start_takes_paths_from_the_arguments_then_the_state_then_home() {
 }
 
 #[test]
-fn start_prefers_the_saved_display_state_and_falls_back_to_initial() {
+fn start_prefers_the_saved_display_state_and_falls_back_to_the_defaults() {
     let state = StateFile {
         left: PaneState {
             sort: Some("size".to_owned()),
@@ -3064,7 +3064,7 @@ fn start_prefers_the_saved_display_state_and_falls_back_to_initial() {
         Os::Linux,
         Some("/home/user"),
         Some("/tmp"),
-        ConfigSource::Text("[initial]\nsort = \"time\"\nshow_hidden = true\n".to_owned()),
+        ConfigSource::Text(String::new()),
         Ok(Some(state)),
     ));
     harness.resolve(Side::Left, "/home/user", None);
@@ -3086,8 +3086,8 @@ fn start_prefers_the_saved_display_state_and_falls_back_to_initial() {
     // The start-up visit follows the restored position.
     assert_eq!(harness.history(Side::Left), ["/a", "/home/user"]);
     let right = harness.app().pane(Side::Right);
-    assert_eq!(right.sort().key, SortKey::Time);
-    assert!(right.show_hidden());
+    assert_eq!(right.sort(), SortSpec::default());
+    assert!(!right.show_hidden());
     let view = harness.view();
     assert_eq!(view.split_percent, 90);
     assert_eq!(view.log_rows, 1);
@@ -3119,20 +3119,15 @@ fn start_without_a_saved_history_position_continues_from_the_newest_place() {
 }
 
 #[test]
-fn start_without_a_state_file_uses_initial() {
-    let harness = Harness::start_with_config(
-        "/home/user",
-        "/tmp",
-        "[initial]\nsort = \"extension\"\ndescending = true\nshow_hidden = true\n",
-    );
+fn start_without_a_state_file_uses_the_default_display_state() {
+    let harness = Harness::start("/home/user", "/tmp");
 
     let pane = harness.app().pane(Side::Left);
-    assert_eq!(pane.sort().key, SortKey::Extension);
-    assert!(pane.sort().descending);
-    assert!(pane.show_hidden());
+    assert_eq!(pane.sort(), SortSpec::default());
+    assert!(!pane.show_hidden());
     assert_eq!(
         harness.view().left.info,
-        "0 items | 0 marked (0 bytes) | sort: extension desc | hidden: on"
+        "0 items | 0 marked (0 bytes) | sort: name | hidden: off"
     );
 }
 
@@ -3198,7 +3193,7 @@ fn start_logs_an_unknown_configuration_item() {
 }
 
 #[test]
-fn reloading_the_configuration_changes_keys_and_style_but_not_initial() {
+fn reloading_the_configuration_changes_keys_and_style() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a")]);
     harness.press("Down");
@@ -3206,7 +3201,7 @@ fn reloading_the_configuration_changes_keys_and_style_but_not_initial() {
     harness.take_effects();
 
     harness.config(
-        "[appearance]\ntheme = \"dark\"\nbogus = 1\n[appearance.font]\nsize = 16\n[initial]\nshow_hidden = true\n[keys.filelist]\n\"Q\" = \"nop\"\n\"F2\" = \"go_root\"\n",
+        "[appearance]\ntheme = \"dark\"\nbogus = 1\n[appearance.font]\nsize = 16\n[keys.filelist]\n\"Q\" = \"nop\"\n\"F2\" = \"go_root\"\n",
     );
 
     assert_eq!(
@@ -3216,7 +3211,6 @@ fn reloading_the_configuration_changes_keys_and_style_but_not_initial() {
     let style = harness.view().style;
     assert_eq!(style.theme, Theme::Dark);
     assert_eq!(style.fonts.filelist.size, 16);
-    assert!(!harness.app().pane(Side::Left).show_hidden());
     assert_eq!(harness.marks(Side::Left), ["a"]);
 
     harness.press("Q");

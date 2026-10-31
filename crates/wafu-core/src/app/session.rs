@@ -199,27 +199,23 @@ impl App {
         self.config = config;
     }
 
-    // The saved state wins over `[initial]`, which only describes a pane
-    // that was never saved.
     fn restore_pane(&mut self, side: Side, state: Option<&PaneState>) {
-        let initial = self.config.initial;
-        let pane = &mut self.panes[side.index()];
         let Some(state) = state else {
-            pane.set_sort(initial.sort);
-            pane.set_show_hidden(initial.show_hidden);
             return;
         };
+        let pane = &mut self.panes[side.index()];
+        let default = SortSpec::default();
         pane.set_sort(SortSpec {
             key: state
                 .sort
                 .as_deref()
                 .and_then(SortKey::from_name)
-                .unwrap_or(initial.sort.key),
-            descending: state.descending.unwrap_or(initial.sort.descending),
-            dirs_first: state.dirs_first.unwrap_or(initial.sort.dirs_first),
-            ignore_case: state.ignore_case.unwrap_or(initial.sort.ignore_case),
+                .unwrap_or(default.key),
+            descending: state.descending.unwrap_or(default.descending),
+            dirs_first: state.dirs_first.unwrap_or(default.dirs_first),
+            ignore_case: state.ignore_case.unwrap_or(default.ignore_case),
         });
-        pane.set_show_hidden(state.show_hidden.unwrap_or(initial.show_hidden));
+        pane.set_show_hidden(state.show_hidden.unwrap_or(false));
         pane.restore_history(History::restore(
             state.history.clone(),
             state.history_pos.unwrap_or(usize::MAX),

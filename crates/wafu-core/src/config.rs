@@ -7,7 +7,6 @@ use thiserror::Error;
 use crate::app::Os;
 use crate::external::{CommandLine, CommandLineError};
 use crate::keymap::KeyMap;
-use crate::listing::SortSpec;
 
 mod decode;
 
@@ -26,7 +25,6 @@ pub struct Config {
     pub general: General,
     pub appearance: Appearance,
     pub colors: ColorSet,
-    pub initial: Initial,
     /// As written, before `~` is expanded.
     pub bookmarks: Vec<PathBuf>,
     pub commands: BTreeMap<String, CommandLine>,
@@ -158,13 +156,6 @@ pub struct Color {
     pub b: u8,
 }
 
-/// The display state of a new pane when there is no state file.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Initial {
-    pub sort: SortSpec,
-    pub show_hidden: bool,
-}
-
 /// A warning about one item of the configuration, shown in the log.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
@@ -246,10 +237,6 @@ impl Config {
                     fifo: Color::new(0xf0, 0xc0, 0x50),
                     socket: Color::new(0xe5, 0x8a, 0xe0),
                 },
-            },
-            initial: Initial {
-                sort: SortSpec::default(),
-                show_hidden: false,
             },
             bookmarks: Vec::new(),
             commands: BTreeMap::new(),
