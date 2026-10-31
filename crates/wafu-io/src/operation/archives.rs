@@ -410,10 +410,7 @@ fn ensure_dir(shown: &Path, root: &Path, dst: &Path) -> Result<(), Stop> {
                 fs::create_dir(&path).map_err(fail(shown))?;
             }
             Err(error) => {
-                return Err(Stop::Failed {
-                    path: shown.to_path_buf(),
-                    error,
-                });
+                return Err(fail(shown)(error));
             }
         }
     }
