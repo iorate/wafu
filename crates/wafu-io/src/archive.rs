@@ -17,15 +17,13 @@ pub(crate) use names::check_component;
 
 const CANCEL_CHECK_INTERVAL: usize = 256;
 
-/// One entry of an archive, as read from its table of contents.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ArchiveEntry {
-    /// The decoded name split at the separators, with empty parts dropped.
     pub components: Vec<String>,
     pub kind: ArchiveEntryKind,
     pub size: u64,
     pub modified: Option<SystemTime>,
-    /// Unix permission bits, when the archive records them.
+    // Unix permission bits, when the archive records them.
     pub mode: Option<u32>,
     pub encrypted: bool,
 }
@@ -34,7 +32,7 @@ pub(crate) struct ArchiveEntry {
 pub(crate) enum ArchiveEntryKind {
     Dir,
     File,
-    /// The entry's content is the link target.
+    // The entry's content is the link target.
     Symlink,
 }
 
@@ -50,13 +48,13 @@ pub(crate) enum ArchiveError {
     Io(#[from] io::Error),
 }
 
-/// Reads one archive. Every format implements this; nothing else in the
-/// crate knows what the format is.
+// Reads one archive. Every format implements this; nothing else in the
+// crate knows what the format is.
 pub(crate) trait ArchiveReader {
     fn entries(&self) -> &[ArchiveEntry];
 
-    /// Opens an entry for reading its content. A password is only looked at
-    /// for an encrypted entry.
+    // Opens an entry for reading its content. A password is only looked at
+    // for an encrypted entry.
     fn open(
         &mut self,
         index: usize,
@@ -64,8 +62,8 @@ pub(crate) trait ArchiveReader {
     ) -> Result<Box<dyn Read + '_>, ArchiveError>;
 }
 
-/// Writes one archive. A file is started with `start_file` and then written
-/// through `Write`.
+// Writes one archive. A file is started with `start_file` and then written
+// through `Write`.
 pub(crate) trait ArchiveWriter: Write {
     fn add_dir(
         &mut self,
@@ -111,9 +109,9 @@ pub(crate) fn create_archive(
     }
 }
 
-/// The listing of one directory inside an archive. Directories that have no
-/// entry of their own are made up from the paths below them. Gives up with
-/// [`io::ErrorKind::Interrupted`] once `cancelled` returns `true`.
+// The listing of one directory inside an archive. Directories that have no
+// entry of their own are made up from the paths below them. Gives up with
+// `io::ErrorKind::Interrupted` once `cancelled` returns `true`.
 pub(crate) fn list_dir(
     entries: &[ArchiveEntry],
     inner: &[String],
@@ -148,9 +146,9 @@ pub(crate) fn list_dir(
     Ok(listed)
 }
 
-/// The directory `inner` itself: its own entry when the archive has one, else
-/// a directory made up as `list_dir` does. `None` at the root, which has no
-/// entry of its own.
+// The directory `inner` itself: its own entry when the archive has one, else
+// a directory made up as `list_dir` does. `None` at the root, which has no
+// entry of its own.
 pub(crate) fn dir_entry(entries: &[ArchiveEntry], inner: &[String]) -> Option<Entry> {
     let name = inner.last()?;
     let own = entries
@@ -162,8 +160,8 @@ pub(crate) fn dir_entry(entries: &[ArchiveEntry], inner: &[String]) -> Option<En
     })
 }
 
-/// The index of the last entry named `name` directly inside the directory
-/// `inner`.
+// The index of the last entry named `name` directly inside the directory
+// `inner`.
 pub(crate) fn find_entry(entries: &[ArchiveEntry], inner: &[String], name: &str) -> Option<usize> {
     entries.iter().rposition(|entry| {
         entry.components.len() == inner.len() + 1

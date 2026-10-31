@@ -12,7 +12,6 @@ use zip::{AesMode, CompressionMethod, ExtraField, ZipArchive, ZipWriter};
 use super::names::{decode_name, split_name};
 use super::{ArchiveEntry, ArchiveEntryKind, ArchiveError, ArchiveReader, ArchiveWriter};
 
-/// Files this large need ZIP64 fields.
 const ZIP64_THRESHOLD: u64 = 4 * 1024 * 1024 * 1024;
 
 pub(crate) struct ZipReader {

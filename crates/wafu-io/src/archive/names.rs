@@ -1,8 +1,8 @@
 #[cfg(windows)]
 const UTF8_CODE_PAGE: u32 = 65001;
 
-/// Decodes an entry name: UTF-8 when it is valid, else the system's default
-/// encoding (the ANSI code page on Windows), with unreadable parts replaced.
+// Decodes an entry name: UTF-8 when it is valid, else the system's default
+// encoding (the ANSI code page on Windows), with unreadable parts replaced.
 pub(crate) fn decode_name(raw: &[u8]) -> String {
     match std::str::from_utf8(raw) {
         Ok(name) => name.to_owned(),
@@ -10,9 +10,9 @@ pub(crate) fn decode_name(raw: &[u8]) -> String {
     }
 }
 
-/// Splits a name at `/` and `\` (old Windows tools wrote the latter),
-/// dropping empty parts such as the trailing separator of a directory and
-/// `.` parts such as a leading `./`.
+// Splits a name at `/` and `\` (old Windows tools wrote the latter),
+// dropping empty parts such as the trailing separator of a directory and
+// `.` parts such as a leading `./`.
 pub(crate) fn split_name(name: &str) -> Vec<String> {
     name.split(['/', '\\'])
         .filter(|part| !part.is_empty() && *part != ".")
@@ -20,8 +20,8 @@ pub(crate) fn split_name(name: &str) -> Vec<String> {
         .collect()
 }
 
-/// Whether a component may be used as one path element under the
-/// destination. Anything that could reach outside is refused.
+// Whether a component may be used as one path element under the
+// destination. Anything that could reach outside is refused.
 pub(crate) fn check_component(component: &str) -> bool {
     !(component.is_empty()
         || component == "."
