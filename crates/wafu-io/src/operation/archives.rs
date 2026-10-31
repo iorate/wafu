@@ -199,10 +199,10 @@ impl Worker<'_> {
             }
             ArchiveEntryKind::File => {
                 ensure_parent(&shown, &dst)?;
+                self.unlock(extraction, index, &shown)?;
                 let Some(dst) = self.clear_destination(&shown, &dst)? else {
                     return Ok(false);
                 };
-                self.unlock(extraction, index, &shown)?;
                 let result = self.write_entry(extraction, index, &dst, &shown);
                 if result.is_err() {
                     let _ = fs::remove_file(&dst);
@@ -741,6 +741,40 @@ mod tests {
         );
         assert_eq!(outcome, Outcome::Cancelled { done: 0 });
         assert_eq!(fs::read_dir(&cancelled).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn cancelling_the_password_after_choosing_to_overwrite_keeps_the_existing_file() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("p.zip");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        fs::write(dest.join("a.txt"), b"old").unwrap();
+        write_zip(&archive, Some("secret"), |writer| {
+            writer.start_file("a.txt", 3, None, None).unwrap();
+            writer.write_all(b"new").unwrap();
+        });
+        let spec = copy_entries(&archive, &[], &["a.txt"], &dest);
+        let (sender, replies) = mpsc::channel();
+        let events = Mutex::new(Vec::new());
+        let report = |event: OperationEvent| {
+            match event {
+                OperationEvent::Conflict { .. } => {
+                    sender.send(Reply::Overwrite { all: false }).unwrap();
+                }
+                OperationEvent::NeedPassword { .. } => sender.send(Reply::Cancel).unwrap(),
+                _ => {}
+            }
+            events.lock().unwrap().push(event);
+        };
+
+        run_operation(&spec, None, &replies, &report);
+
+        assert!(matches!(
+            events.into_inner().unwrap().last(),
+            Some(OperationEvent::Finished(Outcome::Cancelled { done: 0 }))
+        ));
+        assert_eq!(fs::read(dest.join("a.txt")).unwrap(), b"old");
     }
 
     #[test]
