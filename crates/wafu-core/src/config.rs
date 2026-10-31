@@ -454,28 +454,11 @@ mod tests {
     }
 
     #[test]
-    fn template_with_its_items_uncommented_is_the_default() {
-        let text: String = CONFIG_TEMPLATE
-            .lines()
-            .map(|line| line.strip_prefix("# ").unwrap_or(line))
-            .fold(String::new(), |mut text, line| {
-                text.push_str(line);
-                text.push('\n');
-                text
-            });
-
+    fn template_as_written_is_the_default() {
         for os in [Os::Windows, Os::MacOs, Os::Linux] {
-            let (config, diagnostics) = parse_config(&text, os).unwrap();
+            let (config, diagnostics) = parse_config(CONFIG_TEMPLATE, os).unwrap();
             assert_eq!(diagnostics, Vec::new(), "{os:?}");
             assert_eq!(config, Config::default_for(os), "{os:?}");
         }
-    }
-
-    #[test]
-    fn template_as_written_is_all_comments() {
-        let (config, diagnostics) = parse_config(CONFIG_TEMPLATE, Os::Linux).unwrap();
-
-        assert_eq!(diagnostics, Vec::new());
-        assert_eq!(config, Config::default_for(Os::Linux));
     }
 }
