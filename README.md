@@ -14,7 +14,7 @@ The executable is not signed, so Microsoft Defender SmartScreen may block it on 
 
 ### macOS
 
-Install with Cargo (Rust 1.92 or later):
+Install with Cargo:
 
 ```sh
 cargo install --locked wafu
@@ -30,7 +30,7 @@ xattr -dr com.apple.quarantine /Applications/wafu.app
 
 ### Linux
 
-Install the build dependencies and then wafu with Cargo (Rust 1.92 or later). On Debian and Ubuntu:
+Install the build dependencies and then wafu with Cargo. On Debian and Ubuntu:
 
 ```sh
 sudo apt install libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libxkbcommon-x11-dev libfontconfig-dev libwayland-dev
