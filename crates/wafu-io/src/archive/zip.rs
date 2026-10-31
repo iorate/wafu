@@ -118,7 +118,8 @@ impl ArchiveWriter for ZipArchiveWriter {
 // The name is decoded here rather than by the crate, whose `name()` reads
 // anything that is not UTF-8 as CP437.
 fn entry_of(file: &ZipFile<'_, File>) -> ArchiveEntry {
-    let kind = if file.is_dir() {
+    let name = decode_name(file.name_raw());
+    let kind = if name.ends_with(['/', '\\']) {
         ArchiveEntryKind::Dir
     } else if file.is_symlink() {
         ArchiveEntryKind::Symlink
@@ -135,7 +136,7 @@ fn entry_of(file: &ZipFile<'_, File>) -> ArchiveEntry {
         .map(|seconds| SystemTime::UNIX_EPOCH + Duration::from_secs(u64::from(seconds)))
         .or_else(|| file.last_modified().and_then(system_time_of));
     ArchiveEntry {
-        components: split_name(&decode_name(file.name_raw())),
+        components: split_name(&name),
         kind,
         size: file.size(),
         modified,
@@ -314,6 +315,23 @@ mod tests {
         ));
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn a_name_whose_last_byte_is_a_backslash_inside_a_character_is_a_file() {
+        let raw = [0x95, 0x5c];
+        if decode_name(&raw) != "表" {
+            return;
+        }
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("s.zip");
+        fs::write(&path, raw_zip(&raw)).unwrap();
+
+        let reader = ZipReader::open(&path).unwrap();
+
+        assert_eq!(reader.entries()[0].kind, ArchiveEntryKind::File);
+        assert_eq!(reader.entries()[0].components, ["表"]);
+    }
+
     #[test]
     fn dos_times_round_trip_to_even_seconds() {
         let odd = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_001);
@@ -321,5 +339,32 @@ mod tests {
         let back = system_time_of(dos_time_of(odd).unwrap()).unwrap();
 
         assert_eq!(back, odd - Duration::from_secs(1));
+    }
+
+    #[cfg(windows)]
+    fn raw_zip(name: &[u8]) -> Vec<u8> {
+        let name_len = u16::try_from(name.len()).unwrap();
+        let mut out = Vec::new();
+        out.extend_from_slice(&0x0403_4b50u32.to_le_bytes());
+        out.extend_from_slice(&[20, 0, 0, 0, 0, 0, 0, 0, 0x21, 0]);
+        out.extend_from_slice(&[0; 12]);
+        out.extend_from_slice(&name_len.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(name);
+        let central_offset = u32::try_from(out.len()).unwrap();
+        out.extend_from_slice(&0x0201_4b50u32.to_le_bytes());
+        out.extend_from_slice(&[20, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0x21, 0]);
+        out.extend_from_slice(&[0; 12]);
+        out.extend_from_slice(&name_len.to_le_bytes());
+        out.extend_from_slice(&[0; 12]);
+        out.extend_from_slice(&0u32.to_le_bytes());
+        out.extend_from_slice(name);
+        let central_size = u32::try_from(out.len()).unwrap() - central_offset;
+        out.extend_from_slice(&0x0605_4b50u32.to_le_bytes());
+        out.extend_from_slice(&[0, 0, 0, 0, 1, 0, 1, 0]);
+        out.extend_from_slice(&central_size.to_le_bytes());
+        out.extend_from_slice(&central_offset.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out
     }
 }
