@@ -1,0 +1,11 @@
+{
+  "fixed": [["wafu", "wafu-core", "wafu-io"]],
+  "linked": [],
+  "privatePackages": {
+    "version": true
+  },
+  "ignore": [],
+  "snapshot": {
+    "useCalculatedVersion": false
+  }
+}
