@@ -3,11 +3,11 @@ use std::fs::{self, Metadata};
 use std::io;
 use std::path::Path;
 
-const CANCEL_CHECK_INTERVAL: usize = 256;
-
 use wafu_core::{Directory, Entry, EntryKind, Permissions, SpecialKind, TargetKind};
 
 use crate::time::timestamp;
+
+const CANCEL_CHECK_INTERVAL: usize = 256;
 
 // An entry whose metadata cannot be read is kept as a plain file with no size
 // or time, so that it still shows up in the listing.
@@ -28,8 +28,6 @@ pub(crate) fn read_dir_with(path: &Path, cancelled: impl Fn() -> bool) -> io::Re
     })
 }
 
-/// The item at `path` itself, read like an item of a listing: the kind from
-/// the link, the size and time from its target. `None` when it cannot be read.
 pub(crate) fn own_entry(path: &Path) -> Option<Entry> {
     let metadata = fs::symlink_metadata(path).ok()?;
     let name = path
