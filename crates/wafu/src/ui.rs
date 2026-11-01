@@ -806,7 +806,6 @@ fn pane_data(pane: &PaneView) -> PaneData {
     PaneData {
         path: pane.path.as_str().into(),
         info: pane.info.as_str().into(),
-        active: pane.active,
         cursor: pane
             .cursor
             .and_then(|cursor| i32::try_from(cursor).ok())
