@@ -22,13 +22,18 @@ use crate::{
     ThemeColors,
 };
 
-/// How many input fields the popup can show.
 const MAX_POPUP_FIELDS: usize = 2;
 
 // One wheel notch scrolls three rows. The pixel amount per notch is what the
 // platform reports through Slint and is tuned on real hardware.
 const WHEEL_PIXELS_PER_NOTCH: f32 = 60.0;
 const WHEEL_ROWS_PER_NOTCH: f32 = 3.0;
+
+const WHEEL_LEFT: usize = 0;
+const WHEEL_RIGHT: usize = 1;
+const WHEEL_LOG: usize = 2;
+const WHEEL_PREVIEW: usize = 3;
+const WHEEL_POPUP: usize = 4;
 
 // A menu opened from the keyboard sits a little in from the row's left edge.
 const MENU_INSET: f32 = 16.0;
@@ -51,7 +56,6 @@ pub struct Ui {
     popup_fields: Rc<VecModel<PopupField>>,
     preview_lines: Rc<VecModel<PreviewLine>>,
     rendered: RefCell<Rendered>,
-    // Left pane, right pane, log, preview.
     wheel_remainder: RefCell<[f32; 5]>,
     // Where the last right click landed, in logical window coordinates.
     last_pointer: Cell<(f32, f32)>,
@@ -317,7 +321,11 @@ impl Ui {
         ui.window.on_wheel(move |side, delta| {
             if let Some(ui) = Weak::upgrade(&weak) {
                 let side = side_of(side);
-                if let Some(rows) = ui.wheel_rows(usize::from(side == Side::Right), delta) {
+                let area = match side {
+                    Side::Left => WHEEL_LEFT,
+                    Side::Right => WHEEL_RIGHT,
+                };
+                if let Some(rows) = ui.wheel_rows(area, delta) {
                     ui.dispatch(Msg::Mouse(MouseInput::Wheel { side, rows }));
                 }
             }
@@ -336,7 +344,7 @@ impl Ui {
         let weak = Rc::downgrade(ui);
         ui.window.on_log_wheel(move |delta| {
             if let Some(ui) = Weak::upgrade(&weak)
-                && let Some(rows) = ui.wheel_rows(2, delta)
+                && let Some(rows) = ui.wheel_rows(WHEEL_LOG, delta)
             {
                 ui.dispatch(Msg::Mouse(MouseInput::LogWheel { rows }));
             }
@@ -406,9 +414,6 @@ impl Ui {
             });
     }
 
-    // Wheel deltas arrive in pixels and in fractions of a notch; whole rows are
-    // returned and the rest is carried over to the next event of the same area.
-
     fn connect_preview(ui: &Rc<Self>) {
         let weak = Rc::downgrade(ui);
         ui.window.on_preview_rows_changed(move |rows| {
@@ -429,7 +434,7 @@ impl Ui {
         let weak = Rc::downgrade(ui);
         ui.window.on_preview_wheel(move |delta| {
             if let Some(ui) = Weak::upgrade(&weak)
-                && let Some(rows) = ui.wheel_rows(3, delta)
+                && let Some(rows) = ui.wheel_rows(WHEEL_PREVIEW, delta)
             {
                 ui.dispatch(Msg::Mouse(MouseInput::PreviewWheel { rows }));
             }
@@ -465,13 +470,15 @@ impl Ui {
         let weak = Rc::downgrade(ui);
         ui.window.on_popup_wheel(move |delta| {
             if let Some(ui) = Weak::upgrade(&weak)
-                && let Some(rows) = ui.wheel_rows(4, delta)
+                && let Some(rows) = ui.wheel_rows(WHEEL_POPUP, delta)
             {
                 ui.dispatch(Msg::Mouse(MouseInput::PopupWheel { rows }));
             }
         });
     }
 
+    // Wheel deltas arrive in pixels and in fractions of a notch; whole rows are
+    // returned and the rest is carried over to the next event of the same area.
     fn wheel_rows(&self, index: usize, delta: f32) -> Option<i32> {
         let mut remainder = self.wheel_remainder.borrow_mut();
         let total = remainder[index] - delta / WHEEL_PIXELS_PER_NOTCH * WHEEL_ROWS_PER_NOTCH;
