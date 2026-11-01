@@ -1912,6 +1912,105 @@ fn a_popup_row_double_click_runs_the_row() {
 }
 
 #[test]
+fn double_clicking_a_history_row_moves_there() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.press("BS");
+    harness.load(Side::Left, vec![]);
+    harness.press("/");
+    harness.load(Side::Left, vec![]);
+    harness.press("H");
+
+    harness.popup_double_click(2);
+
+    assert_eq!(harness.popup(), None);
+    harness.load(Side::Left, vec![]);
+    assert_eq!(harness.view().left.path, "/home/user");
+    assert_eq!(harness.app().pane(Side::Left).history().pos(), 0);
+}
+
+#[test]
+fn double_clicking_the_current_history_row_only_closes_the_popup() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.press("BS");
+    harness.load(Side::Left, vec![]);
+    harness.press("H");
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.popup_double_click(0);
+
+    assert_eq!(harness.popup(), None);
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.view().left.path, "/home");
+}
+
+#[test]
+fn double_clicking_a_bookmark_row_moves_there() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.config("[[bookmarks]]\npath = \"/usr\"\n[[bookmarks]]\npath = \"/var\"\n");
+    harness.press("J");
+
+    harness.popup_double_click(1);
+
+    assert_eq!(harness.popup(), None);
+    harness.load(Side::Left, vec![]);
+    assert_eq!(harness.view().left.path, "/var");
+}
+
+#[test]
+fn double_clicking_a_drive_row_switches_to_the_drive() {
+    let mut harness = Harness::start_on(Os::Windows, "/home/user", "/tmp");
+    harness.press("L");
+    harness.drives(DrivePurpose::Show, &['C', 'D']);
+    harness.take_effects();
+
+    harness.popup_double_click(1);
+
+    assert_eq!(harness.popup(), None);
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Resolve {
+            side: Side::Left,
+            path: PathBuf::from("D:\\"),
+            climb: true,
+            request: harness.latest_resolve(Side::Left),
+        }]
+    );
+}
+
+#[test]
+fn clicking_a_palette_row_moves_the_cursor_only() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.press("F1");
+    harness.edit("clear_");
+    harness.take_effects();
+
+    harness.popup_click(2);
+
+    assert_eq!(harness.view().popup.unwrap().cursor, Some(2));
+    assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
+fn double_clicking_a_palette_row_runs_its_command() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a")]);
+    harness.press("Down");
+    harness.press("Space");
+    harness.press("F1");
+    harness.edit("clear_");
+    assert_eq!(
+        harness.popup_labels(),
+        ["clear_filter", "clear_log", "clear_marks"]
+    );
+
+    harness.popup_double_click(2);
+
+    assert_eq!(harness.popup(), None);
+    assert_eq!(harness.marks(Side::Left), Vec::<String>::new());
+}
+
+#[test]
 fn the_popup_wheel_scrolls_the_list_without_moving_the_cursor() {
     let mut harness = many_bookmarks();
 
