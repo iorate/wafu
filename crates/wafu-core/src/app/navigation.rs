@@ -449,18 +449,13 @@ impl App {
         mut letters: Vec<char>,
         effects: &mut Vec<Effect>,
     ) {
-        let Some((side, purpose)) =
-            [Side::Left, Side::Right].into_iter().find_map(|side| {
-                match self.panes[side.index()].loading() {
-                    Some(&InFlight::Drives {
-                        request: pending,
-                        purpose,
-                    }) if pending == request => Some((side, purpose)),
-                    _ => None,
-                }
-            })
-        else {
-            return;
+        let side = self.active;
+        let purpose = match self.active_pane().loading() {
+            Some(&InFlight::Drives {
+                request: pending,
+                purpose,
+            }) if pending == request => purpose,
+            _ => return,
         };
         letters.sort_unstable();
         letters.dedup();
