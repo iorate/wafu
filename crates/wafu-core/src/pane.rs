@@ -66,6 +66,8 @@ pub enum InFlight {
     },
     /// A re-read of the current place.
     Refresh { request: RequestId },
+    /// The I/O layer is listing the drives. `purpose` is what to do with the
+    /// list once it arrives.
     Drives {
         request: RequestId,
         purpose: DrivePurpose,
