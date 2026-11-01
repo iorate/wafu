@@ -188,7 +188,7 @@ impl Runtime {
                     .unwrap_or_else(PoisonError::into_inner) = watcher;
             }
             Effect::Spawn { program, args, cwd } => {
-                let error = spawn(&program, &args, &cwd)
+                let error = spawn(&program, &args, Some(&cwd))
                     .err()
                     .map(|error| IoError::new(error.to_string()));
                 (self.on_event)(IoEvent::Spawned {
