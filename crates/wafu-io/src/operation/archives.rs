@@ -15,39 +15,6 @@ use crate::archive::{
 
 const TEMP_PREFIX: &str = "wafu-";
 
-// One archive being unpacked. Links are made after everything else so that
-// no entry can be written through a link to somewhere outside the
-// destination, and directory times and permissions are set once their
-// contents are in.
-struct Extraction {
-    archive: PathBuf,
-    reader: Box<dyn ArchiveReader>,
-    password: Option<String>,
-    dest: PathBuf,
-    links: Vec<(PathBuf, String)>,
-    dirs: Vec<(PathBuf, ArchiveEntry)>,
-}
-
-impl Extraction {
-    fn open(
-        archive: &Path,
-        format: ArchiveFormat,
-        password: Option<String>,
-        dest: &Path,
-    ) -> Result<Self, Stop> {
-        let reader =
-            open_archive(archive, format).map_err(|error| failure(archive, &error.to_string()))?;
-        Ok(Self {
-            archive: archive.to_path_buf(),
-            reader,
-            password,
-            dest: dest.to_path_buf(),
-            links: Vec::new(),
-            dirs: Vec::new(),
-        })
-    }
-}
-
 impl Worker<'_> {
     pub(super) fn extract_archives(
         &mut self,
@@ -367,6 +334,39 @@ impl Worker<'_> {
         }
         self.done += 1;
         Ok(())
+    }
+}
+
+// One archive being unpacked. Links are made after everything else so that
+// no entry can be written through a link to somewhere outside the
+// destination, and directory times and permissions are set once their
+// contents are in.
+struct Extraction {
+    archive: PathBuf,
+    reader: Box<dyn ArchiveReader>,
+    password: Option<String>,
+    dest: PathBuf,
+    links: Vec<(PathBuf, String)>,
+    dirs: Vec<(PathBuf, ArchiveEntry)>,
+}
+
+impl Extraction {
+    fn open(
+        archive: &Path,
+        format: ArchiveFormat,
+        password: Option<String>,
+        dest: &Path,
+    ) -> Result<Self, Stop> {
+        let reader =
+            open_archive(archive, format).map_err(|error| failure(archive, &error.to_string()))?;
+        Ok(Self {
+            archive: archive.to_path_buf(),
+            reader,
+            password,
+            dest: dest.to_path_buf(),
+            links: Vec::new(),
+            dirs: Vec::new(),
+        })
     }
 }
 

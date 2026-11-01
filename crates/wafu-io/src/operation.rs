@@ -47,35 +47,6 @@ struct Worker<'a> {
     last_progress: Option<Instant>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Policy {
-    Overwrite,
-    Skip,
-}
-
-// Why an operation stops early.
-enum Stop {
-    Cancelled,
-    Failed { path: PathBuf, error: io::Error },
-}
-
-// Whether an item is copied as is, or copied because it cannot be renamed
-// across devices and its source is removed afterwards.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Transfer {
-    Copy,
-    MoveByCopy,
-}
-
-enum Resolution {
-    Overwrite,
-    Skip,
-    Rename(OsString),
-}
-
-// `Ok(true)` means the item was handled with nothing skipped under it.
-type Step = Result<bool, Stop>;
-
 impl Worker<'_> {
     fn run(&mut self, spec: &OperationSpec) -> Outcome {
         match self.run_all(spec) {
@@ -449,6 +420,35 @@ impl Worker<'_> {
         }
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Policy {
+    Overwrite,
+    Skip,
+}
+
+// Why an operation stops early.
+enum Stop {
+    Cancelled,
+    Failed { path: PathBuf, error: io::Error },
+}
+
+// Whether an item is copied as is, or copied because it cannot be renamed
+// across devices and its source is removed afterwards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Transfer {
+    Copy,
+    MoveByCopy,
+}
+
+enum Resolution {
+    Overwrite,
+    Skip,
+    Rename(OsString),
+}
+
+// `Ok(true)` means the item was handled with nothing skipped under it.
+type Step = Result<bool, Stop>;
 
 // The entries of a directory in name order, so that progress is predictable.
 fn children(dir: &Path) -> Result<Vec<PathBuf>, Stop> {
