@@ -5312,6 +5312,7 @@ dependencies = [
  "chrono",
  "dirs",
  "encoding_rs",
+ "icu_normalizer",
  "image",
  "notify",
  "open",
