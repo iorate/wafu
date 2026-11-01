@@ -47,17 +47,7 @@ impl Watcher {
             }
         };
         let (changes, receiver) = mpsc::channel::<Change>();
-        let followed = match follow(&path, resolve_link(&path), is_dir, &changes) {
-            Ok(followed) => followed,
-            Err(error) => {
-                on_event(IoEvent::WatchFailed {
-                    side,
-                    path,
-                    error: IoError::new(error.to_string()),
-                });
-                return;
-            }
-        };
+        let (followed, mut failure) = follow(&path, resolve_link(&path), is_dir, &changes);
         // The directory's own watch goes quiet when the directory is removed
         // or renamed (Windows reports nothing at all), so the parent is
         // watched for that one entry as well. For a directory, failing to is
@@ -69,27 +59,37 @@ impl Watcher {
         {
             Some(Ok(watcher)) => Some(watcher),
             Some(Err(error)) if !is_dir => {
-                on_event(IoEvent::WatchFailed {
-                    side,
-                    path: path.clone(),
-                    error: IoError::new(error.to_string()),
-                });
+                failure.get_or_insert(error);
                 None
             }
             _ => None,
         };
+        let report = Arc::clone(on_event);
+        let on_failure = move |path: &Path, error: notify::Error| {
+            report(IoEvent::WatchFailed {
+                side,
+                path: path.to_path_buf(),
+                error: IoError::new(error.to_string()),
+            });
+        };
+        if let Some(error) = failure {
+            on_failure(&path, error);
+        }
         let watches = Watches {
             _entry: entry,
             followed,
             changes,
         };
         let report = Arc::clone(on_event);
-        self.sides[side.index()] = Some(Group::start(path, true, watches, receiver, move |path| {
+        let on_burst = move |path: &Path| {
             report(IoEvent::LocationChanged {
                 side,
                 path: path.to_path_buf(),
             });
-        }));
+        };
+        self.sides[side.index()] = Some(Group::start(
+            path, true, watches, receiver, on_burst, on_failure,
+        ));
     }
 
     pub(crate) fn unwatch(&mut self, side: Side) {
@@ -111,11 +111,14 @@ impl Group {
         watches: Watches,
         changes: Receiver<Change>,
         on_burst: impl Fn(&Path) + Send + 'static,
+        on_failure: impl Fn(&Path, notify::Error) + Send + 'static,
     ) -> Self {
         let watches = Arc::new(Mutex::new(watches));
         let weak = Arc::downgrade(&watches);
         spawn_debouncer(changes, move |renamed| {
-            if !refollow(&weak, &path, with_contents, renamed) {
+            if !refollow(&weak, &path, with_contents, renamed, |error| {
+                on_failure(&path, error);
+            }) {
                 return false;
             }
             on_burst(&path);
@@ -160,22 +163,33 @@ pub(crate) fn watch_config(path: &Path, on_event: &OnEvent) -> notify::Result<Gr
         .ok_or_else(|| notify::Error::generic("the configuration file has no parent directory"))?;
     let (changes, receiver) = mpsc::channel::<Change>();
     let entry = watch_entry(parent, path, false, changes.clone())?;
-    let followed = follow(path, resolve_link(path), false, &changes)?;
+    let report = Arc::clone(on_event);
+    let on_failure = move |_: &Path, error: notify::Error| {
+        report(IoEvent::ConfigWatchFailed {
+            error: IoError::new(error.to_string()),
+        });
+    };
+    let (followed, failure) = follow(path, resolve_link(path), false, &changes);
+    if let Some(error) = failure {
+        on_failure(path, error);
+    }
     let watches = Watches {
         _entry: Some(entry),
         followed,
         changes,
     };
     let report = Arc::clone(on_event);
+    let on_burst = move |path: &Path| {
+        let result = fs::read_to_string(path).map_err(|error| IoError::new(error.to_string()));
+        report(IoEvent::ConfigLoaded { result });
+    };
     Ok(Group::start(
         path.to_path_buf(),
         false,
         watches,
         receiver,
-        move |path| {
-            let result = fs::read_to_string(path).map_err(|error| IoError::new(error.to_string()));
-            report(IoEvent::ConfigLoaded { result });
-        },
+        on_burst,
+        on_failure,
     ))
 }
 
@@ -199,30 +213,45 @@ fn follow(
     resolution: Resolution,
     is_dir: bool,
     changes: &Sender<Change>,
-) -> notify::Result<Followed> {
+) -> (Followed, Option<notify::Error>) {
+    let mut failure = None;
+    let mut keep = |result: notify::Result<RecommendedWatcher>| match result {
+        Ok(watcher) => Some(watcher),
+        Err(error) => {
+            failure.get_or_insert(error);
+            None
+        }
+    };
     let contents = if is_dir {
-        Some(watch_contents(path, changes.clone())?)
+        keep(watch_contents(path, changes.clone()))
     } else {
         None
     };
     let target = match &resolution {
         Resolution::Target(real) => real
             .parent()
-            .and_then(|dir| watch_entry(dir, real, is_dir, changes.clone()).ok()),
+            .and_then(|dir| keep(watch_entry(dir, real, is_dir, changes.clone()))),
         Resolution::NotLink | Resolution::Failed => None,
     };
-    Ok(Followed {
+    let followed = Followed {
         resolution,
         _contents: contents,
         _target: target,
-    })
+    };
+    (followed, failure)
 }
 
 // A watch of the contents stays on the old directory when the link is
 // replaced or the directory is made again under the same name, so the watches
 // are made again once the path leads elsewhere or a watched name changes.
 // Resolving and watching may block, so neither happens under the lock.
-fn refollow(group: &Weak<Mutex<Watches>>, path: &Path, with_contents: bool, renamed: bool) -> bool {
+fn refollow(
+    group: &Weak<Mutex<Watches>>,
+    path: &Path,
+    with_contents: bool,
+    renamed: bool,
+    on_failure: impl FnOnce(notify::Error),
+) -> bool {
     let resolution = resolve_link(path);
     let changes = {
         let Some(group) = group.upgrade() else {
@@ -235,17 +264,15 @@ fn refollow(group: &Weak<Mutex<Watches>>, path: &Path, with_contents: bool, rena
         watches.changes.clone()
     };
     let is_dir = with_contents && fs::metadata(path).is_ok_and(|meta| meta.is_dir());
-    let followed =
-        follow(path, resolution.clone(), is_dir, &changes).unwrap_or_else(|_| Followed {
-            resolution,
-            _contents: None,
-            _target: None,
-        });
+    let (followed, failure) = follow(path, resolution, is_dir, &changes);
     let Some(group) = group.upgrade() else {
         return false;
     };
     // The replaced watches are dropped after the lock is released.
     let _replaced = mem::replace(&mut lock(&group).followed, followed);
+    if let Some(error) = failure {
+        on_failure(error);
+    }
     true
 }
 

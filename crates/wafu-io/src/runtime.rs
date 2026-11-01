@@ -542,6 +542,8 @@ fn io_error<T, E: Display>(result: Result<T, E>) -> Option<IoError> {
 #[cfg(test)]
 mod tests {
     use std::fs::{self, File};
+    #[cfg(target_os = "linux")]
+    use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
     use std::sync::mpsc::Receiver;
     use std::time::Duration;
@@ -1011,6 +1013,82 @@ mod tests {
         assert_eq!(events.recv_timeout(TIMEOUT).unwrap(), changed);
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn failing_to_watch_the_target_of_a_link_is_reported() {
+        let dir = TempDir::new().unwrap();
+        let locked = dir.path().join("locked");
+        let real = locked.join("real");
+        fs::create_dir_all(&real).unwrap();
+        let link = dir.path().join("link");
+        assert!(symlink(&real, &link));
+        let Some(_unreadable) = Unreadable::new(&locked) else {
+            return;
+        };
+        let (runtime, events) = runtime();
+
+        runtime.run(watch(&link));
+
+        let event = events.recv_timeout(TIMEOUT).unwrap();
+        let IoEvent::WatchFailed { side, path, .. } = event else {
+            panic!("expected WatchFailed, got {event:?}");
+        };
+        assert_eq!(side, Side::Left);
+        assert_eq!(path, link);
+        settle(&events);
+
+        File::create(real.join("a")).unwrap();
+
+        assert_eq!(
+            events.recv_timeout(TIMEOUT).unwrap(),
+            IoEvent::LocationChanged {
+                side: Side::Left,
+                path: link,
+            }
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn failing_to_watch_the_new_target_of_a_replaced_link_is_reported_once() {
+        let dir = TempDir::new().unwrap();
+        let old = dir.path().join("old");
+        let locked = dir.path().join("locked");
+        let new = locked.join("new");
+        fs::create_dir(&old).unwrap();
+        fs::create_dir_all(&new).unwrap();
+        let link = dir.path().join("link");
+        assert!(symlink(&old, &link));
+        let Some(_unreadable) = Unreadable::new(&locked) else {
+            return;
+        };
+        let (runtime, events) = runtime();
+        runtime.run(watch(&link));
+        settle(&events);
+
+        let temporary = dir.path().join("link.tmp");
+        assert!(symlink(&new, &temporary));
+        fs::rename(&temporary, &link).unwrap();
+
+        let event = events.recv_timeout(TIMEOUT).unwrap();
+        let IoEvent::WatchFailed { side, path, .. } = event else {
+            panic!("expected WatchFailed, got {event:?}");
+        };
+        assert_eq!(side, Side::Left);
+        assert_eq!(path, link);
+        let changed = IoEvent::LocationChanged {
+            side: Side::Left,
+            path: link.clone(),
+        };
+        assert_eq!(events.recv_timeout(TIMEOUT).unwrap(), changed);
+        settle(&events);
+
+        File::create(new.join("a")).unwrap();
+
+        assert_eq!(events.recv_timeout(TIMEOUT).unwrap(), changed);
+        assert!(events.recv_timeout(QUIET).is_err());
+    }
+
     #[test]
     fn read_dir_inside_an_archive_lists_its_entries_and_reuses_the_table() {
         let dir = TempDir::new().unwrap();
@@ -1114,6 +1192,29 @@ mod tests {
                 result: Ok("a = 2\n".to_owned()),
             }
         );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn failing_to_watch_the_target_of_a_linked_config_is_reported() {
+        let dir = TempDir::new().unwrap();
+        let dotfiles = dir.path().join("dotfiles");
+        fs::create_dir(&dotfiles).unwrap();
+        let real = dotfiles.join("config.toml");
+        fs::write(&real, "a = 1\n").unwrap();
+        let link = dir.path().join("config.toml");
+        assert!(symlink(&real, &link));
+        let Some(_unreadable) = Unreadable::new(&dotfiles) else {
+            return;
+        };
+        let (runtime, events) = runtime();
+
+        runtime.run(Effect::WatchConfig(link));
+
+        let event = events.recv_timeout(TIMEOUT).unwrap();
+        let IoEvent::ConfigWatchFailed { .. } = event else {
+            panic!("expected ConfigWatchFailed, got {event:?}");
+        };
     }
 
     #[test]
@@ -1389,6 +1490,25 @@ mod tests {
         Effect::Watch {
             side: Side::Left,
             path: path.to_path_buf(),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    struct Unreadable(PathBuf);
+
+    #[cfg(target_os = "linux")]
+    impl Unreadable {
+        fn new(dir: &Path) -> Option<Self> {
+            fs::set_permissions(dir, fs::Permissions::from_mode(0o100)).unwrap();
+            let unreadable = Self(dir.to_path_buf());
+            fs::read_dir(dir).is_err().then_some(unreadable)
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    impl Drop for Unreadable {
+        fn drop(&mut self) {
+            let _ = fs::set_permissions(&self.0, fs::Permissions::from_mode(0o755));
         }
     }
 }
