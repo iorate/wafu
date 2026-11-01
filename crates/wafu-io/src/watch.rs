@@ -97,33 +97,6 @@ impl Watcher {
     }
 }
 
-// Editors often replace the file rather than write into it, so its directory
-// is watched and the file is read again after each burst of changes.
-pub(crate) fn watch_config(path: &Path, on_event: &OnEvent) -> notify::Result<Group> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| notify::Error::generic("the configuration file has no parent directory"))?;
-    let (changes, receiver) = mpsc::channel::<()>();
-    let entry = watch_entry(parent, path, false, changes.clone())?;
-    let followed = follow(path, resolve_link(path), false, &changes)?;
-    let watches = Watches {
-        _entry: Some(entry),
-        followed,
-        changes,
-    };
-    let report = Arc::clone(on_event);
-    Ok(Group::start(
-        path.to_path_buf(),
-        false,
-        watches,
-        receiver,
-        move |path| {
-            let result = fs::read_to_string(path).map_err(|error| IoError::new(error.to_string()));
-            report(IoEvent::ConfigLoaded { result });
-        },
-    ))
-}
-
 // The watches for one path and the debounce thread that reports for them.
 // The thread holds the watches only weakly and every sender lives inside
 // them, so dropping the group ends the thread.
@@ -171,6 +144,33 @@ enum Resolution {
     NotLink,
     Target(PathBuf),
     Failed,
+}
+
+// Editors often replace the file rather than write into it, so its directory
+// is watched and the file is read again after each burst of changes.
+pub(crate) fn watch_config(path: &Path, on_event: &OnEvent) -> notify::Result<Group> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| notify::Error::generic("the configuration file has no parent directory"))?;
+    let (changes, receiver) = mpsc::channel::<()>();
+    let entry = watch_entry(parent, path, false, changes.clone())?;
+    let followed = follow(path, resolve_link(path), false, &changes)?;
+    let watches = Watches {
+        _entry: Some(entry),
+        followed,
+        changes,
+    };
+    let report = Arc::clone(on_event);
+    Ok(Group::start(
+        path.to_path_buf(),
+        false,
+        watches,
+        receiver,
+        move |path| {
+            let result = fs::read_to_string(path).map_err(|error| IoError::new(error.to_string()));
+            report(IoEvent::ConfigLoaded { result });
+        },
+    ))
 }
 
 // Whether the last component of the path is a link, and if so, what it
