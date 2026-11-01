@@ -11,7 +11,6 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
 
-use notify::RecommendedWatcher;
 use wafu_core::{
     ArchivePath, Change, Directory, DrivePurpose, Effect, IoError, IoEvent, Location,
     OperationEvent, OperationSpec, Outcome, PreviewError, PreviewSource, Reply, RequestId, Side,
@@ -27,7 +26,7 @@ use crate::read_dir::{own_entry, read_dir_with};
 use crate::resolve::resolve;
 use crate::spawn::{spawn, spawn_new_window};
 use crate::state::{write_handoff, write_state};
-use crate::watch::{Watcher, watch_config};
+use crate::watch::{Group, Watcher, watch_config};
 
 pub(crate) type OnEvent = Arc<dyn Fn(IoEvent) + Send + Sync>;
 
@@ -51,7 +50,7 @@ pub struct Runtime {
     preview: Lane,
     pending: Arc<Mutex<HashSet<RequestId>>>,
     watcher: Mutex<Watcher>,
-    config_watcher: Mutex<Option<RecommendedWatcher>>,
+    config_watcher: Mutex<Option<Group>>,
     // The running operation takes its replies from here.
     operation: Mutex<Option<Sender<Reply>>>,
     owner_window: Mutex<Option<isize>>,
@@ -545,7 +544,7 @@ fn io_error<T, E: Display>(result: Result<T, E>) -> Option<IoError> {
     result.err().map(|error| IoError::new(error.to_string()))
 }
 
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
@@ -559,6 +558,9 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+    #[cfg(windows)]
+    use crate::watch::tests::junction;
+    use crate::watch::tests::symlink;
 
     const TIMEOUT: Duration = Duration::from_secs(5);
     const QUIET: Duration = Duration::from_millis(600);
@@ -936,6 +938,73 @@ mod tests {
     }
 
     #[test]
+    fn writing_the_target_of_a_watched_link_to_a_file_is_reported() {
+        let dir = TempDir::new().unwrap();
+        fs::create_dir(dir.path().join("other")).unwrap();
+        let real = dir.path().join("other").join("b.zip");
+        fs::write(&real, b"v1").unwrap();
+        let link = dir.path().join("a.zip");
+        if !symlink(&real, &link) {
+            return;
+        }
+        let (runtime, events) = runtime();
+        runtime.run(watch(&link));
+        settle(&events);
+
+        fs::write(&real, b"v2").unwrap();
+
+        let event = events.recv_timeout(TIMEOUT).unwrap();
+        assert_eq!(
+            event,
+            IoEvent::LocationChanged {
+                side: Side::Left,
+                path: link,
+            }
+        );
+    }
+
+    #[test]
+    fn removing_the_target_of_a_watched_link_to_a_directory_is_reported() {
+        assert_removing_the_target_is_reported(symlink);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn removing_the_target_of_a_watched_junction_is_reported() {
+        assert_removing_the_target_is_reported(junction);
+    }
+
+    #[test]
+    fn changes_in_the_new_target_of_a_replaced_link_are_reported() {
+        let dir = TempDir::new().unwrap();
+        let old = dir.path().join("targets").join("old");
+        let new = dir.path().join("targets").join("new");
+        fs::create_dir_all(&old).unwrap();
+        fs::create_dir_all(&new).unwrap();
+        let link = dir.path().join("link");
+        if !symlink(&old, &link) {
+            return;
+        }
+        let (runtime, events) = runtime();
+        runtime.run(watch(&link));
+        settle(&events);
+
+        let temporary = dir.path().join("link.tmp");
+        assert!(symlink(&new, &temporary));
+        fs::rename(&temporary, &link).unwrap();
+        let changed = IoEvent::LocationChanged {
+            side: Side::Left,
+            path: link.clone(),
+        };
+        assert_eq!(events.recv_timeout(TIMEOUT).unwrap(), changed);
+        settle(&events);
+
+        File::create(new.join("a")).unwrap();
+
+        assert_eq!(events.recv_timeout(TIMEOUT).unwrap(), changed);
+    }
+
+    #[test]
     fn read_dir_inside_an_archive_lists_its_entries_and_reuses_the_table() {
         let dir = TempDir::new().unwrap();
         let archive = dir.path().join("a.zip");
@@ -1010,6 +1079,34 @@ mod tests {
 
         fs::write(dir.path().join("other"), "x").unwrap();
         assert!(events.recv_timeout(QUIET).is_err());
+    }
+
+    #[test]
+    fn replacing_the_target_of_a_linked_config_reports_the_new_text() {
+        let dir = TempDir::new().unwrap();
+        let dotfiles = dir.path().join("dotfiles");
+        fs::create_dir(&dotfiles).unwrap();
+        let real = dotfiles.join("config.toml");
+        fs::write(&real, "a = 1\n").unwrap();
+        let link = dir.path().join("config.toml");
+        if !symlink(&real, &link) {
+            return;
+        }
+        let (runtime, events) = runtime();
+        runtime.run(Effect::WatchConfig(link));
+        settle(&events);
+
+        let temp = dotfiles.join("config.toml.tmp");
+        fs::write(&temp, "a = 2\n").unwrap();
+        fs::rename(&temp, &real).unwrap();
+
+        let event = events.recv_timeout(TIMEOUT).unwrap();
+        assert_eq!(
+            event,
+            IoEvent::ConfigLoaded {
+                result: Ok("a = 2\n".to_owned()),
+            }
+        );
     }
 
     #[test]
@@ -1255,6 +1352,30 @@ mod tests {
             assert!(std::time::Instant::now() < deadline, "timed out");
             std::thread::sleep(Duration::from_millis(10));
         }
+    }
+
+    fn assert_removing_the_target_is_reported(link_to: impl FnOnce(&Path, &Path) -> bool) {
+        let dir = TempDir::new().unwrap();
+        let real = dir.path().join("other").join("real");
+        fs::create_dir_all(&real).unwrap();
+        let link = dir.path().join("link");
+        if !link_to(&real, &link) {
+            return;
+        }
+        let (runtime, events) = runtime();
+        runtime.run(watch(&link));
+        settle(&events);
+
+        fs::remove_dir(&real).unwrap();
+
+        let event = events.recv_timeout(TIMEOUT).unwrap();
+        assert_eq!(
+            event,
+            IoEvent::LocationChanged {
+                side: Side::Left,
+                path: link,
+            }
+        );
     }
 
     fn watch(path: &Path) -> Effect {
