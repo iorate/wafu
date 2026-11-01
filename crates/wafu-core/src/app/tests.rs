@@ -36,7 +36,6 @@ fn start_resolves_both_panes_then_watches_and_reads_them() {
                 climb: true,
                 request: RequestId(2),
             },
-            Effect::SetTitle("wafu".to_owned()),
         ]
     );
     assert_eq!(harness.view().title, "wafu");
@@ -61,10 +60,8 @@ fn start_resolves_both_panes_then_watches_and_reads_them() {
 
     harness.load(Side::Left, vec![file("a")]);
 
-    assert_eq!(
-        harness.take_effects(),
-        vec![Effect::SetTitle("wafu - /home/user".to_owned())]
-    );
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.view().title, "wafu - /home/user");
     assert_eq!(harness.view().left.path, "/home/user");
     assert_eq!(harness.names(Side::Left), ["..", "a"]);
     assert_eq!(harness.history(Side::Left), ["/home/user"]);
@@ -530,18 +527,14 @@ fn focus_and_switch_change_the_active_pane_and_title() {
     harness.take_effects();
 
     harness.press("Right");
-    assert_eq!(
-        harness.take_effects(),
-        vec![Effect::SetTitle("wafu - /tmp".to_owned())]
-    );
+    assert_eq!(harness.take_effects(), vec![]);
     assert!(harness.view().right.active);
+    assert_eq!(harness.view().title, "wafu - /tmp");
 
     harness.press("Tab");
-    assert_eq!(
-        harness.take_effects(),
-        vec![Effect::SetTitle("wafu - /home/user".to_owned())]
-    );
+    assert_eq!(harness.take_effects(), vec![]);
     assert!(harness.view().left.active);
+    assert_eq!(harness.view().title, "wafu - /home/user");
 }
 
 #[test]
@@ -1709,14 +1702,11 @@ fn change_during_a_move_is_applied_after_it_finishes() {
     harness.load(Side::Left, vec![file("a")]);
     assert_eq!(
         harness.take_effects(),
-        vec![
-            Effect::ReadDir {
-                side: Side::Left,
-                location: Location::new(PathBuf::from("/home/user")),
-                request: RequestId(5),
-            },
-            Effect::SetTitle("wafu - /home/user".to_owned()),
-        ]
+        vec![Effect::ReadDir {
+            side: Side::Left,
+            location: Location::new(PathBuf::from("/home/user")),
+            request: RequestId(5),
+        }]
     );
     assert!(!harness.app().pane(Side::Left).reload_pending());
     assert_eq!(harness.names(Side::Left), ["..", "a"]);
@@ -1788,10 +1778,8 @@ fn double_click_past_the_last_row_only_activates_the_pane() {
     assert_eq!(harness.app().active(), Side::Right);
     assert_eq!(harness.cursor_name(Side::Right), "docs");
     assert_eq!(harness.view().right.path, "/tmp");
-    assert_eq!(
-        harness.take_effects(),
-        vec![Effect::SetTitle("wafu - /tmp".to_owned())]
-    );
+    assert_eq!(harness.view().title, "wafu - /tmp");
+    assert_eq!(harness.take_effects(), vec![]);
 }
 
 #[test]

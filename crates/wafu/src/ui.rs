@@ -69,6 +69,7 @@ struct Rendered {
     // The image last handed to Slint, so that it is converted only once.
     image: Option<SharedImage>,
     style: Option<Arc<Style>>,
+    title: String,
 }
 
 impl Default for Rendered {
@@ -83,6 +84,7 @@ impl Default for Rendered {
             preview: None,
             image: None,
             style: None,
+            title: String::new(),
         }
     }
 }
@@ -168,7 +170,6 @@ impl Ui {
         let effects = self.app.borrow_mut().update(msg);
         for effect in effects {
             match effect {
-                Effect::SetTitle(title) => self.window.set_window_title(title.into()),
                 Effect::ShellMenu { paths, anchor } => self.shell_menu(paths, anchor),
                 // The OS may show a dialog for the operation, and only the
                 // window knows its handle for owning it.
@@ -532,6 +533,10 @@ impl Ui {
         // Replacing a model resets the list, which is too slow to do on every
         // key repeat, so the models are only touched when their content changes.
         let mut rendered = self.rendered.borrow_mut();
+        if rendered.title != view.title {
+            self.window.set_window_title(view.title.as_str().into());
+            rendered.title.clone_from(&view.title);
+        }
         if rendered
             .style
             .as_ref()
