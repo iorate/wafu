@@ -16,6 +16,13 @@ pub fn read_state(path: &Path) -> Result<Option<StateFile>, StateError> {
     }
 }
 
+/// Reads a handoff file and deletes it, whether or not it could be read.
+pub fn read_handoff(path: &Path) -> Result<Option<StateFile>, StateError> {
+    let state = read_state(path);
+    let _ = fs::remove_file(path);
+    state
+}
+
 pub(crate) fn write_state(path: &Path, state: &StateFile) -> std::io::Result<()> {
     let text = to_toml(state)?;
     let dir = path.parent().unwrap_or(Path::new("."));
@@ -35,13 +42,6 @@ pub(crate) fn write_handoff(state: &StateFile) -> std::io::Result<PathBuf> {
     file.write_all(text.as_bytes())?;
     let (_, path) = file.keep()?;
     Ok(path)
-}
-
-/// Reads a handoff file and deletes it, whether or not it could be read.
-pub fn read_handoff(path: &Path) -> Result<Option<StateFile>, StateError> {
-    let state = read_state(path);
-    let _ = fs::remove_file(path);
-    state
 }
 
 fn to_toml(state: &StateFile) -> std::io::Result<String> {
