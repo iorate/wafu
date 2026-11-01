@@ -12,9 +12,9 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
 
 use wafu_core::{
-    ArchivePath, Change, Directory, DrivePurpose, Effect, IoError, IoEvent, Location,
-    OperationEvent, OperationSpec, Outcome, PreviewError, PreviewSource, Reply, RequestId, Side,
-    Sources, SpawnKind,
+    ArchivePath, Change, Directory, Effect, IoError, IoEvent, Location, OperationEvent,
+    OperationSpec, Outcome, PreviewError, PreviewSource, Reply, RequestId, Side, Sources,
+    SpawnKind,
 };
 
 use crate::archive::{ArchiveEntry, dir_entry, list_dir, open_archive};
@@ -137,7 +137,7 @@ impl Runtime {
             Effect::Watch { side, path } => {
                 lock(&self.watcher).watch(side, path, &self.on_event);
             }
-            Effect::ListDrives { purpose, request } => self.list_drives(purpose, request),
+            Effect::ListDrives { request } => self.list_drives(request),
             Effect::WatchConfig(path) => {
                 let watcher = match watch_config(&path, &self.on_event) {
                     Ok(watcher) => Some(watcher),
@@ -266,14 +266,13 @@ impl Runtime {
         }
     }
 
-    fn list_drives(&self, purpose: DrivePurpose, request: RequestId) {
+    fn list_drives(&self, request: RequestId) {
         if cfg!(windows) {
             let on_event = Arc::clone(&self.on_event);
             thread::Builder::new()
                 .name("wafu-io-drives".to_owned())
                 .spawn(move || {
                     on_event(IoEvent::Drives {
-                        purpose,
                         request,
                         letters: panic::catch_unwind(drives).unwrap_or_default(),
                     });
@@ -281,7 +280,6 @@ impl Runtime {
                 .expect("the drives thread should start");
         } else {
             (self.on_event)(IoEvent::Drives {
-                purpose,
                 request,
                 letters: drives(),
             });
@@ -814,19 +812,12 @@ mod tests {
         let (runtime, events) = runtime();
 
         runtime.run(Effect::ListDrives {
-            purpose: wafu_core::DrivePurpose::Show,
             request: RequestId(1),
         });
 
-        let IoEvent::Drives {
-            purpose,
-            request,
-            letters,
-        } = events.recv_timeout(TIMEOUT).unwrap()
-        else {
+        let IoEvent::Drives { request, letters } = events.recv_timeout(TIMEOUT).unwrap() else {
             panic!("expected Drives");
         };
-        assert_eq!(purpose, wafu_core::DrivePurpose::Show);
         assert_eq!(request, RequestId(1));
         assert_eq!(letters.is_empty(), !cfg!(windows));
     }

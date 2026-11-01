@@ -10,7 +10,7 @@ use crate::key::{Key, KeyBase, KeyInput, NamedKey};
 use crate::location::{ArchivePath, Location};
 use crate::log::Log;
 use crate::operation::{OperationEvent, OperationSpec, Reply};
-use crate::pane::{Pane, RequestId};
+use crate::pane::{DrivePurpose, Pane, RequestId};
 use crate::popup::{InputKind, Popup};
 use crate::preview::{Document, ImageData};
 use crate::state::{StateError, StateFile};
@@ -156,7 +156,6 @@ pub enum Effect {
     },
     /// Lists the drive letters (Windows only).
     ListDrives {
-        purpose: DrivePurpose,
         request: RequestId,
     },
     SetTitle(String),
@@ -243,14 +242,6 @@ pub enum SpawnKind {
     NewWindow,
 }
 
-/// What the drive list is for; it comes back with the reply.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DrivePurpose {
-    Show,
-    Prev,
-    Next,
-}
-
 /// The answer to [`Effect::Resolve`]: the directory to open and, when the
 /// path named a file, the file to put the cursor on.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -297,7 +288,6 @@ pub enum IoEvent {
     },
     /// Always empty except on Windows.
     Drives {
-        purpose: DrivePurpose,
         request: RequestId,
         letters: Vec<char>,
     },
@@ -701,9 +691,7 @@ impl App {
             IoEvent::LocationChanged { side, path } => {
                 self.location_changed(side, &path, effects);
             }
-            IoEvent::Drives {
-                request, letters, ..
-            } => self.drives(request, letters, effects),
+            IoEvent::Drives { request, letters } => self.drives(request, letters, effects),
             IoEvent::WatchFailed { path, error, .. } => {
                 self.log.push(
                     AppError::Watch {

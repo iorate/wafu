@@ -1,12 +1,12 @@
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
-use super::{App, DrivePurpose, Effect, Os, Resolved, Side};
+use super::{App, Effect, Os, Resolved, Side};
 use crate::command::Command;
 use crate::entry::{Directory, EntryKind};
 use crate::error::{AppError, IoError};
 use crate::location::{ArchiveFormat, Location};
-use crate::pane::{HistoryMove, InFlight, Pane, RequestId};
+use crate::pane::{DrivePurpose, HistoryMove, InFlight, Pane, RequestId};
 use crate::path::{drive_letter, root_of};
 
 impl App {
@@ -439,7 +439,7 @@ impl App {
         Self::cancel_loading(pane, effects);
         pane.set_reload_pending(reload);
         let request = self.next_request_id();
-        effects.push(Effect::ListDrives { purpose, request });
+        effects.push(Effect::ListDrives { request });
         self.panes[side.index()].set_loading(Some(InFlight::Drives { request, purpose }));
     }
 
