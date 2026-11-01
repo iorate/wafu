@@ -275,7 +275,7 @@ impl Runtime {
                     on_event(IoEvent::Drives {
                         purpose,
                         request,
-                        letters: drives(),
+                        letters: panic::catch_unwind(drives).unwrap_or_default(),
                     });
                 })
                 .expect("the drives thread should start");
