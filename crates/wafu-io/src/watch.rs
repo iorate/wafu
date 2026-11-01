@@ -111,11 +111,7 @@ pub(crate) fn watch_config(path: &Path, on_event: &OnEvent) -> notify::Result<Re
 // as a change too, since a failed read will sort out what happened.
 fn watch_contents(path: &Path, changes: Sender<()>) -> notify::Result<RecommendedWatcher> {
     let mut watcher = notify::recommended_watcher(move |result: notify::Result<Event>| {
-        let counts = match result {
-            Ok(event) => is_change(event.kind),
-            Err(_) => true,
-        };
-        if counts {
+        if counts_as_change(&result, |_| true) {
             let _ = changes.send(());
         }
     })?;
@@ -133,19 +129,27 @@ fn watch_entry(
 ) -> notify::Result<RecommendedWatcher> {
     let name = entry.file_name().map(ToOwned::to_owned);
     let mut watcher = notify::recommended_watcher(move |result: notify::Result<Event>| {
-        if let Ok(event) = result
-            && is_change(event.kind)
-            && event.paths.iter().any(|path| {
-                path.file_name()
-                    .zip(name.as_deref())
-                    .is_some_and(|(reported, watched)| same_name(reported, watched))
-            })
-        {
+        if counts_as_change(&result, |event| names_entry(event, name.as_deref())) {
             let _ = changes.send(());
         }
     })?;
     watcher.watch(dir, RecursiveMode::NonRecursive)?;
     Ok(watcher)
+}
+
+fn counts_as_change(result: &notify::Result<Event>, concerns: impl FnOnce(&Event) -> bool) -> bool {
+    match result {
+        Ok(event) => event.need_rescan() || (is_change(event.kind) && concerns(event)),
+        Err(_) => true,
+    }
+}
+
+fn names_entry(event: &Event, name: Option<&OsStr>) -> bool {
+    event.paths.iter().any(|path| {
+        path.file_name()
+            .zip(name)
+            .is_some_and(|(reported, watched)| same_name(reported, watched))
+    })
 }
 
 #[cfg(target_os = "macos")]
@@ -207,7 +211,58 @@ fn spawn_debouncer(changes: mpsc::Receiver<()>, on_burst: impl Fn() + Send + 'st
 
 #[cfg(test)]
 mod tests {
+    use notify::event::{CreateKind, Flag, RemoveKind};
+
     use super::*;
+
+    #[test]
+    fn an_error_counts_as_a_change() {
+        let error = Err(notify::Error::generic("queue overflow"));
+        assert!(counts_as_change(&error, |_| true));
+        assert!(counts_as_change(&error, |event| names_entry(
+            event,
+            Some(OsStr::new("Archive.zip"))
+        )));
+    }
+
+    #[test]
+    fn a_rescan_without_paths_counts_as_a_change() {
+        let rescan = Ok(Event::new(EventKind::Other).set_flag(Flag::Rescan));
+        assert!(counts_as_change(&rescan, |_| true));
+        assert!(counts_as_change(&rescan, |event| names_entry(
+            event,
+            Some(OsStr::new("Archive.zip"))
+        )));
+    }
+
+    #[test]
+    fn an_entry_change_counts_only_for_the_watched_name() {
+        let dir = Path::new("dir");
+        let removed =
+            Ok(Event::new(EventKind::Remove(RemoveKind::Any)).add_path(dir.join("Archive.zip")));
+        let created =
+            Ok(Event::new(EventKind::Create(CreateKind::Any)).add_path(dir.join("Other.zip")));
+        let watched = Some(OsStr::new("Archive.zip"));
+        assert!(counts_as_change(&removed, |event| names_entry(
+            event, watched
+        )));
+        assert!(!counts_as_change(&created, |event| names_entry(
+            event, watched
+        )));
+    }
+
+    #[test]
+    fn an_access_does_not_count_as_a_change() {
+        let opened = Ok(
+            Event::new(EventKind::Access(AccessKind::Open(AccessMode::Any)))
+                .add_path(PathBuf::from("dir").join("Archive.zip")),
+        );
+        assert!(!counts_as_change(&opened, |_| true));
+        assert!(!counts_as_change(&opened, |event| names_entry(
+            event,
+            Some(OsStr::new("Archive.zip"))
+        )));
+    }
 
     #[test]
     fn same_name_matches_an_identical_name() {
