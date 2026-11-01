@@ -10,8 +10,7 @@ export component ScrollBar {
     callback scroll-to(top: int);
     callback wheel(delta: length);
 
-    out property <bool> needed: rows > visible-rows && visible-rows > 0;
-
+    property <bool> needed: rows > visible-rows && visible-rows > 0;
     property <length> min-thumb-height: 16px;
     property <int> max-top: max(0, rows - visible-rows);
     property <length> thumb-height: rows > 0
