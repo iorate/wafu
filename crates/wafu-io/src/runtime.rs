@@ -28,8 +28,6 @@ use crate::spawn::{spawn, spawn_new_window};
 use crate::state::{write_handoff, write_state};
 use crate::watch::{Group, Watcher, watch_config};
 
-pub(crate) type OnEvent = Arc<dyn Fn(IoEvent) + Send + Sync>;
-
 const MAX_ABANDONED_PREVIEW_READERS: usize = 2;
 
 /// Where the runtime writes the state, and the configuration path to pass on
@@ -56,29 +54,6 @@ pub struct Runtime {
     owner_window: Mutex<Option<isize>>,
     clipboard: Mutex<Option<arboard::Clipboard>>,
     on_event: OnEvent,
-}
-
-#[derive(Debug)]
-enum Job {
-    ReadDir {
-        side: Side,
-        location: Location,
-        request: RequestId,
-    },
-    Resolve {
-        side: Side,
-        path: PathBuf,
-        climb: bool,
-        request: RequestId,
-    },
-    LoadPreview {
-        source: PreviewSource,
-        request: RequestId,
-    },
-    LoadImage {
-        source: PreviewSource,
-        request: RequestId,
-    },
 }
 
 impl Runtime {
@@ -314,6 +289,31 @@ impl Runtime {
     }
 }
 
+pub(crate) type OnEvent = Arc<dyn Fn(IoEvent) + Send + Sync>;
+
+#[derive(Debug)]
+enum Job {
+    ReadDir {
+        side: Side,
+        location: Location,
+        request: RequestId,
+    },
+    Resolve {
+        side: Side,
+        path: PathBuf,
+        climb: bool,
+        request: RequestId,
+    },
+    LoadPreview {
+        source: PreviewSource,
+        request: RequestId,
+    },
+    LoadImage {
+        source: PreviewSource,
+        request: RequestId,
+    },
+}
+
 impl Job {
     fn request(&self) -> RequestId {
         match self {
@@ -457,6 +457,10 @@ struct CachedArchive {
     entries: Vec<ArchiveEntry>,
 }
 
+pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
 fn read(
     job: &Job,
     cache: &mut Option<CachedArchive>,
@@ -542,10 +546,6 @@ fn panic_error(payload: &(dyn Any + Send)) -> IoError {
 
 fn io_error<T, E: Display>(result: Result<T, E>) -> Option<IoError> {
     result.err().map(|error| IoError::new(error.to_string()))
-}
-
-pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 #[cfg(test)]
