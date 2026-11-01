@@ -133,6 +133,38 @@ impl InputField {
     }
 }
 
+/// One row of a popup's list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PopupItem {
+    pub label: String,
+    /// Shown dimmed at the right end: the letter that picks the row, or the
+    /// keys bound to a command in the palette.
+    pub detail: String,
+    pub kind: ItemKind,
+}
+
+impl PopupItem {
+    #[must_use]
+    pub fn separator() -> Self {
+        Self {
+            label: String::new(),
+            detail: String::new(),
+            kind: ItemKind::Separator,
+        }
+    }
+}
+
+/// How a popup row behaves and is drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ItemKind {
+    /// A row that is run and closes the popup.
+    Choice,
+    /// A checkbox that is flipped without closing the popup.
+    Check(bool),
+    /// A line between groups of rows; the cursor skips it.
+    Separator,
+}
+
 /// An open preview.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreviewView {
@@ -188,38 +220,6 @@ impl PartialEq for SharedImage {
 }
 
 impl Eq for SharedImage {}
-
-/// One row of a popup's list.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PopupItem {
-    pub label: String,
-    /// Shown dimmed at the right end: the letter that picks the row, or the
-    /// keys bound to a command in the palette.
-    pub detail: String,
-    pub kind: ItemKind,
-}
-
-impl PopupItem {
-    #[must_use]
-    pub fn separator() -> Self {
-        Self {
-            label: String::new(),
-            detail: String::new(),
-            kind: ItemKind::Separator,
-        }
-    }
-}
-
-/// How a popup row behaves and is drawn.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ItemKind {
-    /// A row that is run and closes the popup.
-    Choice,
-    /// A checkbox that is flipped without closing the popup.
-    Check(bool),
-    /// A line between groups of rows; the cursor skips it.
-    Separator,
-}
 
 /// What a row shows, for its color. Each variant takes the color of the same
 /// name, except `File`, which takes the text color.
