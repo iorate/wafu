@@ -1,6 +1,9 @@
+use std::any::Any;
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::fs;
 use std::io;
+use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Sender};
@@ -9,8 +12,9 @@ use std::thread;
 
 use notify::RecommendedWatcher;
 use wafu_core::{
-    ArchivePath, Change, Directory, Effect, IoError, IoEvent, Location, PreviewSource, Reply,
-    RequestId, Side, SpawnKind,
+    ArchivePath, Change, Directory, Effect, IoError, IoEvent, Location, OperationEvent,
+    OperationSpec, Outcome, PreviewError, PreviewSource, Reply, RequestId, Side, Sources,
+    SpawnKind,
 };
 
 use crate::archive::{ArchiveEntry, dir_entry, list_dir, open_archive};
@@ -245,9 +249,27 @@ impl Runtime {
                 thread::Builder::new()
                     .name("wafu-io-operation".to_owned())
                     .spawn(move || {
-                        run_operation(&spec, owner_window, &replies, &|event| {
+                        let progress = RefCell::new(None);
+                        let report = |event: OperationEvent| {
+                            if let OperationEvent::Progress { current, done } = &event {
+                                *progress.borrow_mut() = Some((current.clone(), *done));
+                            }
                             on_event(IoEvent::Operation(event));
-                        });
+                        };
+                        if let Err(payload) = panic::catch_unwind(AssertUnwindSafe(|| {
+                            run_operation(&spec, owner_window, &replies, &report);
+                        })) {
+                            let (path, done) = progress
+                                .into_inner()
+                                .unwrap_or_else(|| (first_source(&spec), 0));
+                            on_event(IoEvent::Operation(OperationEvent::Finished(
+                                Outcome::Failed {
+                                    path,
+                                    error: panic_error(&*payload),
+                                    done,
+                                },
+                            )));
+                        }
                     })
                     .expect("the operation thread should start");
             }
@@ -310,6 +332,30 @@ impl Job {
             | Job::Resolve { request, .. }
             | Job::LoadPreview { request, .. }
             | Job::LoadImage { request, .. } => *request,
+        }
+    }
+
+    fn failed(&self, error: IoError) -> IoEvent {
+        let request = self.request();
+        match self {
+            Job::ReadDir { side, .. } => IoEvent::DirLoaded {
+                side: *side,
+                request,
+                result: Err(error),
+            },
+            Job::Resolve { side, .. } => IoEvent::Resolved {
+                side: *side,
+                request,
+                result: None,
+            },
+            Job::LoadPreview { .. } => IoEvent::PreviewLoaded {
+                request,
+                result: Err(PreviewError::Failed(error)),
+            },
+            Job::LoadImage { .. } => IoEvent::ImageLoaded {
+                request,
+                result: Err(PreviewError::Failed(error)),
+            },
         }
     }
 }
@@ -393,7 +439,10 @@ impl Reader {
                     let request = job.request();
                     *lock(&running) = Some(request);
                     let live = lock(&pending).contains(&request);
-                    let event = live.then(|| read(job, &mut cache, &pending));
+                    let event = live.then(|| {
+                        panic::catch_unwind(AssertUnwindSafe(|| read(&job, &mut cache, &pending)))
+                            .unwrap_or_else(|payload| job.failed(panic_error(&*payload)))
+                    });
                     *lock(&running) = None;
                     if let Some(event) = event
                         && lock(&pending).remove(&request)
@@ -420,7 +469,7 @@ struct CachedArchive {
 }
 
 fn read(
-    job: Job,
+    job: &Job,
     cache: &mut Option<CachedArchive>,
     pending: &Mutex<HashSet<RequestId>>,
 ) -> IoEvent {
@@ -434,7 +483,7 @@ fn read(
             }
             .map_err(|error| IoError::new(error.to_string()));
             IoEvent::DirLoaded {
-                side,
+                side: *side,
                 request,
                 result,
             }
@@ -442,17 +491,17 @@ fn read(
         Job::Resolve {
             side, path, climb, ..
         } => IoEvent::Resolved {
-            side,
+            side: *side,
             request,
-            result: resolve(&path, climb),
+            result: resolve(path, *climb),
         },
         Job::LoadPreview { source, .. } => IoEvent::PreviewLoaded {
             request,
-            result: load_preview(&source),
+            result: load_preview(source),
         },
         Job::LoadImage { source, .. } => IoEvent::ImageLoaded {
             request,
-            result: load_image(&source),
+            result: load_image(source),
         },
     }
 }
@@ -481,6 +530,22 @@ fn list_archive(
     let own = dir_entry(entries, &archive.inner).or_else(|| own_entry(path));
     let entries = list_dir(entries, &archive.inner, cancelled)?;
     Ok(Directory { own, entries })
+}
+
+fn first_source(spec: &OperationSpec) -> PathBuf {
+    match &spec.sources {
+        Sources::Paths(paths) => paths.first().cloned().unwrap_or_default(),
+        Sources::Entries(entries) => entries.archive.clone(),
+    }
+}
+
+fn panic_error(payload: &(dyn Any + Send)) -> IoError {
+    let message = payload
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("unknown cause");
+    IoError::new(format!("panicked: {message}"))
 }
 
 fn io_error(result: std::io::Result<()>) -> Option<IoError> {
@@ -1085,6 +1150,15 @@ mod tests {
         };
         assert_eq!(side, Side::Left);
         assert_eq!(path, missing);
+    }
+
+    #[test]
+    fn a_panic_becomes_an_error_with_its_message() {
+        let literal = panic::catch_unwind(|| panic!("boom")).unwrap_err();
+        let formatted = panic::catch_unwind(|| panic!("boom {}", 1)).unwrap_err();
+
+        assert_eq!(panic_error(&*literal), IoError::new("panicked: boom"));
+        assert_eq!(panic_error(&*formatted), IoError::new("panicked: boom 1"));
     }
 
     // A watch takes a moment to become active, and FSEvents on macOS may then
