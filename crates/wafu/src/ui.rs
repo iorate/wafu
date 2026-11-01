@@ -173,7 +173,7 @@ impl Ui {
 
     /// Puts the window where it was, in logical pixels. The position is left
     /// alone on Wayland, which has no notion of it.
-    pub fn restore_window(&self, state: Option<&WindowState>) {
+    pub fn restore_window(self: &Rc<Self>, state: Option<&WindowState>) {
         self.startup_window.replace(state.cloned());
         let Some(state) = state else {
             return;
@@ -189,7 +189,16 @@ impl Ui {
         {
             // Likewise for positions.
             #[allow(clippy::cast_precision_loss)]
-            window.set_position(LogicalPosition::new(x as f32, y as f32));
+            let position = LogicalPosition::new(x as f32, y as f32);
+            window.set_position(position);
+            if cfg!(target_os = "macos") {
+                let weak = Rc::downgrade(self);
+                self.run_after_render(move || {
+                    if let Some(ui) = weak.upgrade() {
+                        ui.window.window().set_position(position);
+                    }
+                });
+            }
         }
     }
 
