@@ -17,7 +17,7 @@ pub(crate) fn load_image(source: &PreviewSource) -> Result<ImageData, PreviewErr
     load_image_limited(source, IMAGE_PREVIEW_LIMIT)
 }
 
-pub(crate) fn decode_image(bytes: &[u8]) -> ImageResult<ImageData> {
+fn decode_image(bytes: &[u8]) -> ImageResult<ImageData> {
     let reader = ImageReader::new(Cursor::new(bytes)).with_guessed_format()?;
     let format = reader.format().map_or("", format_name);
     let mut decoder = reader.into_decoder()?;
