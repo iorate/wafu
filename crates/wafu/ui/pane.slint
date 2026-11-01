@@ -106,9 +106,10 @@ export component PaneWidget {
     in property <[bool]> marks;
     in property <int> scroll-top;
     in property <string> size-sample;
-    // Where the list is in the window, for a menu below a row.
+    // Where the list and its top row are in the window, for a menu below a
+    // row.
     out property <length> list-x: area.absolute-position.x;
-    out property <length> list-y: area.absolute-position.y;
+    out property <length> top-row-y: area.absolute-position.y + list.content-y + root.scroll-top * Theme.row-height;
 
     callback viewport-rows-changed(rows: int);
     callback row-clicked(row: int);
@@ -140,7 +141,7 @@ export component PaneWidget {
     }
 
     function row-at(y: length) -> int {
-        return root.scroll-top + floor(y / Theme.row-height);
+        return floor((y - list.content-y) / Theme.row-height);
     }
 
     function report-rows() {
