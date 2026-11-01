@@ -21,11 +21,11 @@ pub(crate) fn spawn(
     }
     let mut child = command.spawn()?;
     // Reaping the child keeps it from lingering as a zombie on Unix.
-    thread::Builder::new()
+    let _ = thread::Builder::new()
         .name("wafu-io-reaper".to_owned())
         .spawn(move || {
             let _ = child.wait();
-        })?;
+        });
     Ok(())
 }
 
