@@ -1539,19 +1539,53 @@ fn reload_reads_again_without_emptying_and_the_cursor_follows_the_entry() {
 
     harness.press("F5");
 
-    let effects = harness.take_effects();
+    assert_eq!(harness.names(Side::Left), ["..", "a", "b", "c"]);
+    harness.load(Side::Left, vec![file("a"), file("c"), file("a0")]);
+    assert_eq!(harness.cursor_name(Side::Left), "c");
+}
+
+#[test]
+fn reload_watches_the_place_again_and_reads_it() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.take_effects();
+
+    harness.press("F5");
+
     assert_eq!(
-        effects,
+        harness.take_effects(),
+        vec![
+            Effect::Watch {
+                side: Side::Left,
+                path: PathBuf::from("/home/user"),
+            },
+            Effect::ReadDir {
+                side: Side::Left,
+                location: Location::new(PathBuf::from("/home/user")),
+                request: harness.latest_request(Side::Left),
+            },
+        ]
+    );
+}
+
+#[test]
+fn reload_during_a_reload_reads_again_after_it_finishes_without_watching_again() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.press("F5");
+    harness.take_effects();
+
+    harness.press("F5");
+    assert_eq!(harness.take_effects(), vec![]);
+    assert!(harness.app().pane(Side::Left).reload_pending());
+
+    harness.load(Side::Left, vec![file("a")]);
+    assert_eq!(
+        harness.take_effects(),
         vec![Effect::ReadDir {
             side: Side::Left,
             location: Location::new(PathBuf::from("/home/user")),
             request: harness.latest_request(Side::Left),
         }]
     );
-    assert_eq!(harness.names(Side::Left), ["..", "a", "b", "c"]);
-
-    harness.load(Side::Left, vec![file("a"), file("c"), file("a0")]);
-    assert_eq!(harness.cursor_name(Side::Left), "c");
 }
 
 #[test]
