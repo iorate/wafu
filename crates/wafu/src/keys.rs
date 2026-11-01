@@ -70,18 +70,19 @@ pub struct Modifiers {
 }
 
 /// Converts a Slint key event into the input the core expects, or `None` for
-/// a key that is not for the core: a Cmd shortcut on macOS, which the OS owns.
+/// a key that is not for the core: one pressed with Cmd on macOS or with the
+/// Windows (Super) key elsewhere, which belong to the OS.
 ///
 /// Slint reports Cmd as `control` and the physical Control key as `meta` on
 /// macOS, so the two are swapped there. Named keys arrive from Slint as
 /// private-use characters; they are replaced with their configuration spelling.
 pub fn key_input(text: &str, modifiers: Modifiers) -> Option<KeyInput> {
-    let (ctrl, cmd) = if cfg!(target_os = "macos") {
+    let (ctrl, os_key) = if cfg!(target_os = "macos") {
         (modifiers.meta, modifiers.control)
     } else {
-        (modifiers.control, false)
+        (modifiers.control, modifiers.meta)
     };
-    if cmd {
+    if os_key {
         return None;
     }
     let (text, shift) = match named(text) {
