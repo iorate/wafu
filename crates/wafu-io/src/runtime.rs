@@ -171,7 +171,7 @@ impl Runtime {
                     .unwrap_or_else(PoisonError::into_inner)
                     .watch(side, path, &self.on_event);
             }
-            Effect::ListDrives { purpose } => self.list_drives(purpose),
+            Effect::ListDrives { purpose, request } => self.list_drives(purpose, request),
             Effect::WatchConfig(path) => {
                 let watcher = match watch_config(&path, &self.on_event) {
                     Ok(watcher) => Some(watcher),
@@ -321,7 +321,7 @@ impl Runtime {
         }
     }
 
-    fn list_drives(&self, purpose: DrivePurpose) {
+    fn list_drives(&self, purpose: DrivePurpose, request: RequestId) {
         if cfg!(windows) {
             let on_event = Arc::clone(&self.on_event);
             thread::Builder::new()
@@ -329,6 +329,7 @@ impl Runtime {
                 .spawn(move || {
                     on_event(IoEvent::Drives {
                         purpose,
+                        request,
                         letters: drives(),
                     });
                 })
@@ -336,6 +337,7 @@ impl Runtime {
         } else {
             (self.on_event)(IoEvent::Drives {
                 purpose,
+                request,
                 letters: drives(),
             });
         }
@@ -837,12 +839,19 @@ mod tests {
 
         runtime.run(Effect::ListDrives {
             purpose: wafu_core::DrivePurpose::Show,
+            request: RequestId(1),
         });
 
-        let IoEvent::Drives { purpose, letters } = events.recv_timeout(TIMEOUT).unwrap() else {
+        let IoEvent::Drives {
+            purpose,
+            request,
+            letters,
+        } = events.recv_timeout(TIMEOUT).unwrap()
+        else {
             panic!("expected Drives");
         };
         assert_eq!(purpose, wafu_core::DrivePurpose::Show);
+        assert_eq!(request, RequestId(1));
         assert_eq!(letters.is_empty(), !cfg!(windows));
     }
 

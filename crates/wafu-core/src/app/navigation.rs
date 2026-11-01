@@ -14,7 +14,9 @@ impl App {
         self.panes.iter().any(|pane| {
             matches!(
                 pane.loading(),
-                Some(InFlight::Resolve { .. } | InFlight::Navigate { .. })
+                Some(
+                    InFlight::Resolve { .. } | InFlight::Navigate { .. } | InFlight::Drives { .. }
+                )
             )
         })
     }
@@ -23,8 +25,15 @@ impl App {
         match self.earliest_navigation()?.1 {
             InFlight::Resolve { path, .. } => Some(path.display().to_string()),
             InFlight::Navigate { target, .. } => Some(target.to_string()),
-            InFlight::Refresh { .. } => None,
+            InFlight::Refresh { .. } | InFlight::Drives { .. } => None,
         }
+    }
+
+    pub(super) fn listing_drives(&self) -> bool {
+        matches!(
+            self.earliest_navigation(),
+            Some((_, InFlight::Drives { .. }))
+        )
     }
 
     // The pane keeps showing where it is until the new listing arrives, so a
@@ -101,9 +110,13 @@ impl App {
     }
 
     pub(super) fn cancel_navigation(&mut self, effects: &mut Vec<Effect>) {
-        let Some((side, _)) = self.earliest_navigation() else {
+        let Some((side, in_flight)) = self.earliest_navigation() else {
             return;
         };
+        if matches!(in_flight, InFlight::Drives { .. }) {
+            self.stop_listing_drives(side, effects);
+            return;
+        }
         let pane = &mut self.panes[side.index()];
         Self::cancel_loading(pane, effects);
         Self::rewatch(side, pane, effects);
@@ -148,7 +161,7 @@ impl App {
                     return;
                 }
             },
-            Some(InFlight::Resolve { .. }) | None => return,
+            Some(InFlight::Resolve { .. } | InFlight::Drives { .. }) | None => return,
         }
         let pane = &mut self.panes[side.index()];
         if pane.reload_pending() {
@@ -233,6 +246,11 @@ impl App {
                 }
             }
             Some(InFlight::Resolve { .. }) => {}
+            Some(InFlight::Drives { .. }) => {
+                if pane.location().base == path {
+                    pane.set_reload_pending(true);
+                }
+            }
             Some(InFlight::Refresh { .. }) | None => {
                 if pane.location().base == path {
                     self.refresh(side, effects);
@@ -401,39 +419,64 @@ impl App {
         command: Command,
         effects: &mut Vec<Effect>,
     ) {
-        if self.os == Os::Windows {
-            effects.push(Effect::ListDrives { purpose });
-        } else {
+        if self.os != Os::Windows {
             self.log.push(AppError::WindowsOnly { command }.to_string());
+            return;
         }
+        let side = self.active;
+        let pane = &mut self.panes[side.index()];
+        let reload = pane.reload_pending() || pane.loading().is_some();
+        Self::cancel_loading(pane, effects);
+        pane.set_reload_pending(reload);
+        let request = self.next_request_id();
+        effects.push(Effect::ListDrives { purpose, request });
+        self.panes[side.index()].set_loading(Some(InFlight::Drives { request, purpose }));
     }
 
     pub(super) fn drives(
         &mut self,
-        purpose: DrivePurpose,
+        request: RequestId,
         mut letters: Vec<char>,
         effects: &mut Vec<Effect>,
     ) {
+        let Some((side, purpose)) =
+            [Side::Left, Side::Right].into_iter().find_map(|side| {
+                match self.panes[side.index()].loading() {
+                    Some(&InFlight::Drives {
+                        request: pending,
+                        purpose,
+                    }) if pending == request => Some((side, purpose)),
+                    _ => None,
+                }
+            })
+        else {
+            return;
+        };
         letters.sort_unstable();
         letters.dedup();
-        match purpose {
-            DrivePurpose::Show => self.open_drives(&letters),
-            DrivePurpose::Prev | DrivePurpose::Next => {
-                if letters.is_empty() {
-                    return;
-                }
-                let current = drive_letter(&self.active_pane().location().base)
-                    .and_then(|letter| letters.iter().position(|&l| l == letter));
-                let last = letters.len() - 1;
-                let index = match (purpose, current) {
-                    (DrivePurpose::Prev, Some(0) | None) => last,
-                    (DrivePurpose::Prev, Some(index)) => index - 1,
-                    (_, Some(index)) if index == last => 0,
-                    (_, Some(index)) => index + 1,
-                    (_, None) => 0,
-                };
-                self.switch_drive(letters[index], effects);
+        if purpose == DrivePurpose::Show {
+            self.stop_listing_drives(side, effects);
+            self.open_drives(&letters);
+            return;
+        }
+        let target = (!letters.is_empty()).then(|| {
+            let current = drive_letter(&self.active_pane().location().base)
+                .and_then(|letter| letters.iter().position(|&l| l == letter));
+            let last = letters.len() - 1;
+            let index = match (purpose, current) {
+                (DrivePurpose::Prev, Some(0) | None) => last,
+                (DrivePurpose::Prev, Some(index)) => index - 1,
+                (_, Some(index)) if index == last => 0,
+                (_, Some(index)) => index + 1,
+                (_, None) => 0,
+            };
+            letters[index]
+        });
+        match target {
+            Some(letter) if self.drive_of_active() != Some(letter) => {
+                self.switch_drive(letter, effects);
             }
+            _ => self.stop_listing_drives(side, effects),
         }
     }
 
@@ -464,21 +507,33 @@ impl App {
         [Side::Left, Side::Right]
             .into_iter()
             .filter_map(|side| match self.panes[side.index()].loading() {
-                Some(in_flight @ (InFlight::Resolve { .. } | InFlight::Navigate { .. })) => {
-                    Some((side, in_flight))
-                }
+                Some(
+                    in_flight @ (InFlight::Resolve { .. }
+                    | InFlight::Navigate { .. }
+                    | InFlight::Drives { .. }),
+                ) => Some((side, in_flight)),
                 _ => None,
             })
             .min_by_key(|(_, in_flight)| in_flight.request())
     }
 
     fn cancel_loading(pane: &mut Pane, effects: &mut Vec<Effect>) {
-        if let Some(in_flight) = pane.take_loading() {
-            effects.push(Effect::CancelRead {
+        match pane.take_loading() {
+            Some(InFlight::Drives { .. }) | None => {}
+            Some(in_flight) => effects.push(Effect::CancelRead {
                 request: in_flight.request(),
-            });
+            }),
         }
         pane.set_reload_pending(false);
+    }
+
+    fn stop_listing_drives(&mut self, side: Side, effects: &mut Vec<Effect>) {
+        let pane = &mut self.panes[side.index()];
+        pane.set_loading(None);
+        if pane.reload_pending() {
+            pane.set_reload_pending(false);
+            self.refresh(side, effects);
+        }
     }
 
     // The watch moved to the target before the read; a pane that stays put

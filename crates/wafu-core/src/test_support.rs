@@ -28,6 +28,7 @@ pub(crate) struct Harness {
     requests: [Option<RequestId>; 2],
     resolves: [Option<RequestId>; 2],
     preview_request: Option<RequestId>,
+    drives_request: Option<RequestId>,
 }
 
 impl Harness {
@@ -80,6 +81,7 @@ impl Harness {
             requests: [None, None],
             resolves: [None, None],
             preview_request: None,
+            drives_request: None,
         };
         harness.send(msg);
         harness
@@ -98,6 +100,7 @@ impl Harness {
                 Effect::LoadPreview { request, .. } | Effect::LoadImage { request, .. } => {
                     self.preview_request = Some(*request);
                 }
+                Effect::ListDrives { request, .. } => self.drives_request = Some(*request),
                 _ => {}
             }
         }
@@ -348,8 +351,10 @@ impl Harness {
     }
 
     pub(crate) fn drives(&mut self, purpose: DrivePurpose, letters: &[char]) {
+        let request = self.latest_drives();
         self.send(Msg::Io(IoEvent::Drives {
             purpose,
+            request,
             letters: letters.to_vec(),
         }));
     }
@@ -366,6 +371,11 @@ impl Harness {
 
     pub(crate) fn latest_resolve(&self, side: Side) -> RequestId {
         self.resolves[side.index()].expect("a Resolve request should have been issued")
+    }
+
+    pub(crate) fn latest_drives(&self) -> RequestId {
+        self.drives_request
+            .expect("a ListDrives request should have been issued")
     }
 
     pub(crate) fn take_effects(&mut self) -> Vec<Effect> {

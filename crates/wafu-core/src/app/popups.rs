@@ -263,9 +263,15 @@ impl App {
             .into_iter()
             .chain(self.preview_loading_name())
             .collect();
-        (!targets.is_empty()).then(|| PopupView {
+        let parts: Vec<String> = self
+            .listing_drives()
+            .then(|| "Listing drives".to_owned())
+            .into_iter()
+            .chain((!targets.is_empty()).then(|| format!("Reading {}", targets.join(", "))))
+            .collect();
+        (!parts.is_empty()).then(|| PopupView {
             title: "Loading".to_owned(),
-            message: Some(format!("Reading {}", targets.join(", "))),
+            message: Some(parts.join(", ")),
             progress: true,
             ..PopupView::default()
         })

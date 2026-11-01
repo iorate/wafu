@@ -176,6 +176,7 @@ pub enum Effect {
     /// Lists the drive letters (Windows only).
     ListDrives {
         purpose: DrivePurpose,
+        request: RequestId,
     },
     SetTitle(String),
     /// Watches the configuration file and reports its new text on every change.
@@ -316,6 +317,7 @@ pub enum IoEvent {
     /// Always empty except on Windows.
     Drives {
         purpose: DrivePurpose,
+        request: RequestId,
         letters: Vec<char>,
     },
     WatchFailed {
@@ -716,9 +718,9 @@ impl App {
             IoEvent::LocationChanged { side, path } => {
                 self.location_changed(side, &path, effects);
             }
-            IoEvent::Drives { purpose, letters } => {
-                self.drives(purpose, letters, effects);
-            }
+            IoEvent::Drives {
+                request, letters, ..
+            } => self.drives(request, letters, effects),
             IoEvent::WatchFailed { path, error, .. } => {
                 self.log.push(
                     AppError::Watch {
