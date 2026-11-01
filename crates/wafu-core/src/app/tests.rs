@@ -629,6 +629,28 @@ fn keys_and_mouse_are_dropped_while_a_move_is_in_progress() {
 }
 
 #[test]
+fn the_loading_popup_ignores_the_popup_mouse() {
+    let mut moving = Harness::start("/home/user", "/tmp");
+    moving.load(Side::Left, vec![]);
+    moving.press("BS");
+    let mut listing = Harness::start_on(Os::Windows, "/home/user", "/tmp");
+    listing.press("L");
+
+    for mut harness in [moving, listing] {
+        harness.take_effects();
+        let view = harness.view();
+        assert!(view.popup.as_ref().is_some_and(|popup| popup.progress));
+
+        harness.popup_click(0);
+        harness.popup_double_click(0);
+        harness.popup_wheel(3);
+
+        assert_eq!(harness.view(), view);
+        assert_eq!(harness.take_effects(), vec![]);
+    }
+}
+
+#[test]
 fn new_window_is_dropped_while_a_move_is_in_progress() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.press("BS");
@@ -1248,6 +1270,20 @@ fn sort_popup_letters_do_not_move_the_cursor() {
 
     assert_eq!(harness.view().popup.unwrap().cursor, Some(1));
     assert_eq!(harness.popup_items()[8].kind, ItemKind::Check(false));
+}
+
+#[test]
+fn sort_popup_letters_take_shift_but_not_ctrl() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.press("S");
+
+    harness.press("Ctrl+T");
+    assert!(harness.popup().is_some());
+    assert_eq!(harness.app().pane(Side::Left).sort().key, SortKey::Name);
+
+    harness.press("Shift+T");
+    assert_eq!(harness.popup(), None);
+    assert_eq!(harness.app().pane(Side::Left).sort().key, SortKey::Time);
 }
 
 #[test]
