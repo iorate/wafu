@@ -16,7 +16,7 @@ pub fn read_state(path: &Path) -> Result<Option<StateFile>, StateError> {
     }
 }
 
-pub fn write_state(path: &Path, state: &StateFile) -> std::io::Result<()> {
+pub(crate) fn write_state(path: &Path, state: &StateFile) -> std::io::Result<()> {
     let text = to_toml(state)?;
     let dir = path.parent().unwrap_or(Path::new("."));
     fs::create_dir_all(dir)?;
@@ -26,8 +26,7 @@ pub fn write_state(path: &Path, state: &StateFile) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Writes the state for a new instance to a temporary file and returns its path.
-pub fn write_handoff(state: &StateFile) -> std::io::Result<PathBuf> {
+pub(crate) fn write_handoff(state: &StateFile) -> std::io::Result<PathBuf> {
     let text = to_toml(state)?;
     let mut file = tempfile::Builder::new()
         .prefix(HANDOFF_PREFIX)

@@ -3,8 +3,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::thread;
 
-/// Starts a program directly, without a shell, and does not wait for it.
-pub fn spawn(
+pub(crate) fn spawn(
     program: impl AsRef<OsStr>,
     args: &[impl AsRef<OsStr>],
     cwd: Option<&Path>,
@@ -30,9 +29,7 @@ pub fn spawn(
     Ok(())
 }
 
-/// Starts another instance of this program that takes over the state in the
-/// handoff file.
-pub fn spawn_new_window(handoff: &Path, config: Option<&Path>) -> std::io::Result<()> {
+pub(crate) fn spawn_new_window(handoff: &Path, config: Option<&Path>) -> std::io::Result<()> {
     let exe = std::env::current_exe()?;
     let mut args = vec![
         OsStr::new("--inherit").to_owned(),
