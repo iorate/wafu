@@ -8,11 +8,11 @@ use crate::operation::{OperationKind, Reply};
 use crate::pane::HistoryMove;
 use crate::path::{expand_tilde, resolve_input};
 use crate::popup::{
-    ChoiceKind, ChoicePopup, ConflictPopup, ConflictRow, InputKind, InputPopup, ListItem,
-    ListPopup, ListTarget, PalettePopup, PasswordPurpose, Popup, SearchPopup, SortPopup,
+    ChoiceKind, ConflictPopup, ConflictRow, InputKind, InputPopup, ListItem, ListPopup, ListTarget,
+    MenuInput, PalettePopup, PasswordPurpose, Popup, Response, SearchPopup, SortPopup, menu_input,
     stem_selection,
 };
-use crate::view::{InputField, ItemMark, PopupItem, PopupView};
+use crate::view::{InputField, ItemKind, PopupItem, PopupView};
 
 impl App {
     pub(super) fn open_sort(&mut self) {
@@ -81,13 +81,9 @@ impl App {
     // The popup is taken out first and put back unless the key closed it.
     pub(super) fn popup_key(&mut self, key: Key, effects: &mut Vec<Effect>) {
         match self.popup.take() {
-            Some(Popup::Sort(popup)) => self.sort_popup_key(popup, key),
             Some(Popup::Input(popup)) => self.input_popup_key(popup, key, effects),
             Some(Popup::Search(popup)) => self.search_popup_key(popup, key),
-            Some(Popup::Palette(popup)) => self.palette_popup_key(popup, key, effects),
-            Some(Popup::List(popup)) => self.list_popup_key(popup, key, effects),
-            Some(Popup::Choice(popup)) => self.choice_popup_key(popup, key, effects),
-            Some(Popup::Conflict(popup)) => self.conflict_popup_key(popup, key, effects),
+            Some(popup) => self.menu(popup, MenuInput::Key(key), effects),
             None => {}
         }
     }
@@ -125,7 +121,7 @@ impl App {
         Some(match popup {
             Popup::Sort(popup) => PopupView {
                 title: "Sort".to_owned(),
-                items: popup.items(),
+                items: Some(popup.items()),
                 cursor: Some(popup.cursor),
                 ..PopupView::default()
             },
@@ -133,6 +129,7 @@ impl App {
                 title: popup.kind.title().to_owned(),
                 message: popup.message(),
                 fields: popup.fields.clone(),
+                note: popup.note(),
                 ..PopupView::default()
             },
             Popup::Search(popup) => PopupView {
@@ -143,46 +140,48 @@ impl App {
             Popup::Palette(popup) => PopupView {
                 title: "Palette".to_owned(),
                 fields: vec![InputField::new(popup.query.clone())],
-                items: popup
-                    .matches
-                    .iter()
-                    .map(|command| PopupItem {
-                        label: command.to_string(),
-                        detail: self
-                            .config
-                            .keys
-                            .keys_for(popup.context, command)
-                            .iter()
-                            .map(ToString::to_string)
-                            .collect::<Vec<_>>()
-                            .join(", "),
-                        mark: ItemMark::None,
-                    })
-                    .collect(),
+                items: Some(
+                    popup
+                        .matches
+                        .iter()
+                        .map(|command| PopupItem {
+                            label: command.to_string(),
+                            detail: self
+                                .config
+                                .keys
+                                .keys_for(popup.context, command)
+                                .iter()
+                                .map(ToString::to_string)
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                            kind: ItemKind::Choice,
+                        })
+                        .collect(),
+                ),
                 cursor: popup.selected().map(|_| popup.cursor),
                 ..PopupView::default()
             },
             Popup::List(popup) => PopupView {
                 title: popup.title().to_owned(),
-                message: popup
+                note: popup
                     .items
                     .is_empty()
                     .then(|| popup.empty_message().to_owned()),
-                items: popup.items(),
+                items: (!popup.items.is_empty()).then(|| popup.items()),
                 cursor: popup.selected().map(|_| popup.cursor),
                 ..PopupView::default()
             },
             Popup::Choice(popup) => PopupView {
                 title: popup.title().to_owned(),
                 message: Some(popup.message.clone()),
-                items: popup.items(),
+                items: Some(popup.items()),
                 cursor: Some(popup.cursor),
                 ..PopupView::default()
             },
             Popup::Conflict(popup) => PopupView {
                 title: "File exists".to_owned(),
                 message: Some(popup.dest.display().to_string()),
-                items: popup.items(),
+                items: Some(popup.items()),
                 cursor: Some(popup.cursor),
                 ..PopupView::default()
             },
@@ -201,30 +200,6 @@ impl App {
             progress: true,
             ..PopupView::default()
         })
-    }
-
-    fn sort_popup_key(&mut self, mut popup: SortPopup, key: Key) {
-        let plain = !key.ctrl && !key.alt;
-        match key.base {
-            KeyBase::Named(NamedKey::Escape) => return,
-            KeyBase::Named(NamedKey::Enter) => {
-                self.active_pane_mut().set_sort(popup.draft);
-                return;
-            }
-            KeyBase::Named(NamedKey::Up) => popup.cursor_up(),
-            KeyBase::Named(NamedKey::Down) => popup.cursor_down(),
-            KeyBase::Named(NamedKey::Space) => popup.activate_cursor(),
-            KeyBase::Char(letter) if plain => {
-                if let Some(sort_key) = SortPopup::key_for_letter(letter) {
-                    popup.draft.key = sort_key;
-                    self.active_pane_mut().set_sort(popup.draft);
-                    return;
-                }
-                popup.toggle_for_letter(letter);
-            }
-            _ => {}
-        }
-        self.popup = Some(Popup::Sort(popup));
     }
 
     fn input_popup_key(&mut self, popup: InputPopup, key: Key, effects: &mut Vec<Effect>) {
@@ -330,70 +305,65 @@ impl App {
         }
     }
 
-    fn choice_popup_key(&mut self, mut popup: ChoicePopup, key: Key, effects: &mut Vec<Effect>) {
-        let picked = match key.base {
-            KeyBase::Named(NamedKey::Escape) => Some(None),
-            KeyBase::Named(NamedKey::Enter) => Some(Some(popup.cursor)),
-            KeyBase::Named(NamedKey::Up) => {
-                popup.cursor_up();
-                None
-            }
-            KeyBase::Named(NamedKey::Down) => {
-                popup.cursor_down();
-                None
-            }
-            KeyBase::Char(letter) if !key.ctrl && !key.alt => {
-                popup.choice_for_letter(letter).map(Some)
-            }
-            _ => None,
-        };
-        let Some(choice) = picked else {
-            self.popup = Some(Popup::Choice(popup));
-            return;
-        };
-        match popup.kind {
-            ChoiceKind::DeleteConfirm { dir, names } => {
-                if choice == Some(0) {
-                    self.start_removal(OperationKind::Delete, dir, names, effects);
+    fn menu(&mut self, popup: Popup, input: MenuInput, effects: &mut Vec<Effect>) {
+        match popup {
+            Popup::Sort(mut popup) => match menu_input(&mut popup, input) {
+                Response::Stay => self.popup = Some(Popup::Sort(popup)),
+                Response::Pick(sort) => self.active_pane_mut().set_sort(sort),
+                Response::Close => {}
+            },
+            Popup::Choice(mut popup) => {
+                let response = menu_input(&mut popup, input);
+                if response == Response::Stay {
+                    self.popup = Some(Popup::Choice(popup));
+                    return;
+                }
+                let confirmed = response == Response::Pick(0);
+                match popup.kind {
+                    ChoiceKind::DeleteConfirm { dir, names } => {
+                        if confirmed {
+                            self.start_removal(OperationKind::Delete, dir, names, effects);
+                        }
+                    }
+                    ChoiceKind::QuitDuringOperation { resume } => {
+                        if confirmed {
+                            self.cancel_and_quit(effects);
+                        } else {
+                            self.continue_operation(resume);
+                        }
+                    }
                 }
             }
-            ChoiceKind::QuitDuringOperation { resume } => {
-                if choice == Some(0) {
-                    self.cancel_and_quit(effects);
-                } else {
-                    self.continue_operation(resume);
-                }
-            }
+            Popup::Conflict(mut popup) => match menu_input(&mut popup, input) {
+                Response::Stay => self.popup = Some(Popup::Conflict(popup)),
+                Response::Pick(row) => self.answer_conflict(popup, row, effects),
+                Response::Close => self.reply(Reply::Cancel, effects),
+            },
+            Popup::List(mut popup) => match menu_input(&mut popup, input) {
+                Response::Stay => self.popup = Some(Popup::List(popup)),
+                Response::Pick(item) => self.pick_list_item(item, effects),
+                Response::Close => {}
+            },
+            Popup::Palette(mut popup) => match menu_input(&mut popup, input) {
+                Response::Stay => self.popup = Some(Popup::Palette(popup)),
+                Response::Pick(command) => self.run_command(command, effects),
+                Response::Close => {}
+            },
+            Popup::Input(_) | Popup::Search(_) => self.popup = Some(popup),
         }
     }
 
-    fn conflict_popup_key(
+    fn answer_conflict(
         &mut self,
-        mut popup: ConflictPopup,
-        key: Key,
+        popup: ConflictPopup,
+        row: ConflictRow,
         effects: &mut Vec<Effect>,
     ) {
-        let row = match key.base {
-            KeyBase::Named(NamedKey::Escape) => Some(ConflictRow::Abort),
-            KeyBase::Named(NamedKey::Enter) => Some(popup.row_at_cursor()),
-            KeyBase::Named(NamedKey::Space) => Some(ConflictRow::ApplyToAll),
-            KeyBase::Named(NamedKey::Up) => {
-                popup.cursor_up();
-                None
-            }
-            KeyBase::Named(NamedKey::Down) => {
-                popup.cursor_down();
-                None
-            }
-            KeyBase::Char(letter) if !key.ctrl && !key.alt => ConflictPopup::row_for_letter(letter),
-            _ => None,
-        };
         let all = popup.all;
         match row {
-            Some(ConflictRow::Overwrite) => self.reply(Reply::Overwrite { all }, effects),
-            Some(ConflictRow::Skip) => self.reply(Reply::Skip { all }, effects),
-            Some(ConflictRow::Abort) => self.reply(Reply::Cancel, effects),
-            Some(ConflictRow::Rename) => {
+            ConflictRow::Overwrite => self.reply(Reply::Overwrite { all }, effects),
+            ConflictRow::Skip => self.reply(Reply::Skip { all }, effects),
+            ConflictRow::Rename => {
                 let text = popup
                     .dest
                     .file_name()
@@ -410,11 +380,10 @@ impl App {
                     select,
                 )));
             }
-            Some(ConflictRow::ApplyToAll) => {
-                popup.all = !popup.all;
+            ConflictRow::Abort => self.reply(Reply::Cancel, effects),
+            ConflictRow::Separator | ConflictRow::ApplyToAll => {
                 self.popup = Some(Popup::Conflict(popup));
             }
-            None => self.popup = Some(Popup::Conflict(popup)),
         }
     }
 
@@ -437,48 +406,7 @@ impl App {
         self.popup = Some(Popup::Search(popup));
     }
 
-    fn palette_popup_key(&mut self, mut popup: PalettePopup, key: Key, effects: &mut Vec<Effect>) {
-        match key.base {
-            KeyBase::Named(NamedKey::Escape) => return,
-            KeyBase::Named(NamedKey::Enter) => {
-                if let Some(command) = popup.selected() {
-                    self.run_command(command, effects);
-                }
-                return;
-            }
-            KeyBase::Named(NamedKey::Up) => popup.cursor_up(),
-            KeyBase::Named(NamedKey::Down) => popup.cursor_down(),
-            _ => {}
-        }
-        self.popup = Some(Popup::Palette(popup));
-    }
-
-    fn list_popup_key(&mut self, mut popup: ListPopup, key: Key, effects: &mut Vec<Effect>) {
-        match key.base {
-            KeyBase::Named(NamedKey::Escape) => return,
-            KeyBase::Named(NamedKey::Enter) => {
-                if let Some(item) = popup.selected() {
-                    self.pick_list_item(item.clone(), effects);
-                }
-                return;
-            }
-            KeyBase::Named(NamedKey::Up) => popup.cursor_up(),
-            KeyBase::Named(NamedKey::Down) => popup.cursor_down(),
-            KeyBase::Char(c) if !key.ctrl && !key.alt => {
-                if let Some(item) = popup.item_for_key(c) {
-                    self.pick_list_item(item.clone(), effects);
-                    return;
-                }
-            }
-            _ => {}
-        }
-        self.popup = Some(Popup::List(popup));
-    }
-
     fn pick_list_item(&mut self, item: ListItem, effects: &mut Vec<Effect>) {
-        if item.current {
-            return;
-        }
         match item.target {
             ListTarget::HistoryPos(pos) => {
                 let path = self.active_pane().history().items().get(pos).cloned();

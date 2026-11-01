@@ -4,8 +4,8 @@ import { Theme } from "theme.slint";
 export struct PopupItem {
     label: string,
     detail: string,
-    // 0: none, 1: radio button, 2: check box
-    mark: int,
+    // 0: choice, 1: check box, 2: separator
+    kind: int,
     on: bool,
 }
 
@@ -13,6 +13,7 @@ export struct PopupData {
     visible: bool,
     title: string,
     message: string,
+    note: string,
     has-input: bool,
     cursor: int,
     // Reports work going on in the background and may be shown late.
@@ -36,6 +37,7 @@ component PopupText inherits Text {
 component PopupInput {
     in property <PopupField> field;
     in property <bool> labelled;
+    in property <length> label-width;
     in property <bool> single;
     // Which field holds the focus is the overlay's state; the field follows it.
     in property <bool> active;
@@ -55,12 +57,14 @@ component PopupInput {
     }
 
     HorizontalLayout {
+        padding-top: 2px;
+        padding-bottom: 2px;
         spacing: 8px;
 
         if root.labelled: PopupText {
             text: root.field.label;
             vertical-alignment: center;
-            width: 72px;
+            width: root.label-width;
         }
 
         Rectangle {
@@ -150,6 +154,16 @@ export component PopupOverlay {
 
     TouchArea { }
 
+    first-label := PopupText {
+        visible: false;
+        text: root.fields.length >= 1 ? root.fields[0].label : "";
+    }
+
+    second-label := PopupText {
+        visible: false;
+        text: root.fields.length >= 2 ? root.fields[1].label : "";
+    }
+
     panel := Rectangle {
         width: min(root.width - 40px, 480px);
         height: content.preferred-height;
@@ -162,21 +176,26 @@ export component PopupOverlay {
 
         content := VerticalLayout {
             padding: 8px;
-            spacing: 6px;
+            spacing: 0;
 
             PopupText {
                 text: data.title;
                 font-weight: 700;
+                height: Theme.popup-row-height;
+                vertical-alignment: center;
             }
 
             if data.message != "": PopupText {
                 text: data.message;
                 overflow: elide;
+                height: Theme.popup-row-height;
+                vertical-alignment: center;
             }
 
             if root.fields.length >= 1: PopupInput {
                 field: root.fields[0];
                 labelled: root.fields.length >= 2;
+                label-width: max(first-label.preferred-width, second-label.preferred-width);
                 single: root.fields.length == 1;
                 active: root.focused-field == 0;
                 text <=> root.text;
@@ -197,6 +216,7 @@ export component PopupOverlay {
             if root.fields.length >= 2: PopupInput {
                 field: root.fields[1];
                 labelled: true;
+                label-width: max(first-label.preferred-width, second-label.preferred-width);
                 single: false;
                 active: root.focused-field == 1;
                 text <=> root.text-2;
@@ -214,6 +234,14 @@ export component PopupOverlay {
                 }
             }
 
+            if data.note != "": PopupText {
+                text: data.note;
+                opacity: 0.7;
+                overflow: elide;
+                height: Theme.popup-row-height;
+                vertical-alignment: center;
+            }
+
             if items.length > 0: Rectangle {
                 property <int> cursor: root.data.cursor;
 
@@ -229,35 +257,18 @@ export component PopupOverlay {
                         height: Theme.popup-row-height;
                         background: index == root.data.cursor ? Theme.selection-background : transparent;
 
-                        HorizontalLayout {
+                        if item.kind == 2: Rectangle {
+                            height: Theme.line-width;
+                            y: (parent.height - self.height) / 2;
+                            background: Palette.border;
+                        }
+
+                        if item.kind != 2: HorizontalLayout {
                             padding-left: 4px;
                             padding-right: 4px;
                             spacing: 8px;
 
-                            if item.mark == 1: Rectangle {
-                                width: 18px;
-
-                                Rectangle {
-                                    width: 14px;
-                                    height: 14px;
-                                    x: 2px;
-                                    y: (parent.height - self.height) / 2;
-                                    border-radius: 7px;
-                                    border-width: 1px;
-                                    border-color: Palette.foreground;
-
-                                    if item.on: Rectangle {
-                                        width: 6px;
-                                        height: 6px;
-                                        x: (parent.width - self.width) / 2;
-                                        y: (parent.height - self.height) / 2;
-                                        border-radius: 3px;
-                                        background: Palette.foreground;
-                                    }
-                                }
-                            }
-
-                            if item.mark == 2: CheckBox {
+                            if item.kind == 1: CheckBox {
                                 width: 18px;
                                 checked: item.on;
                             }

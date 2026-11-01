@@ -514,8 +514,9 @@ fn compress_asks_for_the_name_and_a_password_in_one_popup() {
 
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Compress");
+    assert_eq!(popup.message, None);
     assert_eq!(
-        popup.message.as_deref(),
+        popup.note.as_deref(),
         Some("Leave the password empty for no encryption")
     );
     let labels: Vec<&str> = popup.fields.iter().map(|field| field.label).collect();

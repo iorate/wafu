@@ -49,7 +49,7 @@ pub use pane::RequestId;
 pub use preview::{Document, DocumentMode, ImageData, Line, PREVIEW_LIMIT};
 pub use state::{PaneState, StateError, StateFile, WindowState};
 pub use view::{
-    Fonts, InputField, ItemMark, LogView, PaneView, PopupItem, PopupView, PreviewContent,
+    Fonts, InputField, ItemKind, LogView, PaneView, PopupItem, PopupView, PreviewContent,
     PreviewLine, PreviewPlacement, PreviewView, ResolvedFont, RowKind, RowView, SharedImage, Style,
     View,
 };

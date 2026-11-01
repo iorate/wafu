@@ -97,7 +97,8 @@ pub struct PopupView {
     pub message: Option<String>,
     /// The input fields, if the popup has any. The first one takes the focus.
     pub fields: Vec<InputField>,
-    pub items: Vec<PopupItem>,
+    pub note: Option<String>,
+    pub items: Option<Vec<PopupItem>>,
     /// The selected item, if the popup has a list.
     pub cursor: Option<usize>,
     /// Reports work going on in the background; the UI may delay showing it.
@@ -189,15 +190,25 @@ impl Eq for SharedImage {}
 pub struct PopupItem {
     pub label: String,
     pub detail: String,
-    pub mark: ItemMark,
+    pub kind: ItemKind,
 }
 
-/// The indicator drawn before a popup item.
+impl PopupItem {
+    #[must_use]
+    pub fn separator() -> Self {
+        Self {
+            label: String::new(),
+            detail: String::new(),
+            kind: ItemKind::Separator,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ItemMark {
-    None,
-    Radio(bool),
+pub enum ItemKind {
+    Choice,
     Check(bool),
+    Separator,
 }
 
 /// What a row shows, for its color. Each variant takes the color of the same
