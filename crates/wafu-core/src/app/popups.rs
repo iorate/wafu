@@ -10,9 +10,9 @@ use crate::operation::{OperationKind, Reply};
 use crate::pane::HistoryMove;
 use crate::path::{expand_tilde, resolve_input};
 use crate::popup::{
-    ChoiceKind, ConflictPopup, ConflictRow, InputKind, InputPopup, ListItem, ListPopup, ListTarget,
-    MenuInput, PalettePopup, PasswordPurpose, Popup, Response, SearchPopup, SortPopup, menu_input,
-    stem_selection,
+    ChoiceKind, ConflictChoice, ConflictPopup, InputKind, InputPopup, ListItem, ListPopup,
+    ListTarget, MenuInput, PalettePopup, PasswordPurpose, Popup, Response, SearchPopup, SortPopup,
+    menu_input, stem_selection,
 };
 use crate::view::{InputField, ItemKind, PopupItem, PopupView};
 
@@ -414,7 +414,7 @@ impl App {
             }
             Popup::Conflict(mut popup) => match menu_input(&mut popup, input) {
                 Response::Stay => self.popup = Some(Popup::Conflict(popup)),
-                Response::Pick(row) => self.answer_conflict(popup, row, effects),
+                Response::Pick(choice) => self.answer_conflict(popup, choice, effects),
                 Response::Close => self.reply(Reply::Cancel, effects),
             },
             Popup::List(mut popup) => match menu_input(&mut popup, input) {
@@ -434,14 +434,14 @@ impl App {
     fn answer_conflict(
         &mut self,
         popup: ConflictPopup,
-        row: ConflictRow,
+        choice: ConflictChoice,
         effects: &mut Vec<Effect>,
     ) {
         let all = popup.all;
-        match row {
-            ConflictRow::Overwrite => self.reply(Reply::Overwrite { all }, effects),
-            ConflictRow::Skip => self.reply(Reply::Skip { all }, effects),
-            ConflictRow::Rename => {
+        match choice {
+            ConflictChoice::Overwrite => self.reply(Reply::Overwrite { all }, effects),
+            ConflictChoice::Skip => self.reply(Reply::Skip { all }, effects),
+            ConflictChoice::Rename => {
                 let text = popup
                     .dest
                     .file_name()
@@ -458,10 +458,7 @@ impl App {
                     select,
                 )));
             }
-            ConflictRow::Abort => self.reply(Reply::Cancel, effects),
-            ConflictRow::Separator | ConflictRow::ApplyToAll => {
-                self.popup = Some(Popup::Conflict(popup));
-            }
+            ConflictChoice::Abort => self.reply(Reply::Cancel, effects),
         }
     }
 

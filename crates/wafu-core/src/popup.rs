@@ -55,10 +55,18 @@ const QUIT_CHOICES: [Choice; 2] = [
 
 const CONFLICT_ROWS: [(ConflictRow, &str, Option<char>); 7] = [
     (ConflictRow::Separator, "", None),
-    (ConflictRow::Overwrite, "Overwrite", Some('O')),
-    (ConflictRow::Skip, "Skip", Some('S')),
-    (ConflictRow::Rename, "Rename", Some('R')),
-    (ConflictRow::Abort, "Abort", None),
+    (
+        ConflictRow::Choice(ConflictChoice::Overwrite),
+        "Overwrite",
+        Some('O'),
+    ),
+    (ConflictRow::Choice(ConflictChoice::Skip), "Skip", Some('S')),
+    (
+        ConflictRow::Choice(ConflictChoice::Rename),
+        "Rename",
+        Some('R'),
+    ),
+    (ConflictRow::Choice(ConflictChoice::Abort), "Abort", None),
     (ConflictRow::Separator, "", None),
     (ConflictRow::ApplyToAll, "Apply to all", Some('A')),
 ];
@@ -215,15 +223,13 @@ pub struct ConflictPopup {
     pub cursor: usize,
 }
 
-/// A row of the conflict popup.
+/// An answer of the conflict popup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConflictRow {
-    Separator,
+pub enum ConflictChoice {
     Overwrite,
     Skip,
     Rename,
     Abort,
-    ApplyToAll,
 }
 
 /// A list of places to pick from: history, bookmarks, or drives.
@@ -699,6 +705,13 @@ enum SortFlag {
     IgnoreCase,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConflictRow {
+    Separator,
+    Choice(ConflictChoice),
+    ApplyToAll,
+}
+
 impl Menu for SortPopup {
     type Pick = SortSpec;
 
@@ -784,7 +797,7 @@ impl Menu for ChoicePopup {
 }
 
 impl Menu for ConflictPopup {
-    type Pick = ConflictRow;
+    type Pick = ConflictChoice;
 
     fn rows(&self) -> usize {
         CONFLICT_ROWS.len()
@@ -793,8 +806,8 @@ impl Menu for ConflictPopup {
     fn kind(&self, row: usize) -> ItemKind {
         match CONFLICT_ROWS[row].0 {
             ConflictRow::Separator => ItemKind::Separator,
+            ConflictRow::Choice(_) => ItemKind::Choice,
             ConflictRow::ApplyToAll => ItemKind::Check(self.all),
-            _ => ItemKind::Choice,
         }
     }
 
@@ -812,14 +825,14 @@ impl Menu for ConflictPopup {
         })
     }
 
-    fn run(&mut self, row: usize) -> Response<ConflictRow> {
+    fn run(&mut self, row: usize) -> Response<ConflictChoice> {
         match CONFLICT_ROWS[row].0 {
             ConflictRow::Separator => Response::Stay,
+            ConflictRow::Choice(choice) => Response::Pick(choice),
             ConflictRow::ApplyToAll => {
                 self.all = !self.all;
                 Response::Stay
             }
-            row => Response::Pick(row),
         }
     }
 }
@@ -1138,8 +1151,8 @@ mod tests {
 
         assert_eq!(popup.run(6), Response::Stay);
         assert!(popup.all);
-        assert_eq!(popup.run(3), Response::Pick(ConflictRow::Rename));
-        assert_eq!(popup.run(4), Response::Pick(ConflictRow::Abort));
+        assert_eq!(popup.run(3), Response::Pick(ConflictChoice::Rename));
+        assert_eq!(popup.run(4), Response::Pick(ConflictChoice::Abort));
     }
 
     #[test]
@@ -1218,7 +1231,7 @@ mod tests {
         assert!(popup.all);
         assert_eq!(
             menu_input(&mut popup, MenuInput::DoubleClick { row: 3 }),
-            Response::Pick(ConflictRow::Rename)
+            Response::Pick(ConflictChoice::Rename)
         );
         assert_eq!(popup.cursor, 3);
     }
