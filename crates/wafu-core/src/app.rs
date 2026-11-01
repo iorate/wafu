@@ -398,7 +398,7 @@ pub struct App {
     preview_rows: usize,
     operation: Option<operations::Operation>,
     // A file made for `new_text`, to open in the editor once it exists.
-    edit_after_create: Option<PathBuf>,
+    edit_after_create: Option<(PathBuf, PathBuf)>,
     split_percent: u8,
     next_request: u64,
     home: PathBuf,

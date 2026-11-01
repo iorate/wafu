@@ -1083,8 +1083,43 @@ fn new_text_passes_the_name_to_the_editor_without_creating_it() {
 }
 
 #[test]
-fn new_text_names_the_file_in_the_place_the_popup_was_opened_in() {
-    let mut harness = three_files();
+fn new_text_names_and_opens_the_file_in_the_place_the_popup_was_opened_in() {
+    let mut harness =
+        Harness::start_with_config(LEFT, RIGHT, "[general]\neditor = \"ed {dir} {paths}\"\n");
+    harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
+    harness.press("Shift+E");
+    harness.vanish(Side::Left, "/home", vec![file("a")]);
+    assert_eq!(harness.view().left.path, "/home");
+
+    harness.edit("notes.txt");
+    harness.press("Enter");
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::CreateFile(path(LEFT, "notes.txt"))]
+    );
+
+    harness.changed_result(Change::FileCreated(path(LEFT, "notes.txt")), None);
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Spawn {
+            program: "ed".to_owned(),
+            args: vec![
+                OsString::from(LEFT),
+                path(LEFT, "notes.txt").into_os_string()
+            ],
+            cwd: PathBuf::from(LEFT),
+        }]
+    );
+}
+
+#[test]
+fn new_text_without_creating_opens_the_editor_in_the_place_the_popup_was_opened_in() {
+    let mut harness = Harness::start_with_config(
+        LEFT,
+        RIGHT,
+        "[general]\nnew_text_creates_file = false\neditor = \"ed {dir} {other_dir} {paths}\"\n",
+    );
+    harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
     harness.press("Shift+E");
     harness.vanish(Side::Left, "/home", vec![file("a")]);
     assert_eq!(harness.view().left.path, "/home");
@@ -1094,7 +1129,15 @@ fn new_text_names_the_file_in_the_place_the_popup_was_opened_in() {
 
     assert_eq!(
         harness.take_effects(),
-        vec![Effect::CreateFile(path(LEFT, "notes.txt"))]
+        vec![Effect::Spawn {
+            program: "ed".to_owned(),
+            args: vec![
+                OsString::from(LEFT),
+                OsString::from(RIGHT),
+                path(LEFT, "notes.txt").into_os_string()
+            ],
+            cwd: PathBuf::from(LEFT),
+        }]
     );
 }
 

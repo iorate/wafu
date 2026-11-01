@@ -385,12 +385,13 @@ impl App {
             // Some editors do nothing when given a path that does not exist
             // yet (`open -t` on macOS), so the file is made first by default.
             InputKind::NewText { .. } if self.config.general.new_text_creates_file => {
-                self.edit_after_create = Some(path.clone());
+                self.edit_after_create = Some((path.clone(), base));
                 effects.push(Effect::CreateFile(path));
             }
             InputKind::NewText { .. } => {
                 let expansion = Expansion {
                     paths: vec![path],
+                    dir: base,
                     ..self.expansion()
                 };
                 Self::spawn(&self.config.general.editor, &expansion, effects);
@@ -448,13 +449,12 @@ impl App {
             }
             (Change::FileCreated(path), None) => {
                 self.log.push(format!("created {}", path.display()));
-                if self
-                    .edit_after_create
-                    .take()
-                    .is_some_and(|edit| edit == path)
+                if let Some((edit, dir)) = self.edit_after_create.take()
+                    && edit == path
                 {
                     let expansion = Expansion {
                         paths: vec![path.clone()],
+                        dir,
                         ..self.expansion()
                     };
                     Self::spawn(&self.config.general.editor, &expansion, effects);
