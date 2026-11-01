@@ -904,6 +904,7 @@ fn popup_data(popup: Option<&PopupView>) -> PopupData {
                 .unwrap_or(-1),
             scroll_top: i32::try_from(popup.scroll_top).unwrap_or(i32::MAX),
             progress: popup.progress,
+            generation: i32::try_from(popup.generation).unwrap_or(i32::MAX),
         },
         None => PopupData {
             visible: false,
@@ -915,6 +916,7 @@ fn popup_data(popup: Option<&PopupView>) -> PopupData {
             cursor: -1,
             scroll_top: 0,
             progress: false,
+            generation: 0,
         },
     }
 }

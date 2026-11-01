@@ -1478,6 +1478,42 @@ fn palette_with_no_match_closes_on_enter_and_escape_closes_too() {
     assert_eq!(harness.take_effects(), vec![]);
 }
 
+#[test]
+fn a_popup_opened_from_the_palette_has_a_new_generation() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a.txt")]);
+    harness.press("Down");
+
+    harness.press("F1");
+    let palette = harness.view().popup.unwrap().generation;
+    harness.press("Down");
+    assert_eq!(harness.view().popup.unwrap().cursor, Some(1));
+    assert_eq!(harness.view().popup.unwrap().generation, palette);
+    harness.edit("rename");
+    assert_eq!(harness.view().popup.unwrap().generation, palette);
+
+    harness.press("Enter");
+    let popup = harness.view().popup.unwrap();
+    assert_eq!(popup.title, "Rename");
+    assert_ne!(popup.generation, palette);
+}
+
+#[test]
+fn typing_keeps_the_popup_generation_and_reopening_changes_it() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a.txt")]);
+    harness.press("Down");
+
+    harness.press("R");
+    let rename = harness.view().popup.unwrap().generation;
+    harness.edit("b.txt");
+    assert_eq!(harness.view().popup.unwrap().generation, rename);
+
+    harness.press("Esc");
+    harness.press("R");
+    assert_ne!(harness.view().popup.unwrap().generation, rename);
+}
+
 // Log and layout
 
 #[test]
