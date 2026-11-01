@@ -27,6 +27,9 @@ zip.workspace = true
 [target.'cfg(not(windows))'.dependencies]
 trash.workspace = true
 
+[target.'cfg(target_os = "macos")'.dependencies]
+icu_normalizer.workspace = true
+
 [target.'cfg(windows)'.dependencies]
 encoding_rs.workspace = true
 windows = { workspace = true, features = [

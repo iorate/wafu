@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -5,6 +6,8 @@ use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[cfg(target_os = "macos")]
+use icu_normalizer::ComposingNormalizer;
 use notify::event::{AccessKind, AccessMode};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher as _};
 use wafu_core::{IoError, IoEvent, Side};
@@ -132,16 +135,37 @@ fn watch_entry(
     let mut watcher = notify::recommended_watcher(move |result: notify::Result<Event>| {
         if let Ok(event) = result
             && is_change(event.kind)
-            && event
-                .paths
-                .iter()
-                .any(|path| path.file_name().map(ToOwned::to_owned) == name)
+            && event.paths.iter().any(|path| {
+                path.file_name()
+                    .zip(name.as_deref())
+                    .is_some_and(|(reported, watched)| same_name(reported, watched))
+            })
         {
             let _ = changes.send(());
         }
     })?;
     watcher.watch(dir, RecursiveMode::NonRecursive)?;
     Ok(watcher)
+}
+
+#[cfg(target_os = "macos")]
+fn same_name(reported: &OsStr, watched: &OsStr) -> bool {
+    let fold = |name: &OsStr| {
+        ComposingNormalizer::new_nfc()
+            .normalize(&name.to_string_lossy())
+            .to_lowercase()
+    };
+    fold(reported) == fold(watched)
+}
+
+#[cfg(windows)]
+fn same_name(reported: &OsStr, watched: &OsStr) -> bool {
+    reported.to_string_lossy().to_lowercase() == watched.to_string_lossy().to_lowercase()
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn same_name(reported: &OsStr, watched: &OsStr) -> bool {
+    reported == watched
 }
 
 // Opening or reading the directory is reported as an access on Linux, and the
@@ -184,6 +208,53 @@ fn spawn_debouncer(changes: mpsc::Receiver<()>, on_burst: impl Fn() + Send + 'st
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn same_name_matches_an_identical_name() {
+        assert!(same_name(
+            OsStr::new("Archive.zip"),
+            OsStr::new("Archive.zip")
+        ));
+        assert!(!same_name(
+            OsStr::new("Archive.zip"),
+            OsStr::new("Other.zip")
+        ));
+    }
+
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn same_name_ignores_case() {
+        assert!(same_name(
+            OsStr::new("Archive.zip"),
+            OsStr::new("archive.ZIP")
+        ));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn same_name_ignores_normalization() {
+        assert!(same_name(
+            OsStr::new("\u{304b}\u{3099}"),
+            OsStr::new("\u{304c}")
+        ));
+        assert!(same_name(
+            OsStr::new("\u{30ac}.ZIP"),
+            OsStr::new("\u{30ab}\u{3099}.zip")
+        ));
+    }
+
+    #[cfg(not(any(windows, target_os = "macos")))]
+    #[test]
+    fn same_name_compares_bytes() {
+        assert!(!same_name(
+            OsStr::new("Archive.zip"),
+            OsStr::new("archive.ZIP")
+        ));
+        assert!(!same_name(
+            OsStr::new("\u{304b}\u{3099}"),
+            OsStr::new("\u{304c}")
+        ));
+    }
 
     #[test]
     fn changes_that_never_stop_are_still_reported() {
