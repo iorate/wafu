@@ -443,13 +443,13 @@ fn open_directory_navigates_and_cancels_pending_read() {
     harness.take_effects();
 
     harness.press("Enter");
+    let request = harness.latest_request(Side::Left);
     // The move is modal, so a second move can only come from the outside.
     harness.press("BS");
     harness.press("Esc");
 
     // `join` uses the platform separator, so the expected path is built the same way.
     let docs = PathBuf::from("/home/user").join("docs");
-    let request = harness.latest_request(Side::Left);
     assert_eq!(
         harness.take_effects(),
         vec![
@@ -466,6 +466,11 @@ fn open_directory_navigates_and_cancels_pending_read() {
             Effect::Watch {
                 side: Side::Left,
                 path: PathBuf::from("/home/user"),
+            },
+            Effect::ReadDir {
+                side: Side::Left,
+                location: Location::new(PathBuf::from("/home/user")),
+                request: harness.latest_request(Side::Left),
             },
         ]
     );
@@ -673,6 +678,11 @@ fn escape_cancels_a_move_and_stays_put() {
                 side: Side::Left,
                 path: PathBuf::from("/home/user"),
             },
+            Effect::ReadDir {
+                side: Side::Left,
+                location: Location::new(PathBuf::from("/home/user")),
+                request: harness.latest_request(Side::Left),
+            },
         ]
     );
     assert_eq!(harness.view().left.path, "/home/user");
@@ -690,6 +700,23 @@ fn escape_cancels_a_move_and_stays_put() {
     }));
     assert_eq!(harness.view().left.path, "/home/user");
     assert_eq!(harness.log(), Vec::<String>::new());
+}
+
+#[test]
+fn escape_reads_the_place_it_stays_in_again() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a")]);
+    harness.press("BS");
+
+    harness.press("Esc");
+    assert!(matches!(
+        harness.app().pane(Side::Left).loading(),
+        Some(InFlight::Refresh { .. })
+    ));
+    harness.load(Side::Left, vec![file("a"), file("b")]);
+
+    assert_eq!(harness.view().left.path, "/home/user");
+    assert_eq!(harness.names(Side::Left), ["..", "a", "b"]);
 }
 
 #[test]
@@ -756,15 +783,42 @@ fn read_error_is_logged_and_the_pane_stays_where_it_was() {
     assert_eq!(harness.log(), ["cannot read /home: permission denied"]);
     assert_eq!(
         harness.take_effects(),
-        vec![Effect::Watch {
-            side: Side::Left,
-            path: PathBuf::from("/home/user"),
-        }]
+        vec![
+            Effect::Watch {
+                side: Side::Left,
+                path: PathBuf::from("/home/user"),
+            },
+            Effect::ReadDir {
+                side: Side::Left,
+                location: Location::new(PathBuf::from("/home/user")),
+                request: harness.latest_request(Side::Left),
+            },
+        ]
     );
     assert_eq!(harness.view().left.path, "/home/user");
     assert_eq!(harness.names(Side::Left), ["..", "a"]);
-    assert!(harness.app().pane(Side::Left).loading().is_none());
+    assert!(matches!(
+        harness.app().pane(Side::Left).loading(),
+        Some(InFlight::Refresh { .. })
+    ));
     assert_eq!(harness.history(Side::Left), ["/home/user"]);
+}
+
+#[test]
+fn a_read_error_reads_the_place_it_stays_in_again() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a")]);
+    harness.press("BS");
+
+    harness.fail_load(Side::Left, "permission denied");
+    assert!(matches!(
+        harness.app().pane(Side::Left).loading(),
+        Some(InFlight::Refresh { .. })
+    ));
+    harness.load(Side::Left, vec![file("a"), file("b")]);
+
+    assert_eq!(harness.view().left.path, "/home/user");
+    assert_eq!(harness.names(Side::Left), ["..", "a", "b"]);
 }
 
 #[test]
@@ -2244,10 +2298,17 @@ fn a_move_to_a_drive_with_nothing_on_it_stays_put() {
     assert_eq!(harness.log(), ["D:\\ is not available"]);
     assert_eq!(
         harness.take_effects(),
-        vec![Effect::Watch {
-            side: Side::Left,
-            path: PathBuf::from("/home/user"),
-        }]
+        vec![
+            Effect::Watch {
+                side: Side::Left,
+                path: PathBuf::from("/home/user"),
+            },
+            Effect::ReadDir {
+                side: Side::Left,
+                location: Location::new(PathBuf::from("/home/user")),
+                request: harness.latest_request(Side::Left),
+            },
+        ]
     );
     assert_eq!(harness.view().left.path, "/home/user");
     assert_eq!(harness.names(Side::Left), ["..", "a"]);
@@ -2816,10 +2877,17 @@ fn go_to_path_to_a_missing_place_logs_an_error_and_stays() {
     assert_eq!(harness.view().left.path, "/home/user");
     assert_eq!(
         harness.take_effects(),
-        vec![Effect::Watch {
-            side: Side::Left,
-            path: PathBuf::from("/home/user"),
-        }]
+        vec![
+            Effect::Watch {
+                side: Side::Left,
+                path: PathBuf::from("/home/user"),
+            },
+            Effect::ReadDir {
+                side: Side::Left,
+                location: Location::new(PathBuf::from("/home/user")),
+                request: harness.latest_request(Side::Left),
+            },
+        ]
     );
 }
 
@@ -3238,6 +3306,7 @@ fn drive_next_and_prev_without_a_current_drive_go_to_the_ends() {
         [Effect::Resolve { path, .. }] if path == &PathBuf::from("C:\\")
     ));
     harness.press("Esc");
+    harness.load(Side::Left, Vec::new());
     harness.take_effects();
 
     harness.press("Ctrl+Left");
@@ -3248,6 +3317,7 @@ fn drive_next_and_prev_without_a_current_drive_go_to_the_ends() {
     ));
 
     harness.press("Esc");
+    harness.load(Side::Left, Vec::new());
     harness.take_effects();
     harness.press("Ctrl+Right");
     harness.drives(&[]);
@@ -3329,6 +3399,11 @@ fn drive_next_reads_the_drive_as_part_of_the_same_move() {
                 side: Side::Left,
                 path: PathBuf::from("/home/user"),
             },
+            Effect::ReadDir {
+                side: Side::Left,
+                location: Location::new(PathBuf::from("/home/user")),
+                request: harness.latest_request(Side::Left),
+            },
         ]
     );
     assert_eq!(harness.view().left.path, "/home/user");
@@ -3352,6 +3427,25 @@ fn a_change_while_listing_drives_is_read_once_the_list_arrives() {
             ..
         }]
     ));
+}
+
+#[test]
+fn a_change_while_listing_drives_is_read_when_the_next_drive_is_unavailable() {
+    let mut harness = Harness::start_on(Os::Windows, "/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a")]);
+    harness.press("Ctrl+Right");
+    harness.changed(Side::Left);
+    harness.drives(&['D']);
+
+    harness.fail_resolve(Side::Left);
+    assert!(matches!(
+        harness.app().pane(Side::Left).loading(),
+        Some(InFlight::Refresh { .. })
+    ));
+    harness.load(Side::Left, vec![file("a"), file("b")]);
+
+    assert_eq!(harness.view().left.path, "/home/user");
+    assert_eq!(harness.names(Side::Left), ["..", "a", "b"]);
 }
 
 #[test]
