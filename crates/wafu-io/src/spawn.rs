@@ -4,11 +4,13 @@ use std::process::{Command, Stdio};
 use std::thread;
 
 /// Starts a program directly, without a shell, and does not wait for it.
-pub fn spawn(program: &str, args: &[impl AsRef<OsStr>], cwd: &Path) -> std::io::Result<()> {
+pub fn spawn(program: &str, args: &[impl AsRef<OsStr>], cwd: Option<&Path>) -> std::io::Result<()> {
     let mut command = Command::new(program);
+    command.args(args);
+    if let Some(cwd) = cwd {
+        command.current_dir(cwd);
+    }
     command
-        .args(args)
-        .current_dir(cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -27,7 +29,6 @@ pub fn spawn(program: &str, args: &[impl AsRef<OsStr>], cwd: &Path) -> std::io::
 /// handoff file.
 pub fn spawn_new_window(handoff: &Path, config: Option<&Path>) -> std::io::Result<()> {
     let exe = std::env::current_exe()?;
-    let cwd = std::env::current_dir()?;
     let mut args = vec![
         OsStr::new("--inherit").to_owned(),
         handoff.as_os_str().to_owned(),
@@ -36,7 +37,7 @@ pub fn spawn_new_window(handoff: &Path, config: Option<&Path>) -> std::io::Resul
         args.push(OsStr::new("--config").to_owned());
         args.push(config.as_os_str().to_owned());
     }
-    spawn(&exe.to_string_lossy(), &args, &cwd)
+    spawn(&exe.to_string_lossy(), &args, None)
 }
 
 #[cfg(windows)]
@@ -61,7 +62,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let exe = std::env::current_exe().unwrap();
 
-        spawn(&exe.to_string_lossy(), &["--help"], dir.path()).unwrap();
+        spawn(&exe.to_string_lossy(), &["--help"], Some(dir.path())).unwrap();
     }
 
     #[test]
@@ -69,12 +70,12 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let exe = std::env::current_exe().unwrap();
 
-        assert!(spawn("wafu-no-such-program", &["x"], dir.path()).is_err());
+        assert!(spawn("wafu-no-such-program", &["x"], Some(dir.path())).is_err());
         assert!(
             spawn(
                 &exe.to_string_lossy(),
                 &["--help"],
-                &dir.path().join("gone")
+                Some(&dir.path().join("gone"))
             )
             .is_err()
         );
