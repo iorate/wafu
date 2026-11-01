@@ -338,6 +338,37 @@ fn the_progress_popup_ignores_the_mouse() {
 }
 
 #[test]
+fn input_popups_ignore_the_popup_mouse() {
+    let mut renaming = three_files();
+    renaming.press("Down");
+    renaming.press("R");
+    let mut renaming_in_a_conflict = conflicting();
+    renaming_in_a_conflict.press("R");
+    let mut asking_for_a_password = copying();
+    asking_for_a_password.operation(OperationEvent::NeedPassword {
+        archive: path(LEFT, "a.zip"),
+        retry: false,
+    });
+
+    for mut harness in [renaming, renaming_in_a_conflict, asking_for_a_password] {
+        harness.take_effects();
+        let view = harness.view();
+        assert!(
+            view.popup
+                .as_ref()
+                .is_some_and(|popup| !popup.fields.is_empty())
+        );
+
+        harness.popup_click(0);
+        harness.popup_double_click(0);
+        harness.popup_wheel(3);
+
+        assert_eq!(harness.view(), view);
+        assert_eq!(harness.take_effects(), vec![]);
+    }
+}
+
+#[test]
 fn space_on_a_conflict_choice_does_nothing() {
     let mut harness = conflicting();
 
@@ -576,6 +607,30 @@ fn delete_asks_once_and_names_a_single_target() {
         })]
     );
     assert_eq!(harness.view().popup.unwrap().title, "Deleting");
+}
+
+#[test]
+fn delete_confirmation_letters_take_shift_but_not_ctrl() {
+    let mut harness = three_files();
+    cursor_only(&mut harness);
+    harness.press("Down");
+    harness.press("D");
+    harness.take_effects();
+
+    harness.press("Ctrl+Y");
+    assert_eq!(harness.view().popup.unwrap().title, "Delete");
+    assert_eq!(harness.take_effects(), vec![]);
+
+    harness.press("Shift+Y");
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::StartOperation(OperationSpec {
+            kind: OperationKind::Delete,
+            sources: Sources::Paths(vec![path(LEFT, "a")]),
+            dest: None,
+            output: None,
+        })]
+    );
 }
 
 #[test]
