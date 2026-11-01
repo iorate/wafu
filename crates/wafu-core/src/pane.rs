@@ -3,6 +3,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::app::DrivePurpose;
 use crate::config::SizeFormat;
 use crate::entry::{Directory, Entry};
 use crate::error::IoError;
@@ -66,6 +67,10 @@ pub enum InFlight {
     },
     /// A re-read of the current place.
     Refresh { request: RequestId },
+    Drives {
+        request: RequestId,
+        purpose: DrivePurpose,
+    },
 }
 
 impl InFlight {
@@ -74,7 +79,8 @@ impl InFlight {
         match self {
             Self::Resolve { request, .. }
             | Self::Navigate { request, .. }
-            | Self::Refresh { request } => *request,
+            | Self::Refresh { request }
+            | Self::Drives { request, .. } => *request,
         }
     }
 }

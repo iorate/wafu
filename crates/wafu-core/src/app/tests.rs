@@ -2899,10 +2899,12 @@ fn drives_popup_lists_the_letters_and_picks_by_letter() {
         harness.take_effects(),
         vec![Effect::ListDrives {
             purpose: DrivePurpose::Show,
+            request: harness.latest_drives(),
         }]
     );
 
     harness.drives(DrivePurpose::Show, &['D', 'C']);
+    assert!(harness.app().pane(Side::Left).loading().is_none());
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Drives");
     assert_eq!(harness.popup_labels(), ["C:\\", "D:\\"]);
@@ -2930,6 +2932,7 @@ fn drive_next_and_prev_without_a_current_drive_go_to_the_ends() {
         harness.take_effects(),
         vec![Effect::ListDrives {
             purpose: DrivePurpose::Next,
+            request: harness.latest_drives(),
         }]
     );
     harness.drives(DrivePurpose::Next, &['C', 'D']);
@@ -2955,8 +2958,136 @@ fn drive_next_and_prev_without_a_current_drive_go_to_the_ends() {
         harness.take_effects(),
         vec![Effect::ListDrives {
             purpose: DrivePurpose::Next,
+            request: harness.latest_drives(),
         }]
     );
+}
+
+#[test]
+fn listing_drives_holds_the_active_pane_and_shows_a_progress_popup() {
+    let mut harness = Harness::start_on(Os::Windows, "/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a"), file("b")]);
+    harness.take_effects();
+
+    harness.press("L");
+    harness.take_effects();
+    harness.press("Down");
+    harness.press("Ctrl+Right");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.view().left.cursor, Some(0));
+    let popup = harness.view().popup.unwrap();
+    assert_eq!(popup.title, "Loading");
+    assert_eq!(popup.message, Some("Listing drives".to_owned()));
+    assert!(popup.progress);
+}
+
+#[test]
+fn escape_while_listing_drives_drops_the_letters_that_arrive_later() {
+    let mut harness = Harness::start_on(Os::Windows, "/home/user", "/tmp");
+    harness.take_effects();
+
+    harness.press("L");
+    harness.take_effects();
+    harness.press("Esc");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert!(harness.app().pane(Side::Left).loading().is_none());
+    assert!(harness.view().popup.is_none());
+
+    harness.drives(DrivePurpose::Show, &['C', 'D']);
+
+    assert!(harness.view().popup.is_none());
+
+    harness.press("Ctrl+Right");
+    harness.press("Esc");
+    harness.take_effects();
+    harness.drives(DrivePurpose::Next, &['C', 'D']);
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.view().left.path, "/home/user");
+}
+
+#[test]
+fn drive_next_reads_the_drive_as_part_of_the_same_move() {
+    let mut harness = Harness::start_on(Os::Windows, "/home/user", "/tmp");
+    harness.take_effects();
+
+    harness.press("Ctrl+Right");
+    harness.drives(DrivePurpose::Next, &['C', 'D']);
+    let resolve = harness.latest_resolve(Side::Left);
+    harness.take_effects();
+
+    assert_eq!(
+        harness.view().popup.unwrap().message,
+        Some("Reading C:\\".to_owned())
+    );
+
+    harness.press("Esc");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![
+            Effect::CancelRead { request: resolve },
+            Effect::Watch {
+                side: Side::Left,
+                path: PathBuf::from("/home/user"),
+            },
+        ]
+    );
+    assert_eq!(harness.view().left.path, "/home/user");
+}
+
+#[test]
+fn a_change_while_listing_drives_is_read_once_the_list_arrives() {
+    let mut harness = Harness::start_on(Os::Windows, "/home/user", "/tmp");
+    harness.take_effects();
+
+    harness.press("L");
+    harness.changed(Side::Left);
+    harness.take_effects();
+
+    harness.drives(DrivePurpose::Show, &['C']);
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::ReadDir {
+            side: Side::Left,
+            ..
+        }]
+    ));
+}
+
+#[test]
+fn listing_drives_during_a_reload_reads_again_once_the_list_arrives() {
+    let mut harness = Harness::start_on(Os::Windows, "/home/user", "/tmp");
+    harness.changed(Side::Left);
+    let reload = harness.latest_request(Side::Left);
+    harness.take_effects();
+
+    harness.press("L");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![
+            Effect::CancelRead { request: reload },
+            Effect::ListDrives {
+                purpose: DrivePurpose::Show,
+                request: harness.latest_drives(),
+            },
+        ]
+    );
+
+    harness.drives(DrivePurpose::Show, &['C']);
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::ReadDir {
+            side: Side::Left,
+            ..
+        }]
+    ));
+    assert_eq!(harness.popup_labels(), ["C:\\"]);
 }
 
 #[cfg(windows)]
