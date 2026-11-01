@@ -204,6 +204,9 @@ impl Runtime {
                 let error = write_handoff(&state)
                     .and_then(|handoff| {
                         spawn_new_window(&handoff, self.paths.config_override.as_deref())
+                            .inspect_err(|_| {
+                                let _ = fs::remove_file(&handoff);
+                            })
                     })
                     .err()
                     .map(|error| IoError::new(error.to_string()));

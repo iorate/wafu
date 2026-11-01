@@ -1,11 +1,11 @@
 use std::fs;
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
 
 use wafu_core::{StateError, StateFile};
 
-static HANDOFF_COUNT: AtomicU32 = AtomicU32::new(0);
+const HANDOFF_PREFIX: &str = "wafu-inherit-";
+const HANDOFF_SUFFIX: &str = ".toml";
 
 /// Reads the state file. `Ok(None)` when there is none.
 pub fn read_state(path: &Path) -> Result<Option<StateFile>, StateError> {
@@ -17,9 +17,7 @@ pub fn read_state(path: &Path) -> Result<Option<StateFile>, StateError> {
 }
 
 pub fn write_state(path: &Path, state: &StateFile) -> std::io::Result<()> {
-    let text = state
-        .to_toml()
-        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    let text = to_toml(state)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -28,10 +26,13 @@ pub fn write_state(path: &Path, state: &StateFile) -> std::io::Result<()> {
 
 /// Writes the state for a new instance to a temporary file and returns its path.
 pub fn write_handoff(state: &StateFile) -> std::io::Result<PathBuf> {
-    let count = HANDOFF_COUNT.fetch_add(1, Ordering::Relaxed);
-    let path =
-        std::env::temp_dir().join(format!("wafu-inherit-{}-{count}.toml", std::process::id()));
-    write_state(&path, state)?;
+    let text = to_toml(state)?;
+    let mut file = tempfile::Builder::new()
+        .prefix(HANDOFF_PREFIX)
+        .suffix(HANDOFF_SUFFIX)
+        .tempfile_in(std::env::temp_dir())?;
+    file.write_all(text.as_bytes())?;
+    let (_, path) = file.keep()?;
     Ok(path)
 }
 
@@ -40,6 +41,12 @@ pub fn read_handoff(path: &Path) -> Result<Option<StateFile>, StateError> {
     let state = read_state(path);
     let _ = fs::remove_file(path);
     state
+}
+
+fn to_toml(state: &StateFile) -> std::io::Result<String> {
+    state
+        .to_toml()
+        .map_err(|error| std::io::Error::other(error.to_string()))
 }
 
 #[cfg(test)]
@@ -89,5 +96,35 @@ mod tests {
         assert_eq!(read_handoff(&path), Ok(Some(state)));
         assert!(!path.exists());
         assert_eq!(read_handoff(&path), Ok(None));
+    }
+
+    #[test]
+    fn handoff_file_has_a_fresh_name_in_the_temporary_directory() {
+        let state = StateFile::default();
+
+        let first = write_handoff(&state).unwrap();
+        let second = write_handoff(&state).unwrap();
+
+        for path in [&first, &second] {
+            let name = path.file_name().unwrap().to_str().unwrap();
+            assert!(name.starts_with(HANDOFF_PREFIX), "{name}");
+            assert!(name.ends_with(HANDOFF_SUFFIX), "{name}");
+            assert_eq!(path.parent(), Some(std::env::temp_dir().as_path()));
+        }
+        assert_ne!(first, second);
+        let _ = read_handoff(&first);
+        let _ = read_handoff(&second);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn handoff_file_is_readable_only_by_its_owner() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = write_handoff(&StateFile::default()).unwrap();
+        let mode = fs::metadata(&path).unwrap().permissions().mode();
+        let _ = read_handoff(&path);
+
+        assert_eq!(mode & 0o777, 0o600);
     }
 }
