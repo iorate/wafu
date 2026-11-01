@@ -267,23 +267,16 @@ impl Runtime {
     }
 
     fn list_drives(&self, request: RequestId) {
-        if cfg!(windows) {
-            let on_event = Arc::clone(&self.on_event);
-            thread::Builder::new()
-                .name("wafu-io-drives".to_owned())
-                .spawn(move || {
-                    on_event(IoEvent::Drives {
-                        request,
-                        letters: panic::catch_unwind(drives).unwrap_or_default(),
-                    });
-                })
-                .expect("the drives thread should start");
-        } else {
-            (self.on_event)(IoEvent::Drives {
-                request,
-                letters: drives(),
-            });
-        }
+        let on_event = Arc::clone(&self.on_event);
+        thread::Builder::new()
+            .name("wafu-io-drives".to_owned())
+            .spawn(move || {
+                on_event(IoEvent::Drives {
+                    request,
+                    letters: panic::catch_unwind(drives).unwrap_or_default(),
+                });
+            })
+            .expect("the drives thread should start");
     }
 }
 
