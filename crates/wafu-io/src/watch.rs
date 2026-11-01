@@ -142,8 +142,11 @@ impl Group {
         let watches = Arc::new(Mutex::new(watches));
         let weak = Arc::downgrade(&watches);
         spawn_debouncer(changes, move || {
-            refollow(&weak, &path, with_contents);
+            if !refollow(&weak, &path, with_contents) {
+                return false;
+            }
             on_burst(&path);
+            true
         });
         Self { _watches: watches }
     }
@@ -212,15 +215,15 @@ fn follow(
 // A watch of the contents through a link stays on the old target when the
 // link is replaced, so the watches are made again once it leads elsewhere.
 // Resolving and watching may block, so neither happens under the lock.
-fn refollow(group: &Weak<Mutex<Watches>>, path: &Path, with_contents: bool) {
+fn refollow(group: &Weak<Mutex<Watches>>, path: &Path, with_contents: bool) -> bool {
     let resolution = resolve_link(path);
     let changes = {
         let Some(group) = group.upgrade() else {
-            return;
+            return false;
         };
         let watches = lock(&group);
         if watches.followed.resolution == resolution {
-            return;
+            return true;
         }
         watches.changes.clone()
     };
@@ -232,10 +235,11 @@ fn refollow(group: &Weak<Mutex<Watches>>, path: &Path, with_contents: bool) {
             _target: None,
         });
     let Some(group) = group.upgrade() else {
-        return;
+        return false;
     };
     // The replaced watches are dropped after the lock is released.
     let _replaced = mem::replace(&mut lock(&group).followed, followed);
+    true
 }
 
 // Reports any change inside the directory. An error from the watcher counts
@@ -335,8 +339,9 @@ fn is_dir_entry_change(kind: EventKind) -> bool {
 
 // Calls `on_burst` once per burst of changes, after they stop for a moment or
 // after a while even if they do not, so that a directory written to all the
-// time is still refreshed. The thread ends when the senders are dropped.
-fn spawn_debouncer(changes: mpsc::Receiver<()>, on_burst: impl Fn() + Send + 'static) {
+// time is still refreshed. The thread ends when the senders are dropped or
+// `on_burst` returns false.
+fn spawn_debouncer(changes: mpsc::Receiver<()>, on_burst: impl Fn() -> bool + Send + 'static) {
     thread::Builder::new()
         .name("wafu-io-watch".to_owned())
         .spawn(move || {
@@ -355,7 +360,9 @@ fn spawn_debouncer(changes: mpsc::Receiver<()>, on_burst: impl Fn() + Send + 'st
                         Err(RecvTimeoutError::Disconnected) => return,
                     }
                 }
-                on_burst();
+                if !on_burst() {
+                    return;
+                }
             }
         })
         .expect("the watch thread should start");
@@ -650,6 +657,7 @@ pub(crate) mod tests {
         let (reports, reported) = mpsc::channel();
         spawn_debouncer(receiver, move || {
             let _ = reports.send(());
+            true
         });
 
         let start = Instant::now();
