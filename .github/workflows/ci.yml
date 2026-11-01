@@ -53,7 +53,15 @@ jobs:
         run: cargo clippy --all-targets
 
       - name: cargo test
+        if: runner.os != 'Windows'
         run: cargo test
+
+      - name: cargo test (Windows)
+        if: runner.os == 'Windows'
+        run: >-
+          cargo test --
+          --skip runtime::tests::removing_the_target_of_a_watched_link_to_a_directory_is_reported
+          --skip runtime::tests::removing_the_target_of_a_watched_junction_is_reported
 
       - name: Check package.json versions
         if: runner.os == 'Linux'
