@@ -529,6 +529,17 @@ fn a_conflict_during_the_quit_confirmation_waits_behind_it() {
 }
 
 #[test]
+fn a_quit_confirmation_is_answered_with_the_mouse() {
+    let mut harness = conflicting();
+    harness.send(Msg::CloseRequested);
+
+    harness.popup_double_click(2);
+
+    assert_eq!(harness.view().popup.unwrap().title, "File exists");
+    assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
 fn delete_asks_once_and_names_a_single_target() {
     let mut harness = three_files();
     cursor_only(&mut harness);
@@ -629,6 +640,44 @@ fn delete_takes_the_directory_the_confirmation_was_opened_in() {
             output: None,
         })]
     );
+}
+
+#[test]
+fn a_delete_confirmation_is_answered_with_the_mouse() {
+    let mut harness = three_files();
+    cursor_only(&mut harness);
+    harness.press("Down");
+    harness.press("D");
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.popup_double_click(1);
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::StartOperation(OperationSpec {
+            kind: OperationKind::Delete,
+            sources: Sources::Paths(vec![path(LEFT, "a")]),
+            dest: None,
+            output: None,
+        })]
+    );
+}
+
+#[test]
+fn double_clicking_the_separator_of_a_confirmation_does_nothing() {
+    let mut harness = three_files();
+    cursor_only(&mut harness);
+    harness.press("Down");
+    harness.press("D");
+    harness.take_effects();
+
+    harness.popup_double_click(0);
+
+    let popup = harness.view().popup.unwrap();
+    assert_eq!(popup.title, "Delete");
+    assert_eq!(popup.cursor, Some(1));
+    assert_eq!(harness.take_effects(), vec![]);
 }
 
 #[test]
