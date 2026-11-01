@@ -44,9 +44,15 @@ impl App {
                 self.start_removal(OperationKind::Trash, dir, names, effects);
             }
             Command::Rename => self.open_rename(),
-            Command::Mkdir => self.open_input(InputKind::Mkdir),
-            Command::NewFile => self.open_input(InputKind::NewFile),
-            Command::NewText => self.open_input(InputKind::NewText),
+            Command::Mkdir => self.open_input(InputKind::Mkdir {
+                dir: self.active_pane().location().base.clone(),
+            }),
+            Command::NewFile => self.open_input(InputKind::NewFile {
+                dir: self.active_pane().location().base.clone(),
+            }),
+            Command::NewText => self.open_input(InputKind::NewText {
+                dir: self.active_pane().location().base.clone(),
+            }),
             Command::Edit => self.edit(effects),
             Command::CopyPath => self.copy_to_clipboard(true, effects),
             Command::CopyName => self.copy_to_clipboard(false, effects),
@@ -350,8 +356,16 @@ impl App {
             return;
         }
         let base = match &kind {
-            InputKind::Rename { dir, .. } => dir.clone(),
-            _ => self.active_pane().location().base.clone(),
+            InputKind::Rename { dir, .. }
+            | InputKind::Mkdir { dir }
+            | InputKind::NewFile { dir }
+            | InputKind::NewText { dir } => dir.clone(),
+            InputKind::ConflictRename { .. }
+            | InputKind::Filter
+            | InputKind::MarkGlob
+            | InputKind::GoToPath { .. }
+            | InputKind::ArchivePassword { .. }
+            | InputKind::Compress { .. } => return,
         };
         if base.as_os_str().is_empty() {
             return;
@@ -366,17 +380,18 @@ impl App {
                     });
                 }
             }
-            InputKind::Mkdir => effects.push(Effect::Mkdir(path)),
-            InputKind::NewFile => effects.push(Effect::CreateFile(path)),
+            InputKind::Mkdir { .. } => effects.push(Effect::Mkdir(path)),
+            InputKind::NewFile { .. } => effects.push(Effect::CreateFile(path)),
             // Some editors do nothing when given a path that does not exist
             // yet (`open -t` on macOS), so the file is made first by default.
-            InputKind::NewText if self.config.general.new_text_creates_file => {
-                self.edit_after_create = Some(path.clone());
+            InputKind::NewText { .. } if self.config.general.new_text_creates_file => {
+                self.edit_after_create = Some((path.clone(), base));
                 effects.push(Effect::CreateFile(path));
             }
-            InputKind::NewText => {
+            InputKind::NewText { .. } => {
                 let expansion = Expansion {
                     paths: vec![path],
+                    dir: base,
                     ..self.expansion()
                 };
                 Self::spawn(&self.config.general.editor, &expansion, effects);
@@ -384,7 +399,7 @@ impl App {
             InputKind::ConflictRename { .. }
             | InputKind::Filter
             | InputKind::MarkGlob
-            | InputKind::GoToPath
+            | InputKind::GoToPath { .. }
             | InputKind::ArchivePassword { .. }
             | InputKind::Compress { .. } => {}
         }
@@ -434,13 +449,12 @@ impl App {
             }
             (Change::FileCreated(path), None) => {
                 self.log.push(format!("created {}", path.display()));
-                if self
-                    .edit_after_create
-                    .take()
-                    .is_some_and(|edit| edit == path)
+                if let Some((edit, dir)) = self.edit_after_create.take()
+                    && edit == path
                 {
                     let expansion = Expansion {
                         paths: vec![path.clone()],
+                        dir,
                         ..self.expansion()
                     };
                     Self::spawn(&self.config.general.editor, &expansion, effects);

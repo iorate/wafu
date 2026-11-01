@@ -398,7 +398,7 @@ pub struct App {
     preview_rows: usize,
     operation: Option<operations::Operation>,
     // A file made for `new_text`, to open in the editor once it exists.
-    edit_after_create: Option<PathBuf>,
+    edit_after_create: Option<(PathBuf, PathBuf)>,
     split_percent: u8,
     next_request: u64,
     home: PathBuf,
@@ -635,7 +635,9 @@ impl App {
                 }
             }
             Command::Palette => self.open_palette(),
-            Command::GoToPath => self.open_input(InputKind::GoToPath),
+            Command::GoToPath => self.open_input(InputKind::GoToPath {
+                dir: self.active_pane().location().base.clone(),
+            }),
             Command::Bookmarks => self.open_bookmarks(),
             Command::History => self.open_history(),
             Command::EditConfig => self.edit_config(effects),

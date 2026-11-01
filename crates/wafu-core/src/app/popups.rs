@@ -24,17 +24,17 @@ impl App {
 
     pub(super) fn open_input(&mut self, kind: InputKind) {
         let pane = self.active_pane();
-        let text = match kind {
+        let text = match &kind {
             InputKind::Filter => pane
                 .filter()
                 .map(|filter| filter.pattern().to_owned())
                 .unwrap_or_default(),
-            InputKind::GoToPath => pane.location().base.to_string_lossy().into_owned(),
+            InputKind::GoToPath { dir } => dir.to_string_lossy().into_owned(),
             InputKind::MarkGlob
             | InputKind::Rename { .. }
-            | InputKind::Mkdir
-            | InputKind::NewFile
-            | InputKind::NewText
+            | InputKind::Mkdir { .. }
+            | InputKind::NewFile { .. }
+            | InputKind::NewText { .. }
             | InputKind::ConflictRename { .. }
             | InputKind::ArchivePassword { .. }
             | InputKind::Compress { .. } => String::new(),
@@ -308,20 +308,19 @@ impl App {
         let text = popup.text(0).to_owned();
         let password = popup.text(1).to_owned();
         match popup.kind {
-            InputKind::GoToPath => {
+            InputKind::GoToPath { dir } => {
                 let text = text.trim();
                 if text.is_empty() {
                     return;
                 }
-                let base = &self.active_pane().location().base;
-                let path = resolve_input(text, &self.home, base);
+                let path = resolve_input(text, &self.home, &dir);
                 self.resolve(self.active, path, false, None, effects);
                 return;
             }
             InputKind::Rename { .. }
-            | InputKind::Mkdir
-            | InputKind::NewFile
-            | InputKind::NewText => {
+            | InputKind::Mkdir { .. }
+            | InputKind::NewFile { .. }
+            | InputKind::NewText { .. } => {
                 self.confirm_name(popup.kind, &text, effects);
                 return;
             }
