@@ -1969,6 +1969,18 @@ fn filtering_the_palette_scrolls_back_to_the_top() {
 
     let popup = harness.view().popup.unwrap();
     assert_eq!((popup.scroll_top, popup.cursor), (0, Some(0)));
+
+    harness.edit("jump");
+    harness.popup_wheel(24);
+    let popup = harness.view().popup.unwrap();
+    assert!(popup.scroll_top > 0);
+    let rows = popup.items.unwrap().len();
+
+    harness.edit("jump_");
+
+    let popup = harness.view().popup.unwrap();
+    assert_eq!(popup.items.unwrap().len(), rows);
+    assert_eq!((popup.scroll_top, popup.cursor), (0, Some(0)));
 }
 
 // Navigation

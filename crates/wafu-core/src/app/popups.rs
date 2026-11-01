@@ -130,7 +130,10 @@ impl App {
     pub(super) fn input_changed(&mut self, field: usize, text: String) {
         match &mut self.popup {
             Some(Popup::Input(popup)) => popup.set_text(field, text),
-            Some(Popup::Palette(popup)) if field == 0 => popup.set_query(text),
+            Some(Popup::Palette(popup)) if field == 0 => {
+                popup.set_query(text);
+                self.popup_top = 0;
+            }
             Some(Popup::Search(popup)) if field == 0 => {
                 let pane = &mut self.panes[self.active.index()];
                 if text.is_empty() {
