@@ -1,6 +1,7 @@
 use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashSet;
+use std::fmt::Display;
 use std::fs;
 use std::io;
 use std::panic::{self, AssertUnwindSafe};
@@ -110,10 +111,7 @@ impl Runtime {
     /// raw handle. The window is created after the runtime, so the handle is
     /// given once it exists.
     pub fn set_owner_window(&self, window: Option<isize>) {
-        *self
-            .owner_window
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = window;
+        *lock(&self.owner_window) = window;
     }
 
     /// Runs an effect. Effects that are not for the I/O layer are ignored.
@@ -139,10 +137,7 @@ impl Runtime {
             } => {
                 // The old watch might keep a vanished directory half alive on
                 // Windows; the application watches again once it knows where it is.
-                self.watcher
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .unwatch(side);
+                lock(&self.watcher).unwatch(side);
                 lock(&self.pending).insert(request);
                 self.send(Job::Resolve {
                     side,
@@ -166,10 +161,7 @@ impl Runtime {
                 self.send(Job::LoadImage { source, request });
             }
             Effect::Watch { side, path } => {
-                self.watcher
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .watch(side, path, &self.on_event);
+                lock(&self.watcher).watch(side, path, &self.on_event);
             }
             Effect::ListDrives { purpose, request } => self.list_drives(purpose, request),
             Effect::WatchConfig(path) => {
@@ -182,15 +174,10 @@ impl Runtime {
                         None
                     }
                 };
-                *self
-                    .config_watcher
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner) = watcher;
+                *lock(&self.config_watcher) = watcher;
             }
             Effect::Spawn { program, args, cwd } => {
-                let error = spawn(&program, &args, Some(&cwd))
-                    .err()
-                    .map(|error| IoError::new(error.to_string()));
+                let error = io_error(spawn(&program, &args, Some(&cwd)));
                 (self.on_event)(IoEvent::Spawned {
                     kind: SpawnKind::External { program },
                     error,
@@ -237,14 +224,8 @@ impl Runtime {
         match effect {
             Effect::StartOperation(spec) => {
                 let (sender, replies) = mpsc::channel();
-                *self
-                    .operation
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner) = Some(sender);
-                let owner_window = *self
-                    .owner_window
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner);
+                *lock(&self.operation) = Some(sender);
+                let owner_window = *lock(&self.owner_window);
                 let on_event = Arc::clone(&self.on_event);
                 thread::Builder::new()
                     .name("wafu-io-operation".to_owned())
@@ -274,12 +255,7 @@ impl Runtime {
                     .expect("the operation thread should start");
             }
             Effect::OperationReply(reply) => {
-                if let Some(sender) = self
-                    .operation
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .as_ref()
-                {
+                if let Some(sender) = lock(&self.operation).as_ref() {
                     let _ = sender.send(reply);
                 }
             }
@@ -305,15 +281,7 @@ impl Runtime {
                 });
             }
             Effect::Clipboard(text) => {
-                let error = set_clipboard(
-                    &mut self
-                        .clipboard
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner),
-                    &text,
-                )
-                .err()
-                .map(|error| IoError::new(error.to_string()));
+                let error = io_error(set_clipboard(&mut lock(&self.clipboard), &text));
                 (self.on_event)(IoEvent::ClipboardSet { text, error });
             }
             Effect::OpenWithOs(path) => {
@@ -539,16 +507,19 @@ fn list_archive(
     let fresh = cache.as_ref().is_some_and(|cached| {
         cached.path == path && cached.len == len && cached.modified == modified
     });
-    if !fresh {
-        let reader = open_archive(path, archive.format).map_err(io::Error::other)?;
-        *cache = Some(CachedArchive {
-            path: path.to_path_buf(),
-            len,
-            modified,
-            entries: reader.entries().to_vec(),
-        });
-    }
-    let entries = &cache.as_ref().expect("the cache was just filled").entries;
+    let cached = match cache {
+        Some(cached) if fresh => cached,
+        _ => {
+            let reader = open_archive(path, archive.format).map_err(io::Error::other)?;
+            cache.insert(CachedArchive {
+                path: path.to_path_buf(),
+                len,
+                modified,
+                entries: reader.entries().to_vec(),
+            })
+        }
+    };
+    let entries = &cached.entries;
     let own = dir_entry(entries, &archive.inner).or_else(|| own_entry(path));
     let entries = list_dir(entries, &archive.inner, cancelled)?;
     Ok(Directory { own, entries })
@@ -570,7 +541,7 @@ fn panic_error(payload: &(dyn Any + Send)) -> IoError {
     IoError::new(format!("panicked: {message}"))
 }
 
-fn io_error(result: std::io::Result<()>) -> Option<IoError> {
+fn io_error<T, E: Display>(result: Result<T, E>) -> Option<IoError> {
     result.err().map(|error| IoError::new(error.to_string()))
 }
 
@@ -1053,10 +1024,7 @@ mod tests {
                 config_override: None,
             },
             move |event| {
-                let _ = sender
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .send(event);
+                let _ = lock(&sender).send(event);
             },
         );
         let state = wafu_core::StateFile {
@@ -1206,10 +1174,7 @@ mod tests {
             config_override: None,
         };
         let runtime = Runtime::new(paths, move |event| {
-            let _ = sender
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .send(event);
+            let _ = lock(&sender).send(event);
         });
         (runtime, receiver)
     }
