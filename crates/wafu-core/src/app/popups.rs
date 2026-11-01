@@ -1,4 +1,6 @@
-use super::{App, Effect};
+use std::mem::{Discriminant, discriminant};
+
+use super::{App, Effect, MouseInput};
 use crate::command::Context;
 use crate::error::AppError;
 use crate::filter::Filter;
@@ -88,6 +90,43 @@ impl App {
         }
     }
 
+    pub(super) fn popup_mouse(&mut self, input: MouseInput, effects: &mut Vec<Effect>) {
+        let input = match input {
+            MouseInput::PopupClick { row } => MenuInput::Click { row },
+            MouseInput::PopupDoubleClick { row } => MenuInput::DoubleClick { row },
+            MouseInput::PopupWheel { rows } => {
+                self.scroll_popup(rows);
+                return;
+            }
+            _ => return,
+        };
+        if let Some(popup) = self.popup.take() {
+            self.menu(popup, input, effects);
+        }
+    }
+
+    pub(super) fn set_popup_rows(&mut self, rows: usize) {
+        self.popup_rows = rows.max(1);
+        self.show_popup_cursor();
+    }
+
+    pub(super) fn popup_shape(&self) -> Option<(Discriminant<Popup>, usize, usize)> {
+        self.popup
+            .as_ref()
+            .map(|popup| (discriminant(popup), popup.list_cursor(), popup.list_rows()))
+    }
+
+    pub(super) fn follow_popup(&mut self, before: Option<(Discriminant<Popup>, usize, usize)>) {
+        let after = self.popup_shape();
+        if after == before {
+            return;
+        }
+        if before.map(|(kind, _, _)| kind) != after.map(|(kind, _, _)| kind) {
+            self.popup_top = 0;
+        }
+        self.show_popup_cursor();
+    }
+
     pub(super) fn input_changed(&mut self, field: usize, text: String) {
         match &mut self.popup {
             Some(Popup::Input(popup)) => popup.set_text(field, text),
@@ -118,7 +157,7 @@ impl App {
         let Some(popup) = self.popup.as_ref() else {
             return self.operation_view().or_else(|| self.loading_view());
         };
-        Some(match popup {
+        let view = match popup {
             Popup::Sort(popup) => PopupView {
                 title: "Sort".to_owned(),
                 items: Some(popup.items()),
@@ -185,7 +224,37 @@ impl App {
                 cursor: Some(popup.cursor),
                 ..PopupView::default()
             },
+        };
+        Some(PopupView {
+            scroll_top: self.popup_top,
+            ..view
         })
+    }
+
+    fn show_popup_cursor(&mut self) {
+        let Some(popup) = &self.popup else {
+            self.popup_top = 0;
+            return;
+        };
+        let cursor = popup.list_cursor();
+        if cursor < self.popup_top {
+            self.popup_top = cursor;
+        } else if cursor >= self.popup_top + self.popup_rows {
+            self.popup_top = cursor + 1 - self.popup_rows;
+        }
+        self.popup_top = self
+            .popup_top
+            .min(popup.list_rows().saturating_sub(self.popup_rows));
+    }
+
+    fn scroll_popup(&mut self, rows: i32) {
+        let Some(popup) = &self.popup else {
+            return;
+        };
+        let top = i64::try_from(self.popup_top).unwrap_or(i64::MAX) + i64::from(rows);
+        self.popup_top = usize::try_from(top)
+            .unwrap_or(0)
+            .min(popup.list_rows().saturating_sub(self.popup_rows));
     }
 
     fn loading_view(&self) -> Option<PopupView> {

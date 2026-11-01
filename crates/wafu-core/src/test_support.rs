@@ -154,6 +154,19 @@ impl Harness {
         self.send(Msg::Mouse(MouseInput::Wheel { side, rows }));
     }
 
+    pub(crate) fn popup_click(&mut self, row: usize) {
+        self.send(Msg::Mouse(MouseInput::PopupClick { row }));
+    }
+
+    pub(crate) fn popup_double_click(&mut self, row: usize) {
+        self.send(Msg::Mouse(MouseInput::PopupClick { row }));
+        self.send(Msg::Mouse(MouseInput::PopupDoubleClick { row }));
+    }
+
+    pub(crate) fn popup_wheel(&mut self, rows: i32) {
+        self.send(Msg::Mouse(MouseInput::PopupWheel { rows }));
+    }
+
     pub(crate) fn scroll_to(&mut self, side: Side, top: usize) {
         self.send(Msg::Mouse(MouseInput::ScrollTo { side, top }));
     }

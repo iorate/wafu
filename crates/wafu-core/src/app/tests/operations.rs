@@ -310,6 +310,34 @@ fn a_conflict_is_answered_from_the_cursor_too() {
 }
 
 #[test]
+fn a_conflict_is_answered_with_the_mouse() {
+    let mut harness = conflicting();
+
+    harness.popup_double_click(6);
+    assert_eq!(harness.popup_items()[6].kind, ItemKind::Check(true));
+    harness.popup_double_click(2);
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::OperationReply(Reply::Skip { all: true })]
+    );
+}
+
+#[test]
+fn the_progress_popup_ignores_the_mouse() {
+    let mut harness = copying();
+    let cursor = harness.cursor_name(Side::Left);
+
+    harness.click(Side::Left, 1);
+    harness.popup_click(0);
+    harness.popup_wheel(3);
+
+    assert_eq!(harness.cursor_name(Side::Left), cursor);
+    assert!(harness.view().popup.unwrap().progress);
+    assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
 fn space_on_a_conflict_choice_does_nothing() {
     let mut harness = conflicting();
 

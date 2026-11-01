@@ -1843,6 +1843,100 @@ fn mouse_is_ignored_while_a_popup_is_open() {
     assert!(harness.popup().is_some());
 }
 
+#[test]
+fn a_popup_row_click_moves_the_cursor_only() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+
+    harness.press("S");
+    harness.popup_click(8);
+
+    assert_eq!(harness.view().popup.unwrap().cursor, Some(8));
+    assert_eq!(harness.popup_items()[8].kind, ItemKind::Check(true));
+
+    harness.popup_click(6);
+    harness.popup_click(10);
+    assert_eq!(harness.view().popup.unwrap().cursor, Some(8));
+}
+
+#[test]
+fn a_popup_row_double_click_runs_the_row() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+
+    harness.press("S");
+    harness.popup_double_click(8);
+    assert_eq!(harness.view().popup.unwrap().cursor, Some(8));
+    assert_eq!(harness.popup_items()[8].kind, ItemKind::Check(false));
+
+    harness.popup_double_click(6);
+    assert!(harness.popup().is_some());
+
+    harness.popup_double_click(2);
+    assert_eq!(harness.popup(), None);
+    let sort = harness.app().pane(Side::Left).sort();
+    assert_eq!(sort.key, SortKey::Extension);
+    assert!(!sort.dirs_first);
+}
+
+#[test]
+fn the_popup_wheel_scrolls_the_list_without_moving_the_cursor() {
+    let mut harness = many_bookmarks();
+
+    harness.popup_wheel(3);
+    let popup = harness.view().popup.unwrap();
+    assert_eq!((popup.scroll_top, popup.cursor), (3, Some(0)));
+    harness.popup_wheel(100);
+    assert_eq!(harness.view().popup.unwrap().scroll_top, 15);
+    harness.popup_wheel(-100);
+    assert_eq!(harness.view().popup.unwrap().scroll_top, 0);
+
+    harness.popup_wheel(3);
+    harness.press("Down");
+    let popup = harness.view().popup.unwrap();
+    assert_eq!((popup.scroll_top, popup.cursor), (1, Some(1)));
+}
+
+#[test]
+fn the_popup_list_keeps_the_cursor_in_view() {
+    let mut harness = many_bookmarks();
+
+    harness.press("Up");
+    assert_eq!(harness.view().popup.unwrap().scroll_top, 15);
+    harness.send(Msg::PopupRows { rows: 2 });
+    assert_eq!(harness.view().popup.unwrap().scroll_top, 18);
+    harness.send(Msg::PopupRows { rows: 0 });
+    assert_eq!(harness.view().popup.unwrap().scroll_top, 19);
+    harness.send(Msg::PopupRows { rows: 30 });
+    assert_eq!(harness.view().popup.unwrap().scroll_top, 0);
+    harness.send(Msg::PopupRows { rows: 5 });
+    harness.press("Down");
+    assert_eq!(harness.view().popup.unwrap().scroll_top, 0);
+}
+
+#[test]
+fn a_popup_opens_scrolled_to_the_top() {
+    let mut harness = many_bookmarks();
+    harness.press("Up");
+    harness.press("Esc");
+
+    harness.press("J");
+
+    assert_eq!(harness.view().popup.unwrap().scroll_top, 0);
+}
+
+#[test]
+fn filtering_the_palette_scrolls_back_to_the_top() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.send(Msg::PopupRows { rows: 5 });
+    harness.press("F1");
+    harness.press("Up");
+    assert!(harness.view().popup.unwrap().scroll_top > 0);
+
+    harness.edit("mark");
+
+    let popup = harness.view().popup.unwrap();
+    assert_eq!((popup.scroll_top, popup.cursor), (0, Some(0)));
+}
+
 // Navigation
 
 #[test]
@@ -3562,4 +3656,14 @@ fn timestamp() -> Timestamp {
             second: 5,
         },
     }
+}
+
+fn many_bookmarks() -> Harness {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    let config = "[[bookmarks]]\npath = \"/b\"\n".repeat(20);
+    harness.config(&config);
+    harness.send(Msg::PopupRows { rows: 5 });
+    harness.press("J");
+    harness.take_effects();
+    harness
 }

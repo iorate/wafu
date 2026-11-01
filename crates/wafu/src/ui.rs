@@ -51,7 +51,7 @@ pub struct Ui {
     preview_lines: Rc<VecModel<PreviewLine>>,
     rendered: RefCell<Rendered>,
     // Left pane, right pane, log, preview.
-    wheel_remainder: RefCell<[f32; 4]>,
+    wheel_remainder: RefCell<[f32; 5]>,
     // Where the last right click landed, in logical window coordinates.
     last_pointer: Cell<(f32, f32)>,
     after_render: RefCell<Vec<Box<dyn FnOnce()>>>,
@@ -123,7 +123,7 @@ impl Ui {
                 popup_fields: Rc::new(VecModel::default()),
                 preview_lines: Rc::new(VecModel::default()),
                 rendered: RefCell::new(Rendered::default()),
-                wheel_remainder: RefCell::new([0.0; 4]),
+                wheel_remainder: RefCell::new([0.0; 5]),
                 last_pointer: Cell::new((0.0, 0.0)),
                 after_render: RefCell::new(Vec::new()),
                 has_rendering_notifier,
@@ -298,6 +298,7 @@ impl Ui {
     fn connect(ui: &Rc<Self>) {
         Self::connect_window(ui);
         Self::connect_preview(ui);
+        Self::connect_popup(ui);
 
         let weak = Rc::downgrade(ui);
         ui.window.on_viewport_rows_changed(move |side, rows| {
@@ -463,6 +464,42 @@ impl Ui {
                 && let Some(rows) = ui.wheel_rows(3, delta)
             {
                 ui.dispatch(Msg::Mouse(MouseInput::PreviewWheel { rows }));
+            }
+        });
+    }
+
+    fn connect_popup(ui: &Rc<Self>) {
+        let weak = Rc::downgrade(ui);
+        ui.window.on_popup_rows_changed(move |rows| {
+            if let Some(ui) = Weak::upgrade(&weak) {
+                ui.dispatch(Msg::PopupRows {
+                    rows: usize::try_from(rows).unwrap_or(1),
+                });
+            }
+        });
+
+        let weak = Rc::downgrade(ui);
+        ui.window.on_popup_row_clicked(move |row| {
+            if let Some(ui) = Weak::upgrade(&weak) {
+                ui.dispatch(Msg::Mouse(MouseInput::PopupClick { row: row_of(row) }));
+            }
+        });
+
+        let weak = Rc::downgrade(ui);
+        ui.window.on_popup_row_double_clicked(move |row| {
+            if let Some(ui) = Weak::upgrade(&weak) {
+                ui.dispatch(Msg::Mouse(MouseInput::PopupDoubleClick {
+                    row: row_of(row),
+                }));
+            }
+        });
+
+        let weak = Rc::downgrade(ui);
+        ui.window.on_popup_wheel(move |delta| {
+            if let Some(ui) = Weak::upgrade(&weak)
+                && let Some(rows) = ui.wheel_rows(4, delta)
+            {
+                ui.dispatch(Msg::Mouse(MouseInput::PopupWheel { rows }));
             }
         });
     }
@@ -804,10 +841,12 @@ fn popup_data(popup: Option<&PopupView>) -> PopupData {
             message: popup.message.as_deref().unwrap_or_default().into(),
             note: popup.note.as_deref().unwrap_or_default().into(),
             has_input: !popup.fields.is_empty(),
+            has_list: popup.items.is_some(),
             cursor: popup
                 .cursor
                 .and_then(|cursor| i32::try_from(cursor).ok())
                 .unwrap_or(-1),
+            scroll_top: i32::try_from(popup.scroll_top).unwrap_or(i32::MAX),
             progress: popup.progress,
         },
         None => PopupData {
@@ -816,7 +855,9 @@ fn popup_data(popup: Option<&PopupView>) -> PopupData {
             message: SharedString::default(),
             note: SharedString::default(),
             has_input: false,
+            has_list: false,
             cursor: -1,
+            scroll_top: 0,
             progress: false,
         },
     }
