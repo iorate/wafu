@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use notify::event::{AccessKind, AccessMode};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher as _};
@@ -12,6 +12,7 @@ use wafu_core::{IoError, IoEvent, Side};
 use crate::runtime::OnEvent;
 
 const DEBOUNCE: Duration = Duration::from_millis(200);
+const MAX_WAIT: Duration = Duration::from_secs(1);
 
 // Each pane has its own watchers and debounce thread so that the callback knows
 // which pane and path it reports for. Dropping the watchers ends the thread.
@@ -87,7 +88,7 @@ impl Watcher {
 }
 
 // Editors often replace the file rather than write into it, so its directory
-// is watched and the file is read again once the changes go quiet.
+// is watched and the file is read again after each burst of changes.
 pub(crate) fn watch_config(path: &Path, on_event: &OnEvent) -> notify::Result<RecommendedWatcher> {
     let parent = path
         .parent()
@@ -152,22 +153,54 @@ fn is_change(kind: EventKind) -> bool {
     }
 }
 
-// Calls `on_quiet` once per burst of changes, after they stop for a moment.
-// The thread ends when the senders are dropped.
-fn spawn_debouncer(changes: mpsc::Receiver<()>, on_quiet: impl Fn() + Send + 'static) {
+// Calls `on_burst` once per burst of changes, after they stop for a moment or
+// after a while even if they do not, so that a directory written to all the
+// time is still refreshed. The thread ends when the senders are dropped.
+fn spawn_debouncer(changes: mpsc::Receiver<()>, on_burst: impl Fn() + Send + 'static) {
     thread::Builder::new()
         .name("wafu-io-watch".to_owned())
         .spawn(move || {
             while changes.recv().is_ok() {
+                let first = Instant::now();
+                let mut last = first;
                 loop {
-                    match changes.recv_timeout(DEBOUNCE) {
-                        Ok(()) => {}
+                    let deadline = (last + DEBOUNCE).min(first + MAX_WAIT);
+                    let now = Instant::now();
+                    if now >= deadline {
+                        break;
+                    }
+                    match changes.recv_timeout(deadline - now) {
+                        Ok(()) => last = Instant::now(),
                         Err(RecvTimeoutError::Timeout) => break,
                         Err(RecvTimeoutError::Disconnected) => return,
                     }
                 }
-                on_quiet();
+                on_burst();
             }
         })
         .expect("the watch thread should start");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn changes_that_never_stop_are_still_reported() {
+        let (changes, receiver) = mpsc::channel();
+        let (reports, reported) = mpsc::channel();
+        spawn_debouncer(receiver, move || {
+            let _ = reports.send(());
+        });
+
+        let start = Instant::now();
+        while reported.try_recv().is_err() {
+            assert!(
+                start.elapsed() < Duration::from_secs(10),
+                "no report while changes kept coming"
+            );
+            changes.send(()).unwrap();
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
 }
