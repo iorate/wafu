@@ -4,24 +4,23 @@ use std::path::PathBuf;
 use crate::app::Os;
 use crate::command::{Command, Context};
 use crate::history::History;
+use crate::key::{Key, KeyBase, NamedKey};
 use crate::listing::{SortKey, SortSpec};
-use crate::view::{InputField, ItemMark, PopupItem};
+use crate::view::{InputField, ItemKind, PopupItem};
 
 const ITEM_KEYS: &str = "0123456789abcdefghijklmnopqrstuvwxyz";
 
-const SORT_KEYS: [(SortKey, &str, char); 6] = [
-    (SortKey::None, "None", 'N'),
-    (SortKey::Name, "Name", 'F'),
-    (SortKey::Extension, "Extension", 'E'),
-    (SortKey::Size, "Size", 'S'),
-    (SortKey::Time, "Time", 'T'),
-    (SortKey::Natural, "Name (natural)", 'X'),
-];
-
-const SORT_TOGGLES: [(&str, char); 3] = [
-    ("Descending", 'D'),
-    ("Directories first", 'G'),
-    ("Case-insensitive", 'C'),
+const SORT_ROWS: [(SortRow, &str, &str); 10] = [
+    (SortRow::Key(SortKey::None), "None", "N"),
+    (SortRow::Key(SortKey::Name), "Name", "F"),
+    (SortRow::Key(SortKey::Extension), "Extension", "E"),
+    (SortRow::Key(SortKey::Size), "Size", "S"),
+    (SortRow::Key(SortKey::Time), "Time", "T"),
+    (SortRow::Key(SortKey::Natural), "Name (natural)", "X"),
+    (SortRow::Separator, "", ""),
+    (SortRow::Descending, "Descending", "D"),
+    (SortRow::DirsFirst, "Directories first", "G"),
+    (SortRow::IgnoreCase, "Case-insensitive", "C"),
 ];
 
 const DELETE_CHOICES: [Choice; 2] = [
@@ -46,12 +45,14 @@ const QUIT_CHOICES: [Choice; 2] = [
     },
 ];
 
-const CONFLICT_ROWS: [(ConflictRow, &str, &str); 5] = [
+const CONFLICT_ROWS: [(ConflictRow, &str, &str); 7] = [
+    (ConflictRow::Separator, "", ""),
     (ConflictRow::Overwrite, "Overwrite", "O"),
     (ConflictRow::Skip, "Skip", "S"),
     (ConflictRow::Rename, "Rename", "R"),
-    (ConflictRow::ApplyToAll, "Apply to all", "A"),
     (ConflictRow::Abort, "Abort", "Esc"),
+    (ConflictRow::Separator, "", ""),
+    (ConflictRow::ApplyToAll, "Apply to all", "A"),
 ];
 
 /// A modal that takes all keys while it is open.
@@ -70,7 +71,7 @@ pub enum Popup {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SortPopup {
     pub draft: SortSpec,
-    /// Row in [`SortPopup::items`]: the sort keys first, then the three toggles.
+    /// Row in [`SortPopup::items`]: the sort keys, a separator, then the three toggles.
     pub cursor: usize,
 }
 
@@ -177,11 +178,12 @@ pub struct ConflictPopup {
 /// A row of the conflict popup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConflictRow {
+    Separator,
     Overwrite,
     Skip,
     Rename,
-    ApplyToAll,
     Abort,
+    ApplyToAll,
 }
 
 /// A list of places to pick from: history, bookmarks, or drives.
@@ -218,89 +220,55 @@ pub enum ListTarget {
 }
 
 impl SortPopup {
-    pub const ROWS: usize = SORT_KEYS.len() + SORT_TOGGLES.len();
-
     #[must_use]
     pub fn new(sort: SortSpec) -> Self {
         Self {
             draft: sort,
-            cursor: SORT_KEYS
+            cursor: SORT_ROWS
                 .iter()
-                .position(|(key, _, _)| *key == sort.key)
+                .position(|(row, _, _)| *row == SortRow::Key(sort.key))
                 .unwrap_or(0),
         }
     }
 
     #[must_use]
     pub fn items(&self) -> Vec<PopupItem> {
-        let keys = SORT_KEYS.iter().map(|(key, label, letter)| PopupItem {
-            label: (*label).to_owned(),
-            detail: letter.to_string(),
-            mark: ItemMark::Radio(self.draft.key == *key),
-        });
-        let toggles = SORT_TOGGLES
+        SORT_ROWS
             .iter()
-            .zip(self.toggle_values())
-            .map(|((label, letter), on)| PopupItem {
-                label: (*label).to_owned(),
-                detail: letter.to_string(),
-                mark: ItemMark::Check(on),
-            });
-        keys.chain(toggles).collect()
+            .map(|&(row, label, detail)| match row {
+                SortRow::Separator => PopupItem::separator(),
+                SortRow::Key(key) => PopupItem {
+                    label: if key == self.draft.key {
+                        format!("{label} *")
+                    } else {
+                        label.to_owned()
+                    },
+                    detail: detail.to_owned(),
+                    kind: ItemKind::Choice,
+                },
+                SortRow::Descending | SortRow::DirsFirst | SortRow::IgnoreCase => PopupItem {
+                    label: label.to_owned(),
+                    detail: detail.to_owned(),
+                    kind: ItemKind::Check(*self.flag(row)),
+                },
+            })
+            .collect()
     }
 
-    pub fn cursor_up(&mut self) {
-        self.cursor = self.cursor.checked_sub(1).unwrap_or(Self::ROWS - 1);
-    }
-
-    pub fn cursor_down(&mut self) {
-        self.cursor = (self.cursor + 1) % Self::ROWS;
-    }
-
-    /// Selects the sort key on the cursor row, or flips the toggle there.
-    pub fn activate_cursor(&mut self) {
-        if let Some((key, _, _)) = SORT_KEYS.get(self.cursor) {
-            self.draft.key = *key;
-        } else {
-            self.toggle(self.cursor - SORT_KEYS.len());
+    fn flag(&self, row: SortRow) -> &bool {
+        match row {
+            SortRow::Descending => &self.draft.descending,
+            SortRow::DirsFirst => &self.draft.dirs_first,
+            _ => &self.draft.ignore_case,
         }
     }
 
-    /// The sort key selected by a letter, if the letter stands for one.
-    #[must_use]
-    pub fn key_for_letter(letter: char) -> Option<SortKey> {
-        SORT_KEYS
-            .iter()
-            .find(|(_, _, l)| *l == letter)
-            .map(|(key, _, _)| *key)
-    }
-
-    /// Flips the toggle a letter stands for. Returns whether the letter was one.
-    pub fn toggle_for_letter(&mut self, letter: char) -> bool {
-        match SORT_TOGGLES.iter().position(|(_, l)| *l == letter) {
-            Some(index) => {
-                self.toggle(index);
-                true
-            }
-            None => false,
-        }
-    }
-
-    fn toggle_values(&self) -> [bool; 3] {
-        [
-            self.draft.descending,
-            self.draft.dirs_first,
-            self.draft.ignore_case,
-        ]
-    }
-
-    fn toggle(&mut self, index: usize) {
-        let flag = match index {
-            0 => &mut self.draft.descending,
-            1 => &mut self.draft.dirs_first,
+    fn flag_mut(&mut self, row: SortRow) -> &mut bool {
+        match row {
+            SortRow::Descending => &mut self.draft.descending,
+            SortRow::DirsFirst => &mut self.draft.dirs_first,
             _ => &mut self.draft.ignore_case,
-        };
-        *flag = !*flag;
+        }
     }
 }
 
@@ -386,6 +354,13 @@ impl InputPopup {
                     name.into_owned()
                 })
             }
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn note(&self) -> Option<String> {
+        match self.kind {
             InputKind::Compress { .. } => {
                 Some("Leave the password empty for no encryption".to_owned())
             }
@@ -422,7 +397,7 @@ impl ChoicePopup {
         Self {
             kind: ChoiceKind::DeleteConfirm { dir, names },
             message,
-            cursor: 0,
+            cursor: 1,
         }
     }
 
@@ -434,7 +409,7 @@ impl ChoicePopup {
                 resume: resume.map(Box::new),
             },
             message: "An operation is in progress. Quit anyway?".to_owned(),
-            cursor: 0,
+            cursor: 1,
         }
     }
 
@@ -456,34 +431,13 @@ impl ChoicePopup {
 
     #[must_use]
     pub fn items(&self) -> Vec<PopupItem> {
-        self.choices()
-            .iter()
-            .map(|choice| PopupItem {
+        std::iter::once(PopupItem::separator())
+            .chain(self.choices().iter().map(|choice| PopupItem {
                 label: choice.label.to_owned(),
                 detail: choice.key.map(String::from).unwrap_or_default(),
-                mark: ItemMark::None,
-            })
+                kind: ItemKind::Choice,
+            }))
             .collect()
-    }
-
-    /// The answer a letter picks, if any. Case does not matter.
-    #[must_use]
-    pub fn choice_for_letter(&self, letter: char) -> Option<usize> {
-        let letter = letter.to_ascii_uppercase();
-        self.choices()
-            .iter()
-            .position(|choice| choice.key == Some(letter))
-    }
-
-    pub fn cursor_up(&mut self) {
-        self.cursor = self
-            .cursor
-            .checked_sub(1)
-            .unwrap_or(self.choices().len() - 1);
-    }
-
-    pub fn cursor_down(&mut self) {
-        self.cursor = (self.cursor + 1) % self.choices().len();
     }
 }
 
@@ -494,7 +448,7 @@ impl ConflictPopup {
             source,
             dest,
             all,
-            cursor: 0,
+            cursor: 1,
         }
     }
 
@@ -502,44 +456,16 @@ impl ConflictPopup {
     pub fn items(&self) -> Vec<PopupItem> {
         CONFLICT_ROWS
             .iter()
-            .map(|(row, label, key)| PopupItem {
-                label: (*label).to_owned(),
-                detail: (*key).to_owned(),
-                mark: if *row == ConflictRow::ApplyToAll {
-                    ItemMark::Check(self.all)
-                } else {
-                    ItemMark::None
+            .enumerate()
+            .map(|(index, (row, label, detail))| match row {
+                ConflictRow::Separator => PopupItem::separator(),
+                _ => PopupItem {
+                    label: (*label).to_owned(),
+                    detail: (*detail).to_owned(),
+                    kind: self.kind(index),
                 },
             })
             .collect()
-    }
-
-    #[must_use]
-    pub fn row_at_cursor(&self) -> ConflictRow {
-        CONFLICT_ROWS[self.cursor].0
-    }
-
-    /// The row a letter stands for. Case does not matter.
-    #[must_use]
-    pub fn row_for_letter(letter: char) -> Option<ConflictRow> {
-        match letter.to_ascii_uppercase() {
-            'O' => Some(ConflictRow::Overwrite),
-            'S' => Some(ConflictRow::Skip),
-            'R' => Some(ConflictRow::Rename),
-            'A' => Some(ConflictRow::ApplyToAll),
-            _ => None,
-        }
-    }
-
-    pub fn cursor_up(&mut self) {
-        self.cursor = self
-            .cursor
-            .checked_sub(1)
-            .unwrap_or(CONFLICT_ROWS.len() - 1);
-    }
-
-    pub fn cursor_down(&mut self) {
-        self.cursor = (self.cursor + 1) % CONFLICT_ROWS.len();
     }
 }
 
@@ -634,7 +560,7 @@ impl ListPopup {
                     .key
                     .map(|key| key.to_ascii_uppercase().to_string())
                     .unwrap_or_default(),
-                mark: ItemMark::None,
+                kind: ItemKind::Choice,
             })
             .collect()
     }
@@ -642,25 +568,6 @@ impl ListPopup {
     #[must_use]
     pub fn selected(&self) -> Option<&ListItem> {
         self.items.get(self.cursor)
-    }
-
-    /// The item a key picks at once.
-    #[must_use]
-    pub fn item_for_key(&self, key: char) -> Option<&ListItem> {
-        let key = key.to_ascii_lowercase();
-        self.items.iter().find(|item| item.key == Some(key))
-    }
-
-    pub fn cursor_up(&mut self) {
-        if !self.items.is_empty() {
-            self.cursor = self.cursor.checked_sub(1).unwrap_or(self.items.len() - 1);
-        }
-    }
-
-    pub fn cursor_down(&mut self) {
-        if !self.items.is_empty() {
-            self.cursor = (self.cursor + 1) % self.items.len();
-        }
     }
 }
 
@@ -687,17 +594,249 @@ impl PalettePopup {
     pub fn selected(&self) -> Option<Command> {
         self.matches.get(self.cursor).cloned()
     }
+}
 
-    pub fn cursor_up(&mut self) {
-        if !self.matches.is_empty() {
-            self.cursor = self.cursor.checked_sub(1).unwrap_or(self.matches.len() - 1);
+pub(crate) trait Menu {
+    type Pick;
+
+    fn rows(&self) -> usize;
+    fn kind(&self, row: usize) -> ItemKind;
+    fn cursor(&self) -> usize;
+    fn set_cursor(&mut self, row: usize);
+    fn row_for_key(&self, key: char) -> Option<usize>;
+    fn run(&mut self, row: usize) -> Response<Self::Pick>;
+
+    fn cursor_up(&mut self) {
+        let rows = self.rows();
+        let mut row = self.cursor();
+        for _ in 0..rows {
+            row = row.checked_sub(1).unwrap_or(rows - 1);
+            if self.kind(row) != ItemKind::Separator {
+                self.set_cursor(row);
+                return;
+            }
         }
     }
 
-    pub fn cursor_down(&mut self) {
-        if !self.matches.is_empty() {
-            self.cursor = (self.cursor + 1) % self.matches.len();
+    fn cursor_down(&mut self) {
+        let rows = self.rows();
+        let mut row = self.cursor();
+        for _ in 0..rows {
+            row = (row + 1) % rows;
+            if self.kind(row) != ItemKind::Separator {
+                self.set_cursor(row);
+                return;
+            }
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Response<P> {
+    Stay,
+    Close,
+    Pick(P),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MenuInput {
+    Key(Key),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SortRow {
+    Key(SortKey),
+    Separator,
+    Descending,
+    DirsFirst,
+    IgnoreCase,
+}
+
+impl Menu for SortPopup {
+    type Pick = SortSpec;
+
+    fn rows(&self) -> usize {
+        SORT_ROWS.len()
+    }
+
+    fn kind(&self, row: usize) -> ItemKind {
+        match SORT_ROWS[row].0 {
+            SortRow::Key(_) => ItemKind::Choice,
+            SortRow::Separator => ItemKind::Separator,
+            toggle => ItemKind::Check(*self.flag(toggle)),
+        }
+    }
+
+    fn cursor(&self) -> usize {
+        self.cursor
+    }
+
+    fn set_cursor(&mut self, row: usize) {
+        self.cursor = row;
+    }
+
+    fn row_for_key(&self, key: char) -> Option<usize> {
+        SORT_ROWS
+            .iter()
+            .position(|(_, _, detail)| is_row_key(detail, key))
+    }
+
+    fn run(&mut self, row: usize) -> Response<SortSpec> {
+        match SORT_ROWS[row].0 {
+            SortRow::Key(key) => {
+                self.draft.key = key;
+                Response::Pick(self.draft)
+            }
+            SortRow::Separator => Response::Stay,
+            toggle => {
+                let flag = self.flag_mut(toggle);
+                *flag = !*flag;
+                Response::Stay
+            }
+        }
+    }
+}
+
+impl Menu for ChoicePopup {
+    type Pick = usize;
+
+    fn rows(&self) -> usize {
+        1 + self.choices().len()
+    }
+
+    fn kind(&self, row: usize) -> ItemKind {
+        if row == 0 {
+            ItemKind::Separator
+        } else {
+            ItemKind::Choice
+        }
+    }
+
+    fn cursor(&self) -> usize {
+        self.cursor
+    }
+
+    fn set_cursor(&mut self, row: usize) {
+        self.cursor = row;
+    }
+
+    fn row_for_key(&self, key: char) -> Option<usize> {
+        let key = key.to_ascii_uppercase();
+        self.choices()
+            .iter()
+            .position(|choice| choice.key == Some(key))
+            .map(|index| index + 1)
+    }
+
+    fn run(&mut self, row: usize) -> Response<usize> {
+        match row.checked_sub(1) {
+            Some(choice) if choice < self.choices().len() => Response::Pick(choice),
+            _ => Response::Stay,
+        }
+    }
+}
+
+impl Menu for ConflictPopup {
+    type Pick = ConflictRow;
+
+    fn rows(&self) -> usize {
+        CONFLICT_ROWS.len()
+    }
+
+    fn kind(&self, row: usize) -> ItemKind {
+        match CONFLICT_ROWS[row].0 {
+            ConflictRow::Separator => ItemKind::Separator,
+            ConflictRow::ApplyToAll => ItemKind::Check(self.all),
+            _ => ItemKind::Choice,
+        }
+    }
+
+    fn cursor(&self) -> usize {
+        self.cursor
+    }
+
+    fn set_cursor(&mut self, row: usize) {
+        self.cursor = row;
+    }
+
+    fn row_for_key(&self, key: char) -> Option<usize> {
+        CONFLICT_ROWS
+            .iter()
+            .position(|(_, _, detail)| is_row_key(detail, key))
+    }
+
+    fn run(&mut self, row: usize) -> Response<ConflictRow> {
+        match CONFLICT_ROWS[row].0 {
+            ConflictRow::Separator => Response::Stay,
+            ConflictRow::ApplyToAll => {
+                self.all = !self.all;
+                Response::Stay
+            }
+            row => Response::Pick(row),
+        }
+    }
+}
+
+impl Menu for ListPopup {
+    type Pick = ListItem;
+
+    fn rows(&self) -> usize {
+        self.items.len()
+    }
+
+    fn kind(&self, _row: usize) -> ItemKind {
+        ItemKind::Choice
+    }
+
+    fn cursor(&self) -> usize {
+        self.cursor
+    }
+
+    fn set_cursor(&mut self, row: usize) {
+        self.cursor = row;
+    }
+
+    fn row_for_key(&self, key: char) -> Option<usize> {
+        let key = key.to_ascii_lowercase();
+        self.items.iter().position(|item| item.key == Some(key))
+    }
+
+    fn run(&mut self, row: usize) -> Response<ListItem> {
+        match self.items.get(row) {
+            Some(item) if !item.current => Response::Pick(item.clone()),
+            _ => Response::Close,
+        }
+    }
+}
+
+impl Menu for PalettePopup {
+    type Pick = Command;
+
+    fn rows(&self) -> usize {
+        self.matches.len()
+    }
+
+    fn kind(&self, _row: usize) -> ItemKind {
+        ItemKind::Choice
+    }
+
+    fn cursor(&self) -> usize {
+        self.cursor
+    }
+
+    fn set_cursor(&mut self, row: usize) {
+        self.cursor = row;
+    }
+
+    fn row_for_key(&self, _key: char) -> Option<usize> {
+        None
+    }
+
+    fn run(&mut self, row: usize) -> Response<Command> {
+        self.matches
+            .get(row)
+            .cloned()
+            .map_or(Response::Close, Response::Pick)
     }
 }
 
@@ -711,6 +850,38 @@ pub fn stem_selection(name: &str) -> Option<(usize, usize)> {
         .map(|(index, _)| index)
         .last()
         .map(|index| (0, index))
+}
+
+pub(crate) fn menu_input<M: Menu>(menu: &mut M, input: MenuInput) -> Response<M::Pick> {
+    match input {
+        MenuInput::Key(key) => match key.base {
+            KeyBase::Named(NamedKey::Escape) => Response::Close,
+            KeyBase::Named(NamedKey::Enter) => menu.run(menu.cursor()),
+            KeyBase::Named(NamedKey::Space)
+                if matches!(menu.kind(menu.cursor()), ItemKind::Check(_)) =>
+            {
+                menu.run(menu.cursor())
+            }
+            KeyBase::Named(NamedKey::Up) => {
+                menu.cursor_up();
+                Response::Stay
+            }
+            KeyBase::Named(NamedKey::Down) => {
+                menu.cursor_down();
+                Response::Stay
+            }
+            KeyBase::Char(c) if !key.ctrl && !key.alt => match menu.row_for_key(c) {
+                Some(row) => menu.run(row),
+                None => Response::Stay,
+            },
+            _ => Response::Stay,
+        },
+    }
+}
+
+fn is_row_key(detail: &str, key: char) -> bool {
+    let mut chars = detail.chars();
+    chars.next().is_some_and(|c| c.eq_ignore_ascii_case(&key)) && chars.next().is_none()
 }
 
 fn item_keys() -> impl Iterator<Item = Option<char>> {
@@ -750,62 +921,73 @@ mod tests {
 
         assert_eq!(popup.cursor, 3);
         let items = popup.items();
-        let rows: Vec<(&str, ItemMark)> =
-            items.iter().map(|i| (i.label.as_str(), i.mark)).collect();
+        let rows: Vec<(&str, &str, ItemKind)> = items
+            .iter()
+            .map(|i| (i.label.as_str(), i.detail.as_str(), i.kind))
+            .collect();
         assert_eq!(
             rows,
             [
-                ("None", ItemMark::Radio(false)),
-                ("Name", ItemMark::Radio(false)),
-                ("Extension", ItemMark::Radio(false)),
-                ("Size", ItemMark::Radio(true)),
-                ("Time", ItemMark::Radio(false)),
-                ("Name (natural)", ItemMark::Radio(false)),
-                ("Descending", ItemMark::Check(false)),
-                ("Directories first", ItemMark::Check(true)),
-                ("Case-insensitive", ItemMark::Check(true)),
+                ("None", "N", ItemKind::Choice),
+                ("Name", "F", ItemKind::Choice),
+                ("Extension", "E", ItemKind::Choice),
+                ("Size *", "S", ItemKind::Choice),
+                ("Time", "T", ItemKind::Choice),
+                ("Name (natural)", "X", ItemKind::Choice),
+                ("", "", ItemKind::Separator),
+                ("Descending", "D", ItemKind::Check(false)),
+                ("Directories first", "G", ItemKind::Check(true)),
+                ("Case-insensitive", "C", ItemKind::Check(true)),
             ]
         );
-        assert_eq!(items[5].detail, "X");
+        assert_eq!(popup.rows(), items.len());
     }
 
     #[test]
-    fn sort_popup_cursor_wraps() {
-        let mut popup = SortPopup::new(SortSpec::default());
-        popup.cursor = 0;
+    fn sort_popup_cursor_skips_the_separator_and_wraps() {
+        let mut popup = SortPopup::new(SortSpec {
+            key: SortKey::Natural,
+            ..SortSpec::default()
+        });
 
+        popup.cursor_down();
+        assert_eq!(popup.cursor, 7);
         popup.cursor_up();
-        assert_eq!(popup.cursor, SortPopup::ROWS - 1);
+        assert_eq!(popup.cursor, 5);
+        popup.cursor = 0;
+        popup.cursor_up();
+        assert_eq!(popup.cursor, 9);
         popup.cursor_down();
         assert_eq!(popup.cursor, 0);
     }
 
     #[test]
-    fn sort_popup_activate_selects_keys_and_flips_toggles() {
+    fn sort_popup_picks_keys_and_flips_toggles() {
         let mut popup = SortPopup::new(SortSpec::default());
 
-        popup.cursor = 4;
-        popup.activate_cursor();
-        assert_eq!(popup.draft.key, SortKey::Time);
-
-        popup.cursor = 6;
-        popup.activate_cursor();
+        assert_eq!(popup.run(7), Response::Stay);
         assert!(popup.draft.descending);
-        popup.activate_cursor();
-        assert!(!popup.draft.descending);
+        assert_eq!(popup.kind(7), ItemKind::Check(true));
+        assert_eq!(popup.run(6), Response::Stay);
+        assert_eq!(
+            popup.run(4),
+            Response::Pick(SortSpec {
+                key: SortKey::Time,
+                descending: true,
+                ..SortSpec::default()
+            })
+        );
     }
 
     #[test]
     fn sort_popup_letters() {
-        let mut popup = SortPopup::new(SortSpec::default());
+        let popup = SortPopup::new(SortSpec::default());
 
-        assert_eq!(SortPopup::key_for_letter('X'), Some(SortKey::Natural));
-        assert_eq!(SortPopup::key_for_letter('D'), None);
-        assert!(popup.toggle_for_letter('C'));
-        assert!(!popup.draft.ignore_case);
-        assert!(popup.toggle_for_letter('G'));
-        assert!(!popup.draft.dirs_first);
-        assert!(!popup.toggle_for_letter('Q'));
+        assert_eq!(popup.row_for_key('X'), Some(5));
+        assert_eq!(popup.row_for_key('d'), Some(7));
+        assert_eq!(popup.row_for_key('C'), Some(9));
+        assert_eq!(popup.row_for_key('Q'), None);
+        assert_eq!(popup.row_for_key(' '), None);
     }
 
     #[test]
@@ -813,11 +995,22 @@ mod tests {
         let one = ChoicePopup::delete_confirm(PathBuf::from("/d"), vec![OsString::from("a.txt")]);
         assert_eq!(one.message, "Delete \"a.txt\"?");
         assert_eq!(one.title(), "Delete");
-        let labels: Vec<String> = one.items().into_iter().map(|item| item.label).collect();
-        assert_eq!(labels, ["Delete", "Cancel"]);
-        assert_eq!(one.items()[0].detail, "Y");
-        assert_eq!(one.choice_for_letter('n'), Some(1));
-        assert_eq!(one.choice_for_letter('x'), None);
+        let items = one.items();
+        let rows: Vec<(&str, &str, ItemKind)> = items
+            .iter()
+            .map(|i| (i.label.as_str(), i.detail.as_str(), i.kind))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("", "", ItemKind::Separator),
+                ("Delete", "Y", ItemKind::Choice),
+                ("Cancel", "N", ItemKind::Choice),
+            ]
+        );
+        assert_eq!(one.cursor, 1);
+        assert_eq!(one.row_for_key('n'), Some(2));
+        assert_eq!(one.row_for_key('x'), None);
 
         let three = ChoicePopup::delete_confirm(
             PathBuf::from("/d"),
@@ -831,16 +1024,17 @@ mod tests {
     }
 
     #[test]
-    fn choice_cursor_wraps() {
+    fn choice_cursor_skips_the_separator_and_wraps() {
         let mut popup = ChoicePopup::quit_during_operation(None);
-        assert_eq!(popup.cursor, 0);
-        popup.cursor_up();
         assert_eq!(popup.cursor, 1);
+        popup.cursor_up();
+        assert_eq!(popup.cursor, 2);
         popup.cursor_down();
-        assert_eq!(popup.cursor, 0);
-        assert_eq!(popup.choice_for_letter('Y'), Some(0));
-        assert_eq!(popup.choice_for_letter('n'), Some(1));
-        assert_eq!(popup.choice_for_letter('Q'), None);
+        assert_eq!(popup.cursor, 1);
+        assert_eq!(popup.run(1), Response::Pick(0));
+        assert_eq!(popup.run(2), Response::Pick(1));
+        assert_eq!(popup.run(0), Response::Stay);
+        assert_eq!(popup.row_for_key('Y'), Some(1));
     }
 
     #[test]
@@ -848,26 +1042,91 @@ mod tests {
         let mut popup = ConflictPopup::new(PathBuf::from("/a/x"), PathBuf::from("/b/x"), true);
 
         let items = popup.items();
-        let rows: Vec<(&str, &str, ItemMark)> = items
+        let rows: Vec<(&str, &str, ItemKind)> = items
             .iter()
-            .map(|i| (i.label.as_str(), i.detail.as_str(), i.mark))
+            .map(|i| (i.label.as_str(), i.detail.as_str(), i.kind))
             .collect();
         assert_eq!(
             rows,
             [
-                ("Overwrite", "O", ItemMark::None),
-                ("Skip", "S", ItemMark::None),
-                ("Rename", "R", ItemMark::None),
-                ("Apply to all", "A", ItemMark::Check(true)),
-                ("Abort", "Esc", ItemMark::None),
+                ("", "", ItemKind::Separator),
+                ("Overwrite", "O", ItemKind::Choice),
+                ("Skip", "S", ItemKind::Choice),
+                ("Rename", "R", ItemKind::Choice),
+                ("Abort", "Esc", ItemKind::Choice),
+                ("", "", ItemKind::Separator),
+                ("Apply to all", "A", ItemKind::Check(true)),
             ]
         );
-        assert_eq!(ConflictPopup::row_for_letter('s'), Some(ConflictRow::Skip));
-        assert_eq!(ConflictPopup::row_for_letter('Q'), None);
+        assert_eq!(popup.cursor, 1);
+        assert_eq!(popup.row_for_key('s'), Some(2));
+        assert_eq!(popup.row_for_key('a'), Some(6));
+        assert_eq!(popup.row_for_key('E'), None);
         popup.cursor_up();
-        assert_eq!(popup.row_at_cursor(), ConflictRow::Abort);
+        assert_eq!(popup.cursor, 6);
+        popup.cursor_up();
+        assert_eq!(popup.cursor, 4);
         popup.cursor_down();
-        assert_eq!(popup.row_at_cursor(), ConflictRow::Overwrite);
+        assert_eq!(popup.cursor, 6);
+        popup.cursor_down();
+        assert_eq!(popup.cursor, 1);
+    }
+
+    #[test]
+    fn conflict_popup_flips_apply_to_all_and_picks_the_rest() {
+        let mut popup = ConflictPopup::new(PathBuf::from("/a/x"), PathBuf::from("/b/x"), false);
+
+        assert_eq!(popup.run(6), Response::Stay);
+        assert!(popup.all);
+        assert_eq!(popup.run(3), Response::Pick(ConflictRow::Rename));
+        assert_eq!(popup.run(4), Response::Pick(ConflictRow::Abort));
+    }
+
+    #[test]
+    fn menu_input_follows_the_common_rules() {
+        let mut popup = SortPopup::new(SortSpec::default());
+
+        assert_eq!(
+            menu_input(&mut popup, named(NamedKey::Space)),
+            Response::Stay
+        );
+        assert_eq!(popup.draft, SortSpec::default());
+        popup.cursor = 7;
+        assert_eq!(
+            menu_input(&mut popup, named(NamedKey::Space)),
+            Response::Stay
+        );
+        assert!(popup.draft.descending);
+        assert_eq!(
+            menu_input(&mut popup, named(NamedKey::Enter)),
+            Response::Stay
+        );
+        assert!(!popup.draft.descending);
+        assert_eq!(menu_input(&mut popup, press('g')), Response::Stay);
+        assert!(!popup.draft.dirs_first);
+        assert_eq!(popup.cursor, 7);
+        assert_eq!(
+            menu_input(&mut popup, named(NamedKey::Escape)),
+            Response::Close
+        );
+        popup.cursor = 1;
+        assert_eq!(
+            menu_input(&mut popup, named(NamedKey::Enter)),
+            Response::Pick(SortSpec {
+                dirs_first: false,
+                ..SortSpec::default()
+            })
+        );
+    }
+
+    #[test]
+    fn menu_input_ignores_letters_with_ctrl_or_alt() {
+        let mut popup = ConflictPopup::new(PathBuf::from("/a/x"), PathBuf::from("/b/x"), false);
+        let MenuInput::Key(mut key) = press('a');
+        key.ctrl = true;
+
+        assert_eq!(menu_input(&mut popup, MenuInput::Key(key)), Response::Stay);
+        assert!(!popup.all);
     }
 
     #[test]
@@ -958,11 +1217,8 @@ mod tests {
         assert_eq!(popup.items[36].key, None);
         assert_eq!(popup.items()[35].detail, "Z");
         assert_eq!(popup.items()[36].detail, "");
-        assert_eq!(
-            popup.item_for_key('Z').map(|item| item.label.as_str()),
-            Some("/35")
-        );
-        assert_eq!(popup.item_for_key('!'), None);
+        assert_eq!(popup.row_for_key('Z'), Some(35));
+        assert_eq!(popup.row_for_key('!'), None);
     }
 
     #[test]
@@ -1005,7 +1261,19 @@ mod tests {
         let mut empty = ListPopup::bookmarks(Vec::new());
         empty.cursor_down();
         assert_eq!(empty.selected(), None);
+        assert_eq!(empty.run(0), Response::Close);
         assert_eq!(empty.empty_message(), "No bookmarks");
+    }
+
+    #[test]
+    fn list_popup_closes_on_the_current_place() {
+        let mut history = History::new();
+        history.visit(PathBuf::from("/a"));
+        history.visit(PathBuf::from("/b"));
+        let mut popup = ListPopup::history(&history);
+
+        assert_eq!(popup.run(0), Response::Close);
+        assert!(matches!(popup.run(1), Response::Pick(item) if item.label == "/a"));
     }
 
     #[test]
@@ -1022,5 +1290,24 @@ mod tests {
         popup.set_query("nothing matches this".to_owned());
         popup.cursor_down();
         assert_eq!(popup.selected(), None);
+        assert_eq!(popup.run(0), Response::Close);
+    }
+
+    fn press(c: char) -> MenuInput {
+        MenuInput::Key(Key {
+            base: KeyBase::Char(c),
+            ctrl: false,
+            shift: false,
+            alt: false,
+        })
+    }
+
+    fn named(key: NamedKey) -> MenuInput {
+        MenuInput::Key(Key {
+            base: KeyBase::Named(key),
+            ctrl: false,
+            shift: false,
+            alt: false,
+        })
     }
 }

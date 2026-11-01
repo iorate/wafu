@@ -10,7 +10,7 @@ use crate::listing::{SortKey, SortSpec};
 use crate::pane::InFlight;
 use crate::state::{PaneState, StateFile};
 use crate::test_support::{CONFIG_PATH, HOME, Harness, dir, file, special, start_msg_with};
-use crate::view::{ItemMark, RowKind};
+use crate::view::{ItemKind, RowKind};
 
 mod archives;
 mod operations;
@@ -1159,9 +1159,11 @@ fn sort_popup_shows_the_draft_and_letters_confirm_immediately() {
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Sort");
     assert_eq!(popup.fields, Vec::new());
-    assert_eq!(popup.items.len(), 9);
-    assert_eq!(popup.items[1].label, "Name");
-    assert_eq!(popup.items[1].mark, ItemMark::Radio(true));
+    let items = harness.popup_items();
+    assert_eq!(items.len(), 10);
+    assert_eq!(items[1].label, "Name *");
+    assert_eq!(items[2].label, "Extension");
+    assert_eq!(items[6].kind, ItemKind::Separator);
     assert_eq!(popup.cursor, Some(1));
 
     harness.press("E");
@@ -1175,17 +1177,15 @@ fn sort_popup_shows_the_draft_and_letters_confirm_immediately() {
 }
 
 #[test]
-fn sort_popup_toggles_stay_open_until_enter() {
+fn sort_popup_toggles_stay_open_until_enter_on_the_current_key() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a"), file("b")]);
 
     harness.press("S");
     harness.press("D");
     assert!(harness.popup().is_some());
-    assert_eq!(
-        harness.view().popup.unwrap().items[6].mark,
-        ItemMark::Check(true)
-    );
+    assert_eq!(harness.popup_items()[7].kind, ItemKind::Check(true));
+    assert_eq!(harness.view().popup.unwrap().cursor, Some(1));
     assert_eq!(harness.names(Side::Left), ["..", "a", "b"]);
 
     harness.press("Enter");
@@ -1201,16 +1201,53 @@ fn sort_popup_cursor_and_space_edit_the_draft() {
     harness.press("S");
     harness.press("Up");
     harness.press("Up");
-    assert_eq!(harness.view().popup.unwrap().cursor, Some(8));
+    assert_eq!(harness.view().popup.unwrap().cursor, Some(9));
     harness.press("Up");
     harness.press("Space");
-    assert_eq!(
-        harness.view().popup.unwrap().items[7].mark,
-        ItemMark::Check(false)
-    );
+    assert_eq!(harness.popup_items()[8].kind, ItemKind::Check(false));
+    harness.press("Enter");
+    assert_eq!(harness.popup_items()[8].kind, ItemKind::Check(true));
+    harness.press("Space");
+    assert!(harness.popup().is_some());
+
+    harness.press("Up");
+    harness.press("Up");
+    assert_eq!(harness.view().popup.unwrap().cursor, Some(5));
+    harness.press("Down");
+    assert_eq!(harness.view().popup.unwrap().cursor, Some(7));
+    harness.press("Up");
     harness.press("Enter");
 
+    assert_eq!(harness.popup(), None);
+    let sort = harness.app().pane(Side::Left).sort();
+    assert_eq!(sort.key, SortKey::Natural);
+    assert!(!sort.dirs_first);
     assert_eq!(harness.names(Side::Left), ["..", "a", "d"]);
+}
+
+#[test]
+fn sort_popup_space_does_nothing_on_a_key_row() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a"), file("b")]);
+
+    harness.press("S");
+    harness.press("Down");
+    harness.press("Space");
+
+    assert!(harness.popup().is_some());
+    assert_eq!(harness.popup_labels()[1], "Name *");
+    assert_eq!(harness.app().pane(Side::Left).sort().key, SortKey::Name);
+}
+
+#[test]
+fn sort_popup_letters_do_not_move_the_cursor() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+
+    harness.press("S");
+    harness.press("G");
+
+    assert_eq!(harness.view().popup.unwrap().cursor, Some(1));
+    assert_eq!(harness.popup_items()[8].kind, ItemKind::Check(false));
 }
 
 #[test]
@@ -1366,14 +1403,14 @@ fn palette_filters_commands_and_runs_the_selected_one() {
     harness.press("F1");
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Palette");
-    assert_eq!(popup.items.len(), Command::all().count() - 4);
+    assert_eq!(harness.popup_items().len(), Command::all().count() - 4);
     assert_eq!(popup.cursor, Some(0));
 
     harness.edit("clear_m");
-    let popup = harness.view().popup.unwrap();
-    assert_eq!(popup.items.len(), 1);
-    assert_eq!(popup.items[0].label, "clear_marks");
-    assert_eq!(popup.items[0].detail, "");
+    let items = harness.popup_items();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].label, "clear_marks");
+    assert_eq!(items[0].detail, "");
     harness.press("Enter");
 
     assert_eq!(harness.popup(), None);
@@ -1386,9 +1423,9 @@ fn palette_shows_bound_keys_and_wraps_the_cursor() {
 
     harness.press("F1");
     harness.edit("mark_range");
-    let popup = harness.view().popup.unwrap();
-    assert_eq!(popup.items[0].detail, "Ctrl+Space");
-    assert_eq!(popup.items[1].detail, "Ctrl+Shift+Space");
+    let items = harness.popup_items();
+    assert_eq!(items[0].detail, "Ctrl+Space");
+    assert_eq!(items[1].detail, "Ctrl+Shift+Space");
     harness.press("Up");
     assert_eq!(harness.view().popup.unwrap().cursor, Some(1));
     harness.press("Down");
@@ -1999,10 +2036,10 @@ fn history_popup_lists_newest_first_and_picks_by_key() {
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "History");
     assert_eq!(harness.popup_labels(), ["/", "/home", "/home/user"]);
-    let keys: Vec<&str> = popup
-        .items
-        .iter()
-        .map(|item| item.detail.as_str())
+    let keys: Vec<String> = harness
+        .popup_items()
+        .into_iter()
+        .map(|item| item.detail)
         .collect();
     assert_eq!(keys, ["0", "1", "2"]);
     assert_eq!(popup.cursor, Some(0));
@@ -2692,7 +2729,7 @@ fn bookmarks_popup_expands_tilde_and_picks_by_key() {
     let docs = PathBuf::from(HOME).join("docs");
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Bookmarks");
-    assert_eq!(popup.message, None);
+    assert_eq!(popup.note, None);
     assert_eq!(
         harness.popup_labels(),
         [docs.display().to_string(), "/var".to_owned()]
@@ -2716,8 +2753,9 @@ fn empty_bookmarks_popup_says_so_and_enter_closes_it() {
     harness.press("J");
 
     let popup = harness.view().popup.unwrap();
-    assert_eq!(popup.message, Some("No bookmarks".to_owned()));
-    assert_eq!(popup.items, vec![]);
+    assert_eq!(popup.message, None);
+    assert_eq!(popup.note, Some("No bookmarks".to_owned()));
+    assert_eq!(popup.items, None);
     assert_eq!(popup.cursor, None);
 
     harness.press("Enter");

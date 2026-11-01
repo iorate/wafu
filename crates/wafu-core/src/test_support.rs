@@ -13,7 +13,7 @@ use crate::pane::RequestId;
 use crate::popup::Popup;
 use crate::preview::{Document, ImageData};
 use crate::state::{StateError, StateFile};
-use crate::view::View;
+use crate::view::{PopupItem, View};
 
 pub(crate) const HOME: &str = "/home/user";
 pub(crate) const LEFT: &str = HOME;
@@ -425,11 +425,18 @@ impl Harness {
             .unwrap_or_default()
     }
 
-    pub(crate) fn popup_labels(&self) -> Vec<String> {
+    pub(crate) fn popup_items(&self) -> Vec<PopupItem> {
         self.view()
             .popup
-            .map(|popup| popup.items.into_iter().map(|item| item.label).collect())
+            .and_then(|popup| popup.items)
             .unwrap_or_default()
+    }
+
+    pub(crate) fn popup_labels(&self) -> Vec<String> {
+        self.popup_items()
+            .into_iter()
+            .map(|item| item.label)
+            .collect()
     }
 }
 

@@ -9,7 +9,7 @@ use slint::{
     RenderingState, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel,
 };
 use wafu_core::{
-    App, Color, Colors, Effect, InputField, IoError, IoEvent, ItemMark, MenuAnchor, MouseInput,
+    App, Color, Colors, Effect, InputField, IoError, IoEvent, ItemKind, MenuAnchor, MouseInput,
     Msg, PaneView, PopupView, PreviewContent, PreviewPlacement, PreviewView, ResolvedFont, RowKind,
     RowView, SharedImage, Side, StateFile, Style, Theme as ConfigTheme, View, WindowState,
 };
@@ -559,20 +559,16 @@ impl Ui {
             rendered.preview.clone_from(&view.preview);
         }
         if rendered.popup != view.popup {
-            self.popup_fields.set_vec(
-                fields
-                    .iter()
-                    .take(MAX_POPUP_FIELDS)
-                    .map(popup_field)
-                    .collect::<Vec<_>>(),
-            );
+            let new_fields = popup_fields(view.popup.as_ref());
+            if popup_fields(rendered.popup.as_ref()) != new_fields {
+                self.popup_fields.set_vec(new_fields);
+            }
             self.window.set_popup(popup_data(view.popup.as_ref()));
-            let items = view
-                .popup
-                .as_ref()
-                .map(|popup| popup.items.iter().map(popup_item).collect::<Vec<_>>())
-                .unwrap_or_default();
-            self.popup_items.set_vec(items);
+            let items = popup_items(view.popup.as_ref());
+            if popup_items(rendered.popup.as_ref()) != items {
+                self.popup_items
+                    .set_vec(items.iter().map(popup_item).collect::<Vec<_>>());
+            }
             rendered.popup.clone_from(&view.popup);
         }
     }
@@ -806,6 +802,7 @@ fn popup_data(popup: Option<&PopupView>) -> PopupData {
             visible: true,
             title: popup.title.as_str().into(),
             message: popup.message.as_deref().unwrap_or_default().into(),
+            note: popup.note.as_deref().unwrap_or_default().into(),
             has_input: !popup.fields.is_empty(),
             cursor: popup
                 .cursor
@@ -817,11 +814,28 @@ fn popup_data(popup: Option<&PopupView>) -> PopupData {
             visible: false,
             title: SharedString::default(),
             message: SharedString::default(),
+            note: SharedString::default(),
             has_input: false,
             cursor: -1,
             progress: false,
         },
     }
+}
+
+fn popup_fields(popup: Option<&PopupView>) -> Vec<PopupField> {
+    popup
+        .map(|popup| popup.fields.as_slice())
+        .unwrap_or_default()
+        .iter()
+        .take(MAX_POPUP_FIELDS)
+        .map(popup_field)
+        .collect()
+}
+
+fn popup_items(popup: Option<&PopupView>) -> &[wafu_core::PopupItem] {
+    popup
+        .and_then(|popup| popup.items.as_deref())
+        .unwrap_or_default()
 }
 
 fn popup_field(field: &InputField) -> PopupField {
@@ -835,15 +849,15 @@ fn popup_field(field: &InputField) -> PopupField {
 }
 
 fn popup_item(item: &wafu_core::PopupItem) -> PopupItem {
-    let (mark, on) = match item.mark {
-        ItemMark::None => (0, false),
-        ItemMark::Radio(on) => (1, on),
-        ItemMark::Check(on) => (2, on),
+    let (kind, on) = match item.kind {
+        ItemKind::Choice => (0, false),
+        ItemKind::Check(on) => (1, on),
+        ItemKind::Separator => (2, false),
     };
     PopupItem {
         label: item.label.as_str().into(),
         detail: item.detail.as_str().into(),
-        mark,
+        kind,
         on,
     }
 }

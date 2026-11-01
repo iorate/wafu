@@ -6,7 +6,7 @@ use crate::error::IoError;
 use crate::operation::{OperationEvent, OperationKind, OperationSpec, Outcome, Reply, Sources};
 use crate::popup::Popup;
 use crate::test_support::{Harness, LEFT, RIGHT, dir, file, path, shown};
-use crate::view::ItemMark;
+use crate::view::ItemKind;
 
 const WIN_LEFT: &str = r"C:\Users\me";
 const WIN_RIGHT: &str = r"D:\";
@@ -251,8 +251,19 @@ fn a_conflict_opens_the_choices_and_letters_answer_them() {
     assert_eq!(popup.message, Some(shown(RIGHT, "a")));
     assert_eq!(
         harness.popup_labels(),
-        ["Overwrite", "Skip", "Rename", "Apply to all", "Abort"]
+        [
+            "",
+            "Overwrite",
+            "Skip",
+            "Rename",
+            "Abort",
+            "",
+            "Apply to all"
+        ]
     );
+    assert_eq!(harness.popup_items()[0].kind, ItemKind::Separator);
+    assert_eq!(harness.popup_items()[5].kind, ItemKind::Separator);
+    assert_eq!(popup.cursor, Some(1));
     assert!(!popup.progress);
 
     harness.press("O");
@@ -267,10 +278,8 @@ fn a_conflict_opens_the_choices_and_letters_answer_them() {
         dest: path(RIGHT, "c"),
     });
     harness.press("A");
-    assert_eq!(
-        harness.view().popup.unwrap().items[3].mark,
-        ItemMark::Check(true)
-    );
+    assert_eq!(harness.popup_items()[6].kind, ItemKind::Check(true));
+    assert_eq!(harness.view().popup.unwrap().cursor, Some(1));
     harness.press("s");
     assert_eq!(
         harness.take_effects(),
@@ -282,27 +291,33 @@ fn a_conflict_opens_the_choices_and_letters_answer_them() {
 fn a_conflict_is_answered_from_the_cursor_too() {
     let mut harness = conflicting();
 
-    harness.press("Down");
-    harness.press("Down");
-    harness.press("Down");
+    harness.press("Up");
+    assert_eq!(harness.view().popup.unwrap().cursor, Some(6));
     harness.press("Space");
-    assert_eq!(
-        harness.view().popup.unwrap().items[3].mark,
-        ItemMark::Check(true)
-    );
+    assert_eq!(harness.popup_items()[6].kind, ItemKind::Check(true));
     harness.press("Enter");
-    assert_eq!(
-        harness.view().popup.unwrap().items[3].mark,
-        ItemMark::Check(false)
-    );
-    harness.press("Up");
-    harness.press("Up");
+    assert_eq!(harness.popup_items()[6].kind, ItemKind::Check(false));
+    assert_eq!(harness.take_effects(), vec![]);
+    harness.press("Down");
+    assert_eq!(harness.view().popup.unwrap().cursor, Some(1));
+    harness.press("Down");
     harness.press("Enter");
 
     assert_eq!(
         harness.take_effects(),
         vec![Effect::OperationReply(Reply::Skip { all: false })]
     );
+}
+
+#[test]
+fn space_on_a_conflict_choice_does_nothing() {
+    let mut harness = conflicting();
+
+    harness.press("Space");
+
+    assert_eq!(harness.view().popup.unwrap().title, "File exists");
+    assert_eq!(harness.popup_items()[6].kind, ItemKind::Check(false));
+    assert_eq!(harness.take_effects(), vec![]);
 }
 
 #[test]
@@ -349,7 +364,7 @@ fn rename_in_a_conflict_asks_for_a_name() {
     harness.press("Esc");
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "File exists");
-    assert_eq!(popup.items[3].mark, ItemMark::Check(true));
+    assert_eq!(harness.popup_items()[6].kind, ItemKind::Check(true));
 
     harness.press("R");
     harness.edit("a");
@@ -401,8 +416,9 @@ fn closing_the_window_during_an_operation_asks_first() {
         popup.message.as_deref(),
         Some("An operation is in progress. Quit anyway?")
     );
-    assert_eq!(harness.popup_labels(), ["Quit", "Keep running"]);
-    assert_eq!(popup.cursor, Some(0));
+    assert_eq!(harness.popup_labels(), ["", "Quit", "Keep running"]);
+    assert_eq!(harness.popup_items()[0].kind, ItemKind::Separator);
+    assert_eq!(popup.cursor, Some(1));
 
     harness.press("N");
     assert_eq!(harness.view().popup.unwrap().title, "File exists");
@@ -496,7 +512,9 @@ fn delete_asks_once_and_names_a_single_target() {
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Delete");
     assert_eq!(popup.message.as_deref(), Some("Delete \"a\"?"));
-    assert_eq!(harness.popup_labels(), ["Delete", "Cancel"]);
+    assert_eq!(harness.popup_labels(), ["", "Delete", "Cancel"]);
+    assert_eq!(harness.popup_items()[0].kind, ItemKind::Separator);
+    assert_eq!(popup.cursor, Some(1));
     assert_eq!(harness.take_effects(), vec![]);
 
     harness.press("N");
