@@ -51,17 +51,27 @@ mod tests {
     #[test]
     fn a_program_that_exists_starts() {
         let dir = TempDir::new().unwrap();
-        let exe = std::env::current_exe().unwrap();
+        let (program, args) = silent_program();
 
-        spawn(&exe, &["--help"], Some(dir.path())).unwrap();
+        spawn(program, args, Some(dir.path())).unwrap();
     }
 
     #[test]
     fn a_missing_program_or_directory_is_an_error() {
         let dir = TempDir::new().unwrap();
-        let exe = std::env::current_exe().unwrap();
+        let (program, args) = silent_program();
 
         assert!(spawn("wafu-no-such-program", &["x"], Some(dir.path())).is_err());
-        assert!(spawn(&exe, &["--help"], Some(&dir.path().join("gone"))).is_err());
+        assert!(spawn(program, args, Some(&dir.path().join("gone"))).is_err());
+    }
+
+    // The child inherits the test's console on Windows, so anything it printed
+    // would end up in the test output.
+    fn silent_program() -> (&'static str, &'static [&'static str]) {
+        if cfg!(windows) {
+            ("cmd", &["/c", "exit"])
+        } else {
+            ("true", &[])
+        }
     }
 }
