@@ -642,6 +642,18 @@ impl PalettePopup {
     }
 }
 
+/// The part of a file name to select when editing it: everything but the
+/// extension, or nothing special when there is none.
+#[must_use]
+pub fn stem_selection(name: &str) -> Option<(usize, usize)> {
+    name.char_indices()
+        .skip(1)
+        .filter(|&(_, c)| c == '.')
+        .map(|(index, _)| index)
+        .last()
+        .map(|index| (0, index))
+}
+
 pub(crate) trait Menu {
     type Pick;
 
@@ -898,18 +910,6 @@ impl Menu for PalettePopup {
             .cloned()
             .map_or(Response::Close, Response::Pick)
     }
-}
-
-/// The part of a file name to select when editing it: everything but the
-/// extension, or nothing special when there is none.
-#[must_use]
-pub fn stem_selection(name: &str) -> Option<(usize, usize)> {
-    name.char_indices()
-        .skip(1)
-        .filter(|&(_, c)| c == '.')
-        .map(|(index, _)| index)
-        .last()
-        .map(|index| (0, index))
 }
 
 pub(crate) fn menu_input<M: Menu>(menu: &mut M, input: MenuInput) -> Response<M::Pick> {
