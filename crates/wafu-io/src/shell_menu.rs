@@ -156,7 +156,7 @@ fn track(
     };
     // SAFETY: `info` is a fully initialized extended structure, which the
     // interface accepts in place of the basic one, and `directory` outlives the call.
-    unsafe { menu.InvokeCommand(std::ptr::from_ref(&info).cast::<CMINVOKECOMMANDINFO>()) }?;
+    let _ = unsafe { menu.InvokeCommand(std::ptr::from_ref(&info).cast::<CMINVOKECOMMANDINFO>()) };
     Ok(())
 }
 
