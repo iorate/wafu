@@ -39,9 +39,9 @@ export component AppWindow inherits Window {
     in property <int> theme;
     in property <bool> menu-bar-visible;
     out property <length> left-list-x: left-pane.list-x;
-    out property <length> left-list-y: left-pane.list-y;
+    out property <length> left-top-row-y: left-pane.top-row-y;
     out property <length> right-list-x: right-pane.list-x;
-    out property <length> right-list-y: right-pane.list-y;
+    out property <length> right-top-row-y: right-pane.top-row-y;
 
     callback key-input(text: string, control: bool, shift: bool, alt: bool, meta: bool);
     callback quit-requested();

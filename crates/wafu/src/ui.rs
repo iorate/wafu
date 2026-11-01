@@ -232,15 +232,15 @@ impl Ui {
         match anchor {
             MenuAnchor::Pointer => self.last_pointer.get(),
             MenuAnchor::Row { side, row } => {
-                let (list_x, list_y, scroll_top) = match side {
+                let (list_x, top_row_y, scroll_top) = match side {
                     Side::Left => (
                         self.window.get_left_list_x(),
-                        self.window.get_left_list_y(),
+                        self.window.get_left_top_row_y(),
                         self.window.get_left_scroll_top(),
                     ),
                     Side::Right => (
                         self.window.get_right_list_x(),
-                        self.window.get_right_list_y(),
+                        self.window.get_right_top_row_y(),
                         self.window.get_right_scroll_top(),
                     ),
                 };
@@ -249,7 +249,7 @@ impl Ui {
                 let row_height = self.window.global::<Theme>().get_row_height();
                 // Rows on screen are few enough to be exact as floats.
                 #[allow(clippy::cast_precision_loss)]
-                let y = list_y + (visible_row + 1) as f32 * row_height;
+                let y = top_row_y + (visible_row + 1) as f32 * row_height;
                 (list_x + MENU_INSET, y)
             }
         }
