@@ -1,4 +1,3 @@
-use windows::Win32::Foundation::RPC_E_CHANGED_MODE;
 use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize};
 
 // Enters a single-threaded apartment for the scope if the thread is not in one yet.
@@ -15,7 +14,7 @@ impl ComScope {
         // balancing call; `RPC_E_CHANGED_MODE` means the thread is in another
         // apartment, which the shell objects used here tolerate.
         Self {
-            initialized: result.is_ok() && result != RPC_E_CHANGED_MODE,
+            initialized: result.is_ok(),
         }
     }
 }
