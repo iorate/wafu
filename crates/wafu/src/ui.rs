@@ -59,37 +59,6 @@ pub struct Ui {
     has_rendering_notifier: bool,
 }
 
-struct Rendered {
-    left_rows: Arc<[RowView]>,
-    right_rows: Arc<[RowView]>,
-    left_marks: Arc<[bool]>,
-    right_marks: Arc<[bool]>,
-    log: Arc<[Arc<str>]>,
-    popup: Option<PopupView>,
-    preview: Option<PreviewView>,
-    // The image last handed to Slint, so that it is converted only once.
-    image: Option<SharedImage>,
-    style: Option<Arc<Style>>,
-    title: String,
-}
-
-impl Default for Rendered {
-    fn default() -> Self {
-        Self {
-            left_rows: Arc::from([]),
-            right_rows: Arc::from([]),
-            left_marks: Arc::from([]),
-            right_marks: Arc::from([]),
-            log: Arc::from([]),
-            popup: None,
-            preview: None,
-            image: None,
-            style: None,
-            title: String::new(),
-        }
-    }
-}
-
 impl Ui {
     pub fn install(window: AppWindow, paths: Paths) -> Rc<Self> {
         let runtime = Runtime::new(paths, |event| {
@@ -612,9 +581,7 @@ impl Ui {
             rendered.popup.clone_from(&view.popup);
         }
     }
-}
 
-impl Ui {
     fn render_preview(&self, rendered: &mut Rendered, preview: Option<&PreviewView>) {
         let (lines, digits, image, data) = match preview {
             None => (Vec::new(), 0, None, PreviewData::default()),
@@ -688,6 +655,37 @@ impl Ui {
         let (family, size) = font(&style.fonts.popup);
         theme.set_popup_font_family(family);
         theme.set_popup_font_size(size);
+    }
+}
+
+struct Rendered {
+    left_rows: Arc<[RowView]>,
+    right_rows: Arc<[RowView]>,
+    left_marks: Arc<[bool]>,
+    right_marks: Arc<[bool]>,
+    log: Arc<[Arc<str>]>,
+    popup: Option<PopupView>,
+    preview: Option<PreviewView>,
+    // The image last handed to Slint, so that it is converted only once.
+    image: Option<SharedImage>,
+    style: Option<Arc<Style>>,
+    title: String,
+}
+
+impl Default for Rendered {
+    fn default() -> Self {
+        Self {
+            left_rows: Arc::from([]),
+            right_rows: Arc::from([]),
+            left_marks: Arc::from([]),
+            right_marks: Arc::from([]),
+            log: Arc::from([]),
+            popup: None,
+            preview: None,
+            image: None,
+            style: None,
+            title: String::new(),
+        }
     }
 }
 
