@@ -486,9 +486,19 @@ impl App {
 
     fn pick_list_item(&mut self, item: ListItem, effects: &mut Vec<Effect>) {
         match item.target {
-            ListTarget::HistoryPos(pos) => {
-                let path = self.active_pane().history().items().get(pos).cloned();
-                self.go_to_history(path.map(|path| (pos, path)), effects);
+            ListTarget::HistoryPos(pos, path) => {
+                let history = self.active_pane().history();
+                if history.items().get(pos) != Some(&path) {
+                    self.navigate(
+                        self.active,
+                        Location::new(path),
+                        None,
+                        HistoryMove::Visit,
+                        effects,
+                    );
+                } else if pos != history.pos() {
+                    self.go_to_history(Some((pos, path)), effects);
+                }
             }
             ListTarget::Path(path) => {
                 self.navigate(
