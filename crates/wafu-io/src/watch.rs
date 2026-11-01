@@ -46,7 +46,7 @@ impl Watcher {
                 return;
             }
         };
-        let (changes, receiver) = mpsc::channel::<()>();
+        let (changes, receiver) = mpsc::channel::<Change>();
         let followed = match follow(&path, resolve_link(&path), is_dir, &changes) {
             Ok(followed) => followed,
             Err(error) => {
@@ -109,13 +109,13 @@ impl Group {
         path: PathBuf,
         with_contents: bool,
         watches: Watches,
-        changes: Receiver<()>,
+        changes: Receiver<Change>,
         on_burst: impl Fn(&Path) + Send + 'static,
     ) -> Self {
         let watches = Arc::new(Mutex::new(watches));
         let weak = Arc::downgrade(&watches);
-        spawn_debouncer(changes, move || {
-            if !refollow(&weak, &path, with_contents) {
+        spawn_debouncer(changes, move |renamed| {
+            if !refollow(&weak, &path, with_contents, renamed) {
                 return false;
             }
             on_burst(&path);
@@ -128,11 +128,11 @@ impl Group {
 struct Watches {
     _entry: Option<RecommendedWatcher>,
     followed: Followed,
-    changes: Sender<()>,
+    changes: Sender<Change>,
 }
 
 // The watches that depend on where the path leads, made again when it leads
-// elsewhere.
+// elsewhere or the directory there is renamed, removed, or made.
 struct Followed {
     resolution: Resolution,
     _contents: Option<RecommendedWatcher>,
@@ -146,13 +146,19 @@ enum Resolution {
     Failed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Change {
+    Contents,
+    Name,
+}
+
 // Editors often replace the file rather than write into it, so its directory
 // is watched and the file is read again after each burst of changes.
 pub(crate) fn watch_config(path: &Path, on_event: &OnEvent) -> notify::Result<Group> {
     let parent = path
         .parent()
         .ok_or_else(|| notify::Error::generic("the configuration file has no parent directory"))?;
-    let (changes, receiver) = mpsc::channel::<()>();
+    let (changes, receiver) = mpsc::channel::<Change>();
     let entry = watch_entry(parent, path, false, changes.clone())?;
     let followed = follow(path, resolve_link(path), false, &changes)?;
     let watches = Watches {
@@ -192,7 +198,7 @@ fn follow(
     path: &Path,
     resolution: Resolution,
     is_dir: bool,
-    changes: &Sender<()>,
+    changes: &Sender<Change>,
 ) -> notify::Result<Followed> {
     let contents = if is_dir {
         Some(watch_contents(path, changes.clone())?)
@@ -212,17 +218,18 @@ fn follow(
     })
 }
 
-// A watch of the contents through a link stays on the old target when the
-// link is replaced, so the watches are made again once it leads elsewhere.
+// A watch of the contents stays on the old directory when the link is
+// replaced or the directory is made again under the same name, so the watches
+// are made again once the path leads elsewhere or a watched name changes.
 // Resolving and watching may block, so neither happens under the lock.
-fn refollow(group: &Weak<Mutex<Watches>>, path: &Path, with_contents: bool) -> bool {
+fn refollow(group: &Weak<Mutex<Watches>>, path: &Path, with_contents: bool, renamed: bool) -> bool {
     let resolution = resolve_link(path);
     let changes = {
         let Some(group) = group.upgrade() else {
             return false;
         };
         let watches = lock(&group);
-        if watches.followed.resolution == resolution {
+        if !renamed && watches.followed.resolution == resolution {
             return true;
         }
         watches.changes.clone()
@@ -244,10 +251,10 @@ fn refollow(group: &Weak<Mutex<Watches>>, path: &Path, with_contents: bool) -> b
 
 // Reports any change inside the directory. An error from the watcher counts
 // as a change too, since a failed read will sort out what happened.
-fn watch_contents(path: &Path, changes: Sender<()>) -> notify::Result<RecommendedWatcher> {
+fn watch_contents(path: &Path, changes: Sender<Change>) -> notify::Result<RecommendedWatcher> {
     let mut watcher = notify::recommended_watcher(move |result: notify::Result<Event>| {
         if counts_as_change(&result, |_| true) {
-            let _ = changes.send(());
+            let _ = changes.send(Change::Contents);
         }
     })?;
     watcher.watch(path, RecursiveMode::NonRecursive)?;
@@ -261,14 +268,19 @@ fn watch_entry(
     dir: &Path,
     entry: &Path,
     is_dir: bool,
-    changes: Sender<()>,
+    changes: Sender<Change>,
 ) -> notify::Result<RecommendedWatcher> {
     let name = entry.file_name().map(ToOwned::to_owned);
+    let change = if is_dir {
+        Change::Name
+    } else {
+        Change::Contents
+    };
     let mut watcher = notify::recommended_watcher(move |result: notify::Result<Event>| {
         if counts_as_change(&result, |event| {
             concerns_entry(event, name.as_deref(), is_dir)
         }) {
-            let _ = changes.send(());
+            let _ = changes.send(change);
         }
     })?;
     watcher.watch(dir, RecursiveMode::NonRecursive)?;
@@ -341,11 +353,15 @@ fn is_dir_entry_change(kind: EventKind) -> bool {
 // after a while even if they do not, so that a directory written to all the
 // time is still refreshed. The thread ends when the senders are dropped or
 // `on_burst` returns false.
-fn spawn_debouncer(changes: mpsc::Receiver<()>, on_burst: impl Fn() -> bool + Send + 'static) {
+fn spawn_debouncer(
+    changes: mpsc::Receiver<Change>,
+    on_burst: impl Fn(bool) -> bool + Send + 'static,
+) {
     thread::Builder::new()
         .name("wafu-io-watch".to_owned())
         .spawn(move || {
-            while changes.recv().is_ok() {
+            while let Ok(change) = changes.recv() {
+                let mut renamed = change == Change::Name;
                 let first = Instant::now();
                 let mut last = first;
                 loop {
@@ -355,12 +371,15 @@ fn spawn_debouncer(changes: mpsc::Receiver<()>, on_burst: impl Fn() -> bool + Se
                         break;
                     }
                     match changes.recv_timeout(deadline - now) {
-                        Ok(()) => last = Instant::now(),
+                        Ok(change) => {
+                            last = Instant::now();
+                            renamed |= change == Change::Name;
+                        }
                         Err(RecvTimeoutError::Timeout) => break,
                         Err(RecvTimeoutError::Disconnected) => return,
                     }
                 }
-                if !on_burst() {
+                if !on_burst(renamed) {
                     return;
                 }
             }
@@ -655,7 +674,7 @@ pub(crate) mod tests {
     fn changes_that_never_stop_are_still_reported() {
         let (changes, receiver) = mpsc::channel();
         let (reports, reported) = mpsc::channel();
-        spawn_debouncer(receiver, move || {
+        spawn_debouncer(receiver, move |_| {
             let _ = reports.send(());
             true
         });
@@ -666,7 +685,7 @@ pub(crate) mod tests {
                 start.elapsed() < Duration::from_secs(10),
                 "no report while changes kept coming"
             );
-            changes.send(()).unwrap();
+            changes.send(Change::Contents).unwrap();
             thread::sleep(Duration::from_millis(20));
         }
     }

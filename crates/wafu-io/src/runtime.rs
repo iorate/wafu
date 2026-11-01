@@ -837,6 +837,29 @@ mod tests {
     }
 
     #[test]
+    fn changes_in_a_directory_made_again_at_the_watched_path_are_reported() {
+        let parent = TempDir::new().unwrap();
+        let dir = parent.path().join("watched");
+        fs::create_dir(&dir).unwrap();
+        let (runtime, events) = runtime();
+        runtime.run(watch(&dir));
+        settle(&events);
+
+        fs::remove_dir(&dir).unwrap();
+        fs::create_dir(&dir).unwrap();
+        let changed = IoEvent::LocationChanged {
+            side: Side::Left,
+            path: dir.clone(),
+        };
+        assert_eq!(events.recv_timeout(TIMEOUT).unwrap(), changed);
+        settle(&events);
+
+        File::create(dir.join("a")).unwrap();
+
+        assert_eq!(events.recv_timeout(TIMEOUT).unwrap(), changed);
+    }
+
+    #[test]
     fn change_in_a_watched_directory_is_reported_once_per_burst() {
         let dir = TempDir::new().unwrap();
         let (runtime, events) = runtime();
