@@ -2209,6 +2209,49 @@ fn history_popup_lists_newest_first_and_picks_by_key() {
 }
 
 #[test]
+fn history_popup_visits_a_place_that_left_its_position_while_open() {
+    let mut harness = back_to_b_with_the_history_open();
+    harness.vanish(Side::Left, "/", vec![]);
+    assert_eq!(harness.history(Side::Left), ["/a", "/b", "/"]);
+
+    harness.press("0");
+
+    assert_eq!(harness.popup(), None);
+    assert_eq!(
+        harness.take_effects(),
+        vec![
+            Effect::Watch {
+                side: Side::Left,
+                path: PathBuf::from("/c"),
+            },
+            Effect::ReadDir {
+                side: Side::Left,
+                location: Location::new(PathBuf::from("/c")),
+                request: harness.latest_request(Side::Left),
+            },
+        ]
+    );
+    harness.load(Side::Left, vec![]);
+    assert_eq!(harness.view().left.path, "/c");
+    assert_eq!(harness.history(Side::Left), ["/a", "/b", "/", "/c"]);
+    assert_eq!(harness.app().pane(Side::Left).history().pos(), 3);
+}
+
+#[test]
+fn history_popup_moves_to_the_row_that_was_current_once_the_history_moved_on() {
+    let mut harness = back_to_b_with_the_history_open();
+    harness.vanish(Side::Left, "/", vec![]);
+
+    harness.press("1");
+
+    assert_eq!(harness.popup(), None);
+    harness.load(Side::Left, vec![]);
+    assert_eq!(harness.view().left.path, "/b");
+    assert_eq!(harness.history(Side::Left), ["/a", "/b", "/"]);
+    assert_eq!(harness.app().pane(Side::Left).history().pos(), 1);
+}
+
+#[test]
 fn go_home_goes_to_the_home_directory() {
     let mut harness = Harness::start("/tmp", "/tmp");
     harness.take_effects();
@@ -3841,6 +3884,35 @@ fn many_bookmarks() -> Harness {
     harness.config(&config);
     harness.send(Msg::PopupRows { rows: 5 });
     harness.press("J");
+    harness.take_effects();
+    harness
+}
+
+fn back_to_b_with_the_history_open() -> Harness {
+    let state = StateFile {
+        left: PaneState {
+            history: vec![PathBuf::from("/a"), PathBuf::from("/b")],
+            history_pos: None,
+            ..PaneState::default()
+        },
+        ..StateFile::default()
+    };
+    let mut harness = Harness::start_from(start_msg_with(
+        Os::Linux,
+        Some("/c"),
+        Some("/tmp"),
+        ConfigSource::Text(String::new()),
+        Ok(Some(state)),
+    ));
+    harness.resolve(Side::Left, "/c", None);
+    harness.resolve(Side::Right, "/tmp", None);
+    harness.load(Side::Left, vec![]);
+    harness.load(Side::Right, vec![]);
+    harness.press("Ctrl+Shift+Left");
+    harness.load(Side::Left, vec![]);
+    harness.press("H");
+    assert_eq!(harness.popup_labels(), ["/c", "/b", "/a"]);
+    assert_eq!(harness.view().popup.unwrap().cursor, Some(1));
     harness.take_effects();
     harness
 }

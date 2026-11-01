@@ -237,8 +237,8 @@ pub struct ListItem {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ListTarget {
-    /// A position in the pane's history.
-    HistoryPos(usize),
+    /// A position in the pane's history and the place it held when the list opened.
+    HistoryPos(usize, PathBuf),
     Path(PathBuf),
     Drive(char),
 }
@@ -517,7 +517,7 @@ impl ListPopup {
                 key,
                 label: path.display().to_string(),
                 current: pos == history.pos(),
-                target: ListTarget::HistoryPos(pos),
+                target: ListTarget::HistoryPos(pos, path.clone()),
             })
             .collect();
         Self::new(ListKind::History, items)
@@ -829,8 +829,8 @@ impl Menu for ListPopup {
 
     fn run(&mut self, row: usize) -> Response<ListItem> {
         match self.items.get(row) {
-            Some(item) if !item.current => Response::Pick(item.clone()),
-            _ => Response::Close,
+            Some(item) => Response::Pick(item.clone()),
+            None => Response::Close,
         }
     }
 }
@@ -1311,7 +1311,10 @@ mod tests {
 
         let labels: Vec<&str> = popup.items.iter().map(|item| item.label.as_str()).collect();
         assert_eq!(labels, ["/c", "/b", "/a"]);
-        assert_eq!(popup.items[1].target, ListTarget::HistoryPos(1));
+        assert_eq!(
+            popup.items[1].target,
+            ListTarget::HistoryPos(1, PathBuf::from("/b"))
+        );
         assert!(popup.items[1].current);
         assert_eq!(popup.cursor, 1);
     }
@@ -1341,17 +1344,6 @@ mod tests {
         assert_eq!(empty.selected(), None);
         assert_eq!(empty.run(0), Response::Close);
         assert_eq!(empty.empty_message(), "No bookmarks");
-    }
-
-    #[test]
-    fn list_popup_closes_on_the_current_place() {
-        let mut history = History::new();
-        history.visit(PathBuf::from("/a"));
-        history.visit(PathBuf::from("/b"));
-        let mut popup = ListPopup::history(&history);
-
-        assert_eq!(popup.run(0), Response::Close);
-        assert!(matches!(popup.run(1), Response::Pick(item) if item.label == "/a"));
     }
 
     #[test]
