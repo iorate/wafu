@@ -158,7 +158,6 @@ pub enum Effect {
     ListDrives {
         request: RequestId,
     },
-    SetTitle(String),
     /// Watches the configuration file and reports its new text on every change.
     WatchConfig(PathBuf),
     /// Starts a program without a shell and without waiting for it.
@@ -408,7 +407,6 @@ impl App {
 
     /// Applies a message and returns the effects it produced.
     pub fn update(&mut self, msg: Msg) -> Vec<Effect> {
-        let title_before = self.title();
         let popup_before = self.popup_shape();
         let mut effects = Vec::new();
         match msg {
@@ -430,7 +428,6 @@ impl App {
                     Pane::new(Location::new(PathBuf::new())),
                 ];
                 self.start(left, right, config, state, &mut effects);
-                effects.push(Effect::SetTitle(self.title()));
                 return effects;
             }
             Msg::CloseRequested => {
@@ -481,10 +478,6 @@ impl App {
         // Whatever moved the cursor, the image preview follows it.
         self.sync_image_preview(&mut effects);
         self.follow_popup(popup_before);
-        let title = self.title();
-        if title != title_before {
-            effects.push(Effect::SetTitle(title));
-        }
         effects
     }
 

@@ -1625,16 +1625,13 @@ fn right_click_on_windows_opens_the_menu_for_the_clicked_row_at_the_pointer() {
     assert!(harness.view().left.active);
     assert_eq!(harness.cursor_name(Side::Left), "b");
     assert_eq!(harness.marks(Side::Left), ["a"]);
-    // Activating the pane also retitles the window.
+    assert_eq!(harness.view().title, format!("wafu - {WIN_LEFT}"));
     assert_eq!(
         harness.take_effects(),
-        vec![
-            Effect::ShellMenu {
-                paths: vec![path(WIN_LEFT, "b")],
-                anchor: MenuAnchor::Pointer,
-            },
-            Effect::SetTitle(format!("wafu - {WIN_LEFT}")),
-        ]
+        vec![Effect::ShellMenu {
+            paths: vec![path(WIN_LEFT, "b")],
+            anchor: MenuAnchor::Pointer,
+        }]
     );
 }
 
@@ -1668,10 +1665,8 @@ fn right_click_past_the_rows_only_activates_the_pane() {
 
     assert!(harness.view().left.active);
     assert_eq!(harness.cursor_name(Side::Left), "..");
-    assert_eq!(
-        harness.take_effects(),
-        vec![Effect::SetTitle(format!("wafu - {WIN_LEFT}"))]
-    );
+    assert_eq!(harness.view().title, format!("wafu - {WIN_LEFT}"));
+    assert_eq!(harness.take_effects(), vec![]);
 }
 
 #[test]
