@@ -55,62 +55,43 @@ pub enum Msg {
     PreviewRows {
         rows: usize,
     },
+    /// The number of rows that fit in the popup's list.
     PopupRows {
         rows: usize,
     },
     Io(IoEvent),
 }
 
-/// A mouse action on a pane. `row` is the display row under the pointer and
-/// may be past the last row.
+/// A pointer action. A `row` is the row under the pointer, counted from the
+/// first row of its list rather than the first visible one, and may be past
+/// the last row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MouseInput {
-    Click {
-        side: Side,
-        row: usize,
-    },
-    DoubleClick {
-        side: Side,
-        row: usize,
-    },
-    RightClick {
-        side: Side,
-        row: usize,
-    },
-    /// Wheel movement in rows; positive scrolls down.
-    Wheel {
-        side: Side,
-        rows: i32,
-    },
+    /// A click on a pane.
+    Click { side: Side, row: usize },
+    /// A double click on a pane.
+    DoubleClick { side: Side, row: usize },
+    /// A right click on a pane, sent when the button is released.
+    RightClick { side: Side, row: usize },
+    /// Wheel movement over a pane, in rows; positive scrolls down.
+    Wheel { side: Side, rows: i32 },
     /// The scrollbar was dragged to put `top` at the first visible row. It
     /// may be past the last position and is clamped.
-    ScrollTo {
-        side: Side,
-        top: usize,
-    },
+    ScrollTo { side: Side, top: usize },
     /// Wheel movement over the log, in rows.
-    LogWheel {
-        rows: i32,
-    },
+    LogWheel { rows: i32 },
     /// The log's scrollbar was dragged; same as `ScrollTo`.
-    LogScrollTo {
-        top: usize,
-    },
+    LogScrollTo { top: usize },
     /// Wheel movement over a text or binary preview, in rows.
-    PreviewWheel {
-        rows: i32,
-    },
+    PreviewWheel { rows: i32 },
     /// A double click on a preview of any kind.
     PreviewDoubleClick,
-    PopupClick {
-        row: usize,
-    },
-    PopupDoubleClick {
-        row: usize,
-    },
-    PopupWheel {
-        rows: i32,
-    },
+    /// A click on the popup's list. Separators count as rows.
+    PopupClick { row: usize },
+    /// A double click on the popup's list.
+    PopupDoubleClick { row: usize },
+    /// Wheel movement over the popup's list, in rows.
+    PopupWheel { rows: i32 },
 }
 
 /// What the application starts from. The pane paths need not exist yet; the
