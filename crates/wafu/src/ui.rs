@@ -63,6 +63,7 @@ pub struct Ui {
     after_render: RefCell<Vec<Box<dyn FnOnce()>>>,
     has_rendering_notifier: bool,
     startup_window: RefCell<Option<WindowState>>,
+    repositioned: Cell<bool>,
 }
 
 impl Ui {
@@ -81,10 +82,13 @@ impl Ui {
             let has_rendering_notifier = window
                 .window()
                 .set_rendering_notifier(move |state, _| {
-                    if matches!(state, RenderingState::AfterRendering)
-                        && let Some(ui) = weak.upgrade()
-                    {
-                        ui.flush_after_render();
+                    let Some(ui) = weak.upgrade() else {
+                        return;
+                    };
+                    match state {
+                        RenderingState::BeforeRendering => ui.reposition_window(),
+                        RenderingState::AfterRendering => ui.flush_after_render(),
+                        _ => {}
                     }
                 })
                 .is_ok();
@@ -106,6 +110,7 @@ impl Ui {
                 after_render: RefCell::new(Vec::new()),
                 has_rendering_notifier,
                 startup_window: RefCell::new(None),
+                repositioned: Cell::new(false),
             }
         });
         // The title bar needs the window, which exists once it is drawn.
@@ -224,6 +229,20 @@ impl Ui {
                     task();
                 }
             });
+        }
+    }
+
+    fn reposition_window(&self) {
+        if !cfg!(target_os = "macos") || self.repositioned.replace(true) {
+            return;
+        }
+        let state = self.startup_window.borrow();
+        if let Some((x, y)) = state.as_ref().and_then(|state| state.x.zip(state.y)) {
+            // Positions are small enough to be exact as floats.
+            #[allow(clippy::cast_precision_loss)]
+            self.window
+                .window()
+                .set_position(LogicalPosition::new(x as f32, y as f32));
         }
     }
 
