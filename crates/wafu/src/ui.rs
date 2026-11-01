@@ -9,9 +9,10 @@ use slint::{
     RenderingState, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel,
 };
 use wafu_core::{
-    App, Color, Colors, Effect, InputField, IoError, IoEvent, ItemKind, MenuAnchor, MouseInput,
-    Msg, PaneView, PopupView, PreviewContent, PreviewPlacement, PreviewView, ResolvedFont, RowKind,
-    RowView, SharedImage, Side, StateFile, Style, Theme as ConfigTheme, View, WindowState,
+    App, Color, Colors, Effect, InputField, IoError, IoEvent, ItemKind, KeyInput, MenuAnchor,
+    MouseInput, Msg, PaneView, PopupView, PreviewContent, PreviewPlacement, PreviewView,
+    ResolvedFont, RowKind, RowView, SharedImage, Side, StateFile, Style, Theme as ConfigTheme,
+    View, WindowState,
 };
 use wafu_io::{Paths, Runtime};
 
@@ -391,16 +392,13 @@ impl Ui {
 
         let weak = Rc::downgrade(ui);
         ui.window.on_input_accepted(move || {
-            let none = Modifiers {
-                control: false,
-                shift: false,
-                alt: false,
-                meta: false,
-            };
-            if let Some(ui) = Weak::upgrade(&weak)
-                && let Some(input) = key_input("Enter", none)
-            {
-                ui.dispatch(Msg::Key(input));
+            if let Some(ui) = Weak::upgrade(&weak) {
+                ui.dispatch(Msg::Key(KeyInput {
+                    text: "Enter".to_owned(),
+                    ctrl: false,
+                    shift: false,
+                    alt: false,
+                }));
             }
         });
     }
