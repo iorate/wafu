@@ -6,7 +6,8 @@ use std::time::Duration;
 
 use slint::{
     CloseRequestResponse, ComponentHandle, LogicalPosition, LogicalSize, Model, ModelRc,
-    RenderingState, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel,
+    PhysicalPosition, PhysicalSize, RenderingState, Rgba8Pixel, SharedPixelBuffer, SharedString,
+    VecModel,
 };
 use wafu_core::{
     App, Color, Colors, Effect, InputField, IoError, IoEvent, ItemKind, KeyInput, MenuAnchor,
@@ -61,6 +62,7 @@ pub struct Ui {
     last_pointer: Cell<(f32, f32)>,
     after_render: RefCell<Vec<Box<dyn FnOnce()>>>,
     has_rendering_notifier: bool,
+    startup_window: RefCell<Option<WindowState>>,
 }
 
 impl Ui {
@@ -103,6 +105,7 @@ impl Ui {
                 last_pointer: Cell::new((0.0, 0.0)),
                 after_render: RefCell::new(Vec::new()),
                 has_rendering_notifier,
+                startup_window: RefCell::new(None),
             }
         });
         // The title bar needs the window, which exists once it is drawn.
@@ -171,6 +174,7 @@ impl Ui {
     /// Puts the window where it was, in logical pixels. The position is left
     /// alone on Wayland, which has no notion of it.
     pub fn restore_window(&self, state: Option<&WindowState>) {
+        self.startup_window.replace(state.cloned());
         let Some(state) = state else {
             return;
         };
@@ -253,20 +257,15 @@ impl Ui {
 
     fn with_window(&self, mut state: StateFile) -> StateFile {
         let window = self.window.window();
-        let scale = window.scale_factor();
-        let size = window.size().to_logical(scale);
-        let position = window.position().to_logical(scale);
-        let (x, y) = if wafu_io::is_wayland() {
-            (None, None)
+        state.window = if window.is_minimized() || window.is_maximized() {
+            normal_window_state(&self.window).or_else(|| self.startup_window.borrow().clone())
         } else {
-            (Some(round(position.x)), Some(round(position.y)))
+            Some(window_state(
+                window.scale_factor(),
+                window.position(),
+                window.size(),
+            ))
         };
-        state.window = Some(WindowState {
-            x,
-            y,
-            width: Some(round(size.width).unsigned_abs()),
-            height: Some(round(size.height).unsigned_abs()),
-        });
         state
     }
 
@@ -694,6 +693,37 @@ impl Default for Rendered {
             title: String::new(),
         }
     }
+}
+
+fn window_state(scale: f32, position: PhysicalPosition, size: PhysicalSize) -> WindowState {
+    let size = size.to_logical(scale);
+    let position = position.to_logical(scale);
+    let (x, y) = if wafu_io::is_wayland() {
+        (None, None)
+    } else {
+        (Some(round(position.x)), Some(round(position.y)))
+    };
+    WindowState {
+        x,
+        y,
+        width: Some(round(size.width).unsigned_abs()),
+        height: Some(round(size.height).unsigned_abs()),
+    }
+}
+
+#[cfg(windows)]
+fn normal_window_state(window: &AppWindow) -> Option<WindowState> {
+    let place = wafu_io::normal_window_place(window_handle(window)?).ok()?;
+    Some(window_state(
+        window.window().scale_factor(),
+        PhysicalPosition::new(place.x, place.y),
+        PhysicalSize::new(place.width, place.height),
+    ))
+}
+
+#[cfg(not(windows))]
+fn normal_window_state(_window: &AppWindow) -> Option<WindowState> {
+    None
 }
 
 // The raw handle (HWND) of the window, once it exists.
