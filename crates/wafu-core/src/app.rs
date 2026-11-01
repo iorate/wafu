@@ -608,7 +608,7 @@ impl App {
             Command::ClearFilter => {
                 pane.set_filter(None);
             }
-            Command::Reload => self.refresh(side, effects),
+            Command::Reload => self.reload(side, effects),
             Command::PaneShrinkLeft => {
                 self.split_percent = (self.split_percent - SPLIT_STEP).max(SPLIT_MIN);
             }
