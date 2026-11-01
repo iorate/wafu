@@ -106,6 +106,9 @@ pub struct PopupView {
     pub scroll_top: usize,
     /// Reports work going on in the background; the UI may delay showing it.
     pub progress: bool,
+    /// Changes each time a popup opens or another takes its place, so that the
+    /// UI can tell a new popup from one that has only changed.
+    pub generation: usize,
 }
 
 /// One input field of a popup.

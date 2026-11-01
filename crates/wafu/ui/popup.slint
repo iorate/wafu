@@ -20,6 +20,7 @@ export struct PopupData {
     scroll-top: int,
     // Reports work going on in the background and may be shown late.
     progress: bool,
+    generation: int,
 }
 
 // One input field. The part to select when it opens is given as byte
@@ -43,6 +44,7 @@ component PopupInput {
     in property <bool> single;
     // Which field holds the focus is the overlay's state; the field follows it.
     in property <bool> active;
+    in property <int> generation;
     in-out property <string> text;
 
     callback key-input(text: string, control: bool, shift: bool, alt: bool, meta: bool);
@@ -55,6 +57,23 @@ component PopupInput {
     changed active => {
         if root.active {
             input.focus();
+        }
+    }
+
+    changed generation => {
+        root.select-initial();
+    }
+
+    // Typing replaces the selected part (the whole value
+    // unless the core says otherwise); the arrows edit it.
+    function select-initial() {
+        if root.active {
+            input.focus();
+        }
+        if root.field.select-end > root.field.select-start {
+            input.set-selection-offsets(root.field.select-start, root.field.select-end);
+        } else {
+            input.select-all();
         }
     }
 
@@ -86,17 +105,8 @@ component PopupInput {
                 input-type: root.field.secret ? InputType.password : InputType.text;
                 text <=> root.text;
 
-                // Typing replaces the selected part (the whole value
-                // unless the core says otherwise); the arrows edit it.
                 init => {
-                    if root.active {
-                        self.focus();
-                    }
-                    if root.field.select-end > root.field.select-start {
-                        self.set-selection-offsets(root.field.select-start, root.field.select-end);
-                    } else {
-                        self.select-all();
-                    }
+                    root.select-initial();
                 }
 
                 edited => {
@@ -151,9 +161,14 @@ export component PopupOverlay {
     property <length> fixed-height: fixed-rows * Theme.popup-row-height + fields.length * 6px + 16px;
     property <int> max-rows: max(1, min(12, floor((root.height - 40px - fixed-height) / Theme.popup-row-height)));
     property <int> list-rows: fields.length > 0 ? max-rows : min(items.length, max-rows);
-    // The field with the focus, counted from the top. The overlay is made
-    // anew for each popup that has more than one field, so it starts at 0.
+    // The field with the focus, counted from the top. It goes back to the
+    // first field each time a popup opens or another takes its place.
     property <int> focused-field: 0;
+    property <int> generation: root.data.generation;
+
+    changed generation => {
+        root.focused-field = 0;
+    }
 
     // Dims the window and swallows clicks while the popup is open.
     Rectangle {
@@ -211,6 +226,7 @@ export component PopupOverlay {
                 label-width: max(first-label.preferred-width, second-label.preferred-width);
                 single: root.fields.length == 1;
                 active: root.focused-field == 0;
+                generation: root.data.generation;
                 text <=> root.text;
                 key-input(text, control, shift, alt, meta) => {
                     root.key-input(text, control, shift, alt, meta);
@@ -232,6 +248,7 @@ export component PopupOverlay {
                 label-width: max(first-label.preferred-width, second-label.preferred-width);
                 single: false;
                 active: root.focused-field == 1;
+                generation: root.data.generation;
                 text <=> root.text-2;
                 key-input(text, control, shift, alt, meta) => {
                     root.key-input(text, control, shift, alt, meta);

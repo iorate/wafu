@@ -124,6 +124,7 @@ impl App {
         }
         if before.map(|(kind, _, _)| kind) != after.map(|(kind, _, _)| kind) {
             self.popup_top = 0;
+            self.popup_generation = self.popup_generation.wrapping_add(1);
         }
         self.show_popup_cursor();
     }
@@ -231,6 +232,7 @@ impl App {
         };
         Some(PopupView {
             scroll_top: self.popup_top,
+            generation: self.popup_generation,
             ..view
         })
     }
