@@ -10,11 +10,12 @@ pub fn spawn(program: &str, args: &[impl AsRef<OsStr>], cwd: Option<&Path>) -> s
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
     }
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    hide_console(&mut command);
+    if !cfg!(windows) {
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+    }
     let mut child = command.spawn()?;
     // Reaping the child keeps it from lingering as a zombie on Unix.
     thread::Builder::new()
@@ -39,17 +40,6 @@ pub fn spawn_new_window(handoff: &Path, config: Option<&Path>) -> std::io::Resul
     }
     spawn(&exe.to_string_lossy(), &args, None)
 }
-
-#[cfg(windows)]
-fn hide_console(command: &mut Command) {
-    use std::os::windows::process::CommandExt;
-
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    command.creation_flags(CREATE_NO_WINDOW);
-}
-
-#[cfg(not(windows))]
-fn hide_console(_command: &mut Command) {}
 
 #[cfg(test)]
 mod tests {
