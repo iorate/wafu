@@ -24,12 +24,10 @@ fn main() -> ExitCode {
     let home = home_dir();
     let config_override = cli.config.map(absolute);
     let Some(config_path) = config_override.clone().or_else(wafu_io::config_path) else {
-        eprintln!("wafu: cannot find the configuration directory; pass --config");
-        return ExitCode::FAILURE;
+        return report_startup_error("cannot find the configuration directory; pass --config");
     };
     let Some(state_path) = wafu_io::state_path() else {
-        eprintln!("wafu: cannot find the state directory");
-        return ExitCode::FAILURE;
+        return report_startup_error("cannot find the state directory");
     };
     let config = wafu_io::read_or_create(&config_path, CONFIG_TEMPLATE);
     let state = match &cli.inherit {
@@ -44,10 +42,7 @@ fn main() -> ExitCode {
 
     let app_window = match AppWindow::new() {
         Ok(window) => window,
-        Err(error) => {
-            eprintln!("wafu: {error}");
-            return ExitCode::FAILURE;
-        }
+        Err(error) => return report_startup_error(error),
     };
     let ui = Ui::install(
         app_window,
@@ -68,10 +63,7 @@ fn main() -> ExitCode {
     })));
     match ui.window().run() {
         Ok(()) => ExitCode::SUCCESS,
-        Err(error) => {
-            eprintln!("wafu: {error}");
-            ExitCode::FAILURE
-        }
+        Err(error) => report_startup_error(error),
     }
 }
 
@@ -111,4 +103,16 @@ fn report_cli_error(error: &clap::Error) -> ExitCode {
 #[cfg(not(windows))]
 fn report_cli_error(error: &clap::Error) -> ExitCode {
     error.exit()
+}
+
+#[cfg(windows)]
+fn report_startup_error(message: impl std::fmt::Display) -> ExitCode {
+    wafu_io::show_message("wafu", &message.to_string());
+    ExitCode::FAILURE
+}
+
+#[cfg(not(windows))]
+fn report_startup_error(message: impl std::fmt::Display) -> ExitCode {
+    eprintln!("wafu: {message}");
+    ExitCode::FAILURE
 }
