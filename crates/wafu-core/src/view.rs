@@ -97,10 +97,12 @@ pub struct PopupView {
     pub message: Option<String>,
     /// The input fields, if the popup has any. The first one takes the focus.
     pub fields: Vec<InputField>,
+    /// A dimmed line after the fields and before the list.
     pub note: Option<String>,
     pub items: Option<Vec<PopupItem>>,
     /// The selected item, if the popup has a list.
     pub cursor: Option<usize>,
+    /// The first visible row of the list.
     pub scroll_top: usize,
     /// Reports work going on in the background; the UI may delay showing it.
     pub progress: bool,
@@ -187,9 +189,12 @@ impl PartialEq for SharedImage {
 
 impl Eq for SharedImage {}
 
+/// One row of a popup's list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PopupItem {
     pub label: String,
+    /// Shown dimmed at the right end: the letter that picks the row, or the
+    /// keys bound to a command in the palette.
     pub detail: String,
     pub kind: ItemKind,
 }
@@ -205,10 +210,14 @@ impl PopupItem {
     }
 }
 
+/// How a popup row behaves and is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ItemKind {
+    /// A row that is run and closes the popup.
     Choice,
+    /// A checkbox that is flipped without closing the popup.
     Check(bool),
+    /// A line between groups of rows; the cursor skips it.
     Separator,
 }
 
