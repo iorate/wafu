@@ -30,6 +30,7 @@ const SPLIT_MAX: u8 = 90;
 const LOG_ROWS_DEFAULT: usize = 6;
 const LOG_ROWS_MIN: usize = 1;
 const LOG_ROWS_MAX: usize = 30;
+const POPUP_ROWS_DEFAULT: usize = 12;
 
 /// An event delivered to the application.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,6 +53,9 @@ pub enum Msg {
     },
     /// The number of unwrapped lines that fit in the preview.
     PreviewRows {
+        rows: usize,
+    },
+    PopupRows {
         rows: usize,
     },
     Io(IoEvent),
@@ -98,6 +102,15 @@ pub enum MouseInput {
     },
     /// A double click on a preview of any kind.
     PreviewDoubleClick,
+    PopupClick {
+        row: usize,
+    },
+    PopupDoubleClick {
+        row: usize,
+    },
+    PopupWheel {
+        rows: i32,
+    },
 }
 
 /// What the application starts from. The pane paths need not exist yet; the
@@ -375,6 +388,8 @@ pub struct App {
     style: Arc<Style>,
     log: Log,
     popup: Option<Popup>,
+    popup_top: usize,
+    popup_rows: usize,
     preview: Option<preview::Preview>,
     // What the UI last reported; kept across previews so that a new one
     // starts with a sensible page size.
@@ -405,6 +420,8 @@ impl App {
             config_path: PathBuf::new(),
             log,
             popup: None,
+            popup_top: 0,
+            popup_rows: POPUP_ROWS_DEFAULT,
             preview: None,
             preview_rows: 1,
             operation: None,
@@ -419,6 +436,7 @@ impl App {
     /// Applies a message and returns the effects it produced.
     pub fn update(&mut self, msg: Msg) -> Vec<Effect> {
         let title_before = self.title();
+        let popup_before = self.popup_shape();
         let mut effects = Vec::new();
         match msg {
             Msg::Start(start) => {
@@ -472,7 +490,9 @@ impl App {
                 }
             }
             Msg::Mouse(input) => {
-                if self.operation.is_some() || self.popup.is_some() || self.navigating() {
+                if self.popup.is_some() {
+                    self.popup_mouse(input, &mut effects);
+                } else if self.operation.is_some() || self.navigating() {
                 } else if self.preview.is_some() {
                     self.preview_mouse(input, &mut effects);
                 } else {
@@ -482,10 +502,12 @@ impl App {
             Msg::InputChanged { field, text } => self.input_changed(field, text),
             Msg::ViewportRows { side, rows } => self.panes[side.index()].set_viewport_rows(rows),
             Msg::PreviewRows { rows } => self.preview_rows = rows.max(1),
+            Msg::PopupRows { rows } => self.set_popup_rows(rows),
             Msg::Io(event) => self.io_event(event, &mut effects),
         }
         // Whatever moved the cursor, the image preview follows it.
         self.sync_image_preview(&mut effects);
+        self.follow_popup(popup_before);
         let title = self.title();
         if title != title_before {
             effects.push(Effect::SetTitle(title));
@@ -667,7 +689,11 @@ impl App {
             MouseInput::ScrollTo { side, top } => self.panes[side.index()].scroll_to(top),
             MouseInput::LogWheel { rows } => self.log.scroll_by(i64::from(rows)),
             MouseInput::LogScrollTo { top } => self.log.scroll_to(top),
-            MouseInput::PreviewWheel { .. } | MouseInput::PreviewDoubleClick => {}
+            MouseInput::PreviewWheel { .. }
+            | MouseInput::PreviewDoubleClick
+            | MouseInput::PopupClick { .. }
+            | MouseInput::PopupDoubleClick { .. }
+            | MouseInput::PopupWheel { .. } => {}
         }
     }
 

@@ -101,6 +101,7 @@ pub struct PopupView {
     pub items: Option<Vec<PopupItem>>,
     /// The selected item, if the popup has a list.
     pub cursor: Option<usize>,
+    pub scroll_top: usize,
     /// Reports work going on in the background; the UI may delay showing it.
     pub progress: bool,
 }

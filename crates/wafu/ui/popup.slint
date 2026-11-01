@@ -15,7 +15,9 @@ export struct PopupData {
     message: string,
     note: string,
     has-input: bool,
+    has-list: bool,
     cursor: int,
+    scroll-top: int,
     // Reports work going on in the background and may be shown late.
     progress: bool,
 }
@@ -140,8 +142,15 @@ export component PopupOverlay {
     callback key-input(text: string, control: bool, shift: bool, alt: bool, meta: bool);
     callback input-edited(field: int, text: string);
     callback input-accepted();
+    callback list-rows-changed(rows: int);
+    callback row-clicked(row: int);
+    callback row-double-clicked(row: int);
+    callback wheel(delta: length);
 
-    property <int> visible-items: min(items.length, 12);
+    property <int> fixed-rows: 1 + (data.message != "" ? 1 : 0) + fields.length + (data.note != "" ? 1 : 0);
+    property <length> fixed-height: fixed-rows * Theme.popup-row-height + fields.length * 6px + 16px;
+    property <int> max-rows: max(1, min(12, floor((root.height - 40px - fixed-height) / Theme.popup-row-height)));
+    property <int> list-rows: fields.length > 0 ? max-rows : min(items.length, max-rows);
     // The field with the focus, counted from the top. The overlay is made
     // anew for each popup that has more than one field, so it starts at 0.
     property <int> focused-field: 0;
@@ -152,7 +161,11 @@ export component PopupOverlay {
         opacity: 0.6;
     }
 
-    TouchArea { }
+    TouchArea {
+        scroll-event(event) => {
+            accept
+        }
+    }
 
     first-label := PopupText {
         visible: false;
@@ -242,16 +255,28 @@ export component PopupOverlay {
                 vertical-alignment: center;
             }
 
-            if items.length > 0: Rectangle {
-                property <int> cursor: root.data.cursor;
+            if data.has-list: Rectangle {
+                property <int> top: root.data.scroll-top;
 
-                height: root.visible-items * Theme.popup-row-height;
+                height: root.list-rows * Theme.popup-row-height;
                 clip: true;
+
+                init => {
+                    list.content-y = -self.top * Theme.popup-row-height;
+                }
+
+                changed top => {
+                    list.content-y = -self.top * Theme.popup-row-height;
+                }
 
                 list := ListView {
                     width: parent.width;
                     height: parent.height;
                     vertical-scrollbar-policy: ScrollBarPolicy.always-off;
+
+                    changed visible-height => {
+                        root.list-rows-changed(floor(self.visible-height / Theme.popup-row-height));
+                    }
 
                     for item[index] in root.items: Rectangle {
                         height: Theme.popup-row-height;
@@ -293,16 +318,18 @@ export component PopupOverlay {
                 }
 
                 // The widgets only display the draft; clicks never reach them.
-                TouchArea { }
-
-                changed cursor => {
-                    if self.cursor < 0 {
-                        return;
+                TouchArea {
+                    clicked => {
+                        root.row-clicked(floor((self.mouse-y - list.content-y) / Theme.popup-row-height));
                     }
-                    if self.cursor * Theme.popup-row-height < -list.content-y {
-                        list.content-y = -self.cursor * Theme.popup-row-height;
-                    } else if (self.cursor + 1) * Theme.popup-row-height > -list.content-y + list.visible-height {
-                        list.content-y = -((self.cursor + 1) * Theme.popup-row-height - list.visible-height);
+
+                    double-clicked => {
+                        root.row-double-clicked(floor((self.mouse-y - list.content-y) / Theme.popup-row-height));
+                    }
+
+                    scroll-event(event) => {
+                        root.wheel(event.delta-y);
+                        accept
                     }
                 }
             }

@@ -58,6 +58,10 @@ export component AppWindow inherits Window {
     callback preview-rows-changed(rows: int);
     callback preview-double-clicked();
     callback preview-wheel(delta: length);
+    callback popup-rows-changed(rows: int);
+    callback popup-row-clicked(row: int);
+    callback popup-row-double-clicked(row: int);
+    callback popup-wheel(delta: length);
 
     // A progress popup is held back for a moment so that a quick read does not
     // flash an overlay.
@@ -345,6 +349,18 @@ export component AppWindow inherits Window {
         }
         input-accepted => {
             root.input-accepted();
+        }
+        list-rows-changed(rows) => {
+            root.popup-rows-changed(rows);
+        }
+        row-clicked(row) => {
+            root.popup-row-clicked(row);
+        }
+        row-double-clicked(row) => {
+            root.popup-row-double-clicked(row);
+        }
+        wheel(delta) => {
+            root.popup-wheel(delta);
         }
     }
 }

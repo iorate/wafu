@@ -67,6 +67,30 @@ pub enum Popup {
     Conflict(ConflictPopup),
 }
 
+impl Popup {
+    pub(crate) fn list_rows(&self) -> usize {
+        match self {
+            Self::Sort(popup) => popup.rows(),
+            Self::Palette(popup) => popup.rows(),
+            Self::List(popup) => popup.rows(),
+            Self::Choice(popup) => popup.rows(),
+            Self::Conflict(popup) => popup.rows(),
+            Self::Input(_) | Self::Search(_) => 0,
+        }
+    }
+
+    pub(crate) fn list_cursor(&self) -> usize {
+        match self {
+            Self::Sort(popup) => popup.cursor(),
+            Self::Palette(popup) => popup.cursor(),
+            Self::List(popup) => popup.cursor(),
+            Self::Choice(popup) => popup.cursor(),
+            Self::Conflict(popup) => popup.cursor(),
+            Self::Input(_) | Self::Search(_) => 0,
+        }
+    }
+}
+
 /// Edits a copy of the sort settings; nothing is applied until confirmed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SortPopup {
@@ -641,6 +665,8 @@ pub(crate) enum Response<P> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MenuInput {
     Key(Key),
+    Click { row: usize },
+    DoubleClick { row: usize },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -876,7 +902,25 @@ pub(crate) fn menu_input<M: Menu>(menu: &mut M, input: MenuInput) -> Response<M:
             },
             _ => Response::Stay,
         },
+        MenuInput::Click { row } => {
+            if selectable(menu, row) {
+                menu.set_cursor(row);
+            }
+            Response::Stay
+        }
+        MenuInput::DoubleClick { row } => {
+            if selectable(menu, row) {
+                menu.set_cursor(row);
+                menu.run(row)
+            } else {
+                Response::Stay
+            }
+        }
     }
+}
+
+fn selectable<M: Menu>(menu: &M, row: usize) -> bool {
+    row < menu.rows() && menu.kind(row) != ItemKind::Separator
 }
 
 fn is_row_key(detail: &str, key: char) -> bool {
@@ -1122,11 +1166,45 @@ mod tests {
     #[test]
     fn menu_input_ignores_letters_with_ctrl_or_alt() {
         let mut popup = ConflictPopup::new(PathBuf::from("/a/x"), PathBuf::from("/b/x"), false);
-        let MenuInput::Key(mut key) = press('a');
-        key.ctrl = true;
+        let key = Key {
+            base: KeyBase::Char('A'),
+            ctrl: true,
+            shift: false,
+            alt: false,
+        };
 
         assert_eq!(menu_input(&mut popup, MenuInput::Key(key)), Response::Stay);
         assert!(!popup.all);
+    }
+
+    #[test]
+    fn menu_input_clicks_move_the_cursor_and_double_clicks_run_the_row() {
+        let mut popup = ConflictPopup::new(PathBuf::from("/a/x"), PathBuf::from("/b/x"), false);
+
+        assert_eq!(
+            menu_input(&mut popup, MenuInput::Click { row: 6 }),
+            Response::Stay
+        );
+        assert_eq!((popup.cursor, popup.all), (6, false));
+        assert_eq!(
+            menu_input(&mut popup, MenuInput::DoubleClick { row: 5 }),
+            Response::Stay
+        );
+        assert_eq!(
+            menu_input(&mut popup, MenuInput::Click { row: 7 }),
+            Response::Stay
+        );
+        assert_eq!(popup.cursor, 6);
+        assert_eq!(
+            menu_input(&mut popup, MenuInput::DoubleClick { row: 6 }),
+            Response::Stay
+        );
+        assert!(popup.all);
+        assert_eq!(
+            menu_input(&mut popup, MenuInput::DoubleClick { row: 3 }),
+            Response::Pick(ConflictRow::Rename)
+        );
+        assert_eq!(popup.cursor, 3);
     }
 
     #[test]
