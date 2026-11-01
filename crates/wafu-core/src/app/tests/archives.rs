@@ -241,7 +241,11 @@ fn escape_while_entering_an_archive_stays_put() {
 
     assert!(matches!(
         harness.take_effects().as_slice(),
-        [Effect::CancelRead { .. }, Effect::Watch { path, .. }] if path.as_os_str() == LEFT
+        [
+            Effect::CancelRead { .. },
+            Effect::Watch { path, .. },
+            Effect::ReadDir { location, .. },
+        ] if path.as_os_str() == LEFT && *location == Location::new(PathBuf::from(LEFT))
     ));
     assert_eq!(harness.view().left.path, LEFT);
     assert_eq!(harness.cursor_name(Side::Left), "a.zip");

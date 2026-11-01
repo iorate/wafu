@@ -4,6 +4,7 @@ use crate::app::{Effect, IoEvent, MouseInput, Msg, PreviewError, PreviewSource, 
 use crate::entry::{Entry, EntryKind, SpecialKind, TargetKind};
 use crate::error::IoError;
 use crate::location::{ArchiveFormat, ArchivePath};
+use crate::pane::InFlight;
 use crate::preview::{Document, truncated_note};
 use crate::test_support::{Harness, LEFT, RIGHT, file, special};
 use crate::view::{PreviewContent, PreviewPlacement};
@@ -528,7 +529,10 @@ fn esc_cancels_a_move_started_beside_an_image_and_keeps_the_preview() {
 
     harness.press("Esc");
 
-    assert!(harness.app().pane(Side::Left).loading().is_none());
+    assert!(matches!(
+        harness.app().pane(Side::Left).loading(),
+        Some(InFlight::Refresh { .. })
+    ));
     assert!(harness.view().preview.is_some());
     assert!(
         harness

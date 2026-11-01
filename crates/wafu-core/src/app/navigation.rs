@@ -133,6 +133,7 @@ impl App {
         let pane = &mut self.panes[side.index()];
         Self::cancel_loading(pane, effects);
         Self::rewatch(side, pane, effects);
+        self.refresh(side, effects);
     }
 
     pub(super) fn dir_loaded(
@@ -163,6 +164,9 @@ impl App {
                         .to_string(),
                     );
                     Self::rewatch(side, pane, effects);
+                    pane.set_reload_pending(false);
+                    self.refresh(side, effects);
+                    return;
                 }
             },
             Some(InFlight::Refresh { .. }) => match result {
@@ -229,12 +233,14 @@ impl App {
             None if !climb => {
                 self.log.push(AppError::NotFound { path }.to_string());
                 Self::rewatch(side, pane, effects);
+                self.refresh(side, effects);
             }
             // Home is only for a pane with nowhere else to be; a pane that is
             // somewhere and fails to move elsewhere stays there.
             None if failed.is_none() && !pane.location().base.as_os_str().is_empty() => {
                 self.log.push(AppError::Unavailable { path }.to_string());
                 Self::rewatch(side, pane, effects);
+                self.refresh(side, effects);
             }
             None => {
                 let home = self.home.clone();
