@@ -31,8 +31,8 @@ mod text;
 mod view;
 
 pub use app::{
-    App, Change, ConfigSource, DrivePurpose, Effect, IoEvent, MenuAnchor, MouseInput, Msg, Os,
-    PreviewError, PreviewSource, Resolved, Side, SpawnKind, Start,
+    App, Change, ConfigSource, Effect, IoEvent, MenuAnchor, MouseInput, Msg, Os, PreviewError,
+    PreviewSource, Resolved, Side, SpawnKind, Start,
 };
 pub use config::{CONFIG_TEMPLATE, Color, ColorSet, Colors, Theme};
 pub use entry::{
@@ -45,7 +45,7 @@ pub use operation::{
     ArchiveEntries, ArchiveOutput, OperationEvent, OperationKind, OperationSpec, Outcome, Reply,
     Sources,
 };
-pub use pane::RequestId;
+pub use pane::{DrivePurpose, RequestId};
 pub use preview::{Document, DocumentMode, ImageData, Line, PREVIEW_LIMIT};
 pub use state::{PaneState, StateError, StateFile, WindowState};
 pub use view::{

@@ -3,7 +3,6 @@ use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::app::DrivePurpose;
 use crate::config::SizeFormat;
 use crate::entry::{Directory, Entry};
 use crate::error::IoError;
@@ -83,6 +82,14 @@ impl InFlight {
             | Self::Drives { request, .. } => *request,
         }
     }
+}
+
+/// What the drive list is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DrivePurpose {
+    Show,
+    Prev,
+    Next,
 }
 
 /// How a move is recorded in the history once it succeeds.

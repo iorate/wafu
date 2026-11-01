@@ -2,8 +2,8 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 use crate::app::{
-    App, Change, ConfigSource, DrivePurpose, Effect, IoEvent, MouseInput, Msg, Os, PreviewError,
-    Resolved, Side, Start,
+    App, Change, ConfigSource, Effect, IoEvent, MouseInput, Msg, Os, PreviewError, Resolved, Side,
+    Start,
 };
 use crate::entry::{Directory, Entry, EntryKind, SpecialKind};
 use crate::error::IoError;
@@ -350,10 +350,9 @@ impl Harness {
         }));
     }
 
-    pub(crate) fn drives(&mut self, purpose: DrivePurpose, letters: &[char]) {
+    pub(crate) fn drives(&mut self, letters: &[char]) {
         let request = self.latest_drives();
         self.send(Msg::Io(IoEvent::Drives {
-            purpose,
             request,
             letters: letters.to_vec(),
         }));

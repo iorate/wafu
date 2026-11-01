@@ -1997,7 +1997,7 @@ fn double_clicking_a_bookmark_row_moves_there() {
 fn double_clicking_a_drive_row_switches_to_the_drive() {
     let mut harness = Harness::start_on(Os::Windows, "/home/user", "/tmp");
     harness.press("L");
-    harness.drives(DrivePurpose::Show, &['C', 'D']);
+    harness.drives(&['C', 'D']);
     harness.take_effects();
 
     harness.popup_double_click(1);
@@ -2179,7 +2179,7 @@ fn a_move_to_a_drive_with_nothing_on_it_stays_put() {
     let mut harness = Harness::start_on(Os::Windows, "/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a")]);
     harness.press("Ctrl+Right");
-    harness.drives(DrivePurpose::Next, &['D']);
+    harness.drives(&['D']);
     harness.take_effects();
 
     harness.fail_resolve(Side::Left);
@@ -3140,12 +3140,11 @@ fn drives_popup_lists_the_letters_and_picks_by_letter() {
     assert_eq!(
         harness.take_effects(),
         vec![Effect::ListDrives {
-            purpose: DrivePurpose::Show,
             request: harness.latest_drives(),
         }]
     );
 
-    harness.drives(DrivePurpose::Show, &['D', 'C']);
+    harness.drives(&['D', 'C']);
     assert!(harness.app().pane(Side::Left).loading().is_none());
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Drives");
@@ -3173,11 +3172,10 @@ fn drive_next_and_prev_without_a_current_drive_go_to_the_ends() {
     assert_eq!(
         harness.take_effects(),
         vec![Effect::ListDrives {
-            purpose: DrivePurpose::Next,
             request: harness.latest_drives(),
         }]
     );
-    harness.drives(DrivePurpose::Next, &['C', 'D']);
+    harness.drives(&['C', 'D']);
     assert!(matches!(
         harness.take_effects().as_slice(),
         [Effect::Resolve { path, .. }] if path == &PathBuf::from("C:\\")
@@ -3186,7 +3184,7 @@ fn drive_next_and_prev_without_a_current_drive_go_to_the_ends() {
     harness.take_effects();
 
     harness.press("Ctrl+Left");
-    harness.drives(DrivePurpose::Prev, &['C', 'D']);
+    harness.drives(&['C', 'D']);
     assert!(matches!(
         harness.take_effects().as_slice(),
         [Effect::ListDrives { .. }, Effect::Resolve { path, .. }] if path == &PathBuf::from("D:\\")
@@ -3195,11 +3193,10 @@ fn drive_next_and_prev_without_a_current_drive_go_to_the_ends() {
     harness.press("Esc");
     harness.take_effects();
     harness.press("Ctrl+Right");
-    harness.drives(DrivePurpose::Next, &[]);
+    harness.drives(&[]);
     assert_eq!(
         harness.take_effects(),
         vec![Effect::ListDrives {
-            purpose: DrivePurpose::Next,
             request: harness.latest_drives(),
         }]
     );
@@ -3237,14 +3234,14 @@ fn escape_while_listing_drives_drops_the_letters_that_arrive_later() {
     assert!(harness.app().pane(Side::Left).loading().is_none());
     assert!(harness.view().popup.is_none());
 
-    harness.drives(DrivePurpose::Show, &['C', 'D']);
+    harness.drives(&['C', 'D']);
 
     assert!(harness.view().popup.is_none());
 
     harness.press("Ctrl+Right");
     harness.press("Esc");
     harness.take_effects();
-    harness.drives(DrivePurpose::Next, &['C', 'D']);
+    harness.drives(&['C', 'D']);
 
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(harness.view().left.path, "/home/user");
@@ -3256,7 +3253,7 @@ fn drive_next_reads_the_drive_as_part_of_the_same_move() {
     harness.take_effects();
 
     harness.press("Ctrl+Right");
-    harness.drives(DrivePurpose::Next, &['C', 'D']);
+    harness.drives(&['C', 'D']);
     let resolve = harness.latest_resolve(Side::Left);
     harness.take_effects();
 
@@ -3289,7 +3286,7 @@ fn a_change_while_listing_drives_is_read_once_the_list_arrives() {
     harness.changed(Side::Left);
     harness.take_effects();
 
-    harness.drives(DrivePurpose::Show, &['C']);
+    harness.drives(&['C']);
 
     assert!(matches!(
         harness.take_effects().as_slice(),
@@ -3314,13 +3311,12 @@ fn listing_drives_during_a_reload_reads_again_once_the_list_arrives() {
         vec![
             Effect::CancelRead { request: reload },
             Effect::ListDrives {
-                purpose: DrivePurpose::Show,
                 request: harness.latest_drives(),
             },
         ]
     );
 
-    harness.drives(DrivePurpose::Show, &['C']);
+    harness.drives(&['C']);
 
     assert!(matches!(
         harness.take_effects().as_slice(),
@@ -3340,21 +3336,21 @@ fn drive_switching_wraps_and_remembers_the_last_place_on_each_drive() {
 
     // Already on C, so nothing happens.
     harness.press("L");
-    harness.drives(DrivePurpose::Show, &['C', 'D']);
+    harness.drives(&['C', 'D']);
     harness.take_effects();
     assert_eq!(harness.view().popup.unwrap().cursor, Some(0));
     harness.press("C");
     assert_eq!(harness.take_effects(), vec![]);
 
     harness.press("Ctrl+Left");
-    harness.drives(DrivePurpose::Prev, &['C', 'D']);
+    harness.drives(&['C', 'D']);
     harness.resolve(Side::Left, r"D:\", None);
     harness.load(Side::Left, vec![]);
     assert_eq!(harness.view().left.path, r"D:\");
     harness.take_effects();
 
     harness.press("Ctrl+Right");
-    harness.drives(DrivePurpose::Next, &['C', 'D']);
+    harness.drives(&['C', 'D']);
     assert!(matches!(
         harness.take_effects().as_slice(),
         [Effect::ListDrives { .. }, Effect::Resolve { path, .. }] if path == &PathBuf::from(r"C:\Users\me")
