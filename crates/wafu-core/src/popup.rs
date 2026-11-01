@@ -18,9 +18,17 @@ const SORT_ROWS: [(SortRow, &str, Option<char>); 10] = [
     (SortRow::Key(SortKey::Time), "Time", Some('T')),
     (SortRow::Key(SortKey::Natural), "Name (natural)", Some('X')),
     (SortRow::Separator, "", None),
-    (SortRow::Descending, "Descending", Some('D')),
-    (SortRow::DirsFirst, "Directories first", Some('G')),
-    (SortRow::IgnoreCase, "Case-insensitive", Some('C')),
+    (SortRow::Flag(SortFlag::Descending), "Descending", Some('D')),
+    (
+        SortRow::Flag(SortFlag::DirsFirst),
+        "Directories first",
+        Some('G'),
+    ),
+    (
+        SortRow::Flag(SortFlag::IgnoreCase),
+        "Case-insensitive",
+        Some('C'),
+    ),
 ];
 
 const DELETE_CHOICES: [Choice; 2] = [
@@ -267,42 +275,35 @@ impl SortPopup {
     pub fn items(&self) -> Vec<PopupItem> {
         SORT_ROWS
             .iter()
-            .map(|&(row, label, key)| {
-                let detail = key.map(String::from).unwrap_or_default();
-                match row {
-                    SortRow::Separator => PopupItem::separator(),
-                    SortRow::Key(key) => PopupItem {
-                        label: if key == self.draft.key {
-                            format!("{label} *")
-                        } else {
-                            label.to_owned()
-                        },
-                        detail,
-                        kind: ItemKind::Choice,
+            .enumerate()
+            .map(|(index, &(row, label, key))| match row {
+                SortRow::Separator => PopupItem::separator(),
+                _ => PopupItem {
+                    label: if row == SortRow::Key(self.draft.key) {
+                        format!("{label} *")
+                    } else {
+                        label.to_owned()
                     },
-                    SortRow::Descending | SortRow::DirsFirst | SortRow::IgnoreCase => PopupItem {
-                        label: label.to_owned(),
-                        detail,
-                        kind: ItemKind::Check(*self.flag(row)),
-                    },
-                }
+                    detail: key.map(String::from).unwrap_or_default(),
+                    kind: self.kind(index),
+                },
             })
             .collect()
     }
 
-    fn flag(&self, row: SortRow) -> &bool {
-        match row {
-            SortRow::Descending => &self.draft.descending,
-            SortRow::DirsFirst => &self.draft.dirs_first,
-            _ => &self.draft.ignore_case,
+    fn flag(&self, flag: SortFlag) -> bool {
+        match flag {
+            SortFlag::Descending => self.draft.descending,
+            SortFlag::DirsFirst => self.draft.dirs_first,
+            SortFlag::IgnoreCase => self.draft.ignore_case,
         }
     }
 
-    fn flag_mut(&mut self, row: SortRow) -> &mut bool {
-        match row {
-            SortRow::Descending => &mut self.draft.descending,
-            SortRow::DirsFirst => &mut self.draft.dirs_first,
-            _ => &mut self.draft.ignore_case,
+    fn flag_mut(&mut self, flag: SortFlag) -> &mut bool {
+        match flag {
+            SortFlag::Descending => &mut self.draft.descending,
+            SortFlag::DirsFirst => &mut self.draft.dirs_first,
+            SortFlag::IgnoreCase => &mut self.draft.ignore_case,
         }
     }
 }
@@ -688,6 +689,11 @@ pub(crate) enum MenuInput {
 enum SortRow {
     Key(SortKey),
     Separator,
+    Flag(SortFlag),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SortFlag {
     Descending,
     DirsFirst,
     IgnoreCase,
@@ -704,7 +710,7 @@ impl Menu for SortPopup {
         match SORT_ROWS[row].0 {
             SortRow::Key(_) => ItemKind::Choice,
             SortRow::Separator => ItemKind::Separator,
-            toggle => ItemKind::Check(*self.flag(toggle)),
+            SortRow::Flag(flag) => ItemKind::Check(self.flag(flag)),
         }
     }
 
@@ -729,8 +735,8 @@ impl Menu for SortPopup {
                 Response::Pick(self.draft)
             }
             SortRow::Separator => Response::Stay,
-            toggle => {
-                let flag = self.flag_mut(toggle);
+            SortRow::Flag(flag) => {
+                let flag = self.flag_mut(flag);
                 *flag = !*flag;
                 Response::Stay
             }
