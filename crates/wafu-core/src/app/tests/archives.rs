@@ -1107,6 +1107,48 @@ fn history_back_inside_an_archive_leaves_it_without_recording_it() {
 }
 
 #[test]
+fn history_popup_inside_an_archive_leaves_it_for_the_place_holding_it() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![dir("d"), file("a.zip")]);
+    harness.press("Down");
+    harness.press("Enter");
+    harness.load(Side::Left, vec![]);
+    harness.press("Ctrl+Shift+Left");
+    harness.load(Side::Left, vec![dir("d"), file("a.zip")]);
+    harness.press("Down");
+    harness.press("Down");
+    harness.enter_archive(Side::Left, contents());
+    assert_eq!(harness.history(Side::Left), [LEFT, &shown(LEFT, "d")]);
+    assert_eq!(harness.app().pane(Side::Left).history().pos(), 0);
+    harness.take_effects();
+
+    harness.press("H");
+    assert_eq!(harness.popup_labels(), [&shown(LEFT, "d"), LEFT]);
+    assert_eq!(harness.view().popup.unwrap().cursor, Some(1));
+    harness.press("Enter");
+
+    assert_eq!(harness.popup(), None);
+    assert_eq!(
+        harness.take_effects(),
+        vec![
+            Effect::Watch {
+                side: Side::Left,
+                path: PathBuf::from(LEFT),
+            },
+            Effect::ReadDir {
+                side: Side::Left,
+                location: Location::new(PathBuf::from(LEFT)),
+                request: harness.latest_request(Side::Left),
+            },
+        ]
+    );
+    harness.load(Side::Left, vec![dir("d"), file("a.zip")]);
+    assert_eq!(harness.view().left.path, LEFT);
+    assert_eq!(harness.history(Side::Left), [LEFT, &shown(LEFT, "d")]);
+    assert_eq!(harness.app().pane(Side::Left).history().pos(), 0);
+}
+
+#[test]
 fn the_state_saves_the_directory_holding_the_archive() {
     let mut harness = inside();
 

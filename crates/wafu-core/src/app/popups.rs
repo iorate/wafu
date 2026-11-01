@@ -61,7 +61,8 @@ impl App {
     }
 
     pub(super) fn open_history(&mut self) {
-        let popup = ListPopup::history(self.active_pane().history());
+        let pane = self.active_pane();
+        let popup = ListPopup::history(pane.history(), pane.location().in_archive());
         self.popup = Some(Popup::List(popup));
     }
 
@@ -487,7 +488,8 @@ impl App {
     fn pick_list_item(&mut self, item: ListItem, effects: &mut Vec<Effect>) {
         match item.target {
             ListTarget::HistoryPos(pos, path) => {
-                let history = self.active_pane().history();
+                let pane = self.active_pane();
+                let history = pane.history();
                 if history.items().get(pos) != Some(&path) {
                     self.navigate(
                         self.active,
@@ -496,7 +498,7 @@ impl App {
                         HistoryMove::Visit,
                         effects,
                     );
-                } else if pos != history.pos() {
+                } else if pos != history.pos() || pane.location().in_archive() {
                     self.go_to_history(Some((pos, path)), effects);
                 }
             }
