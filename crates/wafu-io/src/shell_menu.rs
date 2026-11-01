@@ -19,6 +19,12 @@ use windows::core::{HSTRING, Interface, PCSTR, PCWSTR};
 
 use crate::com::ComScope;
 
+// The command ids the menu may use; the shell numbers its items from the first.
+const FIRST_COMMAND: u32 = 1;
+const LAST_COMMAND: u32 = 0x7FFF;
+// Identifies the subclass; any value works as long as it is unique on the window.
+const SUBCLASS_ID: usize = 0x7761_6675;
+
 /// Why the shell menu could not be shown.
 #[derive(Debug, Error)]
 pub enum ShellMenuError {
@@ -27,12 +33,6 @@ pub enum ShellMenuError {
     #[error("{0}")]
     Windows(#[from] windows::core::Error),
 }
-
-// The command ids the menu may use; the shell numbers its items from the first.
-const FIRST_COMMAND: u32 = 1;
-const LAST_COMMAND: u32 = 0x7FFF;
-// Identifies the subclass; any value works as long as it is unique on the window.
-const SUBCLASS_ID: usize = 0x7761_6675;
 
 /// Shows the shell's context menu for the paths and runs what the user picks.
 /// `window` is the HWND of the owning window; `x` and `y` are in physical
@@ -57,6 +57,11 @@ pub fn shell_menu(
     // SAFETY: `hmenu` was created above and is no longer tracked.
     let _ = unsafe { DestroyMenu(hmenu) };
     result
+}
+
+enum Handler {
+    V3(IContextMenu3),
+    V2(IContextMenu2),
 }
 
 // The context menu handler of the paths, which all lie in the same directory.
@@ -175,11 +180,6 @@ fn discard_clicks(hwnd: HWND) {
     }
     .as_bool()
     {}
-}
-
-enum Handler {
-    V3(IContextMenu3),
-    V2(IContextMenu2),
 }
 
 #[allow(unsafe_code)]
