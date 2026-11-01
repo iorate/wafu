@@ -506,7 +506,7 @@ impl ListPopup {
 
     /// The history, newest first.
     #[must_use]
-    pub fn history(history: &History) -> Self {
+    pub fn history(history: &History, in_archive: bool) -> Self {
         let items = history
             .items()
             .iter()
@@ -516,11 +516,15 @@ impl ListPopup {
             .map(|((pos, path), key)| ListItem {
                 key,
                 label: path.display().to_string(),
-                current: pos == history.pos(),
+                current: !in_archive && pos == history.pos(),
                 target: ListTarget::HistoryPos(pos, path.clone()),
             })
             .collect();
-        Self::new(ListKind::History, items)
+        Self {
+            kind: ListKind::History,
+            items,
+            cursor: history.items().len().saturating_sub(history.pos() + 1),
+        }
     }
 
     /// Bookmarks in the configured order, already expanded.
@@ -1307,7 +1311,7 @@ mod tests {
         history.visit(PathBuf::from("/c"));
         history.set_pos(1);
 
-        let popup = ListPopup::history(&history);
+        let popup = ListPopup::history(&history, false);
 
         let labels: Vec<&str> = popup.items.iter().map(|item| item.label.as_str()).collect();
         assert_eq!(labels, ["/c", "/b", "/a"]);
@@ -1316,6 +1320,20 @@ mod tests {
             ListTarget::HistoryPos(1, PathBuf::from("/b"))
         );
         assert!(popup.items[1].current);
+        assert_eq!(popup.cursor, 1);
+    }
+
+    #[test]
+    fn list_popup_of_history_inside_an_archive_has_no_current_place() {
+        let mut history = History::new();
+        history.visit(PathBuf::from("/a"));
+        history.visit(PathBuf::from("/b"));
+        history.visit(PathBuf::from("/c"));
+        history.set_pos(1);
+
+        let popup = ListPopup::history(&history, true);
+
+        assert!(popup.items.iter().all(|item| !item.current));
         assert_eq!(popup.cursor, 1);
     }
 
