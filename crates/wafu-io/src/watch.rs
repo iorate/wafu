@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 #[cfg(target_os = "macos")]
 use icu_normalizer::ComposingNormalizer;
-use notify::event::{AccessKind, AccessMode};
+use notify::event::{AccessKind, AccessMode, ModifyKind};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher as _};
 use wafu_core::{IoError, IoEvent, Side};
 
@@ -65,7 +65,7 @@ impl Watcher {
         // the target of a link.
         let entry = match path
             .parent()
-            .map(|parent| watch_entry(parent, &path, changes.clone()))
+            .map(|parent| watch_entry(parent, &path, is_dir, changes.clone()))
         {
             Some(Ok(watcher)) => Some(watcher),
             Some(Err(error)) if !is_dir => {
@@ -104,7 +104,7 @@ pub(crate) fn watch_config(path: &Path, on_event: &OnEvent) -> notify::Result<Gr
         .parent()
         .ok_or_else(|| notify::Error::generic("the configuration file has no parent directory"))?;
     let (changes, receiver) = mpsc::channel::<()>();
-    let entry = watch_entry(parent, path, changes.clone())?;
+    let entry = watch_entry(parent, path, false, changes.clone())?;
     let followed = follow(path, resolve_link(path), false, &changes)?;
     let watches = Watches {
         _entry: Some(entry),
@@ -199,7 +199,7 @@ fn follow(
     let target = match &resolution {
         Resolution::Target(real) => real
             .parent()
-            .and_then(|dir| watch_entry(dir, real, changes.clone()).ok()),
+            .and_then(|dir| watch_entry(dir, real, is_dir, changes.clone()).ok()),
         Resolution::NotLink | Resolution::Failed => None,
     };
     Ok(Followed {
@@ -256,11 +256,14 @@ fn watch_contents(path: &Path, changes: Sender<()>) -> notify::Result<Recommende
 fn watch_entry(
     dir: &Path,
     entry: &Path,
+    is_dir: bool,
     changes: Sender<()>,
 ) -> notify::Result<RecommendedWatcher> {
     let name = entry.file_name().map(ToOwned::to_owned);
     let mut watcher = notify::recommended_watcher(move |result: notify::Result<Event>| {
-        if counts_as_change(&result, |event| names_entry(event, name.as_deref())) {
+        if counts_as_change(&result, |event| {
+            concerns_entry(event, name.as_deref(), is_dir)
+        }) {
             let _ = changes.send(());
         }
     })?;
@@ -273,6 +276,10 @@ fn counts_as_change(result: &notify::Result<Event>, concerns: impl FnOnce(&Event
         Ok(event) => event.need_rescan() || (is_change(event.kind) && concerns(event)),
         Err(_) => true,
     }
+}
+
+fn concerns_entry(event: &Event, name: Option<&OsStr>, is_dir: bool) -> bool {
+    (!is_dir || is_dir_entry_change(event.kind)) && names_entry(event, name)
 }
 
 fn names_entry(event: &Event, name: Option<&OsStr>) -> bool {
@@ -312,6 +319,20 @@ fn is_change(kind: EventKind) -> bool {
     }
 }
 
+// A change inside a directory may also be reported by its parent as a
+// modification of the directory itself (its write time). On Windows that
+// seems to arrive late, once the directory is next opened, which resolving
+// the link before a report or reading it again after one does, so it would
+// make every change report twice. Changes inside are for the contents watch.
+// Unknown kinds still count, as they might be a removal.
+fn is_dir_entry_change(kind: EventKind) -> bool {
+    match kind {
+        EventKind::Any | EventKind::Create(_) | EventKind::Remove(_) | EventKind::Other => true,
+        EventKind::Modify(modify) => matches!(modify, ModifyKind::Name(_)),
+        EventKind::Access(_) => false,
+    }
+}
+
 // Calls `on_burst` once per burst of changes, after they stop for a moment or
 // after a while even if they do not, so that a directory written to all the
 // time is still refreshed. The thread ends when the senders are dropped.
@@ -342,7 +363,7 @@ fn spawn_debouncer(changes: mpsc::Receiver<()>, on_burst: impl Fn() + Send + 'st
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use notify::event::{CreateKind, Flag, RemoveKind};
+    use notify::event::{CreateKind, DataChange, Flag, MetadataKind, RemoveKind, RenameMode};
     use tempfile::TempDir;
 
     use super::*;
@@ -486,6 +507,84 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_directory_entry_counts_only_changes_to_its_name() {
+        let watched = Some(OsStr::new("Folder"));
+        let counted = [
+            EventKind::Create(CreateKind::Folder),
+            EventKind::Remove(RemoveKind::Folder),
+            EventKind::Modify(ModifyKind::Name(RenameMode::From)),
+            EventKind::Modify(ModifyKind::Name(RenameMode::To)),
+            EventKind::Modify(ModifyKind::Name(RenameMode::Any)),
+            EventKind::Any,
+            EventKind::Other,
+        ];
+        let ignored = [
+            EventKind::Modify(ModifyKind::Data(DataChange::Any)),
+            EventKind::Modify(ModifyKind::Metadata(MetadataKind::WriteTime)),
+            EventKind::Modify(ModifyKind::Any),
+            EventKind::Modify(ModifyKind::Other),
+            EventKind::Access(AccessKind::Close(AccessMode::Write)),
+        ];
+        for kind in counted {
+            assert!(
+                counts_as_change(&Ok(event_on(kind, "Folder")), |event| concerns_entry(
+                    event, watched, true
+                )),
+                "{kind:?}"
+            );
+        }
+        for kind in ignored {
+            assert!(
+                !counts_as_change(&Ok(event_on(kind, "Folder")), |event| concerns_entry(
+                    event, watched, true
+                )),
+                "{kind:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_directory_entry_counts_an_error_or_a_rescan() {
+        let watched = Some(OsStr::new("Folder"));
+        let error = Err(notify::Error::generic("queue overflow"));
+        let rescan = Ok(Event::new(EventKind::Other).set_flag(Flag::Rescan));
+        assert!(counts_as_change(&error, |event| concerns_entry(
+            event, watched, true
+        )));
+        assert!(counts_as_change(&rescan, |event| concerns_entry(
+            event, watched, true
+        )));
+    }
+
+    #[test]
+    fn a_file_entry_counts_any_change_to_it() {
+        let watched = Some(OsStr::new("Archive.zip"));
+        let counted = [
+            EventKind::Modify(ModifyKind::Data(DataChange::Content)),
+            EventKind::Modify(ModifyKind::Data(DataChange::Any)),
+            EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any)),
+            EventKind::Modify(ModifyKind::Any),
+            EventKind::Modify(ModifyKind::Name(RenameMode::To)),
+            EventKind::Access(AccessKind::Close(AccessMode::Write)),
+        ];
+        for kind in counted {
+            assert!(
+                counts_as_change(&Ok(event_on(kind, "Archive.zip")), |event| concerns_entry(
+                    event, watched, false
+                )),
+                "{kind:?}"
+            );
+        }
+        assert!(!counts_as_change(
+            &Ok(event_on(
+                EventKind::Modify(ModifyKind::Data(DataChange::Any)),
+                "Other.zip"
+            )),
+            |event| concerns_entry(event, watched, false)
+        ));
+    }
+
+    #[test]
     fn an_access_does_not_count_as_a_change() {
         let opened = Ok(
             Event::new(EventKind::Access(AccessKind::Open(AccessMode::Any)))
@@ -562,6 +661,10 @@ pub(crate) mod tests {
             changes.send(()).unwrap();
             thread::sleep(Duration::from_millis(20));
         }
+    }
+
+    fn event_on(kind: EventKind, name: &str) -> Event {
+        Event::new(kind).add_path(PathBuf::from("dir").join(name))
     }
 
     #[cfg(unix)]
