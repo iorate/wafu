@@ -6,6 +6,8 @@ use wafu_core::{Document, ImageData, IoError, PREVIEW_LIMIT, PreviewError, Previ
 
 use crate::archive::{ArchiveError, find_entry, open_archive};
 
+const IMAGE_PREVIEW_LIMIT: u64 = 64 * 1024 * 1024;
+
 /// Reads the start of the file or archive entry and decodes it for the preview.
 pub fn load_preview(source: &PreviewSource) -> Result<Document, PreviewError> {
     let (bytes, truncated) = read_source(source, PREVIEW_LIMIT)?;
@@ -14,8 +16,7 @@ pub fn load_preview(source: &PreviewSource) -> Result<Document, PreviewError> {
 
 /// Reads and decodes the whole image, with its orientation applied.
 pub fn load_image(source: &PreviewSource) -> Result<ImageData, PreviewError> {
-    let (bytes, _) = read_source(source, u64::MAX)?;
-    decode_image(&bytes).map_err(|error| PreviewError::Failed(IoError::new(error.to_string())))
+    load_image_limited(source, IMAGE_PREVIEW_LIMIT)
 }
 
 /// Decodes an image from its file contents.
@@ -46,6 +47,17 @@ fn format_name(format: ImageFormat) -> &'static str {
         ImageFormat::Ico => "ico",
         other => other.extensions_str().first().copied().unwrap_or(""),
     }
+}
+
+fn load_image_limited(source: &PreviewSource, limit: u64) -> Result<ImageData, PreviewError> {
+    let (bytes, truncated) = read_source(source, limit)?;
+    if truncated {
+        return Err(PreviewError::Failed(IoError::new(format!(
+            "too large (over {} MiB)",
+            IMAGE_PREVIEW_LIMIT / 1024 / 1024
+        ))));
+    }
+    decode_image(&bytes).map_err(|error| PreviewError::Failed(IoError::new(error.to_string())))
 }
 
 // At most `limit` bytes, and whether there were more.
@@ -202,6 +214,28 @@ mod tests {
             load_image(&file_source(&path)),
             Err(PreviewError::Failed(_))
         ));
+    }
+
+    #[test]
+    fn an_image_over_the_limit_is_too_large() {
+        let mut bytes = Cursor::new(Vec::new());
+        RgbaImage::new(2, 3)
+            .write_to(&mut bytes, ImageFormat::Png)
+            .unwrap();
+        let bytes = bytes.into_inner();
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.png");
+        fs::write(&path, &bytes).unwrap();
+        let source = file_source(&path);
+        let len = bytes.len() as u64;
+
+        let image = load_image_limited(&source, len).unwrap();
+        assert_eq!((image.width, image.height), (2, 3));
+
+        assert_eq!(
+            load_image_limited(&source, len - 1).unwrap_err(),
+            PreviewError::Failed(IoError::new("too large (over 64 MiB)"))
+        );
     }
 
     fn texts(document: &Document) -> Vec<String> {
