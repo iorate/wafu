@@ -94,7 +94,10 @@ impl App {
     // a link replaced partway along the path.
     pub(super) fn reload(&mut self, side: Side, effects: &mut Vec<Effect>) {
         let pane = &self.panes[side.index()];
-        if pane.loading().is_none() {
+        if !matches!(
+            pane.loading(),
+            Some(InFlight::Navigate { .. } | InFlight::Resolve { .. } | InFlight::Drives { .. })
+        ) {
             Self::rewatch(side, pane, effects);
         }
         self.refresh(side, effects);
