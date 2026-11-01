@@ -4,7 +4,11 @@ use std::process::{Command, Stdio};
 use std::thread;
 
 /// Starts a program directly, without a shell, and does not wait for it.
-pub fn spawn(program: &str, args: &[impl AsRef<OsStr>], cwd: Option<&Path>) -> std::io::Result<()> {
+pub fn spawn(
+    program: impl AsRef<OsStr>,
+    args: &[impl AsRef<OsStr>],
+    cwd: Option<&Path>,
+) -> std::io::Result<()> {
     let mut command = Command::new(program);
     command.args(args);
     if let Some(cwd) = cwd {
@@ -38,7 +42,7 @@ pub fn spawn_new_window(handoff: &Path, config: Option<&Path>) -> std::io::Resul
         args.push(OsStr::new("--config").to_owned());
         args.push(config.as_os_str().to_owned());
     }
-    spawn(&exe.to_string_lossy(), &args, None)
+    spawn(exe, &args, None)
 }
 
 #[cfg(test)]
@@ -52,7 +56,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let exe = std::env::current_exe().unwrap();
 
-        spawn(&exe.to_string_lossy(), &["--help"], Some(dir.path())).unwrap();
+        spawn(&exe, &["--help"], Some(dir.path())).unwrap();
     }
 
     #[test]
@@ -61,13 +65,6 @@ mod tests {
         let exe = std::env::current_exe().unwrap();
 
         assert!(spawn("wafu-no-such-program", &["x"], Some(dir.path())).is_err());
-        assert!(
-            spawn(
-                &exe.to_string_lossy(),
-                &["--help"],
-                Some(&dir.path().join("gone"))
-            )
-            .is_err()
-        );
+        assert!(spawn(&exe, &["--help"], Some(&dir.path().join("gone"))).is_err());
     }
 }
