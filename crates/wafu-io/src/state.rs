@@ -18,10 +18,12 @@ pub fn read_state(path: &Path) -> Result<Option<StateFile>, StateError> {
 
 pub fn write_state(path: &Path, state: &StateFile) -> std::io::Result<()> {
     let text = to_toml(state)?;
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(path, text)
+    let dir = path.parent().unwrap_or(Path::new("."));
+    fs::create_dir_all(dir)?;
+    let mut file = tempfile::NamedTempFile::new_in(dir)?;
+    file.write_all(text.as_bytes())?;
+    file.persist(path)?;
+    Ok(())
 }
 
 /// Writes the state for a new instance to a temporary file and returns its path.
@@ -73,6 +75,26 @@ mod tests {
         write_state(&path, &state).unwrap();
 
         assert_eq!(read_state(&path), Ok(Some(state)));
+    }
+
+    #[test]
+    fn state_write_replaces_the_existing_file_and_leaves_no_temporary_file() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("state.toml");
+        let state = StateFile {
+            log_rows: Some(7),
+            ..StateFile::default()
+        };
+        fs::write(&path, "[left\n").unwrap();
+
+        write_state(&path, &state).unwrap();
+
+        assert_eq!(read_state(&path), Ok(Some(state)));
+        let names: Vec<_> = fs::read_dir(dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["state.toml"]);
     }
 
     #[test]
