@@ -10,49 +10,49 @@ use crate::view::{InputField, ItemKind, PopupItem};
 
 const ITEM_KEYS: &str = "0123456789abcdefghijklmnopqrstuvwxyz";
 
-const SORT_ROWS: [(SortRow, &str, &str); 10] = [
-    (SortRow::Key(SortKey::None), "None", "N"),
-    (SortRow::Key(SortKey::Name), "Name", "F"),
-    (SortRow::Key(SortKey::Extension), "Extension", "E"),
-    (SortRow::Key(SortKey::Size), "Size", "S"),
-    (SortRow::Key(SortKey::Time), "Time", "T"),
-    (SortRow::Key(SortKey::Natural), "Name (natural)", "X"),
-    (SortRow::Separator, "", ""),
-    (SortRow::Descending, "Descending", "D"),
-    (SortRow::DirsFirst, "Directories first", "G"),
-    (SortRow::IgnoreCase, "Case-insensitive", "C"),
+const SORT_ROWS: [(SortRow, &str, Option<char>); 10] = [
+    (SortRow::Key(SortKey::None), "None", Some('N')),
+    (SortRow::Key(SortKey::Name), "Name", Some('F')),
+    (SortRow::Key(SortKey::Extension), "Extension", Some('E')),
+    (SortRow::Key(SortKey::Size), "Size", Some('S')),
+    (SortRow::Key(SortKey::Time), "Time", Some('T')),
+    (SortRow::Key(SortKey::Natural), "Name (natural)", Some('X')),
+    (SortRow::Separator, "", None),
+    (SortRow::Descending, "Descending", Some('D')),
+    (SortRow::DirsFirst, "Directories first", Some('G')),
+    (SortRow::IgnoreCase, "Case-insensitive", Some('C')),
 ];
 
 const DELETE_CHOICES: [Choice; 2] = [
     Choice {
         label: "Delete",
-        key: Some('Y'),
+        key: 'Y',
     },
     Choice {
         label: "Cancel",
-        key: Some('N'),
+        key: 'N',
     },
 ];
 
 const QUIT_CHOICES: [Choice; 2] = [
     Choice {
         label: "Quit",
-        key: Some('Y'),
+        key: 'Y',
     },
     Choice {
         label: "Keep running",
-        key: Some('N'),
+        key: 'N',
     },
 ];
 
-const CONFLICT_ROWS: [(ConflictRow, &str, &str); 7] = [
-    (ConflictRow::Separator, "", ""),
-    (ConflictRow::Overwrite, "Overwrite", "O"),
-    (ConflictRow::Skip, "Skip", "S"),
-    (ConflictRow::Rename, "Rename", "R"),
-    (ConflictRow::Abort, "Abort", "Esc"),
-    (ConflictRow::Separator, "", ""),
-    (ConflictRow::ApplyToAll, "Apply to all", "A"),
+const CONFLICT_ROWS: [(ConflictRow, &str, Option<char>); 7] = [
+    (ConflictRow::Separator, "", None),
+    (ConflictRow::Overwrite, "Overwrite", Some('O')),
+    (ConflictRow::Skip, "Skip", Some('S')),
+    (ConflictRow::Rename, "Rename", Some('R')),
+    (ConflictRow::Abort, "Abort", None),
+    (ConflictRow::Separator, "", None),
+    (ConflictRow::ApplyToAll, "Apply to all", Some('A')),
 ];
 
 /// A modal that takes all keys while it is open.
@@ -194,7 +194,7 @@ pub enum ChoiceKind {
 pub struct Choice {
     pub label: &'static str,
     /// The letter that picks the answer at once.
-    pub key: Option<char>,
+    pub key: char,
 }
 
 /// The destination of a copy or move exists; the worker waits for the answer.
@@ -267,22 +267,25 @@ impl SortPopup {
     pub fn items(&self) -> Vec<PopupItem> {
         SORT_ROWS
             .iter()
-            .map(|&(row, label, detail)| match row {
-                SortRow::Separator => PopupItem::separator(),
-                SortRow::Key(key) => PopupItem {
-                    label: if key == self.draft.key {
-                        format!("{label} *")
-                    } else {
-                        label.to_owned()
+            .map(|&(row, label, key)| {
+                let detail = key.map(String::from).unwrap_or_default();
+                match row {
+                    SortRow::Separator => PopupItem::separator(),
+                    SortRow::Key(key) => PopupItem {
+                        label: if key == self.draft.key {
+                            format!("{label} *")
+                        } else {
+                            label.to_owned()
+                        },
+                        detail,
+                        kind: ItemKind::Choice,
                     },
-                    detail: detail.to_owned(),
-                    kind: ItemKind::Choice,
-                },
-                SortRow::Descending | SortRow::DirsFirst | SortRow::IgnoreCase => PopupItem {
-                    label: label.to_owned(),
-                    detail: detail.to_owned(),
-                    kind: ItemKind::Check(*self.flag(row)),
-                },
+                    SortRow::Descending | SortRow::DirsFirst | SortRow::IgnoreCase => PopupItem {
+                        label: label.to_owned(),
+                        detail,
+                        kind: ItemKind::Check(*self.flag(row)),
+                    },
+                }
             })
             .collect()
     }
@@ -466,7 +469,7 @@ impl ChoicePopup {
         std::iter::once(PopupItem::separator())
             .chain(self.choices().iter().map(|choice| PopupItem {
                 label: choice.label.to_owned(),
-                detail: choice.key.map(String::from).unwrap_or_default(),
+                detail: choice.key.to_string(),
                 kind: ItemKind::Choice,
             }))
             .collect()
@@ -489,11 +492,11 @@ impl ConflictPopup {
         CONFLICT_ROWS
             .iter()
             .enumerate()
-            .map(|(index, (row, label, detail))| match row {
+            .map(|(index, (row, label, key))| match row {
                 ConflictRow::Separator => PopupItem::separator(),
                 _ => PopupItem {
                     label: (*label).to_owned(),
-                    detail: (*detail).to_owned(),
+                    detail: key.map_or_else(|| "Esc".to_owned(), String::from),
                     kind: self.kind(index),
                 },
             })
@@ -714,9 +717,9 @@ impl Menu for SortPopup {
     }
 
     fn row_for_key(&self, key: char) -> Option<usize> {
-        SORT_ROWS
-            .iter()
-            .position(|(_, _, detail)| is_row_key(detail, key))
+        SORT_ROWS.iter().position(|(_, _, row_key)| {
+            row_key.is_some_and(|row_key| row_key.eq_ignore_ascii_case(&key))
+        })
     }
 
     fn run(&mut self, row: usize) -> Response<SortSpec> {
@@ -762,7 +765,7 @@ impl Menu for ChoicePopup {
         let key = key.to_ascii_uppercase();
         self.choices()
             .iter()
-            .position(|choice| choice.key == Some(key))
+            .position(|choice| choice.key == key)
             .map(|index| index + 1)
     }
 
@@ -798,9 +801,9 @@ impl Menu for ConflictPopup {
     }
 
     fn row_for_key(&self, key: char) -> Option<usize> {
-        CONFLICT_ROWS
-            .iter()
-            .position(|(_, _, detail)| is_row_key(detail, key))
+        CONFLICT_ROWS.iter().position(|(_, _, row_key)| {
+            row_key.is_some_and(|row_key| row_key.eq_ignore_ascii_case(&key))
+        })
     }
 
     fn run(&mut self, row: usize) -> Response<ConflictRow> {
@@ -933,11 +936,6 @@ pub(crate) fn menu_input<M: Menu>(menu: &mut M, input: MenuInput) -> Response<M:
 
 fn selectable<M: Menu>(menu: &M, row: usize) -> bool {
     row < menu.rows() && menu.kind(row) != ItemKind::Separator
-}
-
-fn is_row_key(detail: &str, key: char) -> bool {
-    let mut chars = detail.chars();
-    chars.next().is_some_and(|c| c.eq_ignore_ascii_case(&key)) && chars.next().is_none()
 }
 
 fn item_keys() -> impl Iterator<Item = Option<char>> {
