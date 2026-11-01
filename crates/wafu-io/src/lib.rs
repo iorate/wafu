@@ -27,6 +27,8 @@ mod trash;
 mod watch;
 #[cfg(windows)]
 mod window_icon;
+#[cfg(windows)]
+mod window_place;
 
 pub use config::read_or_create;
 #[cfg(windows)]
@@ -38,3 +40,5 @@ pub use shell_menu::{ShellMenuError, shell_menu};
 pub use state::{read_handoff, read_state};
 #[cfg(windows)]
 pub use window_icon::set_small_icon;
+#[cfg(windows)]
+pub use window_place::{WindowPlace, normal_window_place};
