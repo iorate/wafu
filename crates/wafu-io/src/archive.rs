@@ -188,7 +188,7 @@ fn listed_entry(name: &str, entry: &ArchiveEntry) -> Entry {
         } else {
             entry.size
         },
-        modified: entry.modified.map(timestamp),
+        modified: entry.modified.and_then(timestamp),
         hidden: is_hidden(name),
         permissions: entry.mode.map(|mode| Permissions::Mode(mode & 0o7777)),
         link_target: None,

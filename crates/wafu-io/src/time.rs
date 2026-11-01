@@ -1,11 +1,12 @@
 use std::time::SystemTime;
 
-use chrono::{DateTime, Datelike, Local, Timelike};
+use chrono::{DateTime, Datelike, Local, NaiveDateTime, TimeDelta, TimeZone, Timelike};
 use wafu_core::{LocalDateTime, Timestamp};
 
-pub(crate) fn timestamp(at: SystemTime) -> Timestamp {
-    let local: DateTime<Local> = at.into();
-    Timestamp {
+pub(crate) fn timestamp(at: SystemTime) -> Option<Timestamp> {
+    let utc = utc(at)?;
+    let local = utc.checked_add_offset(Local.offset_from_utc_datetime(&utc))?;
+    Some(Timestamp {
         at,
         local: LocalDateTime {
             year: local.year(),
@@ -15,6 +16,14 @@ pub(crate) fn timestamp(at: SystemTime) -> Timestamp {
             minute: narrow(local.minute()),
             second: narrow(local.second()),
         },
+    })
+}
+
+fn utc(at: SystemTime) -> Option<NaiveDateTime> {
+    let epoch = DateTime::UNIX_EPOCH.naive_utc();
+    match at.duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(after) => epoch.checked_add_signed(TimeDelta::from_std(after).ok()?),
+        Err(before) => epoch.checked_sub_signed(TimeDelta::from_std(before.duration()).ok()?),
     }
 }
 
@@ -32,7 +41,7 @@ mod tests {
     fn timestamp_keeps_the_instant_and_fills_a_plausible_date() {
         let at = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
 
-        let stamp = timestamp(at);
+        let stamp = timestamp(at).unwrap();
 
         assert_eq!(stamp.at, at);
         assert_eq!(stamp.local.year, 2023);
@@ -41,5 +50,25 @@ mod tests {
         assert!(stamp.local.hour < 24);
         assert!(stamp.local.minute < 60);
         assert!(stamp.local.second < 60);
+    }
+
+    #[test]
+    fn timestamp_fills_a_date_before_the_epoch() {
+        let at = SystemTime::UNIX_EPOCH - Duration::from_hours(87_648);
+
+        let stamp = timestamp(at).unwrap();
+
+        assert_eq!(stamp.at, at);
+        assert_eq!(stamp.local.year, 1960);
+    }
+
+    #[test]
+    fn timestamp_gives_none_for_an_unrepresentable_instant() {
+        let Some(at) = SystemTime::UNIX_EPOCH.checked_add(Duration::from_secs(100_000_000_000_000))
+        else {
+            return;
+        };
+
+        assert_eq!(timestamp(at), None);
     }
 }

@@ -90,7 +90,7 @@ fn entry(path: &Path, name: OsString, metadata: Option<&Metadata>) -> Entry {
         size: details.as_ref().map_or(0, Metadata::len),
         modified: details
             .and_then(|details| details.modified().ok())
-            .map(timestamp),
+            .and_then(timestamp),
         hidden,
         permissions: Some(permissions(metadata)),
         link_target,
