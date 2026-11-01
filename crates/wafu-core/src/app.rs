@@ -635,7 +635,9 @@ impl App {
                 }
             }
             Command::Palette => self.open_palette(),
-            Command::GoToPath => self.open_input(InputKind::GoToPath),
+            Command::GoToPath => self.open_input(InputKind::GoToPath {
+                dir: self.active_pane().location().base.clone(),
+            }),
             Command::Bookmarks => self.open_bookmarks(),
             Command::History => self.open_history(),
             Command::EditConfig => self.edit_config(effects),

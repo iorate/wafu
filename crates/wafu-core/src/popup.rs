@@ -111,14 +111,22 @@ pub struct InputPopup {
 pub enum InputKind {
     Filter,
     MarkGlob,
-    GoToPath,
+    GoToPath {
+        dir: PathBuf,
+    },
     Rename {
         dir: PathBuf,
         original: OsString,
     },
-    Mkdir,
-    NewFile,
-    NewText,
+    Mkdir {
+        dir: PathBuf,
+    },
+    NewFile {
+        dir: PathBuf,
+    },
+    NewText {
+        dir: PathBuf,
+    },
     /// The "Rename" choice of a conflict; Esc goes back to the conflict popup.
     ConflictRename {
         source: PathBuf,
@@ -399,11 +407,11 @@ impl InputKind {
         match self {
             Self::Filter => "Filter",
             Self::MarkGlob => "Mark",
-            Self::GoToPath => "Go to path",
+            Self::GoToPath { .. } => "Go to path",
             Self::Rename { .. } | Self::ConflictRename { .. } => "Rename",
-            Self::Mkdir => "Make directory",
-            Self::NewFile => "New file",
-            Self::NewText => "New text",
+            Self::Mkdir { .. } => "Make directory",
+            Self::NewFile { .. } => "New file",
+            Self::NewText { .. } => "New text",
             Self::ArchivePassword { .. } => "Password",
             Self::Compress { .. } => "Compress",
         }

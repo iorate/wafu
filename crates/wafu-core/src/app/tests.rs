@@ -2486,6 +2486,24 @@ fn go_to_path_resolves_relative_input_from_the_pane() {
 }
 
 #[test]
+fn go_to_path_resolves_relative_input_from_the_place_the_popup_was_opened_in() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![dir("docs")]);
+    harness.take_effects();
+    harness.press("Shift+J");
+    harness.vanish(Side::Left, "/home", vec![dir("user")]);
+    assert_eq!(harness.view().left.path, "/home");
+
+    harness.edit("docs");
+    harness.press("Enter");
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::Resolve { path, .. }] if *path == PathBuf::from("/home/user").join("docs")
+    ));
+}
+
+#[test]
 fn go_to_path_to_a_file_opens_its_parent_with_the_cursor_on_it() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.take_effects();

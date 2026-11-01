@@ -990,6 +990,19 @@ fn mkdir_with_an_empty_name_does_nothing() {
 }
 
 #[test]
+fn mkdir_makes_the_directory_in_the_place_the_popup_was_opened_in() {
+    let mut harness = three_files();
+    harness.press("K");
+    harness.vanish(Side::Left, "/home", vec![file("a")]);
+    assert_eq!(harness.view().left.path, "/home");
+
+    harness.edit("x");
+    harness.press("Enter");
+
+    assert_eq!(harness.take_effects(), vec![Effect::Mkdir(path(LEFT, "x"))]);
+}
+
+#[test]
 fn a_failed_mkdir_is_logged() {
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.load(Side::Left, vec![file("x")]);
@@ -1034,6 +1047,24 @@ fn new_file_creates_an_empty_file_and_puts_the_cursor_on_it() {
 }
 
 #[test]
+fn new_file_creates_the_file_in_the_place_the_popup_was_opened_in() {
+    let mut harness = three_files();
+    harness.press("F1");
+    harness.edit("new_file");
+    harness.press("Enter");
+    harness.vanish(Side::Left, "/home", vec![file("a")]);
+    assert_eq!(harness.view().left.path, "/home");
+
+    harness.edit("n.txt");
+    harness.press("Enter");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::CreateFile(path(LEFT, "n.txt"))]
+    );
+}
+
+#[test]
 fn new_text_passes_the_name_to_the_editor_without_creating_it() {
     let mut harness = three_files_not_creating_text();
 
@@ -1048,6 +1079,22 @@ fn new_text_passes_the_name_to_the_editor_without_creating_it() {
             args: vec![path(LEFT, "notes.txt").into_os_string()],
             cwd: PathBuf::from(LEFT),
         }]
+    );
+}
+
+#[test]
+fn new_text_names_the_file_in_the_place_the_popup_was_opened_in() {
+    let mut harness = three_files();
+    harness.press("Shift+E");
+    harness.vanish(Side::Left, "/home", vec![file("a")]);
+    assert_eq!(harness.view().left.path, "/home");
+
+    harness.edit("notes.txt");
+    harness.press("Enter");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::CreateFile(path(LEFT, "notes.txt"))]
     );
 }
 
