@@ -9,19 +9,9 @@ use wafu_core::{Directory, Entry, EntryKind, Permissions, SpecialKind, TargetKin
 
 use crate::time::timestamp;
 
-/// Lists a directory in the order the file system returns it, along with the
-/// directory itself.
-///
-/// An entry whose metadata cannot be read is kept as a plain file with no size
-/// or time, so that it still shows up in the listing.
-pub fn read_dir(path: &Path) -> io::Result<Directory> {
-    read_dir_with(path, || false)
-}
-
-/// Like [`read_dir`], but gives up with [`io::ErrorKind::Interrupted`] once
-/// `cancelled` returns `true`. It is asked every few hundred entries, so a
-/// large directory can be abandoned part way through.
-pub fn read_dir_with(path: &Path, cancelled: impl Fn() -> bool) -> io::Result<Directory> {
+// An entry whose metadata cannot be read is kept as a plain file with no size
+// or time, so that it still shows up in the listing.
+pub(crate) fn read_dir_with(path: &Path, cancelled: impl Fn() -> bool) -> io::Result<Directory> {
     let mut entries = Vec::new();
     for (index, dir_entry) in fs::read_dir(path)?.enumerate() {
         if index % CANCEL_CHECK_INTERVAL == 0 && cancelled() {
@@ -193,7 +183,7 @@ mod tests {
         fs::write(dir.path().join("a.txt"), b"hello").unwrap();
         fs::create_dir(dir.path().join("sub")).unwrap();
 
-        let entries = read_dir(dir.path()).unwrap().entries;
+        let entries = read_dir_with(dir.path(), || false).unwrap().entries;
 
         let file = find(&entries, "a.txt");
         assert_eq!(file.kind, EntryKind::File { executable: false });
@@ -207,7 +197,7 @@ mod tests {
     fn the_directory_itself_is_reported() {
         let dir = TempDir::new().unwrap();
 
-        let own = read_dir(dir.path()).unwrap().own.unwrap();
+        let own = read_dir_with(dir.path(), || false).unwrap().own.unwrap();
 
         assert_eq!(Some(own.name.as_os_str()), dir.path().file_name());
         assert_eq!(own.kind, EntryKind::Dir);
@@ -226,7 +216,7 @@ mod tests {
         fs::write(dir.path().join("real").join("f"), b"x").unwrap();
         symlink("real", dir.path().join("link")).unwrap();
 
-        let directory = read_dir(&dir.path().join("link")).unwrap();
+        let directory = read_dir_with(&dir.path().join("link"), || false).unwrap();
 
         let own = directory.own.unwrap();
         assert_eq!(
@@ -254,7 +244,7 @@ mod tests {
     fn missing_directory_is_an_error() {
         let dir = TempDir::new().unwrap();
 
-        assert!(read_dir(&dir.path().join("missing")).is_err());
+        assert!(read_dir_with(&dir.path().join("missing"), || false).is_err());
     }
 
     #[cfg(not(windows))]
@@ -264,7 +254,7 @@ mod tests {
         fs::File::create(dir.path().join(".hidden")).unwrap();
         fs::File::create(dir.path().join("shown")).unwrap();
 
-        let entries = read_dir(dir.path()).unwrap().entries;
+        let entries = read_dir_with(dir.path(), || false).unwrap().entries;
 
         assert!(find(&entries, ".hidden").hidden);
         assert!(!find(&entries, "shown").hidden);
@@ -285,7 +275,7 @@ mod tests {
             .unwrap();
         assert!(status.success());
 
-        let entries = read_dir(dir.path()).unwrap().entries;
+        let entries = read_dir_with(dir.path(), || false).unwrap().entries;
 
         let run = find(&entries, "run");
         assert_eq!(run.kind, EntryKind::File { executable: true });
@@ -308,7 +298,7 @@ mod tests {
         fs::write(dir.path().join("B.EXE"), b"").unwrap();
         fs::write(dir.path().join("c.txt"), b"").unwrap();
 
-        let entries = read_dir(dir.path()).unwrap().entries;
+        let entries = read_dir_with(dir.path(), || false).unwrap().entries;
 
         assert_eq!(
             find(&entries, "a.exe").kind,
@@ -338,7 +328,7 @@ mod tests {
         symlink("to_dir", dir.path().join("to_link")).unwrap();
         symlink("missing", dir.path().join("broken")).unwrap();
 
-        let entries = read_dir(dir.path()).unwrap().entries;
+        let entries = read_dir_with(dir.path(), || false).unwrap().entries;
 
         let to_file = find(&entries, "to_file");
         assert_eq!(
@@ -386,7 +376,7 @@ mod tests {
         symlink("run", dir.path().join("to_run")).unwrap();
         symlink("fifo", dir.path().join("to_fifo")).unwrap();
 
-        let entries = read_dir(dir.path()).unwrap().entries;
+        let entries = read_dir_with(dir.path(), || false).unwrap().entries;
 
         assert_eq!(
             find(&entries, "to_run").kind,
@@ -414,7 +404,7 @@ mod tests {
         fs::set_permissions(dir.path().join("locked.txt"), permissions).unwrap();
         fs::write(dir.path().join("open.txt"), b"").unwrap();
 
-        let entries = read_dir(dir.path()).unwrap().entries;
+        let entries = read_dir_with(dir.path(), || false).unwrap().entries;
 
         assert_eq!(
             find(&entries, "locked.txt").permissions,

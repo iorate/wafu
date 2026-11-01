@@ -15,15 +15,9 @@ const CHUNK_SIZE: usize = 64 * 1024;
 const NOT_REGULAR: &str = "not a regular file";
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
 
-/// Carries out an operation, reporting through `report` and taking answers
-/// to conflicts, and cancellations, from `replies`. Returns once the
-/// `Finished` event has been reported. `owner_window` is the raw handle of
-/// the window that owns the dialogs the OS may show (on Windows, the warning
-/// that an item cannot go to the trash).
-///
-/// A cancellation or an error stops the operation where it is; a file being
-/// written at that moment is removed.
-pub fn run_operation(
+// `owner_window` is the raw handle of the window that owns the dialogs the OS
+// may show (on Windows, the warning that an item cannot go to the trash).
+pub(crate) fn run_operation(
     spec: &OperationSpec,
     owner_window: Option<isize>,
     replies: &Receiver<Reply>,

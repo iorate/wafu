@@ -29,19 +29,12 @@ mod watch;
 mod window_icon;
 
 pub use config::read_or_create;
-pub use drives::drives;
-pub use fs_ops::{create_file, mkdir, open_with_os, rename, set_clipboard};
 #[cfg(windows)]
 pub use message::show_message;
-pub use operation::run_operation;
 pub use paths::{config_path, is_wayland, state_path};
-pub use preview::{decode_image, load_image, load_preview};
-pub use read_dir::{read_dir, read_dir_with};
-pub use resolve::resolve;
 pub use runtime::{Paths, Runtime};
 #[cfg(windows)]
 pub use shell_menu::{ShellMenuError, shell_menu};
-pub use spawn::{spawn, spawn_new_window};
-pub use state::{read_handoff, read_state, write_handoff, write_state};
+pub use state::{read_handoff, read_state};
 #[cfg(windows)]
 pub use window_icon::set_small_icon;

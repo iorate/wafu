@@ -4,12 +4,8 @@ use std::path::Path;
 
 use wafu_core::Resolved;
 
-/// Finds the directory to show for a path that may not exist: the path itself,
-/// the parent of a file (with the file to put the cursor on), or, when `climb`
-/// is set, the nearest ancestor that is a directory. `None` when the path does
-/// not exist and climbing is off or finds nothing.
 #[must_use]
-pub fn resolve(path: &Path, climb: bool) -> Option<Resolved> {
+pub(crate) fn resolve(path: &Path, climb: bool) -> Option<Resolved> {
     match fs::metadata(path) {
         Ok(metadata) if metadata.is_dir() => Some(Resolved {
             dir: path.to_path_buf(),

@@ -3,9 +3,7 @@ use std::fs::{self, OpenOptions};
 use std::io;
 use std::path::Path;
 
-/// Renames within a directory. An existing name is an error unless it is the
-/// same file under another spelling of its case.
-pub fn rename(from: &Path, to: &Path) -> io::Result<()> {
+pub(crate) fn rename(from: &Path, to: &Path) -> io::Result<()> {
     if fs::symlink_metadata(to).is_ok()
         && !(differ_only_in_case(from, to) && same_file::is_same_file(from, to).unwrap_or(false))
     {
@@ -14,17 +12,14 @@ pub fn rename(from: &Path, to: &Path) -> io::Result<()> {
     fs::rename(from, to)
 }
 
-/// Creates a directory and any missing parents. An existing entry of any
-/// kind is an error.
-pub fn mkdir(path: &Path) -> io::Result<()> {
+pub(crate) fn mkdir(path: &Path) -> io::Result<()> {
     if fs::symlink_metadata(path).is_ok() {
         return Err(already_exists());
     }
     fs::create_dir_all(path)
 }
 
-/// Creates an empty file. An existing entry is an error.
-pub fn create_file(path: &Path) -> io::Result<()> {
+pub(crate) fn create_file(path: &Path) -> io::Result<()> {
     OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -32,14 +27,13 @@ pub fn create_file(path: &Path) -> io::Result<()> {
         .map(drop)
 }
 
-/// Opens the path with whatever the OS associates with it, without waiting.
-pub fn open_with_os(path: &Path) -> io::Result<()> {
+pub(crate) fn open_with_os(path: &Path) -> io::Result<()> {
     open::that_detached(path)
 }
 
-/// Puts text on the clipboard. The clipboard is created on first use and
-/// kept, since on X11 the text is only served while it exists.
-pub fn set_clipboard(
+// The clipboard is created on first use and kept, since on X11 the text is
+// only served while it exists.
+pub(crate) fn set_clipboard(
     clipboard: &mut Option<arboard::Clipboard>,
     text: &str,
 ) -> Result<(), arboard::Error> {

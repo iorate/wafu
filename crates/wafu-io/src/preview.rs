@@ -8,19 +8,16 @@ use crate::archive::{ArchiveError, find_entry, open_archive};
 
 const IMAGE_PREVIEW_LIMIT: u64 = 64 * 1024 * 1024;
 
-/// Reads the start of the file or archive entry and decodes it for the preview.
-pub fn load_preview(source: &PreviewSource) -> Result<Document, PreviewError> {
+pub(crate) fn load_preview(source: &PreviewSource) -> Result<Document, PreviewError> {
     let (bytes, truncated) = read_source(source, PREVIEW_LIMIT)?;
     Ok(Document::decode(bytes, truncated))
 }
 
-/// Reads and decodes the whole image, with its orientation applied.
-pub fn load_image(source: &PreviewSource) -> Result<ImageData, PreviewError> {
+pub(crate) fn load_image(source: &PreviewSource) -> Result<ImageData, PreviewError> {
     load_image_limited(source, IMAGE_PREVIEW_LIMIT)
 }
 
-/// Decodes an image from its file contents.
-pub fn decode_image(bytes: &[u8]) -> ImageResult<ImageData> {
+pub(crate) fn decode_image(bytes: &[u8]) -> ImageResult<ImageData> {
     let reader = ImageReader::new(Cursor::new(bytes)).with_guessed_format()?;
     let format = reader.format().map_or("", format_name);
     let mut decoder = reader.into_decoder()?;

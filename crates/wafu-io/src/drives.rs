@@ -1,12 +1,10 @@
-/// The letters of the local drives that are ready to be read, in order.
-/// Network drives and drives without media are left out, so that cycling
-/// through the drives never stops at one that cannot be entered.
-/// Always empty except on Windows.
+// Network drives and drives without media are left out, so that cycling
+// through the drives never stops at one that cannot be entered.
 #[cfg(windows)]
 #[must_use]
 // The two calls are the only way to ask Windows about drives.
 #[allow(unsafe_code)]
-pub fn drives() -> Vec<char> {
+pub(crate) fn drives() -> Vec<char> {
     use windows::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDrives};
     use windows::core::PCWSTR;
 
@@ -33,7 +31,7 @@ pub fn drives() -> Vec<char> {
 
 #[cfg(not(windows))]
 #[must_use]
-pub fn drives() -> Vec<char> {
+pub(crate) fn drives() -> Vec<char> {
     Vec::new()
 }
 
