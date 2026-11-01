@@ -129,13 +129,23 @@ export component PaneWidget {
 
     // The same count the core is told, so that the bar's range is the core's.
     property <int> visible-rows;
+    property <length> row-height: Theme.row-height;
 
     changed scroll-top => {
         list.content-y = -scroll-top * Theme.row-height;
     }
 
+    changed row-height => {
+        root.report-rows();
+    }
+
     function row-at(y: length) -> int {
         return root.scroll-top + floor(y / Theme.row-height);
+    }
+
+    function report-rows() {
+        root.visible-rows = floor(list.visible-height / Theme.row-height);
+        root.viewport-rows-changed(root.visible-rows);
     }
 
     measure-extension := Cell {
@@ -192,8 +202,7 @@ export component PaneWidget {
                 vertical-scrollbar-policy: ScrollBarPolicy.always-off;
 
                 changed visible-height => {
-                    root.visible-rows = floor(self.visible-height / Theme.row-height);
-                    root.viewport-rows-changed(root.visible-rows);
+                    root.report-rows();
                 }
 
                 changed viewport-height => {
