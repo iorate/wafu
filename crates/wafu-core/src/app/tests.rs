@@ -2094,7 +2094,9 @@ fn double_clicking_the_current_history_row_only_closes_the_popup() {
 #[test]
 fn double_clicking_a_bookmark_row_moves_there() {
     let mut harness = Harness::start("/home/user", "/tmp");
-    harness.config("[[bookmarks]]\npath = \"/usr\"\n[[bookmarks]]\npath = \"/var\"\n");
+    harness.config(
+        "[[bookmarks]]\nname = \"usr\"\npath = \"/usr\"\n[[bookmarks]]\nname = \"var\"\npath = \"/var\"\n",
+    );
     harness.press("J");
 
     harness.popup_double_click(1);
@@ -3180,21 +3182,19 @@ fn entering_a_special_file_as_an_archive_logs_an_error() {
 }
 
 #[test]
-fn bookmarks_popup_expands_tilde_and_picks_by_key() {
+fn bookmarks_popup_shows_names_and_picks_by_key() {
     let mut harness = Harness::start("/home/user", "/tmp");
-    harness.config("[[bookmarks]]\npath = \"~/docs\"\n[[bookmarks]]\npath = \"/var\"\n");
+    harness.config(
+        "[[bookmarks]]\nname = \"Docs\"\npath = \"/usr\"\n[[bookmarks]]\nname = \"Var\"\npath = \"/var\"\n",
+    );
     harness.take_effects();
 
     harness.press("J");
 
-    let docs = PathBuf::from(HOME).join("docs");
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Bookmarks");
     assert_eq!(popup.note, None);
-    assert_eq!(
-        harness.popup_labels(),
-        [docs.display().to_string(), "/var".to_owned()]
-    );
+    assert_eq!(harness.popup_labels(), ["Docs", "Var"]);
     assert_eq!(popup.cursor, Some(0));
 
     harness.press("Up");
@@ -3204,6 +3204,20 @@ fn bookmarks_popup_expands_tilde_and_picks_by_key() {
     assert_eq!(harness.popup(), None);
     harness.load(Side::Left, vec![]);
     assert_eq!(harness.view().left.path, "/var");
+}
+
+#[test]
+fn bookmarks_popup_expands_tilde() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.config("[[bookmarks]]\nname = \"Docs\"\npath = \"~/docs\"\n");
+    harness.take_effects();
+
+    harness.press("J");
+    harness.press("0");
+
+    let docs = PathBuf::from(HOME).join("docs");
+    harness.load(Side::Left, vec![]);
+    assert_eq!(harness.view().left.path, docs.display().to_string());
 }
 
 #[test]
@@ -4180,7 +4194,7 @@ fn timestamp() -> Timestamp {
 
 fn many_bookmarks() -> Harness {
     let mut harness = Harness::start("/home/user", "/tmp");
-    let config = "[[bookmarks]]\npath = \"/b\"\n".repeat(20);
+    let config = "[[bookmarks]]\nname = \"b\"\npath = \"/b\"\n".repeat(20);
     harness.config(&config);
     harness.send(Msg::PopupRows { rows: 5 });
     harness.press("J");

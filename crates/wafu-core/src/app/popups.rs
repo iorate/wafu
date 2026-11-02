@@ -2,6 +2,7 @@ use std::mem::{Discriminant, discriminant};
 
 use super::{App, Effect, MouseInput};
 use crate::command::Context;
+use crate::config::Bookmark;
 use crate::error::AppError;
 use crate::filter::Filter;
 use crate::key::{Key, KeyBase, NamedKey};
@@ -67,13 +68,16 @@ impl App {
     }
 
     pub(super) fn open_bookmarks(&mut self) {
-        let paths = self
+        let bookmarks = self
             .config
             .bookmarks
             .iter()
-            .map(|path| expand_tilde(&path.to_string_lossy(), &self.home))
+            .map(|bookmark| Bookmark {
+                name: bookmark.name.clone(),
+                path: expand_tilde(&bookmark.path.to_string_lossy(), &self.home),
+            })
             .collect();
-        self.popup = Some(Popup::List(ListPopup::bookmarks(paths)));
+        self.popup = Some(Popup::List(ListPopup::bookmarks(bookmarks)));
     }
 
     pub(super) fn open_drives(&mut self, letters: &[char]) {

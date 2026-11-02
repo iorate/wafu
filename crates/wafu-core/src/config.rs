@@ -25,10 +25,17 @@ pub struct Config {
     pub general: General,
     pub appearance: Appearance,
     pub colors: ColorSet,
-    /// As written, before `~` is expanded.
-    pub bookmarks: Vec<PathBuf>,
+    pub bookmarks: Vec<Bookmark>,
     pub commands: BTreeMap<String, CommandLine>,
     pub keys: KeyMap,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Bookmark {
+    /// What the bookmarks popup shows.
+    pub name: String,
+    /// As written, before `~` is expanded.
+    pub path: PathBuf,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
