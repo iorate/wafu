@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use crate::app::Os;
 use crate::command::{Command, Context};
+use crate::config::Bookmark;
 use crate::history::History;
 use crate::key::{Key, KeyBase, NamedKey};
 use crate::listing::{SortKey, SortSpec};
@@ -545,17 +546,17 @@ impl ListPopup {
         }
     }
 
-    /// Bookmarks in the configured order, already expanded.
+    /// Bookmarks in the configured order, their paths already expanded.
     #[must_use]
-    pub fn bookmarks(paths: Vec<PathBuf>) -> Self {
-        let items = paths
+    pub fn bookmarks(bookmarks: Vec<Bookmark>) -> Self {
+        let items = bookmarks
             .into_iter()
             .zip(item_keys())
-            .map(|(path, key)| ListItem {
+            .map(|(bookmark, key)| ListItem {
                 key,
-                label: path.display().to_string(),
+                label: bookmark.name,
                 current: false,
-                target: ListTarget::Path(path),
+                target: ListTarget::Path(bookmark.path),
             })
             .collect();
         Self::new(ListKind::Bookmarks, items)
@@ -1313,9 +1314,9 @@ mod tests {
 
     #[test]
     fn list_popup_gives_keys_to_the_first_36_items_only() {
-        let paths = (0..40).map(|i| PathBuf::from(format!("/{i}"))).collect();
+        let bookmarks = (0..40).map(|i| bookmark(&format!("/{i}"))).collect();
 
-        let popup = ListPopup::bookmarks(paths);
+        let popup = ListPopup::bookmarks(bookmarks);
 
         assert_eq!(popup.items[0].key, Some('0'));
         assert_eq!(popup.items[9].key, Some('9'));
@@ -1376,7 +1377,7 @@ mod tests {
 
     #[test]
     fn list_popup_cursor_wraps_and_survives_an_empty_list() {
-        let mut popup = ListPopup::bookmarks(vec![PathBuf::from("/a"), PathBuf::from("/b")]);
+        let mut popup = ListPopup::bookmarks(vec![bookmark("/a"), bookmark("/b")]);
         popup.cursor_up();
         assert_eq!(popup.cursor, 1);
         popup.cursor_down();
@@ -1422,5 +1423,12 @@ mod tests {
             shift: false,
             alt: false,
         })
+    }
+
+    fn bookmark(path: &str) -> Bookmark {
+        Bookmark {
+            name: path.to_owned(),
+            path: PathBuf::from(path),
+        }
     }
 }

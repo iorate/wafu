@@ -54,8 +54,10 @@ broken = "#ff6b6b"
 fifo = "#f0c050"
 socket = "#e58ae0"
 
-## Bookmarks, in order. A leading ~ is the home directory.
+## Bookmarks, in order. The popup shows the name. A leading ~ in the path is
+## the home directory.
 # [[bookmarks]]
+# name = "Downloads"
 # path = "~/Downloads"
 
 ## External commands, run without a shell in the active pane's directory.

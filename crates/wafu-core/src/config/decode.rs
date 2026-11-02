@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use toml::{Table, Value};
 
 use super::{
-    Color, Colors, Config, Diagnostic, DiagnosticKind, FONT_SIZE_MAX, FONT_SIZE_MIN, Font,
-    SizeFormat, SyntaxError, Theme,
+    Bookmark, Color, Colors, Config, Diagnostic, DiagnosticKind, FONT_SIZE_MAX, FONT_SIZE_MIN,
+    Font, SizeFormat, SyntaxError, Theme,
 };
 use crate::app::Os;
 use crate::command::{Command, Context};
@@ -104,6 +104,20 @@ impl<'a> Reader<'a> {
         } else {
             self.invalid(key, "a string");
             None
+        }
+    }
+
+    fn required_string(&mut self, key: &str) -> Option<String> {
+        match self.table.remove(key) {
+            Some(Value::String(text)) if !text.is_empty() => Some(text),
+            Some(_) => {
+                self.invalid(key, "a non-empty string");
+                None
+            }
+            None => {
+                self.missing(key);
+                None
+            }
         }
     }
 
@@ -300,10 +314,13 @@ fn read_bookmarks(root: &mut Reader<'_>, config: &mut Config) {
         };
         let path = root.path_of(&key);
         let mut reader = Reader::new(table, path, root.diagnostics);
-        if !reader.table.contains_key("path") {
-            reader.missing("path");
-        } else if let Some(path) = reader.string("path") {
-            config.bookmarks.push(PathBuf::from(path));
+        let name = reader.required_string("name");
+        let path = reader.required_string("path");
+        if let (Some(name), Some(path)) = (name, path) {
+            config.bookmarks.push(Bookmark {
+                name,
+                path: PathBuf::from(path),
+            });
         }
         reader.finish();
     }
@@ -320,9 +337,7 @@ fn read_commands(root: &mut Reader<'_>, config: &mut Config) {
         };
         let path = commands.path_of(&name);
         let mut reader = Reader::new(table, path, commands.diagnostics);
-        if !reader.table.contains_key("run") {
-            reader.missing("run");
-        } else if let Some(run) = reader.string("run") {
+        if let Some(run) = reader.required_string("run") {
             match CommandLine::parse(&run) {
                 Ok(line) => {
                     config.commands.insert(name, line);
@@ -536,6 +551,7 @@ dir = "#0000ff"
 link = "#00ff00"
 
 [[bookmarks]]
+name = "Downloads"
 path = "~/Downloads"
 
 [commands.open_terminal]
@@ -571,7 +587,7 @@ editor = "open -t {paths}"
         );
         assert_eq!(config.appearance.font.filelist.size, None);
         assert_eq!(config.colors.light.dir, Color::new(0x00, 0x00, 0xff));
-        assert_eq!(config.bookmarks, [PathBuf::from("~/Downloads")]);
+        assert_eq!(config.bookmarks, [bookmark("Downloads", "~/Downloads")]);
         assert_eq!(
             config.commands["open_terminal"],
             CommandLine::parse("wt -d {dir}").unwrap()
@@ -859,6 +875,7 @@ run = "x {nope}"
     fn merging_recurses_into_tables_and_replaces_everything_else() {
         let text = r#"
 [[bookmarks]]
+name = "a"
 path = "/a"
 [keys.filelist]
 "F1" = "copy"
@@ -866,13 +883,14 @@ path = "/a"
 [os.linux.keys.filelist]
 "F2" = "delete"
 [[os.linux.bookmarks]]
+name = "b"
 path = "/b"
 "#;
 
         let (config, diagnostics) = parse(text, Os::Linux).unwrap();
 
         assert_eq!(diagnostics, Vec::new());
-        assert_eq!(config.bookmarks, [PathBuf::from("/b")]);
+        assert_eq!(config.bookmarks, [bookmark("b", "/b")]);
         assert_eq!(
             config
                 .keys
@@ -888,19 +906,22 @@ path = "/b"
     }
 
     #[test]
-    fn bookmarks_must_be_tables_with_a_path() {
-        let text = "bookmarks = [1, { path = \"/a\", x = 1 }, { name = \"b\" }]\n";
+    fn bookmarks_must_be_tables_with_a_name_and_a_path() {
+        let text = "bookmarks = [1, { name = \"a\", path = \"/a\", x = 1 }, { name = \"b\" }, { path = \"/c\" }, { name = 1, path = \"/d\" }, { name = \"\", path = \"/e\" }, { name = \"f\", path = \"\" }]\n";
 
         let (config, diagnostics) = parse(text, Os::Linux).unwrap();
 
-        assert_eq!(config.bookmarks, [PathBuf::from("/a")]);
+        assert_eq!(config.bookmarks, [bookmark("a", "/a")]);
         assert_eq!(
             paths(&diagnostics),
             [
                 "bookmarks[0]",
                 "bookmarks[1].x",
                 "bookmarks[2]",
-                "bookmarks[2].name"
+                "bookmarks[3]",
+                "bookmarks[4].name",
+                "bookmarks[5].name",
+                "bookmarks[6].path"
             ]
         );
         assert_eq!(
@@ -909,14 +930,34 @@ path = "/b"
                 item: "path".to_owned()
             }
         );
+        assert_eq!(
+            diagnostics[3].kind,
+            DiagnosticKind::MissingItem {
+                item: "name".to_owned()
+            }
+        );
+        assert_eq!(
+            diagnostics[5].kind,
+            DiagnosticKind::InvalidValue {
+                expected: "a non-empty string".to_owned()
+            }
+        );
+        assert_eq!(
+            diagnostics[6].to_string(),
+            "config: invalid value for bookmarks[6].path (expected a non-empty string)"
+        );
     }
 
     #[test]
     fn definitions_without_a_required_item_are_dropped_alone() {
         let text = r#"
 [[bookmarks]]
+name = "none"
 [[bookmarks]]
+name = "a"
 path = "/a"
+[commands.empty]
+run = ""
 [commands.norun]
 [commands.term]
 run = "wt"
@@ -927,7 +968,7 @@ run = "wt"
 
         let (config, diagnostics) = parse(text, Os::Linux).unwrap();
 
-        assert_eq!(config.bookmarks, [PathBuf::from("/a")]);
+        assert_eq!(config.bookmarks, [bookmark("a", "/a")]);
         assert_eq!(
             config
                 .commands
@@ -938,7 +979,12 @@ run = "wt"
         );
         assert_eq!(
             paths(&diagnostics),
-            ["bookmarks[0]", "commands.norun", "keys.filelist.F1"]
+            [
+                "bookmarks[0]",
+                "commands.empty.run",
+                "commands.norun",
+                "keys.filelist.F1"
+            ]
         );
         assert_eq!(
             diagnostics[0].kind,
@@ -948,6 +994,12 @@ run = "wt"
         );
         assert_eq!(
             diagnostics[1].kind,
+            DiagnosticKind::InvalidValue {
+                expected: "a non-empty string".to_owned()
+            }
+        );
+        assert_eq!(
+            diagnostics[2].kind,
             DiagnosticKind::MissingItem {
                 item: "run".to_owned()
             }
@@ -960,5 +1012,12 @@ run = "wt"
 
     fn paths(diagnostics: &[Diagnostic]) -> Vec<&str> {
         diagnostics.iter().map(|d| d.path.as_str()).collect()
+    }
+
+    fn bookmark(name: &str, path: &str) -> Bookmark {
+        Bookmark {
+            name: name.to_owned(),
+            path: PathBuf::from(path),
+        }
     }
 }
