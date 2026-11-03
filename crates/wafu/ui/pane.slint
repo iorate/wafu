@@ -132,6 +132,8 @@ export component PaneWidget {
     property <int> visible-rows;
     property <length> row-height: Theme.row-height;
 
+    // Assigned rather than bound: the list assigns `content-y` itself when
+    // scrolled, and that would drop a binding.
     changed scroll-top => {
         list.content-y = -scroll-top * Theme.row-height;
     }
@@ -140,6 +142,9 @@ export component PaneWidget {
         root.report-rows();
     }
 
+    // From where the rows are drawn, not from the core's top row: the list is
+    // not a whole number of rows high, so at the end the top row sits partly
+    // off screen.
     function row-at(y: length) -> int {
         return floor((y - list.content-y) / Theme.row-height);
     }
@@ -196,6 +201,9 @@ export component PaneWidget {
             vertical-stretch: 1;
             clip: true;
 
+            // The gutter is kept whether or not the bar is needed, so that the
+            // columns do not shift between directories that fit and ones that
+            // do not.
             list := ListView {
                 x: 0;
                 width: parent.width - Theme.scrollbar-gutter;
@@ -206,6 +214,8 @@ export component PaneWidget {
                     root.report-rows();
                 }
 
+                // Rows added in the same frame as a scroll are clipped to the
+                // old height until the list has measured them.
                 changed viewport-height => {
                     self.content-y = -root.scroll-top * Theme.row-height;
                 }

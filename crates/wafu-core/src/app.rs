@@ -475,6 +475,8 @@ impl App {
                 }
             }
             Msg::Mouse(input) => {
+                // Unlike a key, a click goes to the popup before the operation,
+                // since a conflict or quit confirmation opens during one.
                 if self.popup.is_some() {
                     self.popup_mouse(input, &mut effects);
                 } else if self.operation.is_some() || self.navigating() {

@@ -48,6 +48,8 @@ fn decode_with_locale(raw: &[u8]) -> String {
 fn locale_encoding() -> Option<&'static encoding_rs::Encoding> {
     // SAFETY: GetACP takes no arguments and only reads process-wide settings.
     let mut code_page = unsafe { windows::Win32::Globalization::GetACP() };
+    // With the system set to UTF-8 the process code page says nothing about
+    // the names old tools wrote, so the user's locale decides instead.
     if code_page == UTF8_CODE_PAGE {
         code_page = user_locale_ansi_code_page()?;
     }

@@ -164,7 +164,9 @@ pub struct Color {
     pub b: u8,
 }
 
-/// A warning about one item of the configuration, shown in the log.
+/// A warning about one item of the configuration, shown in the log. It has
+/// no line number: the decoded table carries no positions, unlike a syntax
+/// error.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
     /// The item, such as `appearance.theme`.
@@ -204,6 +206,8 @@ impl Config {
         Self {
             general: General {
                 mkdir_then_enter: true,
+                // On by default because the macOS `open -t` does nothing for a
+                // file that does not exist.
                 new_text_creates_file: true,
                 extract_creates_dir: true,
                 require_marks: true,

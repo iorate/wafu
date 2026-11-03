@@ -14,7 +14,8 @@ export struct ThemeColors {
 }
 
 // Colors and fonts come from the configuration through Rust; the defaults
-// here only cover the moment before the first render.
+// here only cover the moment before the first render. Every element names the
+// font of its own area; the window's default font is never relied on.
 export global Theme {
     in property <ThemeColors> light: {
         fg: #1e1e1e, bg: #ffffff, mark: #dcdcdc, cursor: #1e1e1e, dir: #1f5fbf,

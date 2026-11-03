@@ -179,6 +179,9 @@ pub(crate) fn watch_config(path: &Path, on_event: &OnEvent) -> notify::Result<Gr
         changes,
     };
     let report = Arc::clone(on_event);
+    // Opening the file with `open` on macOS adds an extended attribute, which
+    // FSEvents reports as a change, so the file is only read again when its
+    // modification time moved.
     let mut last_modified = modified(path);
     let on_burst = move |path: &Path| {
         let now_modified = modified(path);
@@ -224,6 +227,7 @@ fn follow(
     is_dir: bool,
     changes: &Sender<Change>,
 ) -> (Followed, Option<notify::Error>) {
+    // The first failure is reported; the watches that could be made still run.
     let mut failure = None;
     let mut keep = |result: notify::Result<RecommendedWatcher>| match result {
         Ok(watcher) => Some(watcher),
@@ -343,6 +347,9 @@ fn names_entry(event: &Event, name: Option<&OsStr>) -> bool {
     })
 }
 
+// The OS reports a name as spelled on disk, while the watched path comes from
+// input or a bookmark: the case may differ on either system, and APFS may
+// keep the name decomposed.
 #[cfg(target_os = "macos")]
 fn same_name(reported: &OsStr, watched: &OsStr) -> bool {
     let fold = |name: &OsStr| {

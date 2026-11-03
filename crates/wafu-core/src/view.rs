@@ -21,6 +21,8 @@ pub struct View {
     pub hide_log: bool,
     /// Width of the left pane as a percentage of the window.
     pub split_percent: u8,
+    /// Decided here and not reported back by the UI, which would not do so
+    /// before the first change.
     pub log_rows: usize,
     /// Shared with the application; the same allocation is returned until the
     /// configuration changes.

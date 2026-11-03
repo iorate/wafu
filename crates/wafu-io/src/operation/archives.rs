@@ -29,6 +29,8 @@ impl Worker<'_> {
                 .ok_or_else(|| failure(archive, "no destination"))?;
             let name = archive.file_name().unwrap_or_default();
             let format = ArchiveFormat::from_name(name).unwrap_or(ArchiveFormat::Zip);
+            // One destination serves the whole operation; naming the directory
+            // here saves the core from passing one per archive.
             let dest = if into_dir {
                 root.join(archive.file_stem().unwrap_or(name))
             } else {
@@ -87,6 +89,8 @@ impl Worker<'_> {
             }
         }
         finish_extraction(extraction)?;
+        // Reported once the links are made, so that an item whose link could
+        // not be made keeps its mark.
         for index in done {
             (self.report)(OperationEvent::ItemDone { index });
         }
@@ -305,6 +309,8 @@ impl Worker<'_> {
                 .map_err(fail(path))?
                 .to_string_lossy()
                 .into_owned();
+            // Link targets are stored with `/`, the separator of the archive,
+            // and turned back on extraction.
             #[cfg(windows)]
             let target = target.replace('\\', "/");
             writer
@@ -461,6 +467,8 @@ fn make_link(target: &str, dst: &Path) -> std::io::Result<()> {
 #[cfg(windows)]
 fn make_link(target: &str, dst: &Path) -> std::io::Result<()> {
     let target = target.replace('/', "\\");
+    // The kind of link is fixed on Windows and the archive does not record
+    // it, so it follows what the target is at this moment.
     let resolved = dst.parent().unwrap_or(Path::new("")).join(&target);
     if fs::metadata(resolved).is_ok_and(|meta| meta.is_dir()) {
         std::os::windows::fs::symlink_dir(target, dst)

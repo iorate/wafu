@@ -575,6 +575,8 @@ impl App {
         }
     }
 
+    // Special files are not weeded out here: the worker refuses them, and it
+    // alone sees the ones inside directories.
     fn target_names(&self) -> Vec<OsString> {
         self.active_pane()
             .targets()
@@ -690,6 +692,8 @@ impl App {
         });
     }
 
+    // A question that arrives behind the quit confirmation waits there and
+    // comes up when the operation is continued.
     fn show_operation_popup(&mut self, popup: Popup) {
         if let Some(Popup::Choice(ChoicePopup {
             kind: ChoiceKind::QuitDuringOperation { resume },

@@ -37,7 +37,11 @@ pub enum ShellMenuError {
 /// Shows the shell's context menu for the paths and runs what the user picks.
 /// `window` is the HWND of the owning window; `x` and `y` are in physical
 /// pixels of its client area. Blocks until the menu closes.
-// Everything here is Win32; the menu runs its own message loop on this thread.
+// Everything here is Win32; the menu runs its own message loop on this thread,
+// which must be the one that made the window, as the owner of a tracked menu
+// has to be. Showing it elsewhere would take an invisible owner window, a
+// message loop and foregrounding of its own; Explorer itself nests the loop
+// on its UI thread, and wafu takes no input while the menu is up anyway.
 #[allow(unsafe_code)]
 pub fn shell_menu(
     window: isize,
@@ -65,6 +69,8 @@ enum Handler {
 }
 
 // The context menu handler of the paths, which all lie in the same directory.
+// An item array binds the handler for several items at once, without the
+// parent folder and child item lists that `IShellFolder::GetUIObjectOf` wants.
 #[allow(unsafe_code)]
 fn context_menu(paths: &[impl AsRef<Path>]) -> Result<IContextMenu, ShellMenuError> {
     let mut pidls: Vec<*const ITEMIDLIST> = Vec::with_capacity(paths.len());
@@ -159,12 +165,18 @@ fn track(
         ptInvoke: point,
         ..Default::default()
     };
+    // What the command does is not reported back; the listing follows it
+    // through the watch.
     // SAFETY: `info` is a fully initialized extended structure, which the
     // interface accepts in place of the basic one, and `directory` outlives the call.
     let _ = unsafe { menu.InvokeCommand(std::ptr::from_ref(&info).cast::<CMINVOKECOMMANDINFO>()) };
     Ok(())
 }
 
+// The click that closed the menu reaches the window only after the menu has
+// returned, and the window saw no mouse movement meanwhile, so the click
+// would land on the row of the original right click and open the same menu
+// again.
 #[allow(unsafe_code)]
 fn discard_clicks(hwnd: HWND) {
     let mut msg = MSG::default();

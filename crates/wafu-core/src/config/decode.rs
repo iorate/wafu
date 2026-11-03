@@ -131,6 +131,8 @@ impl<'a> Reader<'a> {
     }
 
     // Reads a string and maps it; anything the mapping rejects is invalid.
+    // The message names the choices even for a value of another type, since
+    // that is what the user has to write.
     fn choice<T>(
         &mut self,
         key: &str,

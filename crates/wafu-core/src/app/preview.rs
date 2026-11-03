@@ -52,6 +52,8 @@ impl App {
                 if key.ctrl || key.shift || key.alt {
                     return;
                 }
+                // A page is that many unwrapped lines; how many screen rows a
+                // line takes is known only to the UI.
                 let rows = self.preview_rows;
                 match key.base {
                     KeyBase::Named(NamedKey::Up) => preview.scroll_by(-1),

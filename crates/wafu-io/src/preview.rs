@@ -8,6 +8,8 @@ use crate::archive::{ArchiveError, find_entry, open_archive};
 
 const IMAGE_PREVIEW_LIMIT: u64 = 64 * 1024 * 1024;
 
+// Decoding is the core's pure function, but it runs here on the read thread
+// so that decoding a file of the full preview size does not hold up the UI.
 pub(crate) fn load_preview(source: &PreviewSource) -> Result<Document, PreviewError> {
     let (bytes, truncated) = read_source(source, PREVIEW_LIMIT)?;
     Ok(Document::decode(bytes, truncated))

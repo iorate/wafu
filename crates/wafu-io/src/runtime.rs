@@ -104,6 +104,8 @@ impl Runtime {
                     request,
                 });
             }
+            // Resolving runs on the read thread, since `metadata` on a network
+            // path may block.
             Effect::Resolve {
                 side,
                 path,
@@ -289,6 +291,8 @@ impl Runtime {
         }
     }
 
+    // A thread of its own: `metadata` on a root may wait for a drive to spin
+    // up, and on a read lane that would hold up the reads queued behind it.
     fn list_drives(&self, request: RequestId) {
         let on_event = Arc::clone(&self.on_event);
         thread::Builder::new()
@@ -363,6 +367,11 @@ impl Job {
     }
 }
 
+// A queue of jobs run in order on one thread. A cancelled job may be stuck
+// in a blocked read, so its thread is abandoned (its result, if it ever
+// comes, is dropped) and a new one takes over the queue. The preview lane
+// stops abandoning at a limit, so that racing through images decodes only a
+// few at once.
 struct Lane {
     name: &'static str,
     limit: Option<usize>,

@@ -211,7 +211,8 @@ impl App {
             Some(Resolved { dir, file })
                 if climb && still_here(pane.location(), &dir, file.as_deref()) =>
             {
-                // Still here, so the read error was the whole story.
+                // Still here, so the read error was the whole story. Reading again
+                // would fail the same way and resolve again without end.
                 if let Some(source) = failed {
                     self.log
                         .push(AppError::ReadDir { path, source }.to_string());
@@ -432,6 +433,9 @@ impl App {
         self.navigate(Side::Right, left, None, HistoryMove::Visit, effects);
     }
 
+    // The request takes the active pane's load slot: input is held off while
+    // a pane loads, so the pane that asked is still the active one when the
+    // list arrives.
     pub(super) fn list_drives(
         &mut self,
         purpose: DrivePurpose,

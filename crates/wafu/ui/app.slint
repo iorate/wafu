@@ -135,10 +135,14 @@ export component AppWindow inherits Window {
         }
     }
 
+    // Assigned, as in the panes: a binding would not survive the list's own
+    // scrolling.
     changed log-scroll-top => {
         log.content-y = -log-scroll-top * Theme.log-row-height;
     }
 
+    // Every key, Tab included, ends here, so that Slint never moves the focus
+    // on its own.
     scope := FocusScope {
         key-pressed(event) => {
             root.key-input(
@@ -152,6 +156,8 @@ export component AppWindow inherits Window {
         }
 
         VerticalLayout {
+            // The panes are placed by hand: in a layout their text widths would
+            // move the divider with every listing.
             panes := Rectangle {
                 vertical-stretch: 1;
 
@@ -266,6 +272,8 @@ export component AppWindow inherits Window {
                     height: max(0px, parent.height - 8px);
                     vertical-scrollbar-policy: ScrollBarPolicy.always-off;
 
+                    // Lines added in the same frame as a scroll are clipped to
+                    // the old height until the list has measured them.
                     changed viewport-height => {
                         self.content-y = -root.log-scroll-top * Theme.log-row-height;
                     }
