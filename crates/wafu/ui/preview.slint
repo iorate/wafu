@@ -87,6 +87,8 @@ export component PreviewWidget inherits Rectangle {
 
             Text {
                 text: line.text;
+                // Works with the FemtoVG renderer too, though the documentation
+                // lists only Qt and software.
                 wrap: char-wrap;
                 width: parent.width - measure-number.preferred-width - parent.spacing;
                 font-family: Theme.preview-font-family;

@@ -29,6 +29,7 @@ fn main() -> ExitCode {
     let Some(state_path) = wafu_io::state_path() else {
         return report_startup_error("cannot find the state directory");
     };
+    // Read before the window exists: its colors and fonts come from them.
     let config = wafu_io::read_or_create(&config_path, CONFIG_TEMPLATE);
     let state = match &cli.inherit {
         Some(handoff) => wafu_io::read_handoff(handoff),

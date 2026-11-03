@@ -39,6 +39,8 @@ const WHEEL_POPUP: usize = 4;
 // A menu opened from the keyboard sits a little in from the row's left edge.
 const MENU_INSET: f32 = 16.0;
 
+// The runtime reports from other threads, where an `Rc<Ui>` cannot be
+// captured, so its callback looks the `Ui` up here once back on the main thread.
 thread_local! {
     static UI: RefCell<Option<Rc<Ui>>> = const { RefCell::new(None) };
 }
@@ -184,6 +186,8 @@ impl Ui {
             return;
         };
         let window = self.window.window();
+        // Both or neither, so that a state file edited by hand with one of
+        // them missing does not open a 0×0 window.
         if let (Some(width), Some(height)) = (state.width, state.height) {
             // Sizes are small enough to be exact as floats.
             #[allow(clippy::cast_precision_loss)]
@@ -212,6 +216,13 @@ impl Ui {
         });
     }
 
+    // Runs the task once the next frame is on screen. A timer alone would run
+    // before the redraw, so what the same `dispatch` changed would stay
+    // unseen while a modal task runs; the tasks are taken from the rendering
+    // notifier instead. Only one notifier can be registered, so this queue
+    // serves every such task. A redraw is asked for in case nothing else
+    // would draw. Without a notifier (the software renderer) the timer has to
+    // do, and only the screen lags.
     fn run_after_render(&self, task: impl FnOnce() + 'static) {
         if self.has_rendering_notifier {
             self.after_render.borrow_mut().push(Box::new(task));
@@ -221,6 +232,8 @@ impl Ui {
         }
     }
 
+    // Posted rather than run here: the frame is only swapped once the notifier
+    // returns, so a modal loop inside it would show nothing.
     fn flush_after_render(&self) {
         let tasks = std::mem::take(&mut *self.after_render.borrow_mut());
         if !tasks.is_empty() {
@@ -232,6 +245,10 @@ impl Ui {
         }
     }
 
+    // On macOS a position given before the window exists is taken as that of
+    // the content rather than the frame, so the window would climb by a title
+    // bar on every start. The first frame is drawn before the window is shown,
+    // and this is the only moment that falls between the two.
     fn reposition_window(&self) {
         if !cfg!(target_os = "macos") || self.repositioned.replace(true) {
             return;
@@ -276,6 +293,9 @@ impl Ui {
 
     fn with_window(&self, mut state: StateFile) -> StateFile {
         let window = self.window.window();
+        // Minimized, the window reports a position far off screen; maximized,
+        // the maximized rectangle. Windows knows the normal one; elsewhere the
+        // one read at start has to do.
         state.window = if window.is_minimized() || window.is_maximized() {
             normal_window_state(&self.window).or_else(|| self.startup_window.borrow().clone())
         } else {
@@ -599,6 +619,8 @@ impl Ui {
             }
             self.window.set_popup(popup_data(view.popup.as_ref()));
             let items = popup_items(view.popup.as_ref());
+            // Replacing the items makes the rows anew and loses a double-click
+            // in progress; the cursor is outside them for the same reason.
             if popup_items(rendered.popup.as_ref()) != items {
                 self.popup_items
                     .set_vec(items.iter().map(popup_item).collect::<Vec<_>>());
@@ -714,6 +736,8 @@ impl Default for Rendered {
     }
 }
 
+// Logical pixels, so that the window comes back the same apparent size when
+// the DPI setting has changed.
 fn window_state(scale: f32, position: PhysicalPosition, size: PhysicalSize) -> WindowState {
     let size = size.to_logical(scale);
     let position = position.to_logical(scale);

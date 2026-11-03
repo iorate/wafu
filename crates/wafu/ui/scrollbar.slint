@@ -1,6 +1,7 @@
 import { Theme } from "theme.slint";
 
-// A vertical bar beside a list whose scroll position the core owns. The thumb
+// A vertical bar beside a list whose scroll position the core owns. The list's
+// own bar would lie under the touch area that takes the mouse. The thumb
 // shows `top` out of `rows`; dragging it reports the row to put at the top.
 export component ScrollBar {
     in property <int> top;

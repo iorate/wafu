@@ -13,6 +13,11 @@ pub(crate) fn spawn(
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
     }
+    // On Unix the child's output would otherwise land in the terminal that
+    // started wafu. On Windows the streams are left alone and no creation
+    // flag is set, so that a console program gets a console of its own, as
+    // when started from Explorer. Standard error is never piped: descendants
+    // inheriting the pipe would keep it open after the child has ended.
     if !cfg!(windows) {
         command
             .stdin(Stdio::null())

@@ -42,7 +42,8 @@ component PopupInput {
     in property <bool> labelled;
     in property <length> label-width;
     in property <bool> single;
-    // Which field holds the focus is the overlay's state; the field follows it.
+    // Which field holds the focus is the overlay's state; the field follows it,
+    // since an element inside `if` cannot be reached from outside.
     in property <bool> active;
     in property <int> generation;
     in-out property <string> text;
@@ -60,6 +61,8 @@ component PopupInput {
         }
     }
 
+    // A popup replaced by another with one field keeps the same element, so
+    // `init` does not run again; the generation tells the two apart.
     changed generation => {
         root.select-initial();
     }
@@ -142,6 +145,8 @@ component PopupInput {
     }
 }
 
+// An overlay in the window rather than a `PopupWindow`, whose contents cannot
+// be reached from outside, as editing a draft from the keyboard needs.
 export component PopupOverlay {
     in property <PopupData> data;
     in property <[PopupItem]> items;
@@ -176,12 +181,15 @@ export component PopupOverlay {
         opacity: 0.6;
     }
 
+    // The wheel stops here too, short of the panes underneath.
     TouchArea {
         scroll-event(event) => {
             accept
         }
     }
 
+    // The labels are measured so that both fields line up at the width of the
+    // longer one; a fixed width was cut off at large fonts.
     first-label := PopupText {
         visible: false;
         text: root.fields.length >= 1 ? root.fields[0].label : "";
@@ -278,6 +286,8 @@ export component PopupOverlay {
                 height: root.list-rows * Theme.popup-row-height;
                 clip: true;
 
+                // The list is made anew with each popup, and `changed` does
+                // not run at creation.
                 init => {
                     list.content-y = -self.top * Theme.popup-row-height;
                 }

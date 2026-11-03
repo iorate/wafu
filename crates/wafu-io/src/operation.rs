@@ -12,6 +12,8 @@ use crate::trash::trash;
 mod archives;
 
 const CHUNK_SIZE: usize = 64 * 1024;
+// Special files (FIFOs, sockets, devices) are refused here rather than by the
+// core, which does not see the ones inside a directory.
 const NOT_REGULAR: &str = "not a regular file";
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
 
@@ -343,6 +345,9 @@ impl Worker<'_> {
                 if same_file::is_same_file(src, dst).unwrap_or(false) {
                     return Err(failure(src, "the destination is the same file"));
                 }
+                // Removed here rather than left to the rename: across devices
+                // the move becomes a copy, which would ask about the conflict
+                // a second time.
                 remove_file(dst).map_err(fail(src))?;
                 self.move_to_free_path(src, dst)
             }
@@ -474,6 +479,7 @@ fn real_path(path: &Path) -> Option<PathBuf> {
 }
 
 // Best effort: a file that could not take its time or mode is still copied.
+// The time is set here because `fs::copy` does not promise to keep it.
 fn copy_metadata(dst: &Path, meta: &Metadata) {
     if let Ok(modified) = meta.modified()
         && let Ok(file) = open_for_times(dst)

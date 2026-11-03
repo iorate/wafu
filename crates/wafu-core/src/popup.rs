@@ -655,6 +655,10 @@ pub fn stem_selection(name: &str) -> Option<(usize, usize)> {
         .map(|index| (0, index))
 }
 
+// The popups that pick a row. The rules for keys and the mouse live in
+// `menu_input` alone; an implementation only describes its rows and what
+// running one does. Separators are rows here too, so that the UI's row
+// numbers are the core's and a click needs no translation.
 pub(crate) trait Menu {
     type Pick;
 

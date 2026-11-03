@@ -4,6 +4,7 @@ use wafu_core::KeyInput;
 const NAMED: [(Key, &str); 27] = [
     (Key::Return, "Enter"),
     (Key::Tab, "Tab"),
+    // Shift+Tab arrives as its own key; it is spelled as Tab with Shift set.
     (Key::Backtab, "Tab"),
     (Key::Backspace, "BS"),
     (Key::Escape, "Esc"),

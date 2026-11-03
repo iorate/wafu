@@ -172,6 +172,8 @@ fn collator(sort: SortSpec) -> CollatorBorrowed<'static> {
     Collator::try_new(prefs, options).expect("the compiled collation data should load")
 }
 
+// Names are not composed first: the collator treats canonically equivalent
+// forms alike, unlike the matching done for search, jump, and filter.
 fn sort_key(collator: &CollatorBorrowed<'_>, text: &str) -> Vec<u8> {
     let mut key = Vec::new();
     match collator.write_sort_key_to(text, &mut key) {

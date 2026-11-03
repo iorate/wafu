@@ -126,6 +126,8 @@ impl App {
         if after == before {
             return;
         }
+        // Another kind of popup is another list to the UI, which reads the
+        // generation to start it afresh.
         if before.map(|(kind, _, _)| kind) != after.map(|(kind, _, _)| kind) {
             self.popup_top = 0;
             self.popup_generation = self.popup_generation.wrapping_add(1);
@@ -138,6 +140,8 @@ impl App {
             Some(Popup::Input(popup)) => popup.set_text(field, text),
             Some(Popup::Palette(popup)) if field == 0 => {
                 popup.set_query(text);
+                // Neither the cursor nor the row count need change with the
+                // query, so the follow-up would not bring the top back.
                 self.popup_top = 0;
             }
             Some(Popup::Search(popup)) if field == 0 => {
@@ -149,6 +153,8 @@ impl App {
                     popup.query = text;
                 }
                 // Otherwise the text is refused and the view keeps the old query.
+                // The whole text is tried, not the last character, since it may
+                // have been pasted.
             }
             Some(
                 Popup::Sort(_)
@@ -389,6 +395,8 @@ impl App {
         }
     }
 
+    // The one place where a pick reaches the rest of the application; a
+    // `Menu` only changes its own popup.
     fn menu(&mut self, popup: Popup, input: MenuInput, effects: &mut Vec<Effect>) {
         match popup {
             Popup::Sort(mut popup) => match menu_input(&mut popup, input) {
@@ -490,6 +498,8 @@ impl App {
     fn pick_list_item(&mut self, item: ListItem, effects: &mut Vec<Effect>) {
         match item.target {
             ListTarget::HistoryPos(pos, path) => {
+                // The history may have moved while the list was open; the row
+                // then stands for the path shown, not for its position.
                 let pane = self.active_pane();
                 let history = pane.history();
                 if history.items().get(pos) != Some(&path) {

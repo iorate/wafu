@@ -23,6 +23,8 @@ pub fn read_handoff(path: &Path) -> Result<Option<StateFile>, StateError> {
     state
 }
 
+// Written next to the file and moved over it, so that a crash while writing,
+// or two instances quitting at once, cannot leave a broken file.
 pub(crate) fn write_state(path: &Path, state: &StateFile) -> std::io::Result<()> {
     let text = to_toml(state)?;
     let dir = path.parent().unwrap_or(Path::new("."));
@@ -33,6 +35,9 @@ pub(crate) fn write_state(path: &Path, state: &StateFile) -> std::io::Result<()>
     Ok(())
 }
 
+// The temporary directory is shared with other users on Linux, so the file is
+// created exclusively (a name made beforehand cannot be slipped in) and, on
+// Unix, readable by its owner alone.
 pub(crate) fn write_handoff(state: &StateFile) -> std::io::Result<PathBuf> {
     let text = to_toml(state)?;
     let mut file = tempfile::Builder::new()
