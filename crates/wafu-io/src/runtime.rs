@@ -1191,6 +1191,35 @@ mod tests {
     }
 
     #[test]
+    fn config_is_read_again_only_when_its_modification_time_changes() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(&path, "a = 1\n").unwrap();
+        let (runtime, events) = runtime();
+        runtime.run(Effect::WatchConfig(path.clone()));
+        settle(&events);
+
+        let original = fs::metadata(&path).unwrap().permissions();
+        let mut readonly = original.clone();
+        readonly.set_readonly(true);
+        fs::set_permissions(&path, readonly).unwrap();
+        assert!(events.recv_timeout(QUIET).is_err());
+        fs::set_permissions(&path, original).unwrap();
+        assert!(events.recv_timeout(QUIET).is_err());
+
+        let temp = dir.path().join("config.toml.tmp");
+        fs::write(&temp, "a = 1\n").unwrap();
+        fs::rename(&temp, &path).unwrap();
+        let event = events.recv_timeout(TIMEOUT).unwrap();
+        assert_eq!(
+            event,
+            IoEvent::ConfigLoaded {
+                result: Ok("a = 1\n".to_owned()),
+            }
+        );
+    }
+
+    #[test]
     fn replacing_the_target_of_a_linked_config_reports_the_new_text() {
         let dir = TempDir::new().unwrap();
         let dotfiles = dir.path().join("dotfiles");
