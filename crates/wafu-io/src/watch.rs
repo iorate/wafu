@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, Weak};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 #[cfg(target_os = "macos")]
 use icu_normalizer::ComposingNormalizer;
@@ -110,7 +110,7 @@ impl Group {
         with_contents: bool,
         watches: Watches,
         changes: Receiver<Change>,
-        on_burst: impl Fn(&Path) + Send + 'static,
+        mut on_burst: impl FnMut(&Path) + Send + 'static,
         on_failure: impl Fn(&Path, notify::Error) + Send + 'static,
     ) -> Self {
         let watches = Arc::new(Mutex::new(watches));
@@ -179,7 +179,13 @@ pub(crate) fn watch_config(path: &Path, on_event: &OnEvent) -> notify::Result<Gr
         changes,
     };
     let report = Arc::clone(on_event);
+    let mut last_modified = modified(path);
     let on_burst = move |path: &Path| {
+        let now_modified = modified(path);
+        if now_modified.is_some() && now_modified == last_modified {
+            return;
+        }
+        last_modified = now_modified;
         let result = fs::read_to_string(path).map_err(|error| IoError::new(error.to_string()));
         report(IoEvent::ConfigLoaded { result });
     };
@@ -191,6 +197,10 @@ pub(crate) fn watch_config(path: &Path, on_event: &OnEvent) -> notify::Result<Gr
         on_burst,
         on_failure,
     ))
+}
+
+fn modified(path: &Path) -> Option<SystemTime> {
+    fs::metadata(path).and_then(|meta| meta.modified()).ok()
 }
 
 // Whether the last component of the path is a link, and if so, what it
@@ -382,7 +392,7 @@ fn is_dir_entry_change(kind: EventKind) -> bool {
 // `on_burst` returns false.
 fn spawn_debouncer(
     changes: mpsc::Receiver<Change>,
-    on_burst: impl Fn(bool) -> bool + Send + 'static,
+    mut on_burst: impl FnMut(bool) -> bool + Send + 'static,
 ) {
     thread::Builder::new()
         .name("wafu-io-watch".to_owned())
