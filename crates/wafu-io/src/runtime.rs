@@ -237,6 +237,8 @@ impl Runtime {
                             on_event(IoEvent::Operation(event));
                         };
                         if let Err(payload) = panic::catch_unwind(AssertUnwindSafe(|| {
+                            #[cfg(test)]
+                            assert_ne!(first_source(&spec), Path::new(PANIC_PATH), "injected");
                             run_operation(&spec, owner_window, &replies, &report);
                         })) {
                             let (path, done) = progress
@@ -492,6 +494,8 @@ fn read(
     let request = job.request();
     match job {
         Job::ReadDir { side, location, .. } => {
+            #[cfg(test)]
+            assert_ne!(location.base, Path::new(PANIC_PATH), "injected");
             let cancelled = || !lock(pending).contains(&request);
             let result = match &location.archive {
                 None => read_dir_with(&location.base, cancelled),
@@ -550,6 +554,10 @@ fn list_archive(
     let entries = list_dir(entries, &archive.inner, cancelled)?;
     Ok(Directory { own, entries })
 }
+
+// A path that no file system accepts, so a test can make a worker panic on it.
+#[cfg(test)]
+const PANIC_PATH: &str = "\0panic";
 
 fn first_source(spec: &OperationSpec) -> PathBuf {
     match &spec.sources {
@@ -1369,6 +1377,81 @@ mod tests {
         };
         assert_eq!(side, Side::Left);
         assert_eq!(path, missing);
+    }
+
+    #[test]
+    fn a_panic_on_the_operation_thread_is_reported_as_a_failure_and_frees_the_slot() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("a"), b"a").unwrap();
+        let (runtime, events) = runtime();
+
+        runtime.run(Effect::StartOperation(wafu_core::OperationSpec {
+            kind: wafu_core::OperationKind::Delete,
+            sources: wafu_core::Sources::Paths(vec![PathBuf::from(PANIC_PATH)]),
+            dest: None,
+            output: None,
+        }));
+
+        let IoEvent::Operation(wafu_core::OperationEvent::Finished(outcome)) =
+            events.recv_timeout(TIMEOUT).unwrap()
+        else {
+            panic!("expected Finished");
+        };
+        let wafu_core::Outcome::Failed { path, error, done } = outcome else {
+            panic!("expected Failed, got {outcome:?}");
+        };
+        assert_eq!(path, Path::new(PANIC_PATH));
+        assert!(error.to_string().starts_with("panicked: "), "{error}");
+        assert_eq!(done, 0);
+
+        runtime.run(Effect::StartOperation(wafu_core::OperationSpec {
+            kind: wafu_core::OperationKind::Delete,
+            sources: wafu_core::Sources::Paths(vec![dir.path().join("a")]),
+            dest: None,
+            output: None,
+        }));
+        loop {
+            if let IoEvent::Operation(wafu_core::OperationEvent::Finished(outcome)) =
+                events.recv_timeout(TIMEOUT).unwrap()
+            {
+                assert!(matches!(
+                    outcome,
+                    wafu_core::Outcome::Completed { done: 1, .. }
+                ));
+                break;
+            }
+        }
+    }
+
+    #[test]
+    fn a_panic_on_a_worker_is_reported_as_an_error_and_the_worker_goes_on() {
+        let dir = TempDir::new().unwrap();
+        let (runtime, events) = runtime();
+
+        runtime.run(read(Path::new(PANIC_PATH), 1));
+        runtime.run(read(dir.path(), 2));
+
+        let IoEvent::DirLoaded {
+            request, result, ..
+        } = events.recv_timeout(TIMEOUT).unwrap()
+        else {
+            panic!("expected DirLoaded");
+        };
+        assert_eq!(request, RequestId(1));
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|error| error.to_string().starts_with("panicked: ")),
+            "{result:?}"
+        );
+        let IoEvent::DirLoaded {
+            request, result, ..
+        } = events.recv_timeout(TIMEOUT).unwrap()
+        else {
+            panic!("expected DirLoaded");
+        };
+        assert_eq!(request, RequestId(2));
+        assert!(result.is_ok());
     }
 
     #[test]

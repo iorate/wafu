@@ -1177,13 +1177,15 @@ fn sort_popup_letters_do_not_move_the_cursor() {
 }
 
 #[test]
-fn sort_popup_letters_take_shift_but_not_ctrl() {
+fn sort_popup_letters_take_shift_but_not_ctrl_or_alt() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.press("S");
 
-    harness.press("Ctrl+T");
-    assert!(harness.popup().is_some());
-    assert_eq!(harness.app().pane(Side::Left).sort().key, SortKey::Name);
+    for key in ["Ctrl+T", "Alt+T"] {
+        harness.press(key);
+        assert!(harness.popup().is_some());
+        assert_eq!(harness.app().pane(Side::Left).sort().key, SortKey::Name);
+    }
 
     harness.press("Shift+T");
     assert_eq!(harness.popup(), None);
@@ -1373,6 +1375,23 @@ fn palette_shows_bound_keys_and_wraps_the_cursor() {
 }
 
 #[test]
+fn palette_lists_the_keys_of_a_command_in_display_order() {
+    let mut harness = Harness::start_with_config(
+        "/home/user",
+        "/tmp",
+        "[keys.filelist]\n\"Ctrl+R\" = \"reload\"\n\"Shift+F5\" = \"reload\"\n\"Alt+R\" = \"reload\"\n",
+    );
+
+    harness.press("F1");
+    harness.edit("reload");
+
+    assert_eq!(
+        harness.popup_items()[0].detail,
+        "Alt+R, Ctrl+R, F5, Shift+F5"
+    );
+}
+
+#[test]
 fn a_popup_opened_from_the_palette_has_a_new_generation() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a.txt")]);
@@ -1499,8 +1518,9 @@ fn reload_reads_again_without_emptying_and_the_cursor_follows_the_entry() {
     harness.press("F5");
 
     assert_eq!(harness.names(Side::Left), ["..", "a", "b", "c"]);
-    harness.load(Side::Left, vec![file("a"), file("c"), file("a0")]);
+    harness.load(Side::Left, vec![file("c"), file("d"), file("e")]);
     assert_eq!(harness.cursor_name(Side::Left), "c");
+    assert_eq!(harness.app().pane(Side::Left).cursor(), 1);
 }
 
 #[test]
