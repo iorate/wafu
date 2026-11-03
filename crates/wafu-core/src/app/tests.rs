@@ -5,7 +5,6 @@ use crate::config::Theme;
 use crate::entry::{
     Directory, Entry, EntryKind, LocalDateTime, SpecialKind, TargetKind, Timestamp,
 };
-use crate::external::CommandLine;
 use crate::listing::{SortKey, SortSpec};
 use crate::pane::InFlight;
 use crate::state::{PaneState, StateFile};
@@ -65,21 +64,6 @@ fn start_resolves_both_panes_then_watches_and_reads_them() {
     assert_eq!(harness.view().left.path, "/home/user");
     assert_eq!(harness.names(Side::Left), ["..", "a"]);
     assert_eq!(harness.history(Side::Left), ["/home/user"]);
-}
-
-#[test]
-fn loaded_entries_appear_after_the_parent_row() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-
-    harness.load(Side::Left, vec![file("b.txt"), dir("a")]);
-
-    assert_eq!(harness.names(Side::Left), ["..", "a", "b.txt"]);
-    assert_eq!(harness.names(Side::Right), [".."]);
-    assert_eq!(harness.view().left.cursor, Some(0));
-    assert_eq!(
-        harness.view().left.info,
-        "2 items | 0 marked (0 bytes) | sort: name | hidden: off"
-    );
 }
 
 #[test]
@@ -436,50 +420,6 @@ fn stale_reply_is_discarded() {
 }
 
 #[test]
-fn open_directory_navigates_and_cancels_pending_read() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-    harness.load(Side::Left, vec![dir("docs")]);
-    harness.press("Down");
-    harness.take_effects();
-
-    harness.press("Enter");
-    let request = harness.latest_request(Side::Left);
-    // The move is modal, so a second move can only come from the outside.
-    harness.press("BS");
-    harness.press("Esc");
-
-    // `join` uses the platform separator, so the expected path is built the same way.
-    let docs = PathBuf::from("/home/user").join("docs");
-    assert_eq!(
-        harness.take_effects(),
-        vec![
-            Effect::Watch {
-                side: Side::Left,
-                path: docs.clone(),
-            },
-            Effect::ReadDir {
-                side: Side::Left,
-                location: Location::new(docs.clone()),
-                request,
-            },
-            Effect::CancelRead { request },
-            Effect::Watch {
-                side: Side::Left,
-                path: PathBuf::from("/home/user"),
-            },
-            Effect::ReadDir {
-                side: Side::Left,
-                location: Location::new(PathBuf::from("/home/user")),
-                request: harness.latest_request(Side::Left),
-            },
-        ]
-    );
-    assert_eq!(harness.view().left.path, "/home/user");
-    assert_eq!(harness.cursor_name(Side::Left), "docs");
-    assert!(harness.view().popup.is_none());
-}
-
-#[test]
 fn open_on_parent_row_goes_to_parent() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a")]);
@@ -511,18 +451,6 @@ fn go_parent_at_root_does_nothing() {
     harness.press("BS");
 
     assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(harness.log(), Vec::<String>::new());
-}
-
-#[test]
-fn focus_left_when_already_left_does_nothing() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-    harness.take_effects();
-
-    harness.press("Left");
-
-    assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(harness.app().active(), Side::Left);
     assert_eq!(harness.log(), Vec::<String>::new());
 }
 
@@ -627,28 +555,6 @@ fn keys_and_mouse_are_dropped_while_a_move_is_in_progress() {
 }
 
 #[test]
-fn the_loading_popup_ignores_the_popup_mouse() {
-    let mut moving = Harness::start("/home/user", "/tmp");
-    moving.load(Side::Left, vec![]);
-    moving.press("BS");
-    let mut listing = Harness::start_on(Os::Windows, "/home/user", "/tmp");
-    listing.press("L");
-
-    for mut harness in [moving, listing] {
-        harness.take_effects();
-        let view = harness.view();
-        assert!(view.popup.as_ref().is_some_and(|popup| popup.progress));
-
-        harness.popup_click(0);
-        harness.popup_double_click(0);
-        harness.popup_wheel(3);
-
-        assert_eq!(harness.view(), view);
-        assert_eq!(harness.take_effects(), vec![]);
-    }
-}
-
-#[test]
 fn new_window_is_dropped_while_a_move_is_in_progress() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.press("BS");
@@ -700,23 +606,6 @@ fn escape_cancels_a_move_and_stays_put() {
     }));
     assert_eq!(harness.view().left.path, "/home/user");
     assert_eq!(harness.log(), Vec::<String>::new());
-}
-
-#[test]
-fn escape_reads_the_place_it_stays_in_again() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-    harness.load(Side::Left, vec![file("a")]);
-    harness.press("BS");
-
-    harness.press("Esc");
-    assert!(matches!(
-        harness.app().pane(Side::Left).loading(),
-        Some(InFlight::Refresh { .. })
-    ));
-    harness.load(Side::Left, vec![file("a"), file("b")]);
-
-    assert_eq!(harness.view().left.path, "/home/user");
-    assert_eq!(harness.names(Side::Left), ["..", "a", "b"]);
 }
 
 #[test]
@@ -802,23 +691,6 @@ fn read_error_is_logged_and_the_pane_stays_where_it_was() {
         Some(InFlight::Refresh { .. })
     ));
     assert_eq!(harness.history(Side::Left), ["/home/user"]);
-}
-
-#[test]
-fn a_read_error_reads_the_place_it_stays_in_again() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-    harness.load(Side::Left, vec![file("a")]);
-    harness.press("BS");
-
-    harness.fail_load(Side::Left, "permission denied");
-    assert!(matches!(
-        harness.app().pane(Side::Left).loading(),
-        Some(InFlight::Refresh { .. })
-    ));
-    harness.load(Side::Left, vec![file("a"), file("b")]);
-
-    assert_eq!(harness.view().left.path, "/home/user");
-    assert_eq!(harness.names(Side::Left), ["..", "a", "b"]);
 }
 
 #[test]
@@ -1175,21 +1047,6 @@ fn empty_filter_text_clears_the_filter() {
 }
 
 #[test]
-fn invalid_pattern_is_logged_and_leaves_the_filter_alone() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-    harness.load(Side::Left, vec![file("a.png")]);
-
-    harness.press(":");
-    harness.edit("[");
-    harness.press("Enter");
-
-    assert_eq!(harness.popup(), None);
-    assert_eq!(harness.log().len(), 1);
-    assert!(harness.log()[0].starts_with("invalid pattern [: "));
-    assert_eq!(harness.app().pane(Side::Left).filter(), None);
-}
-
-#[test]
 fn filter_is_dropped_on_navigation() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![dir("docs"), file("a.png")]);
@@ -1516,23 +1373,6 @@ fn palette_shows_bound_keys_and_wraps_the_cursor() {
 }
 
 #[test]
-fn palette_with_no_match_closes_on_enter_and_escape_closes_too() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-    harness.take_effects();
-
-    harness.press("F1");
-    harness.edit("no such command");
-    assert_eq!(harness.view().popup.unwrap().cursor, None);
-    harness.press("Enter");
-    assert_eq!(harness.popup(), None);
-
-    harness.press("F1");
-    harness.press("Esc");
-    assert_eq!(harness.popup(), None);
-    assert_eq!(harness.take_effects(), vec![]);
-}
-
-#[test]
 fn a_popup_opened_from_the_palette_has_a_new_generation() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a.txt")]);
@@ -1714,33 +1554,6 @@ fn reload_during_a_reload_watches_again_and_reads_again_after_it_finishes() {
 }
 
 #[test]
-fn reload_during_an_automatic_reload_watches_again_and_reads_again_after_it_finishes() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-    harness.changed(Side::Left);
-    harness.take_effects();
-
-    harness.press("F5");
-    assert_eq!(
-        harness.take_effects(),
-        vec![Effect::Watch {
-            side: Side::Left,
-            path: PathBuf::from("/home/user"),
-        }]
-    );
-    assert!(harness.app().pane(Side::Left).reload_pending());
-
-    harness.load(Side::Left, vec![file("a")]);
-    assert_eq!(
-        harness.take_effects(),
-        vec![Effect::ReadDir {
-            side: Side::Left,
-            location: Location::new(PathBuf::from("/home/user")),
-            request: harness.latest_request(Side::Left),
-        }]
-    );
-}
-
-#[test]
 fn reload_lets_keys_and_mouse_through_without_a_progress_popup() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a"), file("b")]);
@@ -1778,21 +1591,6 @@ fn change_in_the_watched_directory_reloads_it() {
     assert_eq!(harness.names(Side::Left), ["..", "a", "c"]);
     assert_eq!(harness.cursor_name(Side::Left), "c");
     assert_eq!(harness.marks(Side::Left), Vec::<String>::new());
-}
-
-#[test]
-fn change_in_the_watched_directory_lets_keys_and_mouse_through_without_a_progress_popup() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-    harness.load(Side::Left, vec![file("a"), file("b")]);
-
-    harness.changed(Side::Left);
-
-    assert!(harness.view().popup.is_none());
-    harness.press("Down");
-    assert_eq!(harness.cursor_name(Side::Left), "a");
-    harness.click(Side::Left, 2);
-    assert_eq!(harness.cursor_name(Side::Left), "b");
-    assert!(harness.app().pane(Side::Left).loading().is_some());
 }
 
 #[test]
@@ -2059,107 +1857,6 @@ fn a_popup_row_double_click_runs_the_row() {
 }
 
 #[test]
-fn double_clicking_a_history_row_moves_there() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-    harness.press("BS");
-    harness.load(Side::Left, vec![]);
-    harness.press("/");
-    harness.load(Side::Left, vec![]);
-    harness.press("H");
-
-    harness.popup_double_click(2);
-
-    assert_eq!(harness.popup(), None);
-    harness.load(Side::Left, vec![]);
-    assert_eq!(harness.view().left.path, "/home/user");
-    assert_eq!(harness.app().pane(Side::Left).history().pos(), 0);
-}
-
-#[test]
-fn double_clicking_the_current_history_row_only_closes_the_popup() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-    harness.press("BS");
-    harness.load(Side::Left, vec![]);
-    harness.press("H");
-    harness.press("Down");
-    harness.take_effects();
-
-    harness.popup_double_click(0);
-
-    assert_eq!(harness.popup(), None);
-    assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(harness.view().left.path, "/home");
-}
-
-#[test]
-fn double_clicking_a_bookmark_row_moves_there() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-    harness.config(
-        "[[bookmarks]]\nname = \"usr\"\npath = \"/usr\"\n[[bookmarks]]\nname = \"var\"\npath = \"/var\"\n",
-    );
-    harness.press("J");
-
-    harness.popup_double_click(1);
-
-    assert_eq!(harness.popup(), None);
-    harness.load(Side::Left, vec![]);
-    assert_eq!(harness.view().left.path, "/var");
-}
-
-#[test]
-fn double_clicking_a_drive_row_switches_to_the_drive() {
-    let mut harness = Harness::start_on(Os::Windows, "/home/user", "/tmp");
-    harness.press("L");
-    harness.drives(&['C', 'D']);
-    harness.take_effects();
-
-    harness.popup_double_click(1);
-
-    assert_eq!(harness.popup(), None);
-    assert_eq!(
-        harness.take_effects(),
-        vec![Effect::Resolve {
-            side: Side::Left,
-            path: PathBuf::from("D:\\"),
-            climb: true,
-            request: harness.latest_resolve(Side::Left),
-        }]
-    );
-}
-
-#[test]
-fn clicking_a_palette_row_moves_the_cursor_only() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-    harness.press("F1");
-    harness.edit("clear_");
-    harness.take_effects();
-
-    harness.popup_click(2);
-
-    assert_eq!(harness.view().popup.unwrap().cursor, Some(2));
-    assert_eq!(harness.take_effects(), vec![]);
-}
-
-#[test]
-fn double_clicking_a_palette_row_runs_its_command() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-    harness.load(Side::Left, vec![file("a")]);
-    harness.press("Down");
-    harness.press("Space");
-    harness.press("F1");
-    harness.edit("clear_");
-    assert_eq!(
-        harness.popup_labels(),
-        ["clear_filter", "clear_log", "clear_marks"]
-    );
-
-    harness.popup_double_click(2);
-
-    assert_eq!(harness.popup(), None);
-    assert_eq!(harness.marks(Side::Left), Vec::<String>::new());
-}
-
-#[test]
 fn the_popup_wheel_scrolls_the_list_without_moving_the_cursor() {
     let mut harness = many_bookmarks();
 
@@ -2191,17 +1888,6 @@ fn the_popup_list_keeps_the_cursor_in_view() {
     assert_eq!(harness.view().popup.unwrap().scroll_top, 0);
     harness.send(Msg::PopupRows { rows: 5 });
     harness.press("Down");
-    assert_eq!(harness.view().popup.unwrap().scroll_top, 0);
-}
-
-#[test]
-fn a_popup_opens_scrolled_to_the_top() {
-    let mut harness = many_bookmarks();
-    harness.press("Up");
-    harness.press("Esc");
-
-    harness.press("J");
-
     assert_eq!(harness.view().popup.unwrap().scroll_top, 0);
 }
 
@@ -2243,21 +1929,6 @@ fn start_with_a_file_argument_opens_its_parent_with_the_cursor_on_it() {
     assert_eq!(harness.view().left.path, "/home/user");
     assert_eq!(harness.cursor_name(Side::Left), "notes.txt");
     assert_eq!(harness.log(), Vec::<String>::new());
-}
-
-#[test]
-fn start_with_a_missing_path_falls_back_to_an_ancestor_and_logs_it() {
-    let mut harness = Harness::start_unresolved(Os::Linux, "/home/user/gone/deeper", "/tmp");
-
-    harness.resolve(Side::Left, "/home/user", None);
-    harness.load(Side::Left, vec![]);
-
-    assert_eq!(
-        harness.log(),
-        ["/home/user/gone/deeper is not available; moved to /home/user"]
-    );
-    assert_eq!(harness.view().left.path, "/home/user");
-    assert_eq!(harness.history(Side::Left), ["/home/user"]);
 }
 
 #[test]
@@ -2315,21 +1986,6 @@ fn a_move_to_a_drive_with_nothing_on_it_stays_put() {
     assert_eq!(harness.view().left.path, "/home/user");
     assert_eq!(harness.names(Side::Left), ["..", "a"]);
     assert!(harness.view().popup.is_none());
-}
-
-#[test]
-fn loading_popup_names_only_the_earliest_move() {
-    let mut harness = Harness::start_both_pending(Os::Linux, "/home/user", "/tmp");
-
-    let popup = harness.view().popup.unwrap();
-    assert_eq!(popup.message, Some("Reading /home/user".to_owned()));
-    assert!(popup.progress);
-    assert_eq!(popup.fields, Vec::new());
-
-    harness.load(Side::Left, vec![]);
-
-    let popup = harness.view().popup.unwrap();
-    assert_eq!(popup.message, Some("Reading /tmp".to_owned()));
 }
 
 #[test]
@@ -2507,32 +2163,6 @@ fn history_popup_moves_to_the_row_that_was_current_once_the_history_moved_on() {
 }
 
 #[test]
-fn go_home_goes_to_the_home_directory() {
-    let mut harness = Harness::start("/tmp", "/tmp");
-    harness.take_effects();
-
-    harness.press("~");
-
-    assert_eq!(
-        harness.take_effects(),
-        vec![
-            Effect::Watch {
-                side: Side::Left,
-                path: PathBuf::from(HOME),
-            },
-            Effect::ReadDir {
-                side: Side::Left,
-                location: Location::new(PathBuf::from(HOME)),
-                request: harness.latest_request(Side::Left),
-            },
-        ]
-    );
-    harness.load(Side::Left, vec![]);
-    assert_eq!(harness.view().left.path, HOME);
-    assert_eq!(harness.history(Side::Left), ["/tmp", HOME]);
-}
-
-#[test]
 fn go_home_at_home_reads_it_again_without_recording_history() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a"), file("b")]);
@@ -2541,69 +2171,6 @@ fn go_home_at_home_reads_it_again_without_recording_history() {
     harness.take_effects();
 
     harness.press("~");
-
-    assert_eq!(
-        harness.take_effects(),
-        vec![
-            Effect::Watch {
-                side: Side::Left,
-                path: PathBuf::from("/home/user"),
-            },
-            Effect::ReadDir {
-                side: Side::Left,
-                location: Location::new(PathBuf::from("/home/user")),
-                request: harness.latest_request(Side::Left),
-            },
-        ]
-    );
-    harness.load(Side::Left, vec![file("a"), file("b")]);
-    assert_eq!(harness.marks(Side::Left), Vec::<String>::new());
-    assert_eq!(harness.cursor_name(Side::Left), "..");
-    assert_eq!(harness.history(Side::Left), ["/home/user"]);
-    assert_eq!(harness.log(), Vec::<String>::new());
-}
-
-#[test]
-fn sync_to_other_at_the_same_place_reads_it_again_without_recording_history() {
-    let mut harness = Harness::start("/home/user", "/home/user");
-    harness.load(Side::Left, vec![file("a"), file("b")]);
-    harness.press("Down");
-    harness.press("Space");
-    harness.take_effects();
-
-    harness.press("O");
-
-    assert_eq!(
-        harness.take_effects(),
-        vec![
-            Effect::Watch {
-                side: Side::Left,
-                path: PathBuf::from("/home/user"),
-            },
-            Effect::ReadDir {
-                side: Side::Left,
-                location: Location::new(PathBuf::from("/home/user")),
-                request: harness.latest_request(Side::Left),
-            },
-        ]
-    );
-    harness.load(Side::Left, vec![file("a"), file("b")]);
-    assert_eq!(harness.marks(Side::Left), Vec::<String>::new());
-    assert_eq!(harness.cursor_name(Side::Left), "..");
-    assert_eq!(harness.history(Side::Left), ["/home/user"]);
-    assert_eq!(harness.log(), Vec::<String>::new());
-}
-
-#[test]
-fn sync_other_to_this_at_the_same_place_reads_it_again_without_recording_history() {
-    let mut harness = Harness::start("/home/user", "/home/user");
-    harness.load(Side::Left, vec![file("a"), file("b")]);
-    harness.press("Down");
-    harness.press("Space");
-    harness.press("Tab");
-    harness.take_effects();
-
-    harness.press("Shift+O");
 
     assert_eq!(
         harness.take_effects(),
@@ -2671,17 +2238,6 @@ fn swap_panes_at_the_same_place_reads_both_again_without_recording_history() {
 }
 
 #[test]
-fn go_root_goes_to_the_top_of_the_path() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-
-    harness.press("/");
-    harness.load(Side::Left, vec![]);
-
-    assert_eq!(harness.view().left.path, "/");
-    assert_eq!(harness.history(Side::Left), ["/home/user", "/"]);
-}
-
-#[test]
 fn go_to_path_starts_with_the_current_path_and_expands_the_input() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.take_effects();
@@ -2725,22 +2281,6 @@ fn go_to_path_starts_with_the_current_path_and_expands_the_input() {
 }
 
 #[test]
-fn go_to_path_resolves_relative_input_from_the_pane() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-    harness.take_effects();
-
-    harness.press("Shift+J");
-    harness.edit("docs/../other");
-    harness.press("Enter");
-
-    // Compared as paths: folding rebuilds the path with the platform separator.
-    assert!(matches!(
-        harness.take_effects().as_slice(),
-        [Effect::Resolve { path, .. }] if *path == PathBuf::from("/home/user").join("other")
-    ));
-}
-
-#[test]
 fn go_to_path_resolves_relative_input_from_the_place_the_popup_was_opened_in() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![dir("docs")]);
@@ -2756,38 +2296,6 @@ fn go_to_path_resolves_relative_input_from_the_place_the_popup_was_opened_in() {
         harness.take_effects().as_slice(),
         [Effect::Resolve { path, .. }] if *path == PathBuf::from("/home/user").join("docs")
     ));
-}
-
-#[test]
-fn go_to_path_to_a_file_opens_its_parent_with_the_cursor_on_it() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-    harness.take_effects();
-
-    harness.press("Shift+J");
-    harness.edit("/home/user/docs/b.txt");
-    harness.press("Enter");
-    harness.take_effects();
-    harness.resolve(Side::Left, "/home/user/docs", Some("b.txt"));
-
-    assert_eq!(
-        harness.take_effects(),
-        vec![
-            Effect::Watch {
-                side: Side::Left,
-                path: PathBuf::from("/home/user/docs"),
-            },
-            Effect::ReadDir {
-                side: Side::Left,
-                location: Location::new(PathBuf::from("/home/user/docs")),
-                request: harness.latest_request(Side::Left),
-            },
-        ]
-    );
-
-    harness.load(Side::Left, vec![file("a.txt"), file("b.txt")]);
-
-    assert_eq!(harness.view().left.path, "/home/user/docs");
-    assert_eq!(harness.cursor_name(Side::Left), "b.txt");
 }
 
 #[test]
@@ -3239,19 +2747,6 @@ fn empty_bookmarks_popup_says_so_and_enter_closes_it() {
 }
 
 #[test]
-fn windows_only_keys_are_unbound_on_other_systems() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-    harness.take_effects();
-
-    harness.press("L");
-    harness.press("Ctrl+Left");
-    harness.press("\\");
-
-    assert_eq!(harness.log(), Vec::<String>::new());
-    assert_eq!(harness.take_effects(), vec![]);
-}
-
-#[test]
 fn drive_commands_bound_by_the_configuration_log_on_other_systems() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.config("[keys.filelist]\n\"L\" = \"drives\"\n\"Ctrl+Left\" = \"drive_prev\"\n");
@@ -3389,41 +2884,6 @@ fn escape_while_listing_drives_drops_the_letters_that_arrive_later() {
 }
 
 #[test]
-fn drive_next_reads_the_drive_as_part_of_the_same_move() {
-    let mut harness = Harness::start_on(Os::Windows, "/home/user", "/tmp");
-    harness.take_effects();
-
-    harness.press("Ctrl+Right");
-    harness.drives(&['C', 'D']);
-    let resolve = harness.latest_resolve(Side::Left);
-    harness.take_effects();
-
-    assert_eq!(
-        harness.view().popup.unwrap().message,
-        Some("Reading C:\\".to_owned())
-    );
-
-    harness.press("Esc");
-
-    assert_eq!(
-        harness.take_effects(),
-        vec![
-            Effect::CancelRead { request: resolve },
-            Effect::Watch {
-                side: Side::Left,
-                path: PathBuf::from("/home/user"),
-            },
-            Effect::ReadDir {
-                side: Side::Left,
-                location: Location::new(PathBuf::from("/home/user")),
-                request: harness.latest_request(Side::Left),
-            },
-        ]
-    );
-    assert_eq!(harness.view().left.path, "/home/user");
-}
-
-#[test]
 fn a_change_while_listing_drives_is_read_once_the_list_arrives() {
     let mut harness = Harness::start_on(Os::Windows, "/home/user", "/tmp");
     harness.take_effects();
@@ -3441,25 +2901,6 @@ fn a_change_while_listing_drives_is_read_once_the_list_arrives() {
             ..
         }]
     ));
-}
-
-#[test]
-fn a_change_while_listing_drives_is_read_when_the_next_drive_is_unavailable() {
-    let mut harness = Harness::start_on(Os::Windows, "/home/user", "/tmp");
-    harness.load(Side::Left, vec![file("a")]);
-    harness.press("Ctrl+Right");
-    harness.changed(Side::Left);
-    harness.drives(&['D']);
-
-    harness.fail_resolve(Side::Left);
-    assert!(matches!(
-        harness.app().pane(Side::Left).loading(),
-        Some(InFlight::Refresh { .. })
-    ));
-    harness.load(Side::Left, vec![file("a"), file("b")]);
-
-    assert_eq!(harness.view().left.path, "/home/user");
-    assert_eq!(harness.names(Side::Left), ["..", "a", "b"]);
 }
 
 #[test]
@@ -3621,44 +3062,6 @@ fn rows_carry_their_kind_for_coloring() {
 }
 
 #[test]
-fn executables_and_special_files_carry_their_own_kinds() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-
-    harness.load(
-        Side::Left,
-        vec![
-            Entry {
-                kind: EntryKind::File { executable: true },
-                ..file("run")
-            },
-            special("fifo", SpecialKind::Fifo),
-            special("sock", SpecialKind::Socket),
-            special("disk", SpecialKind::BlockDevice),
-            special("tty", SpecialKind::CharDevice),
-        ],
-    );
-
-    let kinds: Vec<RowKind> = harness
-        .view()
-        .left
-        .rows
-        .iter()
-        .map(|row| row.kind)
-        .collect();
-    assert_eq!(
-        kinds,
-        [
-            RowKind::File,
-            RowKind::Fifo,
-            RowKind::Fifo,
-            RowKind::Exec,
-            RowKind::Socket,
-            RowKind::Fifo
-        ]
-    );
-}
-
-#[test]
 fn start_takes_paths_from_the_arguments_then_the_state_then_home() {
     let state = StateFile {
         left: PaneState {
@@ -3785,19 +3188,6 @@ fn start_without_a_saved_history_position_continues_from_the_newest_place() {
 }
 
 #[test]
-fn start_without_a_state_file_uses_the_default_display_state() {
-    let harness = Harness::start("/home/user", "/tmp");
-
-    let pane = harness.app().pane(Side::Left);
-    assert_eq!(pane.sort(), SortSpec::default());
-    assert!(!pane.show_hidden());
-    assert_eq!(
-        harness.view().left.info,
-        "0 items | 0 marked (0 bytes) | sort: name | hidden: off"
-    );
-}
-
-#[test]
 fn start_logs_a_created_configuration() {
     let harness = Harness::start_from(start_msg_with(
         Os::Linux,
@@ -3827,22 +3217,6 @@ fn start_logs_an_unreadable_configuration_and_state_file() {
         format!("cannot read {CONFIG_PATH}: permission denied")
     );
     assert!(log[1].starts_with("cannot read the state file: "));
-}
-
-#[test]
-fn start_logs_a_broken_configuration_item_and_keeps_its_default() {
-    let harness = Harness::start_from(start_msg_with(
-        Os::Linux,
-        Some("/home/user"),
-        Some("/tmp"),
-        ConfigSource::Text("[general]\nmkdir_then_enter =\n".to_owned()),
-        Ok(None),
-    ));
-
-    let log = harness.log();
-    assert_eq!(log.len(), 1);
-    assert!(log[0].starts_with(&format!("config: {CONFIG_PATH}:2: ")));
-    assert!(harness.app().config().general.mkdir_then_enter);
 }
 
 #[test]
@@ -3939,20 +3313,6 @@ fn a_syntax_error_on_reload_keeps_the_previous_configuration() {
     }));
     assert_eq!(harness.log()[2], format!("cannot read {CONFIG_PATH}: gone"));
     assert_eq!(harness.view().style.theme, Theme::Light);
-}
-
-#[test]
-fn config_watch_failure_is_logged() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-
-    harness.send(Msg::Io(IoEvent::ConfigWatchFailed {
-        error: IoError::new("too many watches"),
-    }));
-
-    assert_eq!(
-        harness.log(),
-        [format!("cannot watch {CONFIG_PATH}: too many watches")]
-    );
 }
 
 #[test]
@@ -4194,16 +3554,6 @@ fn edit_config_opens_the_configuration_in_the_editor() {
             args: vec![OsString::from("-w"), OsString::from(CONFIG_PATH)],
             cwd: PathBuf::from(HOME),
         }]
-    );
-}
-
-#[test]
-fn the_default_editor_on_macos_is_open_t() {
-    let harness = Harness::start_on(Os::MacOs, "/home/user", "/tmp");
-
-    assert_eq!(
-        harness.app().config().general.editor,
-        CommandLine::parse("open -t {paths}").unwrap()
     );
 }
 

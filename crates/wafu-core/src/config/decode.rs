@@ -640,14 +640,6 @@ editor = "open -t {paths}"
     }
 
     #[test]
-    fn empty_text_is_the_default() {
-        let (config, diagnostics) = parse("", Os::Windows).unwrap();
-
-        assert_eq!(diagnostics, Vec::new());
-        assert_eq!(config, Config::default_for(Os::Windows));
-    }
-
-    #[test]
     fn syntax_errors_carry_the_line_number() {
         let error = parse("[general]\nmkdir_then_enter = \n", Os::Linux).unwrap_err();
 

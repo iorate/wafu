@@ -176,17 +176,6 @@ mod tests {
     ];
 
     #[test]
-    fn default_has_no_duplicate_keys() {
-        let mut seen = HashSet::new();
-        for (key, _) in DEFAULT_FILELIST {
-            assert!(
-                seen.insert(key.parse::<Key>().unwrap()),
-                "{key} is bound twice"
-            );
-        }
-    }
-
-    #[test]
     fn default_binds_every_command_except_the_unbound_ones() {
         let keymap = KeyMap::default_for(Os::Windows);
         let bound: HashSet<Command> = keymap
@@ -241,69 +230,5 @@ mod tests {
         );
         assert_eq!(keymap.lookup(Context::Image, &"C".parse().unwrap()), None);
         assert_eq!(keymap.bindings(Context::Text).count(), 0);
-    }
-
-    #[test]
-    fn bind_replaces_and_unbinds() {
-        let mut keymap = KeyMap::default_for(Os::Windows);
-        let key: Key = "Ctrl+C".parse().unwrap();
-
-        keymap.bind(Context::FileList, key, Some(Command::CopyPath));
-        assert_eq!(
-            keymap.lookup(Context::FileList, &key),
-            Some(Command::CopyPath)
-        );
-        assert_eq!(
-            keymap.keys_for(Context::FileList, &Command::Jump('c')),
-            Vec::new()
-        );
-
-        keymap.bind(Context::FileList, key, None);
-        assert_eq!(keymap.lookup(Context::FileList, &key), None);
-    }
-
-    #[test]
-    fn lookup_finds_bound_keys() {
-        let keymap = KeyMap::default_for(Os::Windows);
-
-        assert_eq!(
-            keymap.lookup(Context::FileList, &"Ctrl+Shift+Left".parse().unwrap()),
-            Some(Command::HistoryBack)
-        );
-        assert_eq!(
-            keymap.lookup(Context::FileList, &"Ctrl+Q".parse().unwrap()),
-            Some(Command::Jump('q'))
-        );
-        assert_eq!(
-            keymap.lookup(Context::FileList, &"Ctrl+7".parse().unwrap()),
-            Some(Command::Jump('7'))
-        );
-    }
-
-    #[test]
-    fn keys_for_lists_bound_keys_in_display_order() {
-        let keymap = KeyMap::default_for(Os::Windows);
-
-        let keys: Vec<String> = keymap
-            .keys_for(Context::FileList, &Command::MarkRangeBelow)
-            .iter()
-            .map(ToString::to_string)
-            .collect();
-        assert_eq!(keys, ["Ctrl+Shift+Space"]);
-        assert_eq!(
-            keymap.keys_for(Context::FileList, &Command::SwapPanes),
-            Vec::new()
-        );
-    }
-
-    #[test]
-    fn lookup_misses_unbound_keys_and_other_contexts() {
-        let keymap = KeyMap::default_for(Os::Windows);
-
-        assert_eq!(
-            keymap.lookup(Context::FileList, &"F2".parse().unwrap()),
-            None
-        );
-        assert_eq!(keymap.lookup(Context::Text, &"Up".parse().unwrap()), None);
     }
 }

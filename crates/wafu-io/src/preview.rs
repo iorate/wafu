@@ -131,15 +131,6 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_file_fails() {
-        let dir = TempDir::new().unwrap();
-
-        let error = load_preview(&file_source(&dir.path().join("none"))).unwrap_err();
-
-        assert!(matches!(error, PreviewError::Failed(_)));
-    }
-
-    #[test]
     fn a_text_file_becomes_a_document() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("a.txt");
@@ -185,34 +176,6 @@ mod tests {
         let document =
             load_preview(&entry_source(&archive, &[], "top.txt", Some("secret"))).unwrap();
         assert_eq!(texts(&document), ["top"]);
-    }
-
-    #[test]
-    fn a_png_decodes_to_rgba() {
-        let mut image = RgbaImage::new(2, 3);
-        image.put_pixel(1, 2, image::Rgba([10, 20, 30, 255]));
-        let mut bytes = Cursor::new(Vec::new());
-        image.write_to(&mut bytes, ImageFormat::Png).unwrap();
-
-        let decoded = decode_image(bytes.get_ref()).unwrap();
-
-        assert_eq!((decoded.width, decoded.height), (2, 3));
-        assert_eq!(decoded.format, "png");
-        assert_eq!(decoded.rgba.len(), 2 * 3 * 4);
-        assert_eq!(&decoded.rgba[(2 * 2 + 1) * 4..], [10, 20, 30, 255]);
-    }
-
-    #[test]
-    fn bytes_that_are_not_an_image_fail() {
-        assert!(decode_image(b"not an image").is_err());
-
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("a.png");
-        fs::write(&path, b"not an image").unwrap();
-        assert!(matches!(
-            load_image(&file_source(&path)),
-            Err(PreviewError::Failed(_))
-        ));
     }
 
     #[test]

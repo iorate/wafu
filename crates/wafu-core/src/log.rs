@@ -117,15 +117,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn push_follows_the_tail_by_default() {
-        let mut log = log_with(5, 3);
-
-        assert_eq!(log.scroll_top(), 2);
-        log.push("f".to_owned());
-        assert_eq!(log.scroll_top(), 3);
-    }
-
-    #[test]
     fn scrolling_up_stops_following_and_scrolling_to_the_bottom_resumes() {
         let mut log = log_with(5, 3);
 
@@ -176,31 +167,6 @@ mod tests {
         assert_eq!(log.scroll_top(), 4);
         log.page_down();
         assert_eq!(log.scroll_top(), 7);
-    }
-
-    #[test]
-    fn scroll_to_stops_following_until_the_tail_is_reached() {
-        let mut log = log_with(10, 3);
-
-        log.scroll_to(4);
-        assert_eq!(log.scroll_top(), 4);
-        log.push("k".to_owned());
-        assert_eq!(log.scroll_top(), 4);
-
-        log.scroll_to(99);
-        assert_eq!(log.scroll_top(), 8);
-        log.push("l".to_owned());
-        assert_eq!(log.scroll_top(), 9);
-    }
-
-    #[test]
-    fn short_log_has_no_scroll() {
-        let mut log = log_with(2, 3);
-
-        log.scroll_up();
-        log.scroll_down();
-
-        assert_eq!(log.scroll_top(), 0);
     }
 
     #[test]

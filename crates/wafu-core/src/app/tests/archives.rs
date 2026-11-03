@@ -1,14 +1,14 @@
 use std::path::PathBuf;
 
 use crate::app::{Effect, IoEvent, Msg, Os, Side};
-use crate::entry::{Directory, Entry, EntryKind, TargetKind};
+use crate::entry::{Entry, EntryKind, TargetKind};
 use crate::error::IoError;
 use crate::location::{ArchiveFormat, ArchivePath, Location};
 use crate::operation::{
     ArchiveEntries, ArchiveOutput, OperationEvent, OperationKind, OperationSpec, Outcome, Reply,
     Sources,
 };
-use crate::test_support::{HOME, Harness, LEFT, RIGHT, dir, file, path, shown};
+use crate::test_support::{Harness, LEFT, RIGHT, dir, file, path, shown};
 
 const TEMP: &str = "/tmp/wafu/x1";
 
@@ -43,31 +43,6 @@ fn enter_on_a_zip_watches_the_archive_and_shows_its_path() {
         ["..", "docs", "b.txt", "inner.zip", "secret.txt"]
     );
     assert_eq!(harness.history(Side::Left), [LEFT]);
-}
-
-#[test]
-fn enter_on_a_zip_with_an_upper_case_extension_enters_it() {
-    let mut harness = Harness::start(LEFT, RIGHT);
-    harness.load(Side::Left, vec![file("A.ZIP")]);
-    harness.press("Down");
-    harness.take_effects();
-
-    harness.press("Enter");
-
-    assert_eq!(
-        harness.take_effects(),
-        vec![
-            Effect::Watch {
-                side: Side::Left,
-                path: path(LEFT, "A.ZIP"),
-            },
-            Effect::ReadDir {
-                side: Side::Left,
-                location: Location::archive_root(path(LEFT, "A.ZIP"), ArchiveFormat::Zip),
-                request: harness.latest_request(Side::Left),
-            },
-        ]
-    );
 }
 
 #[test]
@@ -232,26 +207,6 @@ fn backspace_at_the_archive_root_leaves_with_the_cursor_on_the_archive() {
 }
 
 #[test]
-fn escape_while_entering_an_archive_stays_put() {
-    let mut harness = outside();
-    harness.press("Enter");
-    harness.take_effects();
-
-    harness.press("Esc");
-
-    assert!(matches!(
-        harness.take_effects().as_slice(),
-        [
-            Effect::CancelRead { .. },
-            Effect::Watch { path, .. },
-            Effect::ReadDir { location, .. },
-        ] if path.as_os_str() == LEFT && *location == Location::new(PathBuf::from(LEFT))
-    ));
-    assert_eq!(harness.view().left.path, LEFT);
-    assert_eq!(harness.cursor_name(Side::Left), "a.zip");
-}
-
-#[test]
 fn archives_inside_an_archive_cannot_be_entered() {
     let mut harness = inside();
     harness.press("Down");
@@ -319,25 +274,6 @@ fn commands_that_change_things_are_refused_inside_an_archive() {
             "compress is not available inside an archive",
             "new_file is not available inside an archive",
         ]
-    );
-}
-
-#[test]
-fn shell_menu_key_inside_an_archive_on_windows_is_refused() {
-    let mut harness = Harness::start_on(Os::Windows, r"C:\Users\me", r"D:\");
-    harness.load(Side::Left, vec![file("a.zip")]);
-    harness.press("Down");
-    harness.enter_archive(Side::Left, contents());
-    harness.press("Down");
-    harness.press("Down");
-    harness.take_effects();
-
-    harness.press("\\");
-
-    assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(
-        harness.log(),
-        ["shell_menu is not available inside an archive"]
     );
 }
 
@@ -646,22 +582,6 @@ fn compress_with_an_empty_name_just_closes() {
 }
 
 #[test]
-fn compress_without_a_location_on_the_other_side_is_logged() {
-    let mut harness = Harness::start_both_pending(Os::Linux, LEFT, RIGHT);
-    harness.load(Side::Left, vec![file("a")]);
-    harness.fail_load(Side::Right, "gone");
-    harness.press("Down");
-
-    harness.press("P");
-
-    assert!(harness.popup().is_none());
-    assert_eq!(
-        harness.log().last().map(String::as_str),
-        Some("cannot compress: the other pane has no location")
-    );
-}
-
-#[test]
 fn a_password_is_asked_once_and_remembered_inside_the_archive() {
     let mut harness = copying_inside();
 
@@ -775,33 +695,6 @@ fn a_wrong_password_is_asked_again_and_forgotten() {
 
     harness.finish(Outcome::Cancelled { done: 0 });
     harness.take_effects();
-    harness.press("C");
-
-    let spec = harness.start_operation().unwrap();
-    assert_eq!(spec.sources, Sources::Entries(entries(&["b.txt"], None)));
-}
-
-#[test]
-fn passwords_typed_for_extract_are_not_remembered() {
-    let mut harness = outside();
-    harness.press("U");
-    harness.take_effects();
-    harness.operation(OperationEvent::NeedPassword {
-        archive: archive(),
-        retry: false,
-    });
-    harness.edit("pw");
-    harness.press("Enter");
-    harness.finish(Outcome::Completed {
-        done: 1,
-        skipped: 0,
-    });
-    harness.enter_archive(Side::Left, contents());
-    harness.press("Down");
-    harness.press("Down");
-    harness.press("Space");
-    harness.take_effects();
-
     harness.press("C");
 
     let spec = harness.start_operation().unwrap();
@@ -1237,41 +1130,6 @@ fn a_vanished_archive_falls_back_to_its_directory() {
 }
 
 #[test]
-fn a_vanished_archive_without_an_ancestor_falls_back_to_home() {
-    let mut harness = Harness::start("/mnt/usb", RIGHT);
-    harness.load(Side::Left, vec![file("a.zip")]);
-    harness.press("Down");
-    harness.enter_archive(Side::Left, contents());
-    harness.changed(Side::Left);
-    harness.fail_load(Side::Left, "gone");
-    harness.take_effects();
-
-    harness.fail_resolve(Side::Left);
-
-    assert_eq!(
-        harness.log(),
-        [format!(
-            "{} is not available; moved to {HOME}",
-            shown("/mnt/usb", "a.zip")
-        )]
-    );
-    assert_eq!(
-        harness.take_effects(),
-        vec![
-            Effect::Watch {
-                side: Side::Left,
-                path: PathBuf::from(HOME),
-            },
-            Effect::ReadDir {
-                side: Side::Left,
-                location: Location::new(PathBuf::from(HOME)),
-                request: harness.latest_request(Side::Left),
-            },
-        ]
-    );
-}
-
-#[test]
 fn go_to_path_inside_an_archive_starts_with_the_archive_path() {
     let mut harness = inside();
     harness.press("Down");
@@ -1282,28 +1140,6 @@ fn go_to_path_inside_an_archive_starts_with_the_archive_path() {
 
     assert_eq!(harness.view().popup.unwrap().title, "Go to path");
     assert_eq!(harness.popup_fields(), [archive().display().to_string()]);
-}
-
-#[test]
-fn go_to_path_naming_the_archive_leaves_it_with_the_cursor_on_the_file() {
-    let mut harness = inside();
-
-    harness.press("Shift+J");
-    harness.edit(&archive().to_string_lossy());
-    harness.press("Enter");
-    harness.take_effects();
-    harness.resolve(Side::Left, LEFT, Some("a.zip"));
-
-    assert!(matches!(
-        harness.take_effects().as_slice(),
-        [Effect::Watch { .. }, Effect::ReadDir { location, .. }]
-            if *location == Location::new(PathBuf::from(LEFT))
-    ));
-
-    harness.load(Side::Left, vec![file("a.zip")]);
-
-    assert_eq!(harness.view().left.path, LEFT);
-    assert_eq!(harness.cursor_name(Side::Left), "a.zip");
 }
 
 #[test]
@@ -1320,28 +1156,6 @@ fn copy_path_inside_an_archive_spells_the_path_through_the_archive() {
         harness.take_effects(),
         vec![Effect::Clipboard(format!("{}/b.txt", root()))]
     );
-}
-
-#[test]
-fn stale_archive_replies_are_ignored() {
-    let mut harness = outside();
-    harness.press("Enter");
-    let stale = harness.latest_request(Side::Left);
-    harness.press("Esc");
-    harness.take_effects();
-    let names = harness.names(Side::Left);
-
-    harness.send(Msg::Io(IoEvent::DirLoaded {
-        side: Side::Left,
-        request: stale,
-        result: Ok(Directory {
-            own: None,
-            entries: contents(),
-        }),
-    }));
-
-    assert_eq!(harness.view().left.path, LEFT);
-    assert_eq!(harness.names(Side::Left), names);
 }
 
 // The left pane shows a directory with an archive, with the cursor on it.

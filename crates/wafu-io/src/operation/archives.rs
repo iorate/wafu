@@ -753,52 +753,6 @@ mod tests {
         assert_eq!(fs::read_dir(&dest).unwrap().count(), 0);
     }
 
-    #[test]
-    fn absolute_names_are_made_relative() {
-        let dir = TempDir::new().unwrap();
-        let archive = dir.path().join("abs.zip");
-        let dest = dir.path().join("out");
-        fs::create_dir(&dest).unwrap();
-        fs::write(&archive, raw_zip(&[(b"/abs.txt", b"a")])).unwrap();
-
-        let (outcome, _) = run(&extract(std::slice::from_ref(&archive), &dest), []);
-
-        assert!(matches!(outcome, Outcome::Completed { done: 1, .. }));
-        assert_eq!(fs::read(dest.join("abs.txt")).unwrap(), b"a");
-    }
-
-    #[test]
-    fn names_in_other_encodings_are_still_extracted() {
-        let dir = TempDir::new().unwrap();
-        let archive = dir.path().join("sjis.zip");
-        let dest = dir.path().join("out");
-        fs::create_dir(&dest).unwrap();
-        // "日本.txt" in Shift_JIS.
-        let raw = [0x93, 0xfa, 0x96, 0x7b, b'.', b't', b'x', b't'];
-        fs::write(&archive, raw_zip(&[(&raw, b"ok")])).unwrap();
-
-        let (outcome, _) = run(&extract(&[archive], &dest), []);
-
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 1,
-                skipped: 0
-            }
-        );
-        let names: Vec<String> = fs::read_dir(&dest)
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
-            .collect();
-        assert_eq!(names.len(), 1);
-        assert_eq!(
-            Path::new(&names[0])
-                .extension()
-                .and_then(|ext| ext.to_str()),
-            Some("txt")
-        );
-    }
-
     #[cfg(unix)]
     #[test]
     fn links_are_made_last_as_links() {

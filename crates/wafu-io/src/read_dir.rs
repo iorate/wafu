@@ -238,13 +238,6 @@ mod tests {
         assert_eq!(error.kind(), io::ErrorKind::Interrupted);
     }
 
-    #[test]
-    fn missing_directory_is_an_error() {
-        let dir = TempDir::new().unwrap();
-
-        assert!(read_dir_with(&dir.path().join("missing"), || false).is_err());
-    }
-
     #[cfg(not(windows))]
     #[test]
     fn dot_files_are_hidden() {

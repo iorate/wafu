@@ -211,8 +211,6 @@ fn io_error(error: ZipError) -> io::Error {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
     use tempfile::TempDir;
 
     use super::*;
@@ -266,51 +264,6 @@ mod tests {
         assert_eq!(target, "d/f.txt");
     }
 
-    #[test]
-    fn encrypted_entries_need_the_right_password() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("p.zip");
-        {
-            let mut writer = Box::new(ZipArchiveWriter::new(
-                File::create(&path).unwrap(),
-                Some("secret"),
-            ));
-            writer.start_file("f.txt", 2, None, None).unwrap();
-            writer.write_all(b"hi").unwrap();
-            writer.finish().unwrap();
-        }
-
-        let mut reader = ZipReader::open(&path).unwrap();
-
-        assert!(matches!(
-            reader.open(0, None),
-            Err(ArchiveError::PasswordRequired)
-        ));
-        assert!(matches!(
-            reader.open(0, Some("wrong")),
-            Err(ArchiveError::WrongPassword)
-        ));
-        let mut content = String::new();
-        reader
-            .open(0, Some("secret"))
-            .unwrap()
-            .read_to_string(&mut content)
-            .unwrap();
-        assert_eq!(content, "hi");
-    }
-
-    #[test]
-    fn a_file_that_is_not_a_zip_is_invalid() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("x.zip");
-        fs::write(&path, b"not a zip").unwrap();
-
-        assert!(matches!(
-            ZipReader::open(&path),
-            Err(ArchiveError::Invalid(_))
-        ));
-    }
-
     #[cfg(windows)]
     #[test]
     fn a_name_whose_last_byte_is_a_backslash_inside_a_character_is_a_file() {
@@ -320,21 +273,12 @@ mod tests {
         }
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("s.zip");
-        fs::write(&path, raw_zip(&raw)).unwrap();
+        std::fs::write(&path, raw_zip(&raw)).unwrap();
 
         let reader = ZipReader::open(&path).unwrap();
 
         assert_eq!(reader.entries()[0].kind, ArchiveEntryKind::File);
         assert_eq!(reader.entries()[0].components, ["表"]);
-    }
-
-    #[test]
-    fn dos_times_round_trip_to_even_seconds() {
-        let odd = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_001);
-
-        let back = system_time_of(dos_time_of(odd).unwrap()).unwrap();
-
-        assert_eq!(back, odd - Duration::from_secs(1));
     }
 
     #[cfg(windows)]

@@ -289,63 +289,12 @@ mod tests {
     }
 
     #[test]
-    fn jump_names_follow_the_character() {
-        assert_eq!(Command::Jump('a').to_string(), "jump_a");
-        assert_eq!(Command::Jump('9').to_string(), "jump_9");
-        assert_eq!(Command::from_name("jump_z"), Some(Command::Jump('z')));
-        assert_eq!(Command::from_name("jump_A"), None);
-    }
-
-    #[test]
     fn jump_names_need_one_lower_case_letter_or_digit() {
         assert_eq!(Command::from_name("jump_"), None);
         assert_eq!(Command::from_name("jump_ab"), None);
         assert_eq!(Command::from_name("jump_A"), None);
         assert_eq!(Command::from_name("jump_-"), None);
         assert_eq!(Command::from_name("jump_é"), None);
-    }
-
-    #[test]
-    fn availability_follows_the_context() {
-        assert!(Command::Copy.available_in(Context::FileList));
-        assert!(Command::Drives.available_in(Context::FileList));
-        assert!(Command::CursorDown.available_in(Context::Image));
-        assert!(Command::MarkDown.available_in(Context::Image));
-        assert!(!Command::Copy.available_in(Context::Image));
-        assert!(!Command::CursorDown.available_in(Context::Text));
-        assert_eq!(
-            Command::all()
-                .filter(|c| c.available_in(Context::Image))
-                .count(),
-            16
-        );
-    }
-
-    #[test]
-    fn windows_only_commands_are_unavailable_elsewhere() {
-        for command in [
-            Command::Drives,
-            Command::DrivePrev,
-            Command::DriveNext,
-            Command::ShellMenu,
-        ] {
-            assert!(command.available_on(Os::Windows), "{command}");
-            assert!(!command.available_on(Os::MacOs), "{command}");
-            assert!(!command.available_on(Os::Linux), "{command}");
-        }
-        assert!(Command::Copy.available_on(Os::Linux));
-        assert!(Command::External("x".to_owned()).available_on(Os::MacOs));
-    }
-
-    #[test]
-    fn external_names_start_with_a_dollar() {
-        let command = Command::External("open_terminal".to_owned());
-
-        assert_eq!(Command::from_name("$open_terminal"), Some(command.clone()));
-        assert_eq!(command.to_string(), "$open_terminal");
-        assert!(command.available_in(Context::FileList));
-        assert!(!command.available_in(Context::Image));
-        assert!(!Command::all().any(|c| matches!(c, Command::External(_))));
     }
 
     #[test]

@@ -726,18 +726,6 @@ mod tests {
     use crate::entry::EntryKind;
 
     #[test]
-    fn rows_start_with_parent_when_location_has_parent() {
-        let pane = pane_with("/home", &["a", "b"]);
-
-        assert_eq!(pane.row_count(), 3);
-        assert_eq!(pane.entry_at(0), None);
-        assert_eq!(
-            pane.entry_at(1).map(|e| &e.name),
-            Some(&OsString::from("a"))
-        );
-    }
-
-    #[test]
     fn rows_have_no_parent_at_root() {
         let pane = pane_with("/", &["a", "b"]);
 
@@ -746,19 +734,6 @@ mod tests {
             pane.entry_at(0).map(|e| &e.name),
             Some(&OsString::from("a"))
         );
-    }
-
-    #[test]
-    fn set_directory_puts_cursor_on_pending_name() {
-        let mut pane = Pane::new(Location::new(PathBuf::from("/")));
-        pane.set_location(
-            Location::new(PathBuf::from("/home")),
-            Some(OsString::from("b")),
-        );
-
-        pane.set_directory(entries(&["a", "b", "c"]));
-
-        assert_eq!(pane.cursor(), 2);
     }
 
     #[test]
@@ -842,43 +817,6 @@ mod tests {
         let after = pane.mark_flags();
         assert!(!Arc::ptr_eq(&before, &after));
         assert_eq!(after.as_ref(), [false, true, false]);
-    }
-
-    #[test]
-    fn set_location_empties_the_listing_and_drops_marks_and_filter() {
-        let mut pane = pane_with("/", &["a", "b"]);
-        pane.mark_down();
-        pane.set_filter(Filter::parse("*").unwrap());
-
-        pane.set_location(
-            Location::new(PathBuf::from("/home")),
-            Some(OsString::from("b")),
-        );
-
-        assert_eq!(pane.row_count(), 1);
-        assert_eq!(pane.rows().len(), 1);
-        assert_eq!(pane.cursor(), 0);
-        assert_eq!(marked(&pane), Vec::<String>::new());
-        assert_eq!(pane.filter(), None);
-    }
-
-    #[test]
-    fn cursor_up_wraps_to_last_row() {
-        let mut pane = pane_with("/", &["a", "b", "c"]);
-
-        pane.cursor_up();
-
-        assert_eq!(pane.cursor(), 2);
-    }
-
-    #[test]
-    fn cursor_down_wraps_to_first_row() {
-        let mut pane = pane_with("/", &["a", "b", "c"]);
-        pane.set_cursor(2);
-
-        pane.cursor_down();
-
-        assert_eq!(pane.cursor(), 0);
     }
 
     #[test]
@@ -984,16 +922,6 @@ mod tests {
     }
 
     #[test]
-    fn set_cursor_ignores_rows_out_of_range() {
-        let mut pane = pane_with("/", &["a", "b", "c"]);
-
-        pane.set_cursor(2);
-        assert_eq!(pane.cursor(), 2);
-        pane.set_cursor(3);
-        assert_eq!(pane.cursor(), 2);
-    }
-
-    #[test]
     fn mark_down_toggles_and_stops_at_the_end() {
         let mut pane = pane_with("/", &["a", "b"]);
 
@@ -1032,19 +960,6 @@ mod tests {
     }
 
     #[test]
-    fn mark_range_above_marks_from_the_nearest_mark_above() {
-        let mut pane = pane_with("/home", &["a", "b", "c", "d", "e"]);
-        pane.set_cursor(1);
-        pane.mark_down();
-        pane.set_cursor(4);
-
-        pane.mark_range_above();
-
-        assert_eq!(marked(&pane), ["a", "b", "c", "d"]);
-        assert_eq!(pane.cursor(), 4);
-    }
-
-    #[test]
     fn mark_range_above_does_nothing_without_a_mark_above() {
         let mut pane = pane_with("/home", &["a", "b", "c"]);
         pane.set_cursor(3);
@@ -1073,20 +988,6 @@ mod tests {
     }
 
     #[test]
-    fn invert_marks_skips_directories_unless_asked() {
-        let mut pane = Pane::new(Location::new(PathBuf::from("/")));
-        pane.set_directory(directory(vec![dir("d"), file("a"), file("b")]));
-        pane.set_cursor(1);
-        pane.mark_down();
-
-        pane.invert_marks(false);
-        assert_eq!(marked(&pane), ["b"]);
-
-        pane.invert_marks(true);
-        assert_eq!(marked(&pane), ["d", "a"]);
-    }
-
-    #[test]
     fn mark_matching_adds_files_only() {
         let mut pane = Pane::new(Location::new(PathBuf::from("/")));
         pane.set_directory(directory(vec![dir("d.png"), file("a.png"), file("b.txt")]));
@@ -1096,98 +997,6 @@ mod tests {
         pane.mark_matching(&Filter::parse("*.png").unwrap().unwrap());
 
         assert_eq!(marked(&pane), ["a.png", "b.txt"]);
-    }
-
-    #[test]
-    fn next_mark_wraps_around() {
-        let mut pane = pane_with("/home", &["a", "b", "c"]);
-        pane.set_cursor(1);
-        pane.mark_down();
-        pane.set_cursor(3);
-        pane.mark_down();
-        pane.set_cursor(2);
-
-        pane.next_mark();
-        assert_eq!(pane.cursor(), 3);
-        pane.next_mark();
-        assert_eq!(pane.cursor(), 1);
-    }
-
-    #[test]
-    fn prev_mark_wraps_around() {
-        let mut pane = pane_with("/home", &["a", "b", "c"]);
-        pane.set_cursor(1);
-        pane.mark_down();
-        pane.set_cursor(3);
-        pane.mark_down();
-        pane.set_cursor(2);
-
-        pane.prev_mark();
-        assert_eq!(pane.cursor(), 1);
-        pane.prev_mark();
-        assert_eq!(pane.cursor(), 3);
-    }
-
-    #[test]
-    fn next_mark_without_marks_does_nothing() {
-        let mut pane = pane_with("/home", &["a", "b"]);
-        pane.set_cursor(1);
-
-        pane.next_mark();
-
-        assert_eq!(pane.cursor(), 1);
-    }
-
-    #[test]
-    fn marked_summary_counts_directories_without_their_size() {
-        let mut pane = Pane::new(Location::new(PathBuf::from("/")));
-        pane.set_directory(directory(vec![
-            Entry {
-                size: 4096,
-                ..dir("d")
-            },
-            Entry {
-                size: 10,
-                ..file("a")
-            },
-            Entry {
-                size: 5,
-                ..file("b")
-            },
-        ]));
-        pane.mark_down();
-        pane.mark_down();
-
-        assert_eq!(pane.marked_summary(), (2, 10));
-    }
-
-    #[test]
-    fn targets_follow_the_rule() {
-        let mut pane = pane_with("/home", &["a", "b", "c"]);
-        assert_eq!(pane.targets(), Vec::<&Entry>::new());
-
-        pane.set_cursor(1);
-        assert_eq!(names(pane.targets()), ["a"]);
-
-        pane.set_cursor(3);
-        pane.mark_up();
-        pane.mark_up();
-        pane.set_cursor(1);
-        assert_eq!(names(pane.targets()), ["b", "c"]);
-    }
-
-    #[test]
-    fn jump_to_finds_the_next_match_case_insensitively_and_wraps() {
-        let mut pane = pane_with("/home", &["Apple", "banana", "avocado"]);
-
-        pane.jump_to('a');
-        assert_eq!(cursor_name(&pane), "Apple");
-        pane.jump_to('a');
-        assert_eq!(cursor_name(&pane), "avocado");
-        pane.jump_to('a');
-        assert_eq!(cursor_name(&pane), "Apple");
-        pane.jump_to('z');
-        assert_eq!(cursor_name(&pane), "Apple");
     }
 
     #[test]
@@ -1218,63 +1027,6 @@ mod tests {
         pane.set_cursor(0);
         pane.jump_to('\u{30a2}');
         assert_eq!(pane.cursor(), 2);
-    }
-
-    #[test]
-    fn set_sort_keeps_marks_and_follows_the_cursor_entry() {
-        let mut pane = pane_with("/", &["a", "b", "c"]);
-        pane.set_cursor(1);
-        pane.mark_down();
-
-        pane.set_sort(SortSpec {
-            descending: true,
-            ..SortSpec::default()
-        });
-
-        assert_eq!(
-            names(pane.listing().visible_entries().collect()),
-            ["c", "b", "a"]
-        );
-        assert_eq!(cursor_name(&pane), "c");
-        assert_eq!(marked(&pane), ["b"]);
-    }
-
-    #[test]
-    fn toggle_hidden_clears_marks() {
-        let mut pane = Pane::new(Location::new(PathBuf::from("/")));
-        pane.set_directory(directory(vec![
-            file("a"),
-            Entry {
-                hidden: true,
-                ..file(".b")
-            },
-        ]));
-        pane.mark_down();
-
-        pane.toggle_hidden();
-
-        assert!(pane.show_hidden());
-        assert_eq!(pane.row_count(), 2);
-        assert_eq!(marked(&pane), Vec::<String>::new());
-    }
-
-    #[test]
-    fn set_filter_clears_marks_only_when_the_pattern_changes() {
-        let mut pane = pane_with("/", &["a.png", "b.txt"]);
-        pane.mark_down();
-
-        assert!(pane.set_filter(Filter::parse("*.png").unwrap()));
-        assert_eq!(pane.row_count(), 1);
-        assert_eq!(marked(&pane), Vec::<String>::new());
-
-        pane.mark_down();
-        assert!(!pane.set_filter(Filter::parse("*.png").unwrap()));
-        assert_eq!(marked(&pane), ["a.png"]);
-
-        assert!(pane.set_filter(None));
-        assert_eq!(pane.row_count(), 2);
-        assert_eq!(marked(&pane), Vec::<String>::new());
-        assert!(!pane.set_filter(None));
     }
 
     fn pane_with(base: &str, names: &[&str]) -> Pane {

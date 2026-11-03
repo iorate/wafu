@@ -45,12 +45,14 @@ mod tests {
     }
 
     #[test]
-    fn an_unreadable_file_is_reported() {
+    fn an_unreadable_file_is_reported_and_left_alone() {
         let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(&path, b"\xff").unwrap();
 
-        // A directory cannot be read as a file.
-        let source = read_or_create(dir.path(), "");
+        let source = read_or_create(&path, "# template\n");
 
         assert!(matches!(source, ConfigSource::Unreadable(_)));
+        assert_eq!(fs::read(&path).unwrap(), b"\xff");
     }
 }

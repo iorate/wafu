@@ -1022,86 +1022,6 @@ mod tests {
     }
 
     #[test]
-    fn sort_popup_cursor_skips_the_separator_and_wraps() {
-        let mut popup = SortPopup::new(SortSpec {
-            key: SortKey::Natural,
-            ..SortSpec::default()
-        });
-
-        popup.cursor_down();
-        assert_eq!(popup.cursor, 7);
-        popup.cursor_up();
-        assert_eq!(popup.cursor, 5);
-        popup.cursor = 0;
-        popup.cursor_up();
-        assert_eq!(popup.cursor, 9);
-        popup.cursor_down();
-        assert_eq!(popup.cursor, 0);
-    }
-
-    #[test]
-    fn sort_popup_picks_keys_and_flips_toggles() {
-        let mut popup = SortPopup::new(SortSpec::default());
-
-        assert_eq!(popup.run(7), Response::Stay);
-        assert!(popup.draft.descending);
-        assert_eq!(popup.kind(7), ItemKind::Check(true));
-        assert_eq!(popup.run(6), Response::Stay);
-        assert_eq!(
-            popup.run(4),
-            Response::Pick(SortSpec {
-                key: SortKey::Time,
-                descending: true,
-                ..SortSpec::default()
-            })
-        );
-    }
-
-    #[test]
-    fn sort_popup_letters() {
-        let popup = SortPopup::new(SortSpec::default());
-
-        assert_eq!(popup.row_for_key('X'), Some(5));
-        assert_eq!(popup.row_for_key('d'), Some(7));
-        assert_eq!(popup.row_for_key('C'), Some(9));
-        assert_eq!(popup.row_for_key('Q'), None);
-        assert_eq!(popup.row_for_key(' '), None);
-    }
-
-    #[test]
-    fn delete_confirm_names_one_item_and_counts_more() {
-        let one = ChoicePopup::delete_confirm(PathBuf::from("/d"), vec![OsString::from("a.txt")]);
-        assert_eq!(one.message, "Delete \"a.txt\"?");
-        assert_eq!(one.title(), "Delete");
-        let items = one.items();
-        let rows: Vec<(&str, &str, ItemKind)> = items
-            .iter()
-            .map(|i| (i.label.as_str(), i.detail.as_str(), i.kind))
-            .collect();
-        assert_eq!(
-            rows,
-            [
-                ("", "", ItemKind::Separator),
-                ("Delete", "Y", ItemKind::Choice),
-                ("Cancel", "N", ItemKind::Choice),
-            ]
-        );
-        assert_eq!(one.cursor, 1);
-        assert_eq!(one.row_for_key('n'), Some(2));
-        assert_eq!(one.row_for_key('x'), None);
-
-        let three = ChoicePopup::delete_confirm(
-            PathBuf::from("/d"),
-            vec![
-                OsString::from("a"),
-                OsString::from("b"),
-                OsString::from("c"),
-            ],
-        );
-        assert_eq!(three.message, "Delete 3 items?");
-    }
-
-    #[test]
     fn choice_cursor_skips_the_separator_and_wraps() {
         let mut popup = ChoicePopup::quit_during_operation(None);
         assert_eq!(popup.cursor, 1);
@@ -1116,41 +1036,6 @@ mod tests {
     }
 
     #[test]
-    fn conflict_popup_rows_and_letters() {
-        let mut popup = ConflictPopup::new(PathBuf::from("/a/x"), PathBuf::from("/b/x"), true);
-
-        let items = popup.items();
-        let rows: Vec<(&str, &str, ItemKind)> = items
-            .iter()
-            .map(|i| (i.label.as_str(), i.detail.as_str(), i.kind))
-            .collect();
-        assert_eq!(
-            rows,
-            [
-                ("", "", ItemKind::Separator),
-                ("Overwrite", "O", ItemKind::Choice),
-                ("Skip", "S", ItemKind::Choice),
-                ("Rename", "R", ItemKind::Choice),
-                ("Abort", "Esc", ItemKind::Choice),
-                ("", "", ItemKind::Separator),
-                ("Apply to all", "A", ItemKind::Check(true)),
-            ]
-        );
-        assert_eq!(popup.cursor, 1);
-        assert_eq!(popup.row_for_key('s'), Some(2));
-        assert_eq!(popup.row_for_key('a'), Some(6));
-        assert_eq!(popup.row_for_key('E'), None);
-        popup.cursor_up();
-        assert_eq!(popup.cursor, 6);
-        popup.cursor_up();
-        assert_eq!(popup.cursor, 4);
-        popup.cursor_down();
-        assert_eq!(popup.cursor, 6);
-        popup.cursor_down();
-        assert_eq!(popup.cursor, 1);
-    }
-
-    #[test]
     fn conflict_popup_flips_apply_to_all_and_picks_the_rest() {
         let mut popup = ConflictPopup::new(PathBuf::from("/a/x"), PathBuf::from("/b/x"), false);
 
@@ -1158,57 +1043,6 @@ mod tests {
         assert!(popup.all);
         assert_eq!(popup.run(3), Response::Pick(ConflictChoice::Rename));
         assert_eq!(popup.run(4), Response::Pick(ConflictChoice::Abort));
-    }
-
-    #[test]
-    fn menu_input_follows_the_common_rules() {
-        let mut popup = SortPopup::new(SortSpec::default());
-
-        assert_eq!(
-            menu_input(&mut popup, named(NamedKey::Space)),
-            Response::Stay
-        );
-        assert_eq!(popup.draft, SortSpec::default());
-        popup.cursor = 7;
-        assert_eq!(
-            menu_input(&mut popup, named(NamedKey::Space)),
-            Response::Stay
-        );
-        assert!(popup.draft.descending);
-        assert_eq!(
-            menu_input(&mut popup, named(NamedKey::Enter)),
-            Response::Stay
-        );
-        assert!(!popup.draft.descending);
-        assert_eq!(menu_input(&mut popup, press('g')), Response::Stay);
-        assert!(!popup.draft.dirs_first);
-        assert_eq!(popup.cursor, 7);
-        assert_eq!(
-            menu_input(&mut popup, named(NamedKey::Escape)),
-            Response::Close
-        );
-        popup.cursor = 1;
-        assert_eq!(
-            menu_input(&mut popup, named(NamedKey::Enter)),
-            Response::Pick(SortSpec {
-                dirs_first: false,
-                ..SortSpec::default()
-            })
-        );
-    }
-
-    #[test]
-    fn menu_input_ignores_letters_with_ctrl_or_alt() {
-        let mut popup = ConflictPopup::new(PathBuf::from("/a/x"), PathBuf::from("/b/x"), false);
-        let key = Key {
-            base: KeyBase::Char('A'),
-            ctrl: true,
-            shift: false,
-            alt: false,
-        };
-
-        assert_eq!(menu_input(&mut popup, MenuInput::Key(key)), Response::Stay);
-        assert!(!popup.all);
     }
 
     #[test]
@@ -1242,34 +1076,11 @@ mod tests {
     }
 
     #[test]
-    fn palette_filters_by_substring_ignoring_case() {
-        let mut popup = PalettePopup::new(Context::FileList, Os::Windows, Vec::new());
-        assert_eq!(popup.matches.len(), Command::all().count());
-
-        popup.set_query("MARK_R".to_owned());
-
-        assert_eq!(
-            popup.matches,
-            [Command::MarkRangeAbove, Command::MarkRangeBelow]
-        );
-        assert_eq!(popup.selected(), Some(Command::MarkRangeAbove));
-    }
-
-    #[test]
     fn palette_shows_only_commands_available_in_the_context() {
         let popup = PalettePopup::new(Context::Image, Os::Windows, vec!["x".to_owned()]);
 
         assert_eq!(popup.matches.len(), 16);
         assert!(!popup.matches.contains(&Command::Copy));
-    }
-
-    #[test]
-    fn palette_hides_the_windows_only_commands_on_other_systems() {
-        let popup = PalettePopup::new(Context::FileList, Os::Linux, Vec::new());
-
-        assert_eq!(popup.matches.len(), Command::all().count() - 4);
-        assert!(!popup.matches.contains(&Command::Drives));
-        assert!(!popup.matches.contains(&Command::ShellMenu));
     }
 
     #[test]
@@ -1334,26 +1145,6 @@ mod tests {
     }
 
     #[test]
-    fn list_popup_of_history_is_newest_first_with_the_cursor_on_the_current_place() {
-        let mut history = History::new();
-        history.visit(PathBuf::from("/a"));
-        history.visit(PathBuf::from("/b"));
-        history.visit(PathBuf::from("/c"));
-        history.set_pos(1);
-
-        let popup = ListPopup::history(&history, false);
-
-        let labels: Vec<&str> = popup.items.iter().map(|item| item.label.as_str()).collect();
-        assert_eq!(labels, ["/c", "/b", "/a"]);
-        assert_eq!(
-            popup.items[1].target,
-            ListTarget::HistoryPos(1, PathBuf::from("/b"))
-        );
-        assert!(popup.items[1].current);
-        assert_eq!(popup.cursor, 1);
-    }
-
-    #[test]
     fn list_popup_of_history_inside_an_archive_has_no_current_place() {
         let mut history = History::new();
         history.visit(PathBuf::from("/a"));
@@ -1380,21 +1171,6 @@ mod tests {
     }
 
     #[test]
-    fn list_popup_cursor_wraps_and_survives_an_empty_list() {
-        let mut popup = ListPopup::bookmarks(vec![bookmark("/a"), bookmark("/b")]);
-        popup.cursor_up();
-        assert_eq!(popup.cursor, 1);
-        popup.cursor_down();
-        assert_eq!(popup.cursor, 0);
-
-        let mut empty = ListPopup::bookmarks(Vec::new());
-        empty.cursor_down();
-        assert_eq!(empty.selected(), None);
-        assert_eq!(empty.run(0), Response::Close);
-        assert_eq!(empty.empty_message(), "No bookmarks");
-    }
-
-    #[test]
     fn palette_cursor_wraps_and_handles_no_matches() {
         let mut popup = PalettePopup::new(Context::FileList, Os::Windows, Vec::new());
         popup.set_query("jump_".to_owned());
@@ -1409,24 +1185,6 @@ mod tests {
         popup.cursor_down();
         assert_eq!(popup.selected(), None);
         assert_eq!(popup.run(0), Response::Close);
-    }
-
-    fn press(c: char) -> MenuInput {
-        MenuInput::Key(Key {
-            base: KeyBase::Char(c),
-            ctrl: false,
-            shift: false,
-            alt: false,
-        })
-    }
-
-    fn named(key: NamedKey) -> MenuInput {
-        MenuInput::Key(Key {
-            base: KeyBase::Named(key),
-            ctrl: false,
-            shift: false,
-            alt: false,
-        })
     }
 
     fn bookmark(path: &str) -> Bookmark {

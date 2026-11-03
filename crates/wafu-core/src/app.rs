@@ -529,11 +529,6 @@ impl App {
     }
 
     #[cfg(test)]
-    pub(crate) fn config(&self) -> &Config {
-        &self.config
-    }
-
-    #[cfg(test)]
     pub(crate) fn popup(&self) -> Option<&Popup> {
         self.popup.as_ref()
     }

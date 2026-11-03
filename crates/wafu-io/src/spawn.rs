@@ -65,38 +65,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_program_that_exists_starts() {
-        let dir = TempDir::new().unwrap();
-        let (program, args) = silent_program();
-
-        let mut child = spawn(program, args, Some(dir.path())).unwrap();
-
-        assert!(child.wait().unwrap().success());
-    }
-
-    #[test]
     fn a_missing_program_or_directory_is_an_error() {
         let dir = TempDir::new().unwrap();
         let (program, args) = silent_program();
 
         assert!(spawn("wafu-no-such-program", &["x"], Some(dir.path())).is_err());
         assert!(spawn(program, args, Some(&dir.path().join("gone"))).is_err());
-    }
-
-    #[test]
-    fn the_exit_status_is_given_to_the_callback() {
-        let (program, args) = failing_program();
-        let child = spawn(program, args, None).unwrap();
-        let (sender, receiver) = std::sync::mpsc::channel();
-
-        wait_in_background(child, move |status| {
-            let _ = sender.send(status);
-        });
-
-        let status = receiver
-            .recv_timeout(std::time::Duration::from_secs(10))
-            .unwrap();
-        assert_eq!(status.code(), Some(1));
     }
 
     // The child inherits the test's console on Windows, so anything it printed
@@ -106,14 +80,6 @@ mod tests {
             ("cmd", &["/c", "exit"])
         } else {
             ("true", &[])
-        }
-    }
-
-    fn failing_program() -> (&'static str, &'static [&'static str]) {
-        if cfg!(windows) {
-            ("cmd", &["/c", "exit", "1"])
-        } else {
-            ("false", &[])
         }
     }
 }

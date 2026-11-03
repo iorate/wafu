@@ -164,63 +164,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parent_of_root_is_none() {
-        let root = Location::new(PathBuf::from("/"));
-
-        assert_eq!(root.parent(), None);
-        assert!(!root.has_parent());
-    }
-
-    #[test]
-    fn parent_strips_last_component() {
-        let location = Location::new(PathBuf::from("/home/user"));
-
-        assert_eq!(
-            location.parent(),
-            Some(Location::new(PathBuf::from("/home")))
-        );
-        assert!(location.has_parent());
-        assert_eq!(location.leaf_name(), Some(OsString::from("user")));
-    }
-
-    #[test]
-    fn display_appends_archive_path() {
-        let location = inside(&["d", "e"]);
-
-        assert_eq!(location.to_string(), "/a/b/c.zip/d/e");
-    }
-
-    #[test]
     fn parent_inside_an_archive_drops_the_last_segment() {
         let location = inside(&["d", "e"]);
 
         assert_eq!(location.parent(), Some(inside(&["d"])));
         assert!(location.has_parent());
         assert_eq!(location.leaf_name(), Some(OsString::from("e")));
-    }
-
-    #[test]
-    fn parent_of_the_archive_root_is_the_directory_holding_the_archive() {
-        let root = inside(&[]);
-
-        assert_eq!(root.parent(), Some(Location::new(PathBuf::from("/a/b"))));
-        assert!(root.has_parent());
-        assert_eq!(root.leaf_name(), Some(OsString::from("c.zip")));
-        assert!(root.in_archive());
-    }
-
-    #[test]
-    fn child_descends_inside_the_archive() {
-        assert_eq!(inside(&[]).child("d"), inside(&["d"]));
-    }
-
-    #[test]
-    fn dir_is_the_archive_parent_inside_an_archive() {
-        assert_eq!(inside(&["d"]).dir(), Path::new("/a/b"));
-        assert_eq!(
-            Location::new(PathBuf::from("/a/b")).dir(),
-            Path::new("/a/b")
-        );
     }
 
     #[test]

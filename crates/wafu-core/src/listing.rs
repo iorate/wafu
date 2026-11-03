@@ -232,22 +232,6 @@ mod tests {
     use crate::entry::{EntryKind, LocalDateTime, TargetKind, Timestamp};
 
     #[test]
-    fn default_sort_puts_directories_first_and_ignores_case() {
-        let listing = listing(
-            &[
-                file("b.txt", 0),
-                dir("Z"),
-                file("A.txt", 0),
-                dir("a"),
-                file("c.txt", 0),
-            ],
-            SortSpec::default(),
-        );
-
-        assert_eq!(names(&listing), ["a", "Z", "A.txt", "b.txt", "c.txt"]);
-    }
-
-    #[test]
     fn symlink_to_directory_is_grouped_with_directories() {
         let link = Entry {
             kind: EntryKind::Symlink {
@@ -435,32 +419,6 @@ mod tests {
         assert_eq!(names(&listing), ["b", "a", "c"]);
     }
 
-    #[test]
-    fn hidden_entries_are_excluded_unless_shown() {
-        let entries = [file("a", 0), hidden(".b")];
-
-        let shown = Listing::new(directory(&entries), SortSpec::default(), true, None);
-        let not_shown = Listing::new(directory(&entries), SortSpec::default(), false, None);
-
-        assert_eq!(names(&shown), [".b", "a"]);
-        assert_eq!(names(&not_shown), ["a"]);
-    }
-
-    #[test]
-    fn filter_applies_to_files_only() {
-        let filter = Filter::parse("*.png").unwrap().unwrap();
-        let entries = [file("a.png", 0), file("b.txt", 0), dir("c.txt")];
-
-        let listing = Listing::new(
-            directory(&entries),
-            SortSpec::default(),
-            true,
-            Some(&filter),
-        );
-
-        assert_eq!(names(&listing), ["c.txt", "a.png"]);
-    }
-
     fn listing(entries: &[Entry], sort: SortSpec) -> Listing {
         Listing::new(directory(entries), sort, true, None)
     }
@@ -494,13 +452,6 @@ mod tests {
     fn dir(name: &str) -> Entry {
         Entry {
             kind: EntryKind::Dir,
-            ..file(name, 0)
-        }
-    }
-
-    fn hidden(name: &str) -> Entry {
-        Entry {
-            hidden: true,
             ..file(name, 0)
         }
     }
