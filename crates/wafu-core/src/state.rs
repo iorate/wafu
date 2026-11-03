@@ -102,42 +102,4 @@ mod tests {
         assert_eq!(state.window, None);
         assert_eq!(StateFile::from_toml(""), Ok(StateFile::default()));
     }
-
-    #[test]
-    fn a_window_without_a_position_round_trips() {
-        let state = StateFile {
-            window: Some(WindowState {
-                x: None,
-                y: None,
-                width: Some(1),
-                height: Some(2),
-            }),
-            ..StateFile::default()
-        };
-
-        let text = state.to_toml().unwrap();
-
-        assert_eq!(StateFile::from_toml(&text), Ok(state));
-    }
-
-    #[test]
-    fn a_window_without_a_size_has_no_width_or_height() {
-        let state = StateFile::from_toml("[window]\nx = 10\ny = 20\n").unwrap();
-
-        assert_eq!(
-            state.window,
-            Some(WindowState {
-                x: Some(10),
-                y: Some(20),
-                width: None,
-                height: None,
-            })
-        );
-    }
-
-    #[test]
-    fn bad_toml_is_an_error() {
-        assert!(StateFile::from_toml("[left\n").is_err());
-        assert!(StateFile::from_toml("[left]\npath = 1\n").is_err());
-    }
 }

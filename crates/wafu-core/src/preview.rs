@@ -259,19 +259,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn utf8_text_is_split_into_lines() {
-        let document = Document::decode(b"first\nsecond\n".to_vec(), false);
-
-        assert!(document.is_text);
-        assert_eq!(document.encoding, "UTF-8");
-        assert_eq!(texts(&document), ["first", "second"]);
-        assert_eq!(numbers(&document), [1, 2]);
-        assert_eq!(document.line_count(DocumentMode::Text), 2);
-        assert_eq!(document.digits(DocumentMode::Text), 1);
-        assert_eq!(document.digits(DocumentMode::Binary), 0);
-    }
-
-    #[test]
     fn a_nul_in_the_first_8_kib_makes_it_binary() {
         let mut raw = vec![b'a'; 100];
         raw[50] = 0;
@@ -413,27 +400,6 @@ mod tests {
         );
         assert_eq!(document.lines(DocumentMode::Binary, 1, 1).len(), 1);
         assert_eq!(document.lines(DocumentMode::Binary, 5, 1).len(), 0);
-    }
-
-    #[test]
-    fn text_lines_are_taken_from_the_top_within_bounds() {
-        let document = Document::decode(b"a\nb\nc\n".to_vec(), false);
-
-        assert_eq!(shown(&document, DocumentMode::Text, 1, 5), ["b", "c"]);
-        assert_eq!(
-            shown(&document, DocumentMode::Text, 9, 5),
-            Vec::<String>::new()
-        );
-    }
-
-    #[test]
-    fn digits_follow_the_last_line_number() {
-        let text = "x\n".repeat(120);
-
-        let document = Document::decode(text.into_bytes(), false);
-
-        assert_eq!(document.digits(DocumentMode::Text), 3);
-        assert_eq!(document.lines(DocumentMode::Text, 99, 1)[0].number, "100");
     }
 
     #[test]

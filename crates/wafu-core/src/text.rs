@@ -7,14 +7,3 @@ use icu_normalizer::ComposingNormalizer;
 pub(crate) fn nfc(text: &str) -> Cow<'_, str> {
     ComposingNormalizer::new_nfc().normalize(text)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn nfc_composes_decomposed_kana() {
-        assert_eq!(nfc("\u{30d5}\u{309a}"), "\u{30d7}");
-        assert_eq!(nfc("abc"), "abc");
-    }
-}

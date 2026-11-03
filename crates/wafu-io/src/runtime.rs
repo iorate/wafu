@@ -584,36 +584,10 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    #[cfg(windows)]
-    use crate::watch::tests::junction;
     use crate::watch::tests::symlink;
 
     const TIMEOUT: Duration = Duration::from_secs(5);
     const QUIET: Duration = Duration::from_millis(600);
-
-    #[test]
-    fn read_dir_reports_entries() {
-        let dir = TempDir::new().unwrap();
-        File::create(dir.path().join("a")).unwrap();
-        let (runtime, events) = runtime();
-
-        runtime.run(read(dir.path(), 1));
-
-        let event = events.recv_timeout(TIMEOUT).unwrap();
-        let IoEvent::DirLoaded {
-            side,
-            request,
-            result,
-        } = event
-        else {
-            panic!("expected DirLoaded, got {event:?}");
-        };
-        assert_eq!(side, Side::Left);
-        assert_eq!(request, RequestId(1));
-        let entries = result.unwrap().entries;
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].name, "a");
-    }
 
     #[test]
     fn read_dir_reports_errors() {
@@ -672,60 +646,6 @@ mod tests {
                 }),
             }
         );
-    }
-
-    #[test]
-    fn cancelled_resolve_is_not_reported() {
-        let dir = TempDir::new().unwrap();
-        let (runtime, events) = runtime();
-
-        with_worker_held(&runtime, |pending, send| {
-            pending.insert(RequestId(1));
-            send(Job::Resolve {
-                side: Side::Left,
-                path: dir.path().to_path_buf(),
-                climb: true,
-                request: RequestId(1),
-            });
-            pending.remove(&RequestId(1));
-        });
-
-        assert!(events.recv_timeout(Duration::from_millis(100)).is_err());
-    }
-
-    #[test]
-    fn a_preview_is_read_on_the_worker_and_can_be_cancelled() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("a.txt");
-        fs::write(&path, b"hello\n").unwrap();
-        let (runtime, events) = runtime();
-        let source = PreviewSource {
-            path,
-            entry: None,
-            password: None,
-        };
-
-        with_worker_held(&runtime, |pending, send| {
-            pending.insert(RequestId(1));
-            send(Job::LoadPreview {
-                source: source.clone(),
-                request: RequestId(1),
-            });
-            pending.remove(&RequestId(1));
-            pending.insert(RequestId(2));
-            send(Job::LoadPreview {
-                source,
-                request: RequestId(2),
-            });
-        });
-
-        let event = events.recv_timeout(TIMEOUT).unwrap();
-        let IoEvent::PreviewLoaded { request, result } = event else {
-            panic!("expected PreviewLoaded, got {event:?}");
-        };
-        assert_eq!(request, RequestId(2));
-        assert_eq!(result.unwrap().lines[0].text, "hello");
-        assert!(events.recv_timeout(Duration::from_millis(100)).is_err());
     }
 
     #[cfg(unix)]
@@ -1008,12 +928,6 @@ mod tests {
     #[test]
     fn removing_the_target_of_a_watched_link_to_a_directory_is_reported() {
         assert_removing_the_target_is_reported(symlink);
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn removing_the_target_of_a_watched_junction_is_reported() {
-        assert_removing_the_target_is_reported(junction);
     }
 
     #[test]

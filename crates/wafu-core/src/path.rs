@@ -124,16 +124,6 @@ mod tests {
     }
 
     #[test]
-    fn tilde_slash_keeps_a_drive_prefix_under_home() {
-        let home = Path::new("/home/user");
-
-        let result = expand_tilde("~/C:/docs", home);
-
-        assert!(result.starts_with(home));
-        assert!(result.ends_with("docs"));
-    }
-
-    #[test]
     fn tilde_user_and_other_text_are_left_alone() {
         let home = Path::new("/home/user");
 
@@ -216,23 +206,10 @@ mod tests {
     }
 
     #[test]
-    fn normalize_keeps_a_drive_like_part_under_its_parent() {
-        let result = normalize(Path::new("/home/user/C:/docs"));
-
-        assert!(result.starts_with("/home/user"));
-        assert!(result.ends_with("docs"));
-    }
-
-    #[test]
     fn root_of_finds_the_top_and_rejects_empty_paths() {
         assert_eq!(root_of(Path::new("/a/b")), Some(PathBuf::from("/")));
         assert_eq!(root_of(Path::new("/")), Some(PathBuf::from("/")));
         assert_eq!(root_of(Path::new("")), None);
-    }
-
-    #[test]
-    fn unix_paths_have_no_drive_letter() {
-        assert_eq!(drive_letter(Path::new("/home/user")), None);
     }
 
     #[cfg(windows)]

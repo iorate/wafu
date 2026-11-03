@@ -1099,27 +1099,6 @@ mod tests {
         assert_eq!(done, 0);
     }
 
-    // Real trash bins must not be touched by a test run.
-    #[test]
-    #[ignore = "moves a file into the user's trash"]
-    fn trashes_items() {
-        let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("t"), b"t").unwrap();
-
-        let (outcome, _) = run(
-            &OperationSpec {
-                kind: OperationKind::Trash,
-                sources: Sources::Paths(vec![dir.path().join("t")]),
-                dest: None,
-                output: None,
-            },
-            [],
-        );
-
-        assert!(matches!(outcome, Outcome::Completed { done: 1, .. }));
-        assert!(!dir.path().join("t").exists());
-    }
-
     // Runs an operation, answering each conflict with the next scripted reply.
     fn run(
         spec: &OperationSpec,

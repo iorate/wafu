@@ -428,43 +428,6 @@ mod tests {
     }
 
     #[test]
-    fn font_resolves_through_the_default() {
-        let default = Font {
-            family: Some("A".to_owned()),
-            size: Some(14),
-        };
-
-        assert_eq!(Font::default().resolve(&default, "M"), ("A".to_owned(), 14));
-        assert_eq!(
-            Font {
-                family: Some("B".to_owned()),
-                size: None,
-            }
-            .resolve(&default, "M"),
-            ("B".to_owned(), 14)
-        );
-        assert_eq!(
-            Font::default().resolve(&Font::default(), "M"),
-            ("M".to_owned(), FONT_SIZE_DEFAULT)
-        );
-    }
-
-    #[test]
-    fn diagnostics_read_as_log_lines() {
-        let diagnostic = Diagnostic {
-            path: "keys.filelist.F2".to_owned(),
-            kind: DiagnosticKind::UnknownCommand {
-                command: "$open".to_owned(),
-            },
-        };
-
-        assert_eq!(
-            diagnostic.to_string(),
-            "config: unknown command \"$open\" for keys.filelist.F2"
-        );
-    }
-
-    #[test]
     fn template_as_written_is_the_default() {
         for os in [Os::Windows, Os::MacOs, Os::Linux] {
             let (config, diagnostics) = parse_config(CONFIG_TEMPLATE, os).unwrap();

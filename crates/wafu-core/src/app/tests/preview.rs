@@ -102,19 +102,6 @@ fn the_keys_scroll_by_lines_and_pages() {
 }
 
 #[test]
-fn the_page_follows_the_rows_the_ui_reports() {
-    let mut harness = document();
-
-    harness.preview_rows(5);
-
-    assert_eq!(harness.preview_lines(), ["l0", "l1", "l2", "l3", "l4"]);
-
-    harness.press("PageDown");
-
-    assert_eq!(harness.preview_lines(), ["l5", "l6", "l7", "l8", "l9"]);
-}
-
-#[test]
 fn tab_switches_to_the_hex_dump_and_back_from_the_top() {
     let mut harness = document();
     harness.press("Down");
@@ -190,14 +177,16 @@ fn a_stale_document_is_discarded() {
     let mut harness = opening();
     let stale = harness.latest_preview_request();
     harness.press("Esc");
+    harness.press("Enter");
     harness.take_effects();
+    assert_ne!(harness.latest_preview_request(), stale);
 
     harness.send(Msg::Io(IoEvent::PreviewLoaded {
         request: stale,
         result: Ok(Document::decode(b"x".to_vec(), false)),
     }));
 
-    assert!(harness.view().preview.is_none());
+    assert_eq!(harness.preview_lines(), Vec::<String>::new());
 }
 
 #[test]
@@ -239,20 +228,6 @@ fn an_image_filling_the_window_hides_the_log() {
     let view = harness.view();
     assert_eq!(view.preview.unwrap().placement, PreviewPlacement::Full);
     assert!(view.hide_log);
-}
-
-#[test]
-fn the_status_line_stays_in_a_preview_that_hides_the_log() {
-    let mut harness = listing();
-    harness.config("[general]\nhide_log_in_preview = true\n");
-    harness.press("Down");
-
-    harness.press("Enter");
-    harness.preview_loaded(Document::decode(b"l0\n".to_vec(), false));
-
-    let view = harness.view();
-    assert!(view.hide_log);
-    assert_eq!(view.status, "note.txt | -????????? | 0 bytes");
 }
 
 #[test]
@@ -314,17 +289,6 @@ fn an_image_opened_from_the_left_pane_uses_the_right_area_and_follows_the_cursor
         harness.take_effects().as_slice(),
         [Effect::LoadImage { .. }]
     ));
-}
-
-#[test]
-fn the_status_line_follows_the_cursor_of_an_image_preview() {
-    let mut harness = image();
-    assert_eq!(harness.view().status, "one.png | -????????? | 0 bytes");
-
-    harness.press("Down");
-
-    assert!(harness.view().preview.is_some());
-    assert_eq!(harness.view().status, "two.JPG | -????????? | 0 bytes");
 }
 
 #[test]

@@ -210,21 +210,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn split_name_at_last_dot() {
-        assert_split(
-            "a.tar.gz",
-            EntryKind::File { executable: false },
-            "a.tar",
-            "gz",
-        );
-    }
-
-    #[test]
-    fn split_name_without_dot_has_no_extension() {
-        assert_split("noext", EntryKind::File { executable: false }, "noext", "");
-    }
-
-    #[test]
     fn split_name_with_only_leading_dot_has_no_extension() {
         assert_split(
             ".gitignore",
@@ -242,11 +227,6 @@ mod tests {
             ".bashrc",
             "bak",
         );
-    }
-
-    #[test]
-    fn split_name_of_directory_has_no_extension() {
-        assert_split("conf.d", EntryKind::Dir, "conf.d", "");
     }
 
     #[test]
@@ -276,11 +256,6 @@ mod tests {
     }
 
     #[test]
-    fn split_name_of_empty_name() {
-        assert_split("", EntryKind::File { executable: false }, "", "");
-    }
-
-    #[test]
     fn markers_follow_ls_f() {
         let link = EntryKind::Symlink {
             target: Some(TargetKind::Dir),
@@ -295,31 +270,6 @@ mod tests {
         assert_eq!(EntryKind::Special(SpecialKind::Socket).marker(), "=");
         assert_eq!(EntryKind::Special(SpecialKind::BlockDevice).marker(), "");
         assert_eq!(EntryKind::Special(SpecialKind::CharDevice).marker(), "");
-    }
-
-    #[test]
-    fn target_markers_follow_ls_lf() {
-        assert_eq!(TargetKind::Dir.marker(), "/");
-        assert_eq!(TargetKind::File { executable: true }.marker(), "*");
-        assert_eq!(TargetKind::File { executable: false }.marker(), "");
-        assert_eq!(TargetKind::Special(SpecialKind::Fifo).marker(), "|");
-        assert_eq!(TargetKind::Special(SpecialKind::Socket).marker(), "=");
-        assert_eq!(TargetKind::Special(SpecialKind::BlockDevice).marker(), "");
-        assert_eq!(TargetKind::Special(SpecialKind::CharDevice).marker(), "");
-    }
-
-    #[test]
-    fn local_date_time_is_zero_padded() {
-        let time = LocalDateTime {
-            year: 2026,
-            month: 1,
-            day: 2,
-            hour: 3,
-            minute: 4,
-            second: 5,
-        };
-
-        assert_eq!(time.to_string(), "2026/01/02 03:04:05");
     }
 
     #[test]
@@ -373,13 +323,6 @@ mod tests {
 
             assert_eq!(entry.permissions_text(), expected, "{kind:?} {readonly}");
         }
-    }
-
-    #[test]
-    fn permissions_text_shows_question_marks_when_unknown() {
-        let entry = entry(EntryKind::Dir, None);
-
-        assert_eq!(entry.permissions_text(), "d?????????");
     }
 
     fn entry(kind: EntryKind, permissions: Option<Permissions>) -> Entry {

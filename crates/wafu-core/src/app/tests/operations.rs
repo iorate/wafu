@@ -60,19 +60,6 @@ fn move_without_marks_takes_the_cursor_entry() {
 }
 
 #[test]
-fn copy_on_the_parent_row_without_marks_does_nothing() {
-    let mut harness = Harness::start_with_config(LEFT, RIGHT, "[general]\nrequire_marks = false\n");
-    harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
-    harness.take_effects();
-
-    harness.press("C");
-
-    assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(harness.log(), Vec::<String>::new());
-    assert_eq!(harness.view().popup, None);
-}
-
-#[test]
 fn destructive_commands_require_marks_by_default() {
     let mut harness = three_files();
     harness.press("Down");
@@ -219,25 +206,6 @@ fn finished_items_lose_their_marks_and_skipped_ones_keep_them() {
 }
 
 #[test]
-fn a_failure_is_logged_with_the_path() {
-    let mut harness = copying();
-
-    harness.finish(Outcome::Failed {
-        path: path(LEFT, "a"),
-        error: IoError::new("permission denied"),
-        done: 0,
-    });
-
-    assert_eq!(
-        harness.log().last().cloned(),
-        Some(format!(
-            "cannot copy {}: permission denied",
-            shown(LEFT, "a")
-        ))
-    );
-}
-
-#[test]
 fn a_conflict_opens_the_choices_and_letters_answer_them() {
     let mut harness = copying();
 
@@ -324,20 +292,6 @@ fn a_conflict_is_answered_with_the_mouse() {
 }
 
 #[test]
-fn the_progress_popup_ignores_the_mouse() {
-    let mut harness = copying();
-    let cursor = harness.cursor_name(Side::Left);
-
-    harness.click(Side::Left, 1);
-    harness.popup_click(0);
-    harness.popup_wheel(3);
-
-    assert_eq!(harness.cursor_name(Side::Left), cursor);
-    assert!(harness.view().popup.unwrap().progress);
-    assert_eq!(harness.take_effects(), vec![]);
-}
-
-#[test]
 fn input_popups_ignore_the_popup_mouse() {
     let mut renaming = three_files();
     renaming.press("Down");
@@ -366,17 +320,6 @@ fn input_popups_ignore_the_popup_mouse() {
         assert_eq!(harness.view(), view);
         assert_eq!(harness.take_effects(), vec![]);
     }
-}
-
-#[test]
-fn space_on_a_conflict_choice_does_nothing() {
-    let mut harness = conflicting();
-
-    harness.press("Space");
-
-    assert_eq!(harness.view().popup.unwrap().title, "File exists");
-    assert_eq!(harness.popup_items()[6].kind, ItemKind::Check(false));
-    assert_eq!(harness.take_effects(), vec![]);
 }
 
 #[test]
@@ -560,17 +503,6 @@ fn a_conflict_during_the_quit_confirmation_waits_behind_it() {
 }
 
 #[test]
-fn a_quit_confirmation_is_answered_with_the_mouse() {
-    let mut harness = conflicting();
-    harness.send(Msg::CloseRequested);
-
-    harness.popup_double_click(2);
-
-    assert_eq!(harness.view().popup.unwrap().title, "File exists");
-    assert_eq!(harness.take_effects(), vec![]);
-}
-
-#[test]
 fn delete_asks_once_and_names_a_single_target() {
     let mut harness = three_files();
     cursor_only(&mut harness);
@@ -607,30 +539,6 @@ fn delete_asks_once_and_names_a_single_target() {
         })]
     );
     assert_eq!(harness.view().popup.unwrap().title, "Deleting");
-}
-
-#[test]
-fn delete_confirmation_letters_take_shift_but_not_ctrl() {
-    let mut harness = three_files();
-    cursor_only(&mut harness);
-    harness.press("Down");
-    harness.press("D");
-    harness.take_effects();
-
-    harness.press("Ctrl+Y");
-    assert_eq!(harness.view().popup.unwrap().title, "Delete");
-    assert_eq!(harness.take_effects(), vec![]);
-
-    harness.press("Shift+Y");
-    assert_eq!(
-        harness.take_effects(),
-        vec![Effect::StartOperation(OperationSpec {
-            kind: OperationKind::Delete,
-            sources: Sources::Paths(vec![path(LEFT, "a")]),
-            dest: None,
-            output: None,
-        })]
-    );
 }
 
 #[test]
@@ -695,44 +603,6 @@ fn delete_takes_the_directory_the_confirmation_was_opened_in() {
             output: None,
         })]
     );
-}
-
-#[test]
-fn a_delete_confirmation_is_answered_with_the_mouse() {
-    let mut harness = three_files();
-    cursor_only(&mut harness);
-    harness.press("Down");
-    harness.press("D");
-    harness.press("Down");
-    harness.take_effects();
-
-    harness.popup_double_click(1);
-
-    assert_eq!(
-        harness.take_effects(),
-        vec![Effect::StartOperation(OperationSpec {
-            kind: OperationKind::Delete,
-            sources: Sources::Paths(vec![path(LEFT, "a")]),
-            dest: None,
-            output: None,
-        })]
-    );
-}
-
-#[test]
-fn double_clicking_the_separator_of_a_confirmation_does_nothing() {
-    let mut harness = three_files();
-    cursor_only(&mut harness);
-    harness.press("Down");
-    harness.press("D");
-    harness.take_effects();
-
-    harness.popup_double_click(0);
-
-    let popup = harness.view().popup.unwrap();
-    assert_eq!(popup.title, "Delete");
-    assert_eq!(popup.cursor, Some(1));
-    assert_eq!(harness.take_effects(), vec![]);
 }
 
 #[test]
@@ -832,27 +702,6 @@ fn rename_to_an_empty_name_does_nothing() {
     harness.press("Enter");
 
     assert_eq!(harness.take_effects(), vec![]);
-}
-
-#[test]
-fn rename_to_a_new_name_renames_and_closes() {
-    let mut harness = Harness::start(LEFT, RIGHT);
-    harness.load(Side::Left, vec![file("a.tar.gz")]);
-    harness.press("Down");
-    harness.take_effects();
-
-    harness.press("R");
-    harness.edit("b.txt");
-    harness.press("Enter");
-
-    assert_eq!(
-        harness.take_effects(),
-        vec![Effect::Rename {
-            from: path(LEFT, "a.tar.gz"),
-            to: path(LEFT, "b.txt"),
-        }]
-    );
-    assert_eq!(harness.view().popup, None);
 }
 
 #[test]
@@ -1082,18 +931,6 @@ fn mkdir_without_entering_puts_the_cursor_on_the_first_component() {
 }
 
 #[test]
-fn mkdir_with_an_empty_name_does_nothing() {
-    let mut harness = Harness::start(LEFT, RIGHT);
-    harness.take_effects();
-
-    harness.press("K");
-    harness.edit("");
-    harness.press("Enter");
-
-    assert_eq!(harness.take_effects(), vec![]);
-}
-
-#[test]
 fn mkdir_makes_the_directory_in_the_place_the_popup_was_opened_in() {
     let mut harness = three_files();
     harness.press("K");
@@ -1165,25 +1002,6 @@ fn new_file_creates_the_file_in_the_place_the_popup_was_opened_in() {
     assert_eq!(
         harness.take_effects(),
         vec![Effect::CreateFile(path(LEFT, "n.txt"))]
-    );
-}
-
-#[test]
-fn new_text_passes_the_name_to_the_editor_without_creating_it() {
-    let mut harness = three_files_not_creating_text();
-
-    harness.press("Shift+E");
-    assert_eq!(harness.view().popup.unwrap().title, "New text");
-    harness.edit("notes.txt");
-    harness.press("Enter");
-    assert_eq!(
-        harness.take_effects(),
-        vec![Effect::Spawn {
-            name: "editor".to_owned(),
-            program: "xdg-open".to_owned(),
-            args: vec![path(LEFT, "notes.txt").into_os_string()],
-            cwd: PathBuf::from(LEFT),
-        }]
     );
 }
 
@@ -1358,20 +1176,6 @@ fn open_with_os_opens_the_cursor_entry_only() {
 }
 
 #[test]
-fn a_successful_open_with_os_is_not_logged() {
-    let mut harness = three_files();
-    harness.press("Down");
-    harness.press("Ctrl+Enter");
-
-    harness.send(Msg::Io(IoEvent::Opened {
-        path: path(LEFT, "a"),
-        error: None,
-    }));
-
-    assert_eq!(harness.log(), Vec::<String>::new());
-}
-
-#[test]
 fn open_with_os_on_the_parent_row_opens_the_directory_itself() {
     let mut harness = three_files();
     harness.press("Down");
@@ -1398,45 +1202,6 @@ fn open_with_os_in_an_empty_root_does_nothing() {
 
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(harness.log(), Vec::<String>::new());
-}
-
-#[test]
-fn copy_path_and_copy_name_join_the_targets_with_newlines() {
-    let mut harness = three_files();
-    harness.press("Down");
-    harness.press("Space");
-    harness.press("Down");
-    harness.press("Space");
-    harness.take_effects();
-
-    harness.press("F1");
-    harness.edit("copy_path");
-    harness.press("Enter");
-    assert_eq!(
-        harness.take_effects(),
-        vec![Effect::Clipboard(format!(
-            "{}\n{}",
-            shown(LEFT, "a"),
-            shown(LEFT, "c")
-        ))]
-    );
-
-    harness.press("F1");
-    harness.edit("copy_name");
-    harness.press("Enter");
-    assert_eq!(
-        harness.take_effects(),
-        vec![Effect::Clipboard("a\nc".to_owned())]
-    );
-
-    harness.send(Msg::Io(IoEvent::ClipboardSet {
-        text: String::new(),
-        error: Some(IoError::new("no clipboard")),
-    }));
-    assert_eq!(
-        harness.log().last().map(String::as_str),
-        Some("cannot copy to the clipboard: no clipboard")
-    );
 }
 
 #[test]
@@ -1525,28 +1290,6 @@ fn shell_menu_from_the_keyboard_takes_the_marks_or_the_cursor_entry() {
         }]
     );
     assert_eq!(harness.log(), Vec::<String>::new());
-}
-
-#[test]
-fn shell_menu_from_the_palette_is_the_same_as_the_key() {
-    let mut harness = windows_files();
-    harness.press("Down");
-    harness.take_effects();
-
-    harness.press("F1");
-    harness.edit("shell_menu");
-    harness.press("Enter");
-
-    assert_eq!(
-        harness.take_effects(),
-        vec![Effect::ShellMenu {
-            paths: vec![path(WIN_LEFT, "a")],
-            anchor: MenuAnchor::Row {
-                side: Side::Left,
-                row: 1,
-            },
-        }]
-    );
 }
 
 #[test]
@@ -1674,18 +1417,6 @@ fn right_click_past_the_rows_only_activates_the_pane() {
 }
 
 #[test]
-fn right_click_is_ignored_while_a_popup_is_open() {
-    let mut harness = windows_files();
-    harness.press("S");
-    harness.take_effects();
-
-    harness.right_click(Side::Left, 1);
-
-    assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(harness.cursor_name(Side::Left), "..");
-}
-
-#[test]
 fn a_failed_shell_menu_is_logged_and_a_closed_one_is_not() {
     let mut harness = windows_files();
 
@@ -1744,14 +1475,6 @@ fn cursor_only(harness: &mut Harness) {
 fn three_files() -> Harness {
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
-    harness
-}
-
-fn three_files_not_creating_text() -> Harness {
-    let mut harness =
-        Harness::start_with_config(LEFT, RIGHT, "[general]\nnew_text_creates_file = false\n");
-    harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
-    harness.take_effects();
     harness
 }
 

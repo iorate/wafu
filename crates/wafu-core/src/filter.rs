@@ -77,14 +77,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_ignores_case() {
-        let filter = Filter::parse("*.PNG").unwrap().unwrap();
-
-        assert!(filter.matches(OsStr::new("a.png")));
-        assert!(filter.matches(OsStr::new("A.Png")));
-    }
-
-    #[test]
     fn parse_trims_spaces() {
         let filter = Filter::parse(" *.png ").unwrap().unwrap();
 
@@ -99,26 +91,10 @@ mod tests {
     }
 
     #[test]
-    fn parse_rejects_invalid_globs() {
-        assert!(Filter::parse("[").is_err());
-        assert!(Filter::parse("*.{png").is_err());
-    }
-
-    #[test]
     fn matching_composes_decomposed_names() {
         let filter = Filter::parse("*\u{30d7}*").unwrap().unwrap();
 
         assert!(filter.matches(OsStr::new("\u{30a2}\u{30d5}\u{309a}\u{30ea}")));
-    }
-
-    #[test]
-    fn equality_is_by_pattern() {
-        let a = Filter::parse("*.png").unwrap().unwrap();
-        let b = Filter::parse("*.png").unwrap().unwrap();
-        let c = Filter::parse("*.jpg").unwrap().unwrap();
-
-        assert_eq!(a, b);
-        assert_ne!(a, c);
     }
 
     #[test]

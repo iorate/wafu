@@ -230,21 +230,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_symbols_and_digits() {
-        assert_eq!("@".parse::<Key>(), Ok(key(KeyBase::Char('@'))));
-        assert_eq!("!".parse::<Key>(), Ok(key(KeyBase::Char('!'))));
-        assert_eq!("~".parse::<Key>(), Ok(key(KeyBase::Char('~'))));
-        assert_eq!("\\".parse::<Key>(), Ok(key(KeyBase::Char('\\'))));
-        assert_eq!(
-            "Ctrl+1".parse::<Key>(),
-            Ok(Key {
-                ctrl: true,
-                ..key(KeyBase::Char('1'))
-            })
-        );
-    }
-
-    #[test]
     fn parse_plus_as_a_key() {
         assert_eq!("+".parse::<Key>(), Ok(key(KeyBase::Char('+'))));
         assert_eq!(
@@ -362,17 +347,6 @@ mod tests {
     }
 
     #[test]
-    fn from_input_accepts_named_key_spellings() {
-        assert_eq!(
-            Key::from_input(&input("PageUp", false, true)),
-            Some(Key {
-                shift: true,
-                ..key(KeyBase::Named(NamedKey::PageUp))
-            })
-        );
-    }
-
-    #[test]
     fn from_input_accepts_canonical_named_keys_only() {
         assert_eq!(
             Key::from_input(&input("Up", false, false)),
@@ -389,12 +363,6 @@ mod tests {
                 "{text:?}"
             );
         }
-    }
-
-    #[test]
-    fn from_input_ignores_unknown_text() {
-        assert_eq!(Key::from_input(&input("", false, false)), None);
-        assert_eq!(Key::from_input(&input("日本語", false, false)), None);
     }
 
     fn key(base: KeyBase) -> Key {

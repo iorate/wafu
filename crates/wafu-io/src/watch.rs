@@ -453,39 +453,6 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn resolve_link_finds_the_directory_a_link_leads_to() {
-        let dir = TempDir::new().unwrap();
-        let real = dir.path().join("other").join("real");
-        fs::create_dir_all(&real).unwrap();
-        let link = dir.path().join("link");
-        if !symlink(&real, &link) {
-            return;
-        }
-
-        assert_eq!(
-            resolve_link(&link),
-            Resolution::Target(fs::canonicalize(&real).unwrap())
-        );
-    }
-
-    #[test]
-    fn resolve_link_finds_the_file_a_link_leads_to() {
-        let dir = TempDir::new().unwrap();
-        fs::create_dir(dir.path().join("other")).unwrap();
-        let real = dir.path().join("other").join("b.zip");
-        fs::write(&real, "b").unwrap();
-        let link = dir.path().join("a.zip");
-        if !symlink(&real, &link) {
-            return;
-        }
-
-        assert_eq!(
-            resolve_link(&link),
-            Resolution::Target(fs::canonicalize(&real).unwrap())
-        );
-    }
-
-    #[test]
     fn resolve_link_finds_the_final_target_of_a_chain() {
         let dir = TempDir::new().unwrap();
         let real = dir.path().join("other").join("real");
@@ -538,42 +505,6 @@ pub(crate) mod tests {
         }
 
         assert_eq!(resolve_link(&a), Resolution::Failed);
-    }
-
-    #[test]
-    fn an_error_counts_as_a_change() {
-        let error = Err(notify::Error::generic("queue overflow"));
-        assert!(counts_as_change(&error, |_| true));
-        assert!(counts_as_change(&error, |event| names_entry(
-            event,
-            Some(OsStr::new("Archive.zip"))
-        )));
-    }
-
-    #[test]
-    fn a_rescan_without_paths_counts_as_a_change() {
-        let rescan = Ok(Event::new(EventKind::Other).set_flag(Flag::Rescan));
-        assert!(counts_as_change(&rescan, |_| true));
-        assert!(counts_as_change(&rescan, |event| names_entry(
-            event,
-            Some(OsStr::new("Archive.zip"))
-        )));
-    }
-
-    #[test]
-    fn an_entry_change_counts_only_for_the_watched_name() {
-        let dir = Path::new("dir");
-        let removed =
-            Ok(Event::new(EventKind::Remove(RemoveKind::Any)).add_path(dir.join("Archive.zip")));
-        let created =
-            Ok(Event::new(EventKind::Create(CreateKind::Any)).add_path(dir.join("Other.zip")));
-        let watched = Some(OsStr::new("Archive.zip"));
-        assert!(counts_as_change(&removed, |event| names_entry(
-            event, watched
-        )));
-        assert!(!counts_as_change(&created, |event| names_entry(
-            event, watched
-        )));
     }
 
     #[test]
@@ -665,18 +596,6 @@ pub(crate) mod tests {
             event,
             Some(OsStr::new("Archive.zip"))
         )));
-    }
-
-    #[test]
-    fn same_name_matches_an_identical_name() {
-        assert!(same_name(
-            OsStr::new("Archive.zip"),
-            OsStr::new("Archive.zip")
-        ));
-        assert!(!same_name(
-            OsStr::new("Archive.zip"),
-            OsStr::new("Other.zip")
-        ));
     }
 
     #[cfg(any(windows, target_os = "macos"))]

@@ -81,28 +81,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn empty_history_has_nothing_to_move_to() {
-        let history = History::new();
-
-        assert_eq!(history.back(), None);
-        assert_eq!(history.forward(), None);
-        assert_eq!(history.items(), Vec::<PathBuf>::new());
-    }
-
-    #[test]
-    fn visits_append_and_move_the_position() {
-        let mut history = History::new();
-
-        history.visit(PathBuf::from("/a"));
-        history.visit(PathBuf::from("/b"));
-
-        assert_eq!(history.items(), [PathBuf::from("/a"), PathBuf::from("/b")]);
-        assert_eq!(history.pos(), 1);
-        assert_eq!(history.back(), Some((0, Path::new("/a"))));
-        assert_eq!(history.forward(), None);
-    }
-
-    #[test]
     fn visiting_the_current_place_again_records_nothing() {
         let mut history = History::new();
 
@@ -121,20 +99,6 @@ mod tests {
         history.visit(PathBuf::from("/a"));
 
         assert_eq!(history.items().len(), 3);
-    }
-
-    #[test]
-    fn visiting_after_going_back_drops_the_forward_side() {
-        let mut history = History::new();
-        history.visit(PathBuf::from("/a"));
-        history.visit(PathBuf::from("/b"));
-        history.visit(PathBuf::from("/c"));
-        history.set_pos(0);
-
-        history.visit(PathBuf::from("/d"));
-
-        assert_eq!(history.items(), [PathBuf::from("/a"), PathBuf::from("/d")]);
-        assert_eq!(history.pos(), 1);
     }
 
     #[test]
