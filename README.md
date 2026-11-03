@@ -8,7 +8,7 @@ A keyboard-driven dual-pane file manager for Windows, macOS, and Linux, built wi
 
 ### Windows
 
-Download `wafu-vX.Y.Z.exe` from [GitHub Releases](https://github.com/iorate/wafu/releases) and run it.
+Download `wafu-vX.Y.Z-windows-x64.zip` from [GitHub Releases](https://github.com/iorate/wafu/releases), extract it, and run `wafu.exe`.
 
 The executable is not signed, so Microsoft Defender SmartScreen may block it on the first run. Click "More info" and then "Run anyway".
 
@@ -20,7 +20,7 @@ Install with Cargo:
 cargo install --locked wafu
 ```
 
-Alternatively, download `wafu-vX.Y.Z.dmg` (Apple silicon) from [GitHub Releases](https://github.com/iorate/wafu/releases) and drag `wafu.app` into `Applications`.
+Alternatively, download `wafu-vX.Y.Z-macos-arm64.dmg` (Apple silicon) from [GitHub Releases](https://github.com/iorate/wafu/releases) and drag `wafu.app` into `Applications`.
 
 The app is not notarized, so macOS blocks it on the first launch. Open System Settings → Privacy & Security and click "Open Anyway", or remove the quarantine attribute:
 

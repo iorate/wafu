@@ -41,7 +41,7 @@ jobs:
         run: |
           version="$(jq -re .version crates/wafu/package.json)"
           mkdir dist
-          cp target/release/wafu.exe "dist/wafu-v$version.exe"
+          (cd target/release && 7z a -tzip "$GITHUB_WORKSPACE/dist/wafu-v$version-windows-x64.zip" wafu.exe)
 
       - name: Upload artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -83,7 +83,7 @@ jobs:
           codesign --force --deep --sign - "$app"
           ln -s /Applications "$image/Applications"
           mkdir dist
-          hdiutil create -volname wafu -srcfolder "$image" -ov -format UDZO "dist/wafu-v$version.dmg"
+          hdiutil create -volname wafu -srcfolder "$image" -ov -format UDZO "dist/wafu-v$version-macos-arm64.dmg"
 
       - name: Upload artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
