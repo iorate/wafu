@@ -1,6 +1,7 @@
 use std::any::Any;
 use std::cell::RefCell;
 use std::collections::HashSet;
+use std::ffi::OsString;
 use std::fmt::Display;
 use std::fs;
 use std::io;
@@ -24,7 +25,7 @@ use crate::operation::run_operation;
 use crate::preview::{load_image, load_preview};
 use crate::read_dir::{own_entry, read_dir_with};
 use crate::resolve::resolve;
-use crate::spawn::{spawn, spawn_new_window};
+use crate::spawn::{spawn, spawn_new_window, wait_in_background};
 use crate::state::{write_handoff, write_state};
 use crate::watch::{Group, Watcher, watch_config};
 
@@ -150,13 +151,12 @@ impl Runtime {
                 };
                 *lock(&self.config_watcher) = watcher;
             }
-            Effect::Spawn { program, args, cwd } => {
-                let error = io_error(spawn(&program, &args, Some(&cwd)));
-                (self.on_event)(IoEvent::Spawned {
-                    kind: SpawnKind::External { program },
-                    error,
-                });
-            }
+            Effect::Spawn {
+                name,
+                program,
+                args,
+                cwd,
+            } => self.spawn(name, program, args, &cwd),
             // A failure here has nowhere to go: the application is quitting.
             Effect::SaveState(state) => {
                 let _ = write_state(&self.paths.state, &state);
@@ -191,6 +191,29 @@ impl Runtime {
                 Side::Right => &self.right,
             },
             Job::LoadPreview { .. } | Job::LoadImage { .. } => &self.preview,
+        }
+    }
+
+    // The start is reported before the child is waited for, so that a child
+    // that ends at once is not reported as ended first.
+    fn spawn(&self, name: String, program: String, args: Vec<OsString>, cwd: &Path) {
+        let child = spawn(&program, &args, Some(cwd));
+        (self.on_event)(IoEvent::Spawned {
+            kind: SpawnKind::External {
+                name: name.clone(),
+                program,
+                args,
+            },
+            error: io_error(child.as_ref()),
+        });
+        if let Ok(child) = child {
+            let on_event = Arc::clone(&self.on_event);
+            wait_in_background(child, move |status| {
+                on_event(IoEvent::Exited {
+                    name,
+                    code: status.code(),
+                });
+            });
         }
     }
 
@@ -541,6 +564,7 @@ fn io_error<T, E: Display>(result: Result<T, E>) -> Option<IoError> {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
     use std::fs::{self, File};
     #[cfg(target_os = "linux")]
     use std::os::unix::fs::PermissionsExt;
@@ -1248,6 +1272,7 @@ mod tests {
         let (runtime, events) = runtime();
 
         runtime.run(Effect::Spawn {
+            name: "$x".to_owned(),
             program: "wafu-no-such-program".to_owned(),
             args: Vec::new(),
             cwd: dir.path().to_path_buf(),
@@ -1260,10 +1285,50 @@ mod tests {
         assert_eq!(
             kind,
             SpawnKind::External {
-                program: "wafu-no-such-program".to_owned()
+                name: "$x".to_owned(),
+                program: "wafu-no-such-program".to_owned(),
+                args: Vec::new(),
             }
         );
         assert!(error.is_some());
+    }
+
+    #[test]
+    fn a_spawn_reports_its_start_and_then_its_exit() {
+        let dir = TempDir::new().unwrap();
+        let (runtime, events) = runtime();
+        let (program, args) = if cfg!(windows) {
+            ("cmd", vec!["/c", "exit", "1"])
+        } else {
+            ("false", vec![])
+        };
+        let args: Vec<OsString> = args.into_iter().map(OsString::from).collect();
+
+        runtime.run(Effect::Spawn {
+            name: "$x".to_owned(),
+            program: program.to_owned(),
+            args: args.clone(),
+            cwd: dir.path().to_path_buf(),
+        });
+
+        assert_eq!(
+            events.recv_timeout(TIMEOUT).unwrap(),
+            IoEvent::Spawned {
+                kind: SpawnKind::External {
+                    name: "$x".to_owned(),
+                    program: program.to_owned(),
+                    args,
+                },
+                error: None,
+            }
+        );
+        assert_eq!(
+            events.recv_timeout(TIMEOUT).unwrap(),
+            IoEvent::Exited {
+                name: "$x".to_owned(),
+                code: Some(1),
+            }
+        );
     }
 
     #[test]

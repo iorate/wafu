@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
@@ -109,6 +110,18 @@ impl Expansion {
     }
 }
 
+/// The program and its arguments as one line, written as the configuration
+/// would write them.
+#[must_use]
+pub fn format_line(program: &str, args: &[OsString]) -> String {
+    let args = args.iter().map(|arg| arg.to_string_lossy());
+    std::iter::once(Cow::Borrowed(program))
+        .chain(args)
+        .map(|part| quote(&part))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Arg {
     Literal(String),
@@ -140,6 +153,14 @@ fn split(text: &str) -> Result<Vec<String>, CommandLineError> {
         tokens.push(token);
     }
     Ok(tokens)
+}
+
+fn quote(text: &str) -> String {
+    if text.is_empty() || text.chars().any(char::is_whitespace) {
+        format!("\"{text}\"")
+    } else {
+        text.to_owned()
+    }
 }
 
 // A placeholder is a whole argument; `{dir}` inside a longer argument is text.
@@ -208,6 +229,17 @@ mod tests {
             CommandLine::parse("x {path}"),
             Err(CommandLineError::UnknownPlaceholder("{path}".to_owned()))
         );
+    }
+
+    #[test]
+    fn format_line_quotes_parts_with_spaces_and_empty_ones() {
+        let args = ["-a", "Wez Term", "", "x\ty"].map(OsString::from);
+
+        assert_eq!(
+            format_line("/Applications/My App/open", &args),
+            "\"/Applications/My App/open\" -a \"Wez Term\" \"\" \"x\ty\""
+        );
+        assert_eq!(format_line("wt", &[]), "wt");
     }
 
     #[test]

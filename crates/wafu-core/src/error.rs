@@ -69,6 +69,10 @@ pub enum AppError {
     SpawnFailed { program: String, source: IoError },
     #[error("cannot start a new window: {source}")]
     NewWindowFailed { source: IoError },
+    #[error("{name} exited with status {code}")]
+    ExitedWithStatus { name: String, code: i32 },
+    #[error("{name} was terminated by a signal")]
+    TerminatedBySignal { name: String },
     #[error("cannot {verb}: the other pane has no location")]
     NoOtherLocation { verb: &'static str },
     #[error("cannot rename {}: {source}", path.display())]

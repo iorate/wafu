@@ -6,7 +6,7 @@ use crate::command::Command;
 use crate::config::{Config, parse_config};
 use crate::entry::Entry;
 use crate::error::{AppError, IoError};
-use crate::external::{CommandLine, Expansion};
+use crate::external::{CommandLine, Expansion, format_line};
 use crate::history::History;
 use crate::listing::{SortKey, SortSpec};
 use crate::state::{PaneState, StateError, StateFile};
@@ -124,7 +124,7 @@ impl App {
             return;
         }
         let expansion = self.expansion();
-        Self::spawn(line, &expansion, effects);
+        Self::spawn_external(name, line, &expansion, effects);
     }
 
     pub(super) fn edit_config(&mut self, effects: &mut Vec<Effect>) {
@@ -132,13 +132,20 @@ impl App {
             paths: vec![self.config_path.clone()],
             ..self.expansion()
         };
-        Self::spawn(&self.config.general.editor, &expansion, effects);
+        Self::spawn_editor(&self.config.general.editor, &expansion, effects);
     }
 
     pub(super) fn spawned(&mut self, kind: SpawnKind, error: Option<IoError>) {
         let line = match (kind, error) {
-            (SpawnKind::External { program }, None) => format!("started {program}"),
-            (SpawnKind::External { program }, Some(source)) => {
+            (
+                SpawnKind::External {
+                    name,
+                    program,
+                    args,
+                },
+                None,
+            ) => format!("started {name}: {}", format_line(&program, &args)),
+            (SpawnKind::External { program, .. }, Some(source)) => {
                 AppError::SpawnFailed { program, source }.to_string()
             }
             (SpawnKind::NewWindow, None) => return,
@@ -147,6 +154,15 @@ impl App {
             }
         };
         self.log.push(line);
+    }
+
+    pub(super) fn exited(&mut self, name: String, code: Option<i32>) {
+        let error = match code {
+            Some(0) => return,
+            Some(code) => AppError::ExitedWithStatus { name, code },
+            None => AppError::TerminatedBySignal { name },
+        };
+        self.log.push(error.to_string());
     }
 
     fn load_config(&mut self, source: ConfigSource) {
@@ -240,8 +256,27 @@ impl App {
         }
     }
 
-    pub(super) fn spawn(line: &CommandLine, expansion: &Expansion, effects: &mut Vec<Effect>) {
+    pub(super) fn spawn_external(
+        name: &str,
+        line: &CommandLine,
+        expansion: &Expansion,
+        effects: &mut Vec<Effect>,
+    ) {
+        let name = Command::External(name.to_owned()).to_string();
+        Self::spawn(name, line, expansion, effects);
+    }
+
+    pub(super) fn spawn_editor(
+        line: &CommandLine,
+        expansion: &Expansion,
+        effects: &mut Vec<Effect>,
+    ) {
+        Self::spawn("editor".to_owned(), line, expansion, effects);
+    }
+
+    fn spawn(name: String, line: &CommandLine, expansion: &Expansion, effects: &mut Vec<Effect>) {
         effects.push(Effect::Spawn {
+            name,
             program: line.program().to_owned(),
             args: line.expand(expansion),
             cwd: expansion.dir.clone(),

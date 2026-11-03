@@ -1179,6 +1179,7 @@ fn new_text_passes_the_name_to_the_editor_without_creating_it() {
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
+            name: "editor".to_owned(),
             program: "xdg-open".to_owned(),
             args: vec![path(LEFT, "notes.txt").into_os_string()],
             cwd: PathBuf::from(LEFT),
@@ -1206,6 +1207,7 @@ fn new_text_names_and_opens_the_file_in_the_place_the_popup_was_opened_in() {
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
+            name: "editor".to_owned(),
             program: "ed".to_owned(),
             args: vec![
                 OsString::from(LEFT),
@@ -1234,6 +1236,7 @@ fn new_text_without_creating_opens_the_editor_in_the_place_the_popup_was_opened_
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
+            name: "editor".to_owned(),
             program: "ed".to_owned(),
             args: vec![
                 OsString::from(LEFT),
@@ -1318,6 +1321,7 @@ fn edit_passes_every_target_to_the_editor() {
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
+            name: "editor".to_owned(),
             program: "xdg-open".to_owned(),
             args: vec![
                 path(LEFT, "a").into_os_string(),

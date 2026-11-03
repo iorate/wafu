@@ -4085,6 +4085,7 @@ fn external_commands_expand_placeholders_and_report_their_start() {
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
+            name: "$term".to_owned(),
             program: "wt".to_owned(),
             args: vec![
                 OsString::from("-d"),
@@ -4101,19 +4102,54 @@ fn external_commands_expand_placeholders_and_report_their_start() {
 
     harness.send(Msg::Io(IoEvent::Spawned {
         kind: SpawnKind::External {
+            name: "$term".to_owned(),
             program: "wt".to_owned(),
+            args: vec![OsString::from("-d"), OsString::from("a b")],
         },
         error: None,
     }));
     harness.send(Msg::Io(IoEvent::Spawned {
         kind: SpawnKind::External {
+            name: "$term".to_owned(),
             program: "wt".to_owned(),
+            args: vec![OsString::from("-d"), OsString::from("a b")],
         },
         error: Some(IoError::new("not found")),
     }));
     assert_eq!(
         harness.log()[1..],
-        ["started wt", "cannot start wt: not found"]
+        [
+            r#"started $term: wt -d "a b""#,
+            "cannot start wt: not found"
+        ]
+    );
+}
+
+#[test]
+fn an_exit_other_than_success_is_logged() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.take_effects();
+
+    harness.send(Msg::Io(IoEvent::Exited {
+        name: "$term".to_owned(),
+        code: Some(0),
+    }));
+    assert_eq!(harness.log(), Vec::<String>::new());
+
+    harness.send(Msg::Io(IoEvent::Exited {
+        name: "$term".to_owned(),
+        code: Some(1),
+    }));
+    harness.send(Msg::Io(IoEvent::Exited {
+        name: "editor".to_owned(),
+        code: None,
+    }));
+    assert_eq!(
+        harness.log(),
+        [
+            "$term exited with status 1",
+            "editor was terminated by a signal"
+        ]
     );
 }
 
@@ -4131,6 +4167,7 @@ fn external_commands_run_from_the_palette_with_no_targets() {
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
+            name: "$term".to_owned(),
             program: "wt".to_owned(),
             args: vec![],
             cwd: PathBuf::from(HOME),
@@ -4152,6 +4189,7 @@ fn edit_config_opens_the_configuration_in_the_editor() {
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
+            name: "editor".to_owned(),
             program: "code".to_owned(),
             args: vec![OsString::from("-w"), OsString::from(CONFIG_PATH)],
             cwd: PathBuf::from(HOME),
