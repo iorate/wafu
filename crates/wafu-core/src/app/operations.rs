@@ -394,7 +394,7 @@ impl App {
                     dir: base,
                     ..self.expansion()
                 };
-                Self::spawn(&self.config.general.editor, &expansion, effects);
+                Self::spawn_editor(&self.config.general.editor, &expansion, effects);
             }
             InputKind::ConflictRename { .. }
             | InputKind::Filter
@@ -457,7 +457,7 @@ impl App {
                         dir,
                         ..self.expansion()
                     };
-                    Self::spawn(&self.config.general.editor, &expansion, effects);
+                    Self::spawn_editor(&self.config.general.editor, &expansion, effects);
                 }
                 if let Some(dir) = path.parent() {
                     self.show_created(dir, path.file_name().map(OsString::from), effects);
@@ -488,7 +488,7 @@ impl App {
         if expansion.paths.is_empty() {
             return;
         }
-        Self::spawn(&self.config.general.editor, &expansion, effects);
+        Self::spawn_editor(&self.config.general.editor, &expansion, effects);
     }
 
     pub(super) fn open_with_os(&mut self, effects: &mut Vec<Effect>) {
@@ -542,7 +542,7 @@ impl App {
                 ..Expansion::default()
             };
             if let Some(line) = self.config.commands.get(name) {
-                Self::spawn(line, &expansion, effects);
+                Self::spawn_external(name, line, &expansion, effects);
             }
             return;
         }
@@ -748,14 +748,16 @@ impl App {
                 .to_path_buf(),
         };
         match temp.action {
-            TempAction::Edit => Self::spawn(&self.config.general.editor, &expansion, effects),
+            TempAction::Edit => {
+                Self::spawn_editor(&self.config.general.editor, &expansion, effects);
+            }
             TempAction::OpenWithOs => {
                 if let Some(path) = expansion.paths.first() {
                     effects.push(Effect::OpenWithOs(path.clone()));
                 }
             }
             TempAction::External(name) => match self.config.commands.get(&name) {
-                Some(line) => Self::spawn(line, &expansion, effects),
+                Some(line) => Self::spawn_external(&name, line, &expansion, effects),
                 None => self.log.push(
                     AppError::UnknownCommand {
                         command: Command::External(name),

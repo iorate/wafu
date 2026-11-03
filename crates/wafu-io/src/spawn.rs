@@ -1,13 +1,13 @@
 use std::ffi::OsStr;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::thread;
 
 pub(crate) fn spawn(
     program: impl AsRef<OsStr>,
     args: &[impl AsRef<OsStr>],
     cwd: Option<&Path>,
-) -> std::io::Result<()> {
+) -> std::io::Result<Child> {
     let mut command = Command::new(program);
     command.args(args);
     if let Some(cwd) = cwd {
@@ -19,14 +19,23 @@ pub(crate) fn spawn(
             .stdout(Stdio::null())
             .stderr(Stdio::null());
     }
-    let mut child = command.spawn()?;
-    // Reaping the child keeps it from lingering as a zombie on Unix.
+    command.spawn()
+}
+
+// Reaping the child keeps it from lingering as a zombie on Unix. The child
+// has started whether or not the thread can be created, so that is not an
+// error.
+pub(crate) fn wait_in_background(
+    mut child: Child,
+    on_exit: impl FnOnce(ExitStatus) + Send + 'static,
+) {
     let _ = thread::Builder::new()
         .name("wafu-io-reaper".to_owned())
         .spawn(move || {
-            let _ = child.wait();
+            if let Ok(status) = child.wait() {
+                on_exit(status);
+            }
         });
-    Ok(())
 }
 
 pub(crate) fn spawn_new_window(handoff: &Path, config: Option<&Path>) -> std::io::Result<()> {
@@ -39,7 +48,9 @@ pub(crate) fn spawn_new_window(handoff: &Path, config: Option<&Path>) -> std::io
         args.push(OsStr::new("--config").to_owned());
         args.push(config.as_os_str().to_owned());
     }
-    spawn(exe, &args, None)
+    let child = spawn(exe, &args, None)?;
+    wait_in_background(child, |_| {});
+    Ok(())
 }
 
 #[cfg(test)]
@@ -53,7 +64,9 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let (program, args) = silent_program();
 
-        spawn(program, args, Some(dir.path())).unwrap();
+        let mut child = spawn(program, args, Some(dir.path())).unwrap();
+
+        assert!(child.wait().unwrap().success());
     }
 
     #[test]
@@ -65,6 +78,22 @@ mod tests {
         assert!(spawn(program, args, Some(&dir.path().join("gone"))).is_err());
     }
 
+    #[test]
+    fn the_exit_status_is_given_to_the_callback() {
+        let (program, args) = failing_program();
+        let child = spawn(program, args, None).unwrap();
+        let (sender, receiver) = std::sync::mpsc::channel();
+
+        wait_in_background(child, move |status| {
+            let _ = sender.send(status);
+        });
+
+        let status = receiver
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap();
+        assert_eq!(status.code(), Some(1));
+    }
+
     // The child inherits the test's console on Windows, so anything it printed
     // would end up in the test output.
     fn silent_program() -> (&'static str, &'static [&'static str]) {
@@ -72,6 +101,14 @@ mod tests {
             ("cmd", &["/c", "exit"])
         } else {
             ("true", &[])
+        }
+    }
+
+    fn failing_program() -> (&'static str, &'static [&'static str]) {
+        if cfg!(windows) {
+            ("cmd", &["/c", "exit", "1"])
+        } else {
+            ("false", &[])
         }
     }
 }

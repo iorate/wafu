@@ -160,8 +160,11 @@ pub enum Effect {
     },
     /// Watches the configuration file and reports its new text on every change.
     WatchConfig(PathBuf),
-    /// Starts a program without a shell and without waiting for it.
+    /// Starts a program without a shell and without waiting for it. `name`
+    /// is what the log calls it: `$name` for an external command, `editor`
+    /// for the editor.
     Spawn {
+        name: String,
         program: String,
         args: Vec<OsString>,
         cwd: PathBuf,
@@ -237,7 +240,11 @@ pub enum Change {
 /// What `Effect::Spawn` or `Effect::SpawnNewWindow` started.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SpawnKind {
-    External { program: String },
+    External {
+        name: String,
+        program: String,
+        args: Vec<OsString>,
+    },
     NewWindow,
 }
 
@@ -305,6 +312,12 @@ pub enum IoEvent {
     Spawned {
         kind: SpawnKind,
         error: Option<IoError>,
+    },
+    /// A program started by `Effect::Spawn` ended. `code` is `None` when a
+    /// signal ended it.
+    Exited {
+        name: String,
+        code: Option<i32>,
     },
     Operation(OperationEvent),
     Changed {
@@ -707,6 +720,7 @@ impl App {
                 );
             }
             IoEvent::Spawned { kind, error } => self.spawned(kind, error),
+            IoEvent::Exited { name, code } => self.exited(name, code),
             IoEvent::Operation(event) => self.operation_event(event, effects),
             IoEvent::Changed { change, error } => {
                 self.changed(change, error, effects);

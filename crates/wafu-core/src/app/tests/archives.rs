@@ -864,7 +864,7 @@ fn edit_inside_an_archive_extracts_to_a_temporary_directory_and_then_starts_the_
     let effects = harness.take_effects();
     assert!(matches!(
         effects.as_slice(),
-        [Effect::ReadDir { .. }, Effect::Spawn { program, args, cwd }]
+        [Effect::ReadDir { .. }, Effect::Spawn { program, args, cwd, .. }]
             if program == "xdg-open"
                 && *args == vec![path(TEMP, "b.txt").into_os_string()]
                 && cwd.as_os_str() == LEFT
@@ -991,7 +991,10 @@ fn an_external_command_inside_an_archive_extracts_the_cursor_and_the_marks() {
     });
 
     let effects = harness.take_effects();
-    let Some(Effect::Spawn { program, args, cwd }) = effects.last() else {
+    let Some(Effect::Spawn {
+        program, args, cwd, ..
+    }) = effects.last()
+    else {
         panic!("expected Spawn, got {effects:?}");
     };
     assert_eq!(program, "show");
@@ -1022,6 +1025,7 @@ fn an_external_command_on_the_parent_row_inside_an_archive_starts_without_extrac
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
+            name: "$show".into(),
             program: "show".into(),
             args: vec![
                 PathBuf::from(LEFT).into_os_string(),
