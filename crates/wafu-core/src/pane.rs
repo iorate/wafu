@@ -791,6 +791,18 @@ mod tests {
     }
 
     #[test]
+    fn set_directory_on_reload_drops_marks_on_vanished_entries_so_targets_fall_back_to_the_cursor()
+    {
+        let mut pane = pane_with("/", &["a", "b", "c"]);
+        pane.set_cursor(1);
+        pane.mark_down();
+
+        pane.set_directory(entries(&["a", "c"]));
+
+        assert_eq!(names(pane.targets()), ["c"]);
+    }
+
+    #[test]
     fn rows_are_shared_until_the_listing_changes() {
         let mut pane = pane_with("/home", &["a", "b"]);
         let before = pane.rows();
