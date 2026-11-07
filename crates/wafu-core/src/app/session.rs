@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use super::{App, ConfigSource, Effect, Side, SpawnKind};
+use super::{App, ColorScheme, ConfigSource, Effect, Side, SpawnKind};
 use crate::command::Command;
 use crate::config::{Config, parse_config};
 use crate::entry::Entry;
@@ -46,6 +46,7 @@ impl App {
             }
         }
         effects.push(Effect::WatchConfig(self.config_path.clone()));
+        effects.push(Effect::WatchColorScheme);
         let saved = |pane: Option<&PaneState>| pane.and_then(|pane| pane.path.clone());
         let left = left
             .or_else(|| saved(left_state))
@@ -71,6 +72,11 @@ impl App {
             self.apply_config(config);
             self.log.push("config reloaded".to_owned());
         }
+    }
+
+    pub(super) fn color_scheme_changed(&mut self, scheme: ColorScheme) {
+        self.color_scheme = Some(scheme);
+        self.restyle();
     }
 
     pub(super) fn state_file(&self) -> StateFile {
@@ -211,8 +217,15 @@ impl App {
         for pane in &mut self.panes {
             pane.set_size_format(config.appearance.size_format);
         }
-        self.style = Arc::new(Style::from_config(&config, self.os));
         self.config = config;
+        self.restyle();
+    }
+
+    fn restyle(&mut self) {
+        let style = Style::from_config(&self.config, self.os, self.color_scheme);
+        if *self.style != style {
+            self.style = Arc::new(style);
+        }
     }
 
     fn restore_pane(&mut self, side: Side, state: Option<&PaneState>) {

@@ -19,6 +19,8 @@ use wafu_core::{
 };
 
 use crate::archive::{ArchiveEntry, dir_entry, list_dir, open_archive};
+#[cfg(windows)]
+use crate::color_scheme::{ColorSchemeWatch, watch_color_scheme};
 use crate::drives::drives;
 use crate::fs_ops::{create_file, mkdir, open_with_os, rename, set_clipboard};
 use crate::operation::run_operation;
@@ -50,6 +52,8 @@ pub struct Runtime {
     pending: Arc<Mutex<HashSet<RequestId>>>,
     watcher: Mutex<Watcher>,
     config_watcher: Mutex<Option<Group>>,
+    #[cfg(windows)]
+    color_scheme_watch: Mutex<Option<ColorSchemeWatch>>,
     // The running operation takes its replies from here.
     operation: Mutex<Option<Sender<Reply>>>,
     owner_window: Mutex<Option<isize>>,
@@ -74,6 +78,8 @@ impl Runtime {
             pending,
             watcher: Mutex::new(Watcher::new()),
             config_watcher: Mutex::new(None),
+            #[cfg(windows)]
+            color_scheme_watch: Mutex::new(None),
             operation: Mutex::new(None),
             owner_window: Mutex::new(None),
             clipboard: Mutex::new(None),
@@ -153,6 +159,12 @@ impl Runtime {
                 };
                 *lock(&self.config_watcher) = watcher;
             }
+            #[cfg(windows)]
+            Effect::WatchColorScheme => {
+                *lock(&self.color_scheme_watch) = Some(watch_color_scheme(&self.on_event));
+            }
+            #[cfg(not(windows))]
+            Effect::WatchColorScheme => {}
             Effect::Spawn {
                 name,
                 program,
@@ -1092,6 +1104,19 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].name, "f.txt");
         assert_eq!(entries[0].size, 1);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_color_scheme_is_reported_as_soon_as_it_is_watched() {
+        let (runtime, events) = runtime();
+
+        runtime.run(Effect::WatchColorScheme);
+
+        let event = events.recv_timeout(TIMEOUT).unwrap();
+        let IoEvent::ColorScheme { .. } = event else {
+            panic!("expected ColorScheme, got {event:?}");
+        };
     }
 
     #[test]

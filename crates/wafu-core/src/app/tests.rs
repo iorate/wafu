@@ -23,6 +23,7 @@ fn start_resolves_both_panes_then_watches_and_reads_them() {
         harness.take_effects(),
         vec![
             Effect::WatchConfig(PathBuf::from(CONFIG_PATH)),
+            Effect::WatchColorScheme,
             Effect::Resolve {
                 side: Side::Left,
                 path: PathBuf::from("/home/user"),
@@ -3280,6 +3281,37 @@ fn reloading_the_configuration_changes_keys_and_style() {
         harness.take_effects().as_slice(),
         [Effect::Watch { .. }, Effect::ReadDir { location, .. }] if location.base == Path::new("/")
     ));
+}
+
+#[test]
+fn an_automatic_theme_follows_the_os_color_scheme_across_reloads() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    assert_eq!(harness.view().style.theme, Theme::Auto);
+
+    harness.send(Msg::Io(IoEvent::ColorScheme {
+        scheme: ColorScheme::Dark,
+    }));
+    assert_eq!(harness.view().style.theme, Theme::Dark);
+
+    harness.config("[appearance.font]\nsize = 16\n");
+    assert_eq!(harness.view().style.theme, Theme::Dark);
+
+    harness.send(Msg::Io(IoEvent::ColorScheme {
+        scheme: ColorScheme::Light,
+    }));
+    assert_eq!(harness.view().style.theme, Theme::Light);
+}
+
+#[test]
+fn an_explicit_theme_ignores_the_os_color_scheme() {
+    let mut harness =
+        Harness::start_with_config("/home/user", "/tmp", "[appearance]\ntheme = \"light\"\n");
+
+    harness.send(Msg::Io(IoEvent::ColorScheme {
+        scheme: ColorScheme::Dark,
+    }));
+
+    assert_eq!(harness.view().style.theme, Theme::Light);
 }
 
 #[test]

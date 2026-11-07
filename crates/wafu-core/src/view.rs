@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::app::Os;
+use crate::app::{ColorScheme, Os};
 use crate::config::{ColorSet, Config, SizeFormat, Theme, monospace_family};
 use crate::entry::{Entry, EntryKind, SpecialKind, TargetKind};
 use crate::pane::Pane;
@@ -32,6 +32,7 @@ pub struct View {
 /// How the window looks, taken from the configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Style {
+    /// `Auto` only while the OS has not reported its color scheme.
     pub theme: Theme,
     /// The text the size column is made wide enough for.
     pub size_sample: &'static str,
@@ -244,7 +245,7 @@ pub enum RowKind {
 }
 
 impl Style {
-    pub(crate) fn from_config(config: &Config, os: Os) -> Self {
+    pub(crate) fn from_config(config: &Config, os: Os, scheme: Option<ColorScheme>) -> Self {
         let font = &config.appearance.font;
         let monospace = monospace_family(os);
         let resolve = |area: &crate::config::Font| {
@@ -252,7 +253,11 @@ impl Style {
             ResolvedFont { family, size }
         };
         Self {
-            theme: config.appearance.theme,
+            theme: match (config.appearance.theme, scheme) {
+                (Theme::Auto, Some(ColorScheme::Light)) => Theme::Light,
+                (Theme::Auto, Some(ColorScheme::Dark)) => Theme::Dark,
+                (theme, _) => theme,
+            },
             size_sample: config.appearance.size_format.column_sample(),
             fonts: Fonts {
                 path: resolve(&font.path),

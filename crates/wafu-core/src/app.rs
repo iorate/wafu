@@ -160,6 +160,10 @@ pub enum Effect {
     },
     /// Watches the configuration file and reports its new text on every change.
     WatchConfig(PathBuf),
+    /// Watches the color scheme of the OS and reports it, now and on every
+    /// change. Only Windows reports anything; elsewhere the window follows
+    /// the OS by itself.
+    WatchColorScheme,
     /// Starts a program without a shell and without waiting for it. `name`
     /// is what the log calls it: `$name` for an external command, `editor`
     /// for the editor.
@@ -265,6 +269,13 @@ pub enum Os {
     Linux,
 }
 
+/// The color scheme the OS is set to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ColorScheme {
+    Light,
+    Dark,
+}
+
 /// The result of an effect, reported by the I/O layer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IoEvent {
@@ -308,6 +319,10 @@ pub enum IoEvent {
     },
     ConfigWatchFailed {
         error: IoError,
+    },
+    /// The color scheme of the OS, when first read and on every change.
+    ColorScheme {
+        scheme: ColorScheme,
     },
     Spawned {
         kind: SpawnKind,
@@ -370,6 +385,8 @@ pub struct App {
     active: Side,
     config: Config,
     config_path: PathBuf,
+    // What the OS reported; `None` until it does.
+    color_scheme: Option<ColorScheme>,
     style: Arc<Style>,
     log: Log,
     popup: Option<Popup>,
@@ -401,7 +418,8 @@ impl App {
                 Pane::new(Location::new(PathBuf::new())),
             ],
             active: Side::Left,
-            style: Arc::new(Style::from_config(&config, Os::Linux)),
+            color_scheme: None,
+            style: Arc::new(Style::from_config(&config, Os::Linux, None)),
             config,
             config_path: PathBuf::new(),
             log,
@@ -707,6 +725,7 @@ impl App {
                 );
             }
             IoEvent::ConfigLoaded { result } => self.config_loaded(result),
+            IoEvent::ColorScheme { scheme } => self.color_scheme_changed(scheme),
             IoEvent::ConfigWatchFailed { error } => {
                 self.log.push(
                     AppError::Watch {
