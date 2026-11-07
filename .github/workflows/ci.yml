@@ -62,13 +62,13 @@ jobs:
           cargo test --
           --skip runtime::tests::removing_the_target_of_a_watched_link_to_a_directory_is_reported
 
-      - name: Check package.json versions
+      - name: Check the package.json version
         if: runner.os == 'Linux'
         run: |
+          stub="$(jq -re .version package.json)"
           cargo metadata --format-version 1 --no-deps \
             | jq -re '.packages[] | .name + " " + .version' \
             | while read -r name version; do
-                stub="$(jq -re .version "crates/$name/package.json")"
                 if [[ "$stub" != "$version" ]]; then
                   echo "::error::$name: Cargo.toml has $version but package.json has $stub"
                   exit 1
