@@ -566,17 +566,16 @@ fn the_left_pane_takes_clicks_and_the_wheel_beside_a_right_pane_image() {
 }
 
 #[test]
-fn double_click_on_the_left_pane_beside_a_right_pane_image_only_moves_the_cursor() {
+fn double_click_on_the_left_pane_beside_a_right_pane_image_moves_the_cursor_and_closes_it() {
     let mut harness = image();
+    let request = harness.latest_preview_request();
 
     harness.double_click(Side::Left, 1);
 
     assert_eq!(harness.cursor_name(Side::Left), "note.txt");
-    assert_eq!(
-        harness.view().preview.unwrap().content,
-        PreviewContent::Image(None)
-    );
+    assert!(harness.view().preview.is_none());
     assert!(harness.view().left.active);
+    assert_eq!(harness.take_effects(), vec![Effect::CancelRead { request }]);
 }
 
 #[test]

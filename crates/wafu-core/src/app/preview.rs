@@ -102,6 +102,13 @@ impl App {
                         side: Side::Left,
                         top,
                     } => pane.scroll_to(top),
+                    MouseInput::DoubleClick {
+                        side: Side::Left,
+                        row,
+                    } => {
+                        pane.set_cursor(row);
+                        self.close_preview(effects);
+                    }
                     _ => {}
                 }
             }
