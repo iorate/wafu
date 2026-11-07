@@ -67,6 +67,11 @@ export component AppWindow inherits Window {
     // flash an overlay.
     property <bool> progress-shown;
 
+    // Slint takes the focus away from the scope when the window goes inactive,
+    // so this doubles as the window's state. An input popup takes it too, and
+    // the dimmed cursor under the popup is intended.
+    property <bool> window-active: scope.has-focus;
+
     title: window-title;
     icon: @image-url("../assets/wafu.png");
     preferred-width: 960px;
@@ -177,6 +182,7 @@ export component AppWindow inherits Window {
                     marks: root.left-marks;
                     scroll-top: root.left-scroll-top;
                     size-sample: root.size-sample;
+                    window-active: root.window-active;
                     viewport-rows-changed(rows) => {
                         root.viewport-rows-changed(0, rows);
                     }
@@ -214,6 +220,7 @@ export component AppWindow inherits Window {
                     marks: root.right-marks;
                     scroll-top: root.right-scroll-top;
                     size-sample: root.size-sample;
+                    window-active: root.window-active;
                     viewport-rows-changed(rows) => {
                         root.viewport-rows-changed(1, rows);
                     }

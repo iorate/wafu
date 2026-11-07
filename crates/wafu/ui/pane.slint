@@ -36,6 +36,7 @@ component Cell inherits Text {
 component RowItem {
     in property <Row> item;
     in property <bool> cursor;
+    in property <bool> window-active;
     in property <bool> marked;
     in property <ColumnWidths> columns;
 
@@ -96,7 +97,7 @@ component RowItem {
     if cursor: Rectangle {
         y: parent.height - Theme.line-width;
         height: Theme.line-width;
-        background: Theme.colors.cursor;
+        background: root.window-active ? Theme.colors.cursor : Theme.colors.cursor-inactive;
     }
 }
 
@@ -106,6 +107,7 @@ export component PaneWidget {
     in property <[bool]> marks;
     in property <int> scroll-top;
     in property <string> size-sample;
+    in property <bool> window-active;
     // Where the list and its top row are in the window, for a menu below a
     // row.
     out property <length> list-x: area.absolute-position.x;
@@ -223,6 +225,7 @@ export component PaneWidget {
                 for row[index] in root.rows: RowItem {
                     item: row;
                     cursor: index == root.data.cursor;
+                    window-active: root.window-active;
                     marked: root.marks[index];
                     columns: root.columns;
                 }
