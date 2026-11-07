@@ -31,8 +31,8 @@ mod text;
 mod view;
 
 pub use app::{
-    App, Change, ConfigSource, Effect, IoEvent, MenuAnchor, MouseInput, Msg, Os, PreviewError,
-    PreviewSource, Resolved, Side, SpawnKind, Start,
+    App, Change, ColorScheme, ConfigSource, Effect, IoEvent, MenuAnchor, MouseInput, Msg, Os,
+    PreviewError, PreviewSource, Resolved, Side, SpawnKind, Start,
 };
 pub use config::{CONFIG_TEMPLATE, Color, ColorSet, Colors, Theme};
 pub use entry::{

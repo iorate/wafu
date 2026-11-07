@@ -6,6 +6,8 @@
 
 mod archive;
 #[cfg(windows)]
+mod color_scheme;
+#[cfg(windows)]
 mod com;
 mod config;
 mod drives;
