@@ -39,7 +39,7 @@ jobs:
 
       - name: Package
         run: |
-          version="$(jq -re .version crates/wafu/package.json)"
+          version="$(jq -re .version package.json)"
           mkdir dist
           (cd target/release && 7z a -tzip "$GITHUB_WORKSPACE/dist/wafu-v$version-windows-x64.zip" wafu.exe)
 
@@ -71,7 +71,7 @@ jobs:
 
       - name: Package
         run: |
-          version="$(jq -re .version crates/wafu/package.json)"
+          version="$(jq -re .version package.json)"
           image="$RUNNER_TEMP/image"
           app="$image/wafu.app"
           mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
@@ -124,7 +124,7 @@ jobs:
       - name: Create release
         run: |
           version="${GITHUB_REF_NAME#v}"
-          if [[ "$version" != "$(jq -re .version crates/wafu/package.json)" ]]; then
+          if [[ "$version" != "$(jq -re .version package.json)" ]]; then
             echo "::error::$GITHUB_REF_NAME does not match the version of wafu"
             exit 1
           fi

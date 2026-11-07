@@ -34,22 +34,19 @@ jobs:
         with:
           tool: cargo-edit@0.13.14
 
-      - name: Bump versions
+      - name: Bump the version
         id: version
         run: |
           plan="$(changesette version --allow-no-changesets --output -)"
-          if jq -e 'any(.releases[]; .type != "none")' <<< "$plan" > /dev/null; then
-            jq -re '.releases[] | select(.type != "none") | .name + " " + .newVersion' <<< "$plan" \
-              | while read -r name version; do
-                  cargo set-version -p "$name" "$version"
-                done
+          if release="$(jq -e '[.releases[] | select(.type != "none")][0]' <<< "$plan")"; then
+            version="$(jq -re .newVersion <<< "$release")"
+            cargo set-version --workspace "$version"
             cargo update -w
-            title="Release $(jq -re '[.releases[] | select(.type != "none") | .name + " v" + .newVersion] | join(" and ")' <<< "$plan")"
-            echo "title=$title" >> "$GITHUB_OUTPUT"
+            echo "title=Release v$version" >> "$GITHUB_OUTPUT"
             delim="$(openssl rand -hex 16)"
             {
               echo "body<<$delim"
-              jq -r '[.releases[] | select(.type != "none") | "## \(.name)@\(.newVersion)\n\n\(.changelogEntry)"] | join("\n\n")' <<< "$plan"
+              jq -re .changelogEntry <<< "$release"
               echo "$delim"
             } >> "$GITHUB_OUTPUT"
           else
@@ -81,16 +78,17 @@ jobs:
         id: release
         if: steps.pr.outputs.pull-request-number == ''
         run: |
+          version="$(jq -re .version package.json)"
           for name in wafu-core wafu-io wafu; do
-            version="$(jq -re .version "crates/$name/package.json")"
             prefix="${name:0:2}/${name:2:2}"
             if curl -fsS "https://index.crates.io/$prefix/$name" \
                 | jq -e --arg v "$version" 'select(.vers == $v)' > /dev/null; then
-              version=""
+              echo "$name=" >> "$GITHUB_OUTPUT"
+            else
+              echo "$name=$version" >> "$GITHUB_OUTPUT"
             fi
-            echo "$name=$version" >> "$GITHUB_OUTPUT"
           done
-          tag_version="$(jq -re .version crates/wafu/package.json)"
+          tag_version="$version"
           if [[ -n "$(git ls-remote origin "refs/tags/v$tag_version")" ]]; then
             tag_version=""
           fi
