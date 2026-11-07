@@ -5,6 +5,7 @@ export struct ThemeColors {
     bg: color,
     mark: color,
     cursor: color,
+    cursor-inactive: color,
     dir: color,
     link: color,
     exec: color,
@@ -18,12 +19,14 @@ export struct ThemeColors {
 // font of its own area; the window's default font is never relied on.
 export global Theme {
     in property <ThemeColors> light: {
-        fg: #1e1e1e, bg: #ffffff, mark: #dcdcdc, cursor: #1e1e1e, dir: #1f5fbf,
-        link: #0e7c86, exec: #2a8c2a, broken: #c0392b, fifo: #b8860b, socket: #b03a9a,
+        fg: #1e1e1e, bg: #ffffff, mark: #dcdcdc, cursor: #1e1e1e,
+        cursor-inactive: #7d7d7d, dir: #1f5fbf, link: #0e7c86, exec: #2a8c2a,
+        broken: #c0392b, fifo: #b8860b, socket: #b03a9a,
     };
     in property <ThemeColors> dark: {
-        fg: #d4d4d4, bg: #1e1e1e, mark: #3c3c3c, cursor: #d4d4d4, dir: #6fa8ff,
-        link: #4fd1e0, exec: #5fd75f, broken: #ff6b6b, fifo: #f0c050, socket: #e58ae0,
+        fg: #d4d4d4, bg: #1e1e1e, mark: #3c3c3c, cursor: #d4d4d4,
+        cursor-inactive: #888888, dir: #6fa8ff, link: #4fd1e0, exec: #5fd75f,
+        broken: #ff6b6b, fifo: #f0c050, socket: #e58ae0,
     };
     in property <string> path-font-family;
     in property <length> path-font-size: 12px;

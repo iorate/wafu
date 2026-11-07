@@ -833,6 +833,7 @@ fn theme_colors(colors: &Colors) -> ThemeColors {
         bg: color(colors.bg),
         mark: color(colors.mark),
         cursor: color(colors.cursor),
+        cursor_inactive: color(colors.cursor_inactive),
         dir: color(colors.dir),
         link: color(colors.link),
         exec: color(colors.exec),
