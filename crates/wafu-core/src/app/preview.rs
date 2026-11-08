@@ -50,9 +50,16 @@ impl App {
     }
 
     pub(super) fn run_preview_command(&mut self, command: &Command, effects: &mut Vec<Effect>) {
-        if *command == Command::ClosePreview {
-            self.close_preview(effects);
-            return;
+        match command {
+            Command::ClosePreview => {
+                self.close_preview(effects);
+                return;
+            }
+            Command::PreviewEdit => {
+                self.edit_previewed(effects);
+                return;
+            }
+            _ => {}
         }
         // A page is that many unwrapped lines; how many screen rows a line
         // takes is known only to the UI.
@@ -334,6 +341,19 @@ impl App {
                         })
                 )
             )
+    }
+
+    // The file to open is the one being shown, which the cursor may have
+    // left, and never a marked one: the marks are out of sight behind the
+    // preview. The preview closes first, so that the file is read again when
+    // it is opened after the edit.
+    fn edit_previewed(&mut self, effects: &mut Vec<Effect>) {
+        let Some(Preview::Document(preview)) = &self.preview else {
+            return;
+        };
+        let source = preview.source.clone();
+        self.close_preview(effects);
+        self.edit_source(source, effects);
     }
 
     fn close_preview(&mut self, effects: &mut Vec<Effect>) {

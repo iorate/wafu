@@ -630,6 +630,7 @@ impl App {
             | Command::PreviewTop
             | Command::PreviewBottom
             | Command::PreviewToggleMode
+            | Command::PreviewEdit
             | Command::ClosePreview => self.run_preview_command(&command, effects),
             Command::Palette => self.open_palette(),
             Command::GoToPath => self.open_input(InputKind::GoToPath {

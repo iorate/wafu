@@ -61,6 +61,7 @@ const NAMES: &[(Command, &str)] = &[
     (Command::PreviewTop, "preview_top"),
     (Command::PreviewBottom, "preview_bottom"),
     (Command::PreviewToggleMode, "preview_toggle_mode"),
+    (Command::PreviewEdit, "preview_edit"),
     (Command::ClosePreview, "close_preview"),
     (Command::Copy, "copy"),
     (Command::Move, "move"),
@@ -149,6 +150,8 @@ pub enum Command {
     PreviewBottom,
     /// Switches a document preview between text and binary.
     PreviewToggleMode,
+    /// Opens the previewed file in the editor, closing the preview first.
+    PreviewEdit,
     ClosePreview,
     Copy,
     Move,
@@ -229,6 +232,7 @@ impl Command {
                 | Self::PreviewTop
                 | Self::PreviewBottom
                 | Self::PreviewToggleMode
+                | Self::PreviewEdit
                 | Self::ClosePreview
         );
         let log = matches!(
