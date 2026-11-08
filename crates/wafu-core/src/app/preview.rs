@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use super::navigation::is_link_in_archive;
 use super::{App, Effect, MouseInput, PreviewError, PreviewSource, Side};
-use crate::command::Context;
+use crate::command::{Command, Context};
 use crate::entry::Entry;
 use crate::error::AppError;
 use crate::key::{Key, KeyBase, NamedKey};
@@ -66,9 +66,18 @@ impl App {
                     _ => {}
                 }
             }
-            Some(Preview::Image(_)) => {
+            Some(Preview::Image(preview)) => {
+                let full = preview.placement == PreviewPlacement::Full;
                 if let Some(command) = self.config.keys.lookup(Context::Image, &key) {
-                    self.run_command(command, effects);
+                    // A divider that is not on screen does not move, as with the mouse.
+                    let hidden = match command {
+                        Command::PaneShrinkLeft | Command::PaneGrowLeft => full,
+                        Command::LogShrink | Command::LogGrow => self.hide_log(),
+                        _ => false,
+                    };
+                    if !hidden {
+                        self.run_command(command, effects);
+                    }
                 }
                 self.active_pane_mut().ensure_cursor_visible();
             }
