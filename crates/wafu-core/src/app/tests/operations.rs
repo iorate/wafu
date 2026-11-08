@@ -1317,7 +1317,7 @@ fn copy_path_on_the_parent_row_copies_the_directory_itself() {
 
     assert_eq!(
         harness.take_effects(),
-        vec![Effect::Clipboard(LEFT.to_owned())]
+        vec![Effect::Clipboard(shown("/home", "user"))]
     );
 }
 
