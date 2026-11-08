@@ -88,6 +88,10 @@ impl App {
                 }
             }
             Some(Preview::Image(preview)) if preview.placement == PreviewPlacement::RightPane => {
+                if let MouseInput::SplitTo { percent } = input {
+                    self.split_to(percent);
+                    return;
+                }
                 let pane = &mut self.panes[Side::Left.index()];
                 match input {
                     MouseInput::Click {

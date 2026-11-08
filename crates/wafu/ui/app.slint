@@ -53,6 +53,8 @@ export component AppWindow inherits Window {
     callback scroll-to(side: int, top: int);
     callback log-wheel(delta: length);
     callback log-scroll-to(top: int);
+    callback split-dragged(percent: int);
+    callback log-resized(rows: int);
     callback input-edited(field: int, text: string);
     callback input-accepted();
     callback preview-rows-changed(rows: int);
@@ -260,6 +262,20 @@ export component AppWindow inherits Window {
                         root.preview-wheel(delta);
                     }
                 }
+
+                // The grip is wider than the line, so it takes a few pixels
+                // off the edges of the panes, the left scrollbar included.
+                // The core snaps the percentage to the step of the keys.
+                TouchArea {
+                    x: panes.left-width - Theme.grip-margin;
+                    width: Theme.line-width + Theme.grip-margin * 2;
+                    height: parent.height;
+                    enabled: !panes.left-covered;
+                    mouse-cursor: col-resize;
+                    moved => {
+                        root.split-dragged(round((self.x + self.mouse-x) / (panes.width - Theme.line-width) * 100));
+                    }
+                }
             }
 
             Rectangle {
@@ -345,6 +361,19 @@ export component AppWindow inherits Window {
                     }
                 }
             }
+        }
+    }
+
+    // Outside the layout so that the grip can reach past the divider's row.
+    // The grip follows the divider, so the pointer's offset from it is how
+    // many rows to add.
+    if !root.hide-log: TouchArea {
+        y: panes.height - Theme.grip-margin;
+        width: root.width;
+        height: Theme.line-width + Theme.grip-margin * 2;
+        mouse-cursor: row-resize;
+        moved => {
+            root.log-resized(root.log-rows + round((Theme.grip-margin - self.mouse-y) / Theme.log-row-height));
         }
     }
 

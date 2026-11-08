@@ -312,6 +312,7 @@ impl Ui {
         Self::connect_window(ui);
         Self::connect_preview(ui);
         Self::connect_popup(ui);
+        Self::connect_dividers(ui);
 
         let weak = Rc::downgrade(ui);
         ui.window.on_viewport_rows_changed(move |side, rows| {
@@ -511,6 +512,26 @@ impl Ui {
                 && let Some(rows) = ui.wheel_rows(WHEEL_POPUP, delta)
             {
                 ui.dispatch(Msg::Mouse(MouseInput::PopupWheel { rows }));
+            }
+        });
+    }
+
+    fn connect_dividers(ui: &Rc<Self>) {
+        let weak = Rc::downgrade(ui);
+        ui.window.on_split_dragged(move |percent| {
+            if let Some(ui) = Weak::upgrade(&weak) {
+                ui.dispatch(Msg::Mouse(MouseInput::SplitTo {
+                    percent: u8::try_from(percent.clamp(0, 100)).unwrap_or(0),
+                }));
+            }
+        });
+
+        let weak = Rc::downgrade(ui);
+        ui.window.on_log_resized(move |rows| {
+            if let Some(ui) = Weak::upgrade(&weak) {
+                ui.dispatch(Msg::Mouse(MouseInput::LogRowsTo {
+                    rows: usize::try_from(rows).unwrap_or(0),
+                }));
             }
         });
     }

@@ -596,6 +596,29 @@ fn the_right_pane_and_right_clicks_are_ignored_beside_a_right_pane_image() {
 }
 
 #[test]
+fn the_divider_moves_beside_a_right_pane_image_but_not_under_a_full_one() {
+    let mut harness = image();
+
+    harness.send(Msg::Mouse(MouseInput::SplitTo { percent: 70 }));
+
+    assert_eq!(harness.view().split_percent, 70);
+    assert!(harness.view().preview.is_some());
+
+    harness.press("Esc");
+    harness.press("Tab");
+    harness.press("Down");
+    harness.press("Enter");
+    assert_eq!(
+        harness.view().preview.unwrap().placement,
+        PreviewPlacement::Full
+    );
+
+    harness.send(Msg::Mouse(MouseInput::SplitTo { percent: 30 }));
+
+    assert_eq!(harness.view().split_percent, 70);
+}
+
+#[test]
 fn mouse_clicks_are_ignored_during_a_full_image_preview() {
     let mut harness = listing();
     harness.press("Tab");

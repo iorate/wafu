@@ -1507,6 +1507,27 @@ fn layout_keys_change_the_split_and_log_height_within_bounds() {
     assert_eq!(harness.view().log_rows, 30);
 }
 
+#[test]
+fn divider_drags_snap_to_the_key_steps_within_bounds() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+
+    harness.send(Msg::Mouse(MouseInput::SplitTo { percent: 37 }));
+    assert_eq!(harness.view().split_percent, 35);
+    harness.send(Msg::Mouse(MouseInput::SplitTo { percent: 38 }));
+    assert_eq!(harness.view().split_percent, 40);
+    harness.send(Msg::Mouse(MouseInput::SplitTo { percent: 0 }));
+    assert_eq!(harness.view().split_percent, 10);
+    harness.send(Msg::Mouse(MouseInput::SplitTo { percent: 255 }));
+    assert_eq!(harness.view().split_percent, 90);
+
+    harness.send(Msg::Mouse(MouseInput::LogRowsTo { rows: 12 }));
+    assert_eq!(harness.view().log_rows, 12);
+    harness.send(Msg::Mouse(MouseInput::LogRowsTo { rows: 0 }));
+    assert_eq!(harness.view().log_rows, 1);
+    harness.send(Msg::Mouse(MouseInput::LogRowsTo { rows: 100 }));
+    assert_eq!(harness.view().log_rows, 30);
+}
+
 // Reload and watching
 
 #[test]
