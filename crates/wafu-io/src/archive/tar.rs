@@ -49,6 +49,10 @@ enum Content {
     Span { start: u64, len: u64 },
     // A link's content is its target, which the header holds.
     Target(String),
+    // A hard link has the content of the earlier entry at this index.
+    HardLink(usize),
+    // A hard link to a name no earlier entry has.
+    Dangling,
     // Spread over holes the stream positions do not describe.
     Sparse,
 }
@@ -113,10 +117,17 @@ impl ArchiveReader for TarReader {
         index: usize,
         _password: Option<&str>,
     ) -> Result<Box<dyn Read + '_>, ArchiveError> {
-        match self.contents[index].clone() {
+        let content = match self.contents[index] {
+            Content::HardLink(target) => self.contents[target].clone(),
+            ref content => content.clone(),
+        };
+        match content {
             Content::Target(target) => Ok(Box::new(Cursor::new(target.into_bytes()))),
             Content::Sparse => Err(ArchiveError::Invalid(
                 "sparse entries are not supported".to_owned(),
+            )),
+            Content::HardLink(_) | Content::Dangling => Err(ArchiveError::Invalid(
+                "the target of the hard link is not in the archive".to_owned(),
             )),
             Content::Span { start, len } => {
                 if self.stream.as_ref().is_none_or(|stream| stream.pos > start) {
@@ -129,6 +140,13 @@ impl ArchiveReader for TarReader {
                     remaining: len,
                 }))
             }
+        }
+    }
+
+    fn hard_link_target(&self, index: usize) -> Option<usize> {
+        match self.contents[index] {
+            Content::HardLink(target) => Some(target),
+            _ => None,
         }
     }
 }
@@ -356,7 +374,8 @@ fn scan<R: Read>(entries: Entries<'_, R>) -> io::Result<(Vec<ArchiveEntry>, Vec<
                     Content::Target(target),
                 )
             }
-            // A hard link shares the content of an entry that came before it.
+            // A hard link shares the content of an entry that came before it,
+            // and a link to a link shares that of the first.
             EntryType::Link => {
                 let target = split_name(&link_name());
                 let found = listed.iter().rposition(|listed| {
@@ -366,13 +385,13 @@ fn scan<R: Read>(entries: Entries<'_, R>) -> io::Result<(Vec<ArchiveEntry>, Vec<
                     Some(index) => (
                         ArchiveEntryKind::File,
                         listed[index].size,
-                        contents[index].clone(),
+                        match contents[index] {
+                            Content::HardLink(first) => Content::HardLink(first),
+                            Content::Dangling => Content::Dangling,
+                            _ => Content::HardLink(index),
+                        },
                     ),
-                    None => (
-                        ArchiveEntryKind::File,
-                        0,
-                        Content::Span { start: 0, len: 0 },
-                    ),
+                    None => (ArchiveEntryKind::File, 0, Content::Dangling),
                 }
             }
             EntryType::GNUSparse => (ArchiveEntryKind::File, entry.size(), Content::Sparse),
@@ -547,7 +566,10 @@ mod tests {
         assert_eq!(reader.entries()[1].size, 4);
         assert_eq!(content(&mut reader, 1), b"data");
         assert_eq!(reader.entries()[2].size, 0);
-        assert_eq!(content(&mut reader, 2), b"");
+        assert!(matches!(
+            reader.open(2, None),
+            Err(ArchiveError::Invalid(message)) if message.contains("hard link")
+        ));
     }
 
     #[test]

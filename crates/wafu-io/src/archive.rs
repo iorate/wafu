@@ -64,6 +64,11 @@ pub(crate) trait ArchiveReader {
         index: usize,
         password: Option<&str>,
     ) -> Result<Box<dyn Read + '_>, ArchiveError>;
+
+    // The earlier entry whose content a hard link at `index` shares.
+    fn hard_link_target(&self, _index: usize) -> Option<usize> {
+        None
+    }
 }
 
 // Writes one archive. A file's content is pulled from `data`, which is

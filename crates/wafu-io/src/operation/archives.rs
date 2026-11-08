@@ -205,16 +205,26 @@ impl Worker<'_> {
             }
             ArchiveEntryKind::File => {
                 ensure_parent(&shown, &extraction.dest, &dst)?;
-                self.unlock(extraction, index, &shown)?;
+                // A hard link is extracted as a copy. Its content comes before
+                // it in a tar, so reading it there would start the stream over;
+                // the file already written has it too.
+                let copy_of = extraction
+                    .reader
+                    .hard_link_target(index)
+                    .and_then(|target| extraction.written.get(&target).cloned());
+                if copy_of.is_none() {
+                    self.unlock(extraction, index, &shown)?;
+                }
                 let Some(dst) = self.clear_destination(&shown, &dst)? else {
                     return Ok(false);
                 };
-                let result = self.write_entry(extraction, index, &dst, &shown);
+                let result = self.write_entry(extraction, index, copy_of.as_deref(), &dst, &shown);
                 if result.is_err() {
                     let _ = fs::remove_file(&dst);
                 }
                 result?;
                 set_entry_metadata(&dst, &entry);
+                extraction.written.insert(index, dst);
             }
             ArchiveEntryKind::Symlink => {
                 self.unlock(extraction, index, &shown)?;
@@ -276,13 +286,17 @@ impl Worker<'_> {
         &mut self,
         extraction: &mut Extraction,
         index: usize,
+        copy_of: Option<&Path>,
         dst: &Path,
         shown: &Path,
     ) -> Result<(), Stop> {
-        let mut reader = extraction
-            .reader
-            .open(index, extraction.password.as_deref())
-            .map_err(|error| failure(shown, &error.to_string()))?;
+        let mut reader: Box<dyn Read> = match copy_of {
+            Some(path) => Box::new(File::open(path).map_err(fail(shown))?),
+            None => extraction
+                .reader
+                .open(index, extraction.password.as_deref())
+                .map_err(|error| failure(shown, &error.to_string()))?,
+        };
         let mut writer = File::create(dst).map_err(fail(shown))?;
         let mut buffer = vec![0; CHUNK_SIZE];
         loop {
@@ -413,6 +427,7 @@ struct Extraction {
     dest: PathBuf,
     links: Vec<(PathBuf, String)>,
     dirs: Vec<(PathBuf, ArchiveEntry)>,
+    written: HashMap<usize, PathBuf>,
 }
 
 impl Extraction {
@@ -431,6 +446,7 @@ impl Extraction {
             dest: dest.to_path_buf(),
             links: Vec::new(),
             dirs: Vec::new(),
+            written: HashMap::new(),
         })
     }
 }
@@ -676,6 +692,48 @@ mod tests {
         assert_eq!(done_indices(&events), [0, 1, 2]);
         assert_eq!(fs::read(dest.join("b.txt")).unwrap(), b"b");
         assert_eq!(fs::read(dest.join("d").join("y")).unwrap(), b"y");
+    }
+
+    #[test]
+    fn hard_links_are_copied_from_the_extracted_file_without_reading_the_archive_again() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.tar");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        fs::write(dest.join("same1"), b"old").unwrap();
+        write_tar(
+            &archive,
+            &[
+                ("orig", EntryType::Regular, "", b"data"),
+                ("mid", EntryType::Regular, "", b"m"),
+                ("same1", EntryType::Link, "orig", b""),
+                ("same2", EntryType::Link, "orig", b""),
+            ],
+        );
+        let spec = extract(std::slice::from_ref(&archive), &dest);
+        let (sender, replies) = mpsc::channel();
+        let outcome = Mutex::new(None);
+        // With the archive gone, reading it from the start again would fail.
+        let report = |event: OperationEvent| match event {
+            OperationEvent::Conflict { .. } => {
+                fs::remove_file(&archive).unwrap();
+                sender.send(Reply::Overwrite { all: false }).unwrap();
+            }
+            OperationEvent::Finished(finished) => *outcome.lock().unwrap() = Some(finished),
+            _ => {}
+        };
+
+        run_operation(&spec, None, &replies, &report);
+
+        assert_eq!(
+            outcome.into_inner().unwrap(),
+            Some(Outcome::Completed {
+                done: 4,
+                skipped: 0
+            })
+        );
+        assert_eq!(fs::read(dest.join("same1")).unwrap(), b"data");
+        assert_eq!(fs::read(dest.join("same2")).unwrap(), b"data");
     }
 
     #[cfg(unix)]
