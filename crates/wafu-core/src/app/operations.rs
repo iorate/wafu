@@ -1,7 +1,7 @@
 use std::ffi::{OsStr, OsString};
 use std::path::{Component, Path, PathBuf};
 
-use super::{App, Change, Effect, MenuAnchor, Os, Side};
+use super::{App, Change, Effect, MenuAnchor, Os, PreviewSource, Side};
 use crate::command::{Command, Context};
 use crate::entry::Entry;
 use crate::error::{AppError, IoError};
@@ -491,6 +491,32 @@ impl App {
         Self::spawn_editor(&self.config.general.editor, &expansion, effects);
     }
 
+    pub(super) fn edit_source(&mut self, source: PreviewSource, effects: &mut Vec<Effect>) {
+        if let Some((path, name)) = source.entry {
+            let temp = Temp {
+                action: TempAction::Edit,
+                cursor: Some(OsString::from(&name)),
+                marked: Vec::new(),
+                targets: vec![OsString::from(&name)],
+            };
+            let entries = ArchiveEntries {
+                archive: source.path,
+                path,
+                names: vec![name],
+                password: source.password,
+            };
+            self.start_temp(temp, entries, effects);
+        } else {
+            let expansion = Expansion {
+                cursor_path: Some(source.path.clone()),
+                marked_paths: Vec::new(),
+                paths: vec![source.path],
+                ..self.expansion()
+            };
+            Self::spawn_editor(&self.config.general.editor, &expansion, effects);
+        }
+    }
+
     pub(super) fn open_with_os(&mut self, effects: &mut Vec<Effect>) {
         let pane = self.active_pane();
         let location = pane.location().clone();
@@ -626,7 +652,7 @@ impl App {
 
     fn start_temp(&mut self, temp: Temp, entries: ArchiveEntries, effects: &mut Vec<Effect>) {
         let names = entries.names.iter().map(OsString::from).collect();
-        let source_dir = self.active_pane().location().base.clone();
+        let source_dir = entries.archive.clone();
         self.begin_operation(
             OperationKind::ExtractToTemp,
             source_dir,

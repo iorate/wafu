@@ -4,10 +4,15 @@ use crate::app::{Effect, IoEvent, MouseInput, Msg, PreviewError, PreviewSource, 
 use crate::entry::{Entry, EntryKind, SpecialKind, TargetKind};
 use crate::error::IoError;
 use crate::location::{ArchiveFormat, ArchivePath};
+use crate::operation::{
+    ArchiveEntries, OperationEvent, OperationKind, OperationSpec, Outcome, Sources,
+};
 use crate::pane::InFlight;
 use crate::preview::{Document, truncated_note};
-use crate::test_support::{Harness, LEFT, RIGHT, file, special};
+use crate::test_support::{Harness, LEFT, RIGHT, file, path, special};
 use crate::view::{PreviewContent, PreviewPlacement};
+
+const TEMP: &str = "/tmp/wafu/x1";
 
 #[test]
 fn enter_on_a_text_file_opens_an_empty_preview_and_reads_the_file() {
@@ -118,6 +123,77 @@ fn tab_switches_to_the_hex_dump_and_back_from_the_top() {
     harness.press("Tab");
 
     assert_eq!(harness.preview_lines(), ["l0", "l1", "l2"]);
+}
+
+#[test]
+fn e_closes_the_preview_and_opens_the_shown_file_in_the_editor_whatever_is_marked() {
+    let mut harness = listing();
+    harness.press("Down");
+    harness.press("Space");
+    harness.press("Down");
+    harness.press("Down");
+    harness.press("Enter");
+    harness.preview_loaded(Document::decode(b"zzz".to_vec(), false));
+    harness.take_effects();
+    assert_eq!(harness.marks(Side::Left), ["note.txt"]);
+    assert_eq!(harness.cursor_name(Side::Left), "zzz.txt");
+
+    harness.press("E");
+
+    assert!(harness.view().preview.is_none());
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Spawn {
+            name: "editor".to_owned(),
+            program: "xdg-open".to_owned(),
+            args: vec![path(LEFT, "zzz.txt").into_os_string()],
+            cwd: PathBuf::from(LEFT),
+        }]
+    );
+}
+
+#[test]
+fn e_on_an_archive_entry_extracts_it_with_the_preview_password_and_then_starts_the_editor() {
+    let mut harness = inside_archive();
+    harness.press("Enter");
+    harness.fail_preview(PreviewError::PasswordRequired { retry: false });
+    harness.edit("pw");
+    harness.press("Enter");
+    harness.preview_loaded(Document::decode(b"secret".to_vec(), false));
+    harness.take_effects();
+
+    harness.press("E");
+
+    assert!(harness.view().preview.is_none());
+    assert_eq!(
+        harness.start_operation(),
+        Some(OperationSpec {
+            kind: OperationKind::ExtractToTemp,
+            sources: Sources::Entries(ArchiveEntries {
+                archive: PathBuf::from(LEFT).join("a.zip"),
+                path: ArchivePath {
+                    format: ArchiveFormat::Zip,
+                    inner: Vec::new(),
+                },
+                names: vec!["b.txt".to_owned()],
+                password: Some("pw".to_owned()),
+            }),
+            dest: None,
+            output: None,
+        })
+    );
+
+    harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
+    harness.finish(Outcome::Completed {
+        done: 1,
+        skipped: 0,
+    });
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::ReadDir { .. }, Effect::Spawn { program, args, .. }]
+            if program == "xdg-open" && *args == vec![path(TEMP, "b.txt").into_os_string()]
+    ));
 }
 
 #[test]
