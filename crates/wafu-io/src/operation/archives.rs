@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt;
 use std::fs::{self, File, FileTimes};
 use std::io::{self, Read, Write};
@@ -64,37 +65,52 @@ impl Worker<'_> {
             dest,
         )?;
         let prefix = &entries.path.inner;
-        let mut done = Vec::new();
-        for (index, name) in entries.names.iter().enumerate() {
-            let selected: Vec<usize> = extraction
-                .reader
-                .entries()
-                .iter()
-                .enumerate()
-                .filter(|(_, entry)| {
-                    entry.components.len() > prefix.len()
-                        && entry.components[..prefix.len()] == **prefix
-                        && entry.components[prefix.len()] == *name
-                })
-                .map(|(index, _)| index)
-                .collect();
-            if selected.is_empty() {
-                let mut components = prefix.clone();
-                components.push(name.clone());
-                return Err(failure(
-                    &shown(&extraction.archive, &components),
-                    "not found in the archive",
-                ));
-            }
-            if self.extract_indices(&mut extraction, &selected, prefix.len())? {
-                done.push(index);
+        let mut items: HashMap<&str, usize> = HashMap::new();
+        for (item, name) in entries.names.iter().enumerate() {
+            items.entry(name.as_str()).or_insert(item);
+        }
+        let owners: Vec<Option<usize>> = extraction
+            .reader
+            .entries()
+            .iter()
+            .map(|entry| match entry.components.get(prefix.len()) {
+                Some(name) if entry.components[..prefix.len()] == **prefix => {
+                    items.get(name.as_str()).copied()
+                }
+                _ => None,
+            })
+            .collect();
+        let mut found = vec![false; entries.names.len()];
+        for item in owners.iter().flatten() {
+            found[*item] = true;
+        }
+        if let Some(missing) = entries
+            .names
+            .iter()
+            .find(|name| !found[items[name.as_str()]])
+        {
+            let mut components = prefix.clone();
+            components.push(missing.clone());
+            return Err(failure(
+                &shown(&extraction.archive, &components),
+                "not found in the archive",
+            ));
+        }
+        // In archive order, since a tar is read front to back and going back
+        // reads it again from the start.
+        let mut complete = vec![true; entries.names.len()];
+        for (index, item) in owners.into_iter().enumerate() {
+            if let Some(item) = item {
+                complete[item] &= self.extract_one(&mut extraction, index, prefix.len())?;
             }
         }
         finish_extraction(extraction)?;
         // Reported once the links are made, so that an item whose link could
         // not be made keeps its mark.
-        for index in done {
-            (self.report)(OperationEvent::ItemDone { index });
+        for (index, name) in entries.names.iter().enumerate() {
+            if complete[items[name.as_str()]] {
+                (self.report)(OperationEvent::ItemDone { index });
+            }
         }
         Ok(())
     }
@@ -603,6 +619,63 @@ mod tests {
             events.first(),
             Some(OperationEvent::Progress { current, done: 0 }) if *current == archive.join("d")
         ));
+    }
+
+    #[test]
+    fn named_entries_are_extracted_in_archive_order_and_reported_in_item_order() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.tar");
+        let dest = dir.path().join("out");
+        fs::create_dir_all(dest.join("d")).unwrap();
+        for name in [
+            Path::new("d").join("x"),
+            "a.txt".into(),
+            Path::new("d").join("y"),
+            "b.txt".into(),
+        ] {
+            fs::write(dest.join(name), b"old").unwrap();
+        }
+        write_tar(
+            &archive,
+            &[
+                ("d/x", EntryType::Regular, "", b"x"),
+                ("a.txt", EntryType::Regular, "", b"a"),
+                ("d/y", EntryType::Regular, "", b"y"),
+                ("b.txt", EntryType::Regular, "", b"b"),
+            ],
+        );
+
+        let (outcome, events) = run(
+            &copy_entries(&archive, &[], &["b.txt", "d", "a.txt"], &dest),
+            (0..4).map(|_| Reply::Overwrite { all: false }),
+        );
+
+        assert_eq!(
+            outcome,
+            Outcome::Completed {
+                done: 4,
+                skipped: 0
+            }
+        );
+        let asked: Vec<PathBuf> = events
+            .iter()
+            .filter_map(|event| match event {
+                OperationEvent::Conflict { source, .. } => Some(source.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            asked,
+            [
+                archive.join("d").join("x"),
+                archive.join("a.txt"),
+                archive.join("d").join("y"),
+                archive.join("b.txt"),
+            ]
+        );
+        assert_eq!(done_indices(&events), [0, 1, 2]);
+        assert_eq!(fs::read(dest.join("b.txt")).unwrap(), b"b");
+        assert_eq!(fs::read(dest.join("d").join("y")).unwrap(), b"y");
     }
 
     #[cfg(unix)]
