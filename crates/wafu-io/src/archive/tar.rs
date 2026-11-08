@@ -8,7 +8,7 @@ use bzip2::write::BzEncoder;
 use flate2::read::MultiGzDecoder;
 use flate2::write::GzEncoder;
 use lzma_rust2::{XzOptions, XzReader, XzWriter};
-use tar::{Archive, Builder, Entries, EntryType, Header};
+use tar::{Archive, Builder, Entries, Entry, EntryType, Header};
 
 use super::names::{decode_name, split_name};
 use super::{ArchiveEntry, ArchiveEntryKind, ArchiveError, ArchiveReader, ArchiveWriter};
@@ -72,6 +72,14 @@ enum Source {
 struct EntryReader<'a> {
     stream: &'a mut Stream,
     remaining: u64,
+}
+
+// What an entry's PAX records say beyond what the crate applies itself.
+#[derive(Default)]
+struct PaxRecords {
+    sparse: bool,
+    sparse_name: Option<String>,
+    sparse_size: Option<u64>,
 }
 
 struct Counted<R> {
@@ -336,9 +344,14 @@ fn scan<R: Read>(entries: Entries<'_, R>) -> io::Result<(Vec<ArchiveEntry>, Vec<
     let mut listed: Vec<ArchiveEntry> = Vec::new();
     let mut contents: Vec<Content> = Vec::new();
     for entry in entries {
-        let entry = entry?;
+        let mut entry = entry?;
+        let pax = pax_records(&mut entry)?;
         let header = entry.header();
-        let components = split_name(&decode_name(&entry.path_bytes()));
+        let name = pax
+            .sparse_name
+            .clone()
+            .unwrap_or_else(|| decode_name(&entry.path_bytes()));
+        let components = split_name(&name);
         // `./`, which `tar -C dir -cf x.tar .` starts with, and an empty name
         // are the root, which has no entry of its own.
         if components.is_empty() {
@@ -358,6 +371,13 @@ fn scan<R: Read>(entries: Entries<'_, R>) -> io::Result<(Vec<ArchiveEntry>, Vec<
                 .unwrap_or_default()
         };
         let (kind, size, content) = match header.entry_type() {
+            // A PAX sparse file is a regular one holding the map of its
+            // data, under a made-up name.
+            _ if pax.sparse => (
+                ArchiveEntryKind::File,
+                pax.sparse_size.unwrap_or(entry.size()),
+                Content::Sparse,
+            ),
             EntryType::Directory => (
                 ArchiveEntryKind::Dir,
                 0,
@@ -426,6 +446,35 @@ fn scan<R: Read>(entries: Entries<'_, R>) -> io::Result<(Vec<ArchiveEntry>, Vec<
         contents.push(content);
     }
     Ok((listed, contents))
+}
+
+fn pax_records<R: Read>(entry: &mut Entry<'_, R>) -> io::Result<PaxRecords> {
+    let mut records = PaxRecords::default();
+    // A global header's records are its content and not about the header,
+    // and they are left out with it.
+    let kind = entry.header().entry_type();
+    if kind.is_pax_global_extensions() || kind.is_pax_local_extensions() {
+        return Ok(records);
+    }
+    let Some(extensions) = entry.pax_extensions()? else {
+        return Ok(records);
+    };
+    for extension in extensions {
+        let extension = extension?;
+        match extension.key() {
+            Ok("GNU.sparse.name") => {
+                records.sparse = true;
+                records.sparse_name = Some(decode_name(extension.value_bytes()));
+            }
+            Ok("GNU.sparse.realsize" | "GNU.sparse.size") => {
+                records.sparse = true;
+                records.sparse_size = extension.value().ok().and_then(|size| size.parse().ok());
+            }
+            Ok(key) if key.starts_with("GNU.sparse.") => records.sparse = true,
+            _ => {}
+        }
+    }
+    Ok(records)
 }
 
 // Multi-member streams are what parallel compressors (pigz, pbzip2) write.
@@ -595,6 +644,39 @@ mod tests {
             contents: vec![Content::Sparse],
             stream: None,
         };
+        assert!(matches!(
+            reader.open(0, None),
+            Err(ArchiveError::Invalid(message)) if message.contains("sparse")
+        ));
+    }
+
+    #[test]
+    fn a_pax_sparse_file_is_listed_under_its_name_and_cannot_be_read() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.tar");
+        {
+            let mut builder = Builder::new(File::create(&path).unwrap());
+            builder
+                .append_pax_extensions([
+                    ("GNU.sparse.major", &b"1"[..]),
+                    ("GNU.sparse.minor", b"0"),
+                    ("GNU.sparse.name", b"d/holes.bin"),
+                    ("GNU.sparse.realsize", b"1048576"),
+                ])
+                .unwrap();
+            let map = b"1\n0\n5\n";
+            let mut stored = header(EntryType::Regular, map.len() as u64, None, 0o644);
+            builder
+                .append_data(&mut stored, "d/GNUSparseFile.0/holes.bin", &map[..])
+                .unwrap();
+            builder.finish().unwrap();
+        }
+
+        let mut reader = TarReader::open(&path, Compression::None).unwrap();
+
+        assert_eq!(reader.entries().len(), 1);
+        assert_eq!(reader.entries()[0].components, ["d", "holes.bin"]);
+        assert_eq!(reader.entries()[0].size, 1_048_576);
         assert!(matches!(
             reader.open(0, None),
             Err(ArchiveError::Invalid(message)) if message.contains("sparse")
