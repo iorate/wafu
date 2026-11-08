@@ -371,14 +371,14 @@ fn scan<R: Read>(
         // A PAX record holds what the header field cannot: a time before
         // 1970 or past 2242, or a fraction of a second. GNU tar writes a time
         // before 1970 in base-256 two's complement, which decodes to a huge
-        // number. Either way a time before 1970 is left out.
-        let modified = match &pax.mtime {
-            Some(record) => pax_time(record),
-            None => header
-                .mtime()
-                .ok()
-                .and_then(|seconds| UNIX_EPOCH.checked_add(Duration::from_secs(seconds))),
+        // number. Either way a time before 1970 is left out. A record that is
+        // not a time at all leaves the header to tell it.
+        let seconds = match pax.mtime.as_deref().and_then(pax_seconds) {
+            Some(whole) => whole.parse().ok(),
+            None => header.mtime().ok(),
         };
+        let modified =
+            seconds.and_then(|seconds| UNIX_EPOCH.checked_add(Duration::from_secs(seconds)));
         let Some((kind, size, content)) = member(&entry, &name, &pax, &listed, &contents, &latest)
         else {
             continue;
@@ -582,11 +582,13 @@ fn pax_records<R: Read>(entry: &mut Entry<'_, R>) -> io::Result<PaxRecords> {
     Ok(records)
 }
 
-// Decimal seconds with an optional fraction, which is dropped.
-fn pax_time(record: &str) -> Option<SystemTime> {
-    let whole = record.split_once('.').map_or(record, |(whole, _)| whole);
-    let seconds: u64 = whole.parse().ok()?;
-    UNIX_EPOCH.checked_add(Duration::from_secs(seconds))
+// The whole seconds of a time in decimal, with an optional sign and
+// fraction, or `None` when the record is not one.
+fn pax_seconds(record: &str) -> Option<&str> {
+    let (whole, fraction) = record.split_once('.').unwrap_or((record, ""));
+    let digits = whole.strip_prefix('-').unwrap_or(whole);
+    let is_number = |text: &str| text.bytes().all(|byte| byte.is_ascii_digit());
+    (!digits.is_empty() && is_number(digits) && is_number(fraction)).then_some(whole)
 }
 
 // Multi-member streams are what parallel compressors (pigz, pbzip2) write.
@@ -889,10 +891,10 @@ mod tests {
     }
 
     #[test]
-    fn a_pax_time_is_taken_over_the_header_to_the_second() {
+    fn a_pax_time_is_taken_over_the_header_to_the_second_unless_it_is_not_a_time() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("a.tar");
-        let records: [&[u8]; 3] = [b"10413792001", b"-1000", b"1700000000.75"];
+        let records: [&[u8]; 5] = [b"10413792001", b"-1000", b"1700000000.75", b".5", b"12:00"];
         {
             let mut builder = Builder::new(File::create(&path).unwrap());
             for (index, record) in records.iter().enumerate() {
@@ -919,6 +921,8 @@ mod tests {
                 Some(UNIX_EPOCH + Duration::from_secs(10_413_792_001)),
                 None,
                 Some(UNIX_EPOCH + Duration::from_secs(1_700_000_000)),
+                Some(UNIX_EPOCH + Duration::from_secs(1)),
+                Some(UNIX_EPOCH + Duration::from_secs(1)),
             ]
         );
     }
