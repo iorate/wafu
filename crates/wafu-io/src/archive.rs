@@ -154,16 +154,18 @@ fn detect_format(path: &Path) -> io::Result<ArchiveFormat> {
 }
 
 // Zip is the fallback, as it was when every archive was one. A compressed
-// stream is taken to hold a tar; what else it could hold is not read.
+// stream is taken to hold a tar; what else it could hold is not read. The
+// tar magic comes first, since a plain tar starts with the name of its first
+// member, which may look like another magic.
 fn sniff(head: &[u8]) -> ArchiveFormat {
-    if head.starts_with(&[0x1f, 0x8b]) {
+    if head.get(257..262) == Some(b"ustar") {
+        ArchiveFormat::Tar
+    } else if head.starts_with(&[0x1f, 0x8b]) {
         ArchiveFormat::TarGz
     } else if head.starts_with(b"BZh") {
         ArchiveFormat::TarBz2
     } else if head.starts_with(&[0xfd, b'7', b'z', b'X', b'Z', 0x00]) {
         ArchiveFormat::TarXz
-    } else if head.get(257..262) == Some(b"ustar") {
-        ArchiveFormat::Tar
     } else {
         ArchiveFormat::Zip
     }
@@ -379,6 +381,8 @@ mod tests {
         assert_eq!(sniff(b"\xfd7zXZ\x00"), ArchiveFormat::TarXz);
         let mut tar = [0; 512];
         tar[257..262].copy_from_slice(b"ustar");
+        assert_eq!(sniff(&tar), ArchiveFormat::Tar);
+        tar[..7].copy_from_slice(b"BZh.txt");
         assert_eq!(sniff(&tar), ArchiveFormat::Tar);
         assert_eq!(sniff(b"PK\x03\x04"), ArchiveFormat::Zip);
         assert_eq!(sniff(b""), ArchiveFormat::Zip);
