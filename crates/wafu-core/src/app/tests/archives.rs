@@ -1352,6 +1352,10 @@ fn a_temporary_extraction_with_skipped_entries_starts_nothing() {
     harness.press("Down");
     harness.press("E");
     harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
+    harness.operation(OperationEvent::Skipped {
+        path: path(TEMP, "b.txt"),
+        error: IoError::new("sparse entries are not supported"),
+    });
     harness.take_effects();
 
     harness.finish(Outcome::Completed {
@@ -1368,6 +1372,38 @@ fn a_temporary_extraction_with_skipped_entries_starts_nothing() {
     assert_eq!(
         harness.log().last().map(String::as_str),
         Some("extracted 0 items (1 skipped)")
+    );
+}
+
+#[test]
+fn a_temporary_extraction_with_a_conflict_skipped_still_starts_the_program() {
+    let mut harness = inside();
+    harness.press("Down");
+    harness.press("Down");
+    harness.press("E");
+    harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
+    harness.take_effects();
+    harness.operation(OperationEvent::Conflict {
+        source: path(TEMP, "b.txt"),
+        dest: path(TEMP, "b.txt"),
+    });
+    harness.press("s");
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::OperationReply(Reply::Skip { all: false })]
+    );
+
+    harness.finish(Outcome::Completed {
+        done: 0,
+        skipped: 1,
+    });
+
+    let effects = harness.take_effects();
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Spawn { .. })),
+        "{effects:?}"
     );
 }
 

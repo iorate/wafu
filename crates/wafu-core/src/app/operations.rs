@@ -286,6 +286,9 @@ impl App {
                 }
             }
             OperationEvent::Skipped { path, error } => {
+                if let Some(temp) = &mut operation.temp {
+                    temp.entry_skipped = true;
+                }
                 self.log
                     .push(format!("skipped {}: {error}", path.display()));
             }
@@ -479,6 +482,7 @@ impl App {
                 cursor: Some(TempPath::Extracted(entry.name.clone())),
                 marked: Vec::new(),
                 targets: vec![entry.name.clone()],
+                entry_skipped: false,
             };
             let entries = self.archive_entries(&location, std::slice::from_ref(&entry.name));
             self.start_temp(temp, entries, effects);
@@ -494,6 +498,7 @@ impl App {
                 cursor: Some(TempPath::Extracted(OsString::from(&name))),
                 marked: Vec::new(),
                 targets: vec![OsString::from(&name)],
+                entry_skipped: false,
             };
             let entries = ArchiveEntries {
                 archive: source.path,
@@ -568,6 +573,7 @@ impl App {
             cursor,
             marked,
             targets,
+            entry_skipped: false,
         };
         let entries = self.archive_entries(&from, &extracted);
         self.start_temp(temp, entries, effects);
@@ -664,6 +670,7 @@ impl App {
             cursor: Some(TempPath::Extracted(name.clone())),
             marked: Vec::new(),
             targets: vec![name],
+            entry_skipped: false,
         }
     }
 
@@ -770,8 +777,14 @@ impl App {
         };
         self.popup = None;
         // Another program is not handed a set of files with some left out.
-        let whole = matches!(outcome, Outcome::Completed { skipped: 0, .. });
-        if !(whole && operation.temp.is_some()) {
+        // Conflicts answered with Skip count as skipped too, but the user
+        // chose them.
+        let launch = matches!(outcome, Outcome::Completed { .. })
+            && operation
+                .temp
+                .as_ref()
+                .is_some_and(|temp| !temp.entry_skipped);
+        if !launch {
             self.log.push(
                 OutcomeLine {
                     kind: operation.kind,
@@ -786,7 +799,7 @@ impl App {
         {
             self.refresh_showing(dest, effects);
         }
-        if whole
+        if launch
             && let Some(temp) = operation.temp
             && let Some(dir) = operation.temp_dir
         {
@@ -878,6 +891,7 @@ struct Temp {
     marked: Vec<OsString>,
     // The entries `{paths}` stands for.
     targets: Vec<OsString>,
+    entry_skipped: bool,
 }
 
 // What `{cursor_path}` stands for once the extraction is done.
