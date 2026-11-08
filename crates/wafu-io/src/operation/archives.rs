@@ -1390,6 +1390,48 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
+    fn names_windows_cannot_create_are_skipped() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.zip");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        fs::write(
+            &archive,
+            raw_zip(&[
+                (b"a:b", b"1"),
+                (b"con", b"2"),
+                (b"x.", b"3"),
+                (b"ok.txt", b"4"),
+            ]),
+        )
+        .unwrap();
+
+        let (outcome, events) = run(&extract(std::slice::from_ref(&archive), &dest), []);
+
+        assert_eq!(
+            outcome,
+            Outcome::Completed {
+                done: 1,
+                skipped: 3
+            }
+        );
+        assert_eq!(
+            skipped_errors(&events),
+            [
+                "the entry name is unsafe",
+                "the entry name is reserved for a device on Windows",
+                "the entry name ends with a dot or a space, which Windows does not allow",
+            ]
+        );
+        let written: Vec<_> = fs::read_dir(&dest)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(written, ["ok.txt"]);
+    }
+
+    #[cfg(windows)]
+    #[test]
     fn links_to_directories_are_made_as_directory_links_with_backslashes() {
         let dir = TempDir::new().unwrap();
         if std::os::windows::fs::symlink_file("x", dir.path().join("probe")).is_err() {
