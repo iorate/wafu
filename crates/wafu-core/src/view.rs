@@ -176,9 +176,9 @@ pub enum ItemKind {
 pub struct PreviewView {
     pub placement: PreviewPlacement,
     pub content: PreviewContent,
-    /// What the overlay in the corner says: the encoding of a text document,
-    /// or the format of the image and whether its entry is marked. Empty when
-    /// there is nothing to say.
+    /// What the overlay in the corner says: the encoding of a document in
+    /// text mode, or the format of the image and whether its entry is
+    /// marked. Empty when there is nothing to say.
     pub detail: String,
 }
 
@@ -193,7 +193,7 @@ pub enum PreviewPlacement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PreviewContent {
-    /// The visible lines of a text or binary preview, from the scroll
+    /// The visible lines of a document preview, from the scroll
     /// position. Empty while the file is being read. `digits` is the width
     /// of the line number column; zero when there are no numbers.
     Lines {
