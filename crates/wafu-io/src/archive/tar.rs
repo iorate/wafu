@@ -76,6 +76,7 @@ enum Source {
 struct EntryReader<'a> {
     stream: &'a mut Stream,
     remaining: u64,
+    name: String,
 }
 
 // What an entry's PAX records say beyond what the crate applies itself.
@@ -149,6 +150,7 @@ impl ArchiveReader for TarReader {
                 Ok(Box::new(EntryReader {
                     stream,
                     remaining: len,
+                    name: self.entries[index].components.join("/"),
                 }))
             }
         }
@@ -290,7 +292,7 @@ impl Read for EntryReader<'_> {
         if read == 0 {
             return Err(io::Error::new(
                 io::ErrorKind::UnexpectedEof,
-                "the archive ends inside an entry",
+                format!("the tar archive is damaged in {}", self.name),
             ));
         }
         self.remaining -= read as u64;
@@ -343,19 +345,23 @@ impl Write for Encoder {
 // The index of the archive, in one pass. The crate resolves the GNU and PAX
 // extensions, so long names arrive whole and their carrier entries do not
 // show up.
-fn scan<R: Read>(entries: Entries<'_, R>) -> io::Result<(Vec<ArchiveEntry>, Vec<Content>)> {
+fn scan<R: Read>(
+    entries: Entries<'_, R>,
+) -> Result<(Vec<ArchiveEntry>, Vec<Content>), ArchiveError> {
     let mut listed: Vec<ArchiveEntry> = Vec::new();
     let mut contents: Vec<Content> = Vec::new();
     let mut latest: HashMap<Vec<String>, usize> = HashMap::new();
     let mut replaced: Vec<bool> = Vec::new();
+    let mut last: Option<String> = None;
     for entry in entries {
-        let mut entry = entry?;
-        let pax = pax_records(&mut entry)?;
+        let mut entry = entry.map_err(|error| unreadable(error, last.as_deref()))?;
+        let pax = pax_records(&mut entry).map_err(|error| unreadable(error, last.as_deref()))?;
         let header = entry.header();
         let name = pax
             .sparse_name
             .clone()
             .unwrap_or_else(|| decode_name(&entry.path_bytes()));
+        last = Some(name.clone());
         let components = split_name(&name);
         // `./`, which `tar -C dir -cf x.tar .` starts with, and an empty name
         // are the root, which has no entry of its own.
@@ -392,6 +398,19 @@ fn scan<R: Read>(entries: Entries<'_, R>) -> io::Result<(Vec<ArchiveEntry>, Vec<
         contents.push(content);
     }
     Ok(drop_replaced(listed, &contents, &replaced))
+}
+
+// The crate's messages about a header quote its bytes, which are anything
+// at all when the stream is not a tar, so only where it failed is told. An
+// error from the system is passed on.
+fn unreadable(error: io::Error, last: Option<&str>) -> ArchiveError {
+    if error.raw_os_error().is_some() {
+        return ArchiveError::Io(error);
+    }
+    ArchiveError::Invalid(match last {
+        None => "not a tar archive".to_owned(),
+        Some(name) => format!("the tar archive is damaged after {name}"),
+    })
 }
 
 // An entry replaces an earlier one with the same name, as it does when tar
@@ -597,6 +616,8 @@ fn header(kind: EntryType, size: u64, modified: Option<SystemTime>, mode: u32) -
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use tempfile::TempDir;
 
     use super::*;
@@ -919,17 +940,38 @@ mod tests {
     }
 
     #[test]
-    fn a_compressed_file_that_is_not_a_tar_is_an_error() {
+    fn a_compressed_tar_cut_short_is_damaged_after_the_last_entry_read() {
         let dir = TempDir::new().unwrap();
-        let path = dir.path().join("a.gz");
-        let mut encoder = GzEncoder::new(
-            BufWriter::new(File::create(&path).unwrap()),
-            flate2::Compression::default(),
-        );
-        encoder.write_all(b"just some text").unwrap();
-        encoder.finish().unwrap().flush().unwrap();
+        let path = dir.path().join("a.tgz");
+        // Bytes that do not compress, so that cutting the file in half cuts
+        // the second entry.
+        let mut state: u32 = 1;
+        let noise: Vec<u8> = (0..65_536)
+            .map(|_| {
+                state = state.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+                state.to_be_bytes()[0]
+            })
+            .collect();
+        {
+            let mut writer =
+                Box::new(TarWriter::new(File::create(&path).unwrap(), Compression::Gzip).unwrap());
+            writer.add_file("a", 1, None, None, &mut &b"a"[..]).unwrap();
+            writer
+                .add_file("b", noise.len() as u64, None, None, &mut &noise[..])
+                .unwrap();
+            writer.finish().unwrap();
+        }
+        let len = fs::metadata(&path).unwrap().len();
+        File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(len / 2)
+            .unwrap();
 
-        assert!(TarReader::open(&path, Compression::Gzip).is_err());
+        let error = TarReader::open(&path, Compression::Gzip).err().unwrap();
+
+        assert_eq!(error.to_string(), "the tar archive is damaged after b");
     }
 
     #[test]
@@ -961,6 +1003,7 @@ mod tests {
             .unwrap_err();
 
         assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
+        assert_eq!(error.to_string(), "the tar archive is damaged in a");
     }
 
     fn content(reader: &mut TarReader, index: usize) -> Vec<u8> {

@@ -1337,6 +1337,28 @@ mod tests {
     }
 
     #[test]
+    fn a_gzip_that_holds_no_tar_is_not_a_tar_archive() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("t.bin");
+        let mut encoder = flate2::write::GzEncoder::new(
+            File::create(&archive).unwrap(),
+            flate2::Compression::default(),
+        );
+        encoder.write_all(&b"just some text\n".repeat(64)).unwrap();
+        encoder.finish().unwrap();
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+
+        let (outcome, _) = run(&extract(std::slice::from_ref(&archive), &dest), []);
+
+        assert!(matches!(
+            outcome,
+            Outcome::Failed { path, error, .. }
+                if path == archive && error.to_string() == "not a tar archive"
+        ));
+    }
+
+    #[test]
     fn compress_packs_files_directories_and_links_relative_to_their_parent() {
         let dir = TempDir::new().unwrap();
         let src = dir.path().join("src");
