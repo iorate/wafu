@@ -19,8 +19,9 @@ pub(crate) use names::check_component;
 use self::tar::Compression;
 
 const CANCEL_CHECK_INTERVAL: usize = 256;
-// Enough for the `ustar` magic at byte 257.
+// One tar header, which holds the `ustar` magic at byte 257.
 const SNIFF_LEN: usize = 512;
+const TAR_CHECKSUM: std::ops::Range<usize> = 148..156;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ArchiveEntry {
@@ -158,7 +159,7 @@ fn detect_format(path: &Path) -> io::Result<ArchiveFormat> {
 // tar magic comes first, since a plain tar starts with the name of its first
 // member, which may look like another magic.
 fn sniff(head: &[u8]) -> ArchiveFormat {
-    if head.get(257..262) == Some(b"ustar") {
+    if head.get(257..262) == Some(b"ustar") || has_tar_checksum(head) {
         ArchiveFormat::Tar
     } else if head.starts_with(&[0x1f, 0x8b]) {
         ArchiveFormat::TarGz
@@ -169,6 +170,52 @@ fn sniff(head: &[u8]) -> ArchiveFormat {
     } else {
         ArchiveFormat::Zip
     }
+}
+
+// The old formats write no magic, so a tar is also known by the checksum of
+// its first header, as GNU tar knows it: the sum of the header's bytes with
+// the checksum field read as spaces, in octal. Some old tars summed signed
+// bytes, which GNU tar accepts too.
+fn has_tar_checksum(head: &[u8]) -> bool {
+    let Some(header) = head.get(..SNIFF_LEN) else {
+        return false;
+    };
+    if header.iter().all(|&byte| byte == 0) {
+        return false;
+    }
+    let field = &header[TAR_CHECKSUM];
+    let start = field.iter().take_while(|&&byte| byte == b' ').count();
+    let digits = field[start..]
+        .iter()
+        .take_while(|byte| (b'0'..=b'7').contains(*byte))
+        .count();
+    if digits == 0
+        || field
+            .get(start + digits)
+            .is_some_and(|&byte| byte != 0 && byte != b' ')
+    {
+        return false;
+    }
+    let stored = field[start..start + digits]
+        .iter()
+        .fold(0, |sum, &digit| sum * 8 + i64::from(digit - b'0'));
+    let (unsigned, signed) = header
+        .iter()
+        .enumerate()
+        .map(|(index, &byte)| {
+            if TAR_CHECKSUM.contains(&index) {
+                b' '
+            } else {
+                byte
+            }
+        })
+        .fold((0, 0), |(unsigned, signed), byte| {
+            (
+                unsigned + i64::from(byte),
+                signed + i64::from(i8::from_ne_bytes([byte])),
+            )
+        });
+    stored == unsigned || stored == signed
 }
 
 // The listing of one directory inside an archive. Directories that have no
@@ -384,6 +431,29 @@ mod tests {
         assert_eq!(sniff(&tar), ArchiveFormat::Tar);
         tar[..7].copy_from_slice(b"BZh.txt");
         assert_eq!(sniff(&tar), ArchiveFormat::Tar);
+        let mut v7 = ::tar::Header::new_old();
+        v7.set_path("BZh.txt").unwrap();
+        v7.set_size(1);
+        v7.set_cksum();
+        assert_eq!(sniff(v7.as_bytes()), ArchiveFormat::Tar);
+        let mut signed = v7.as_bytes().to_owned();
+        signed[0] = 0xff;
+        let sum: i64 = signed
+            .iter()
+            .enumerate()
+            .map(|(index, &byte)| {
+                if TAR_CHECKSUM.contains(&index) {
+                    i64::from(b' ')
+                } else {
+                    i64::from(i8::from_ne_bytes([byte]))
+                }
+            })
+            .sum();
+        signed[TAR_CHECKSUM].copy_from_slice(format!("{sum:06o}\0 ").as_bytes());
+        assert_eq!(sniff(&signed), ArchiveFormat::Tar);
+        signed[1] = b'!';
+        assert_eq!(sniff(&signed), ArchiveFormat::Zip);
+        assert_eq!(sniff(&[0; 512]), ArchiveFormat::Zip);
         assert_eq!(sniff(b"PK\x03\x04"), ArchiveFormat::Zip);
         assert_eq!(sniff(b""), ArchiveFormat::Zip);
         assert_eq!(sniff(b"plain text"), ArchiveFormat::Zip);
