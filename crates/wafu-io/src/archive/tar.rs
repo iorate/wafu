@@ -321,6 +321,11 @@ fn scan<R: Read>(entries: Entries<'_, R>) -> io::Result<(Vec<ArchiveEntry>, Vec<
         let entry = entry?;
         let header = entry.header();
         let components = split_name(&decode_name(&entry.path_bytes()));
+        // `./`, which `tar -C dir -cf x.tar .` starts with, and an empty name
+        // are the root, which has no entry of its own.
+        if components.is_empty() {
+            continue;
+        }
         let mode = header.mode().ok().map(|mode| mode & 0o7777);
         // GNU tar writes a time before 1970 in base-256 two's complement,
         // which decodes to a huge number; such a time is left out.

@@ -536,6 +536,7 @@ mod tests {
     use std::sync::mpsc::{self, Sender};
     use std::time::Duration;
 
+    use tar::{EntryType, Header};
     use tempfile::TempDir;
     use wafu_core::{ArchiveOutput, ArchivePath, OperationKind, Outcome, Sources};
 
@@ -664,6 +665,44 @@ mod tests {
             b"z"
         );
         assert_eq!(done_indices(&events), [0]);
+    }
+
+    #[test]
+    fn a_leading_dot_entry_and_an_empty_name_in_a_tar_are_left_out() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.tar");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        write_tar(
+            &archive,
+            &[
+                ("./", EntryType::Directory, "", b""),
+                ("./a.txt", EntryType::Regular, "", b"a"),
+                ("./d/", EntryType::Directory, "", b""),
+                ("./d/b.txt", EntryType::Regular, "", b"b"),
+                ("", EntryType::Regular, "", b"x"),
+            ],
+        );
+
+        let listed: Vec<Vec<String>> = open_archive(&archive, None)
+            .unwrap()
+            .entries()
+            .iter()
+            .map(|entry| entry.components.clone())
+            .collect();
+        assert_eq!(listed, [vec!["a.txt"], vec!["d"], vec!["d", "b.txt"]]);
+
+        let (outcome, _) = run(&extract(&[archive], &dest), []);
+
+        assert_eq!(
+            outcome,
+            Outcome::Completed {
+                done: 3,
+                skipped: 0
+            }
+        );
+        assert_eq!(fs::read(dest.join("a.txt")).unwrap(), b"a");
+        assert_eq!(fs::read(dest.join("d").join("b.txt")).unwrap(), b"b");
     }
 
     #[test]
@@ -1405,6 +1444,27 @@ mod tests {
         Box::new(writer).finish().unwrap();
     }
 
+    // Names and link targets are written as given, which the crate's own
+    // setters would normalize or refuse.
+    fn write_tar(path: &Path, members: &[(&str, EntryType, &str, &[u8])]) {
+        let mut builder = tar::Builder::new(File::create(path).unwrap());
+        for (name, kind, link, data) in members {
+            let mut header = Header::new_gnu();
+            header.set_entry_type(*kind);
+            header.set_size(data.len() as u64);
+            header.set_mode(if *kind == EntryType::Directory {
+                0o755
+            } else {
+                0o644
+            });
+            header.as_old_mut().name[..name.len()].copy_from_slice(name.as_bytes());
+            header.as_old_mut().linkname[..link.len()].copy_from_slice(link.as_bytes());
+            header.set_cksum();
+            builder.append(&header, *data).unwrap();
+        }
+        builder.into_inner().unwrap().flush().unwrap();
+    }
+
     fn entries(
         archive: &Path,
         inner: &[&str],
@@ -1414,7 +1474,7 @@ mod tests {
         ArchiveEntries {
             archive: archive.to_path_buf(),
             path: ArchivePath {
-                format: Some(ArchiveFormat::Zip),
+                format: ArchiveFormat::from_name(archive.file_name().unwrap()),
                 inner: inner.iter().map(|s| (*s).to_owned()).collect(),
             },
             names: names.iter().map(|s| (*s).to_owned()).collect(),
