@@ -619,6 +619,18 @@ fn the_divider_moves_beside_a_right_pane_image_but_not_under_a_full_one() {
 }
 
 #[test]
+fn layout_keys_work_beside_an_image() {
+    let mut harness = image();
+
+    harness.press("Alt+Right");
+    harness.press("Alt+Up");
+
+    assert_eq!(harness.view().split_percent, 55);
+    assert_eq!(harness.view().log_rows, 7);
+    assert!(harness.view().preview.is_some());
+}
+
+#[test]
 fn the_log_divider_moves_under_a_preview() {
     let mut harness = document();
 

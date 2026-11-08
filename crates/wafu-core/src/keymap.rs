@@ -219,11 +219,11 @@ mod tests {
     }
 
     #[test]
-    fn image_context_has_the_cursor_and_mark_keys_only() {
+    fn image_context_has_the_cursor_mark_and_layout_keys_only() {
         let keymap = KeyMap::default_for(Os::Windows);
 
-        // The sixteen commands minus clear_marks, which has no key.
-        assert_eq!(keymap.bindings(Context::Image).count(), 15);
+        // The twenty commands minus clear_marks, which has no key.
+        assert_eq!(keymap.bindings(Context::Image).count(), 19);
         assert_eq!(
             keymap.lookup(Context::Image, &"Up".parse().unwrap()),
             Some(Command::CursorUp)

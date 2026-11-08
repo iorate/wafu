@@ -1079,7 +1079,7 @@ mod tests {
     fn palette_shows_only_commands_available_in_the_context() {
         let popup = PalettePopup::new(Context::Image, Os::Windows, vec!["x".to_owned()]);
 
-        assert_eq!(popup.matches.len(), 16);
+        assert_eq!(popup.matches.len(), 20);
         assert!(!popup.matches.contains(&Command::Copy));
     }
 
