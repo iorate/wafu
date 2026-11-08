@@ -17,6 +17,8 @@ const DEFAULT_FILE_MODE: u32 = 0o644;
 const DEFAULT_DIR_MODE: u32 = 0o755;
 const LINK_MODE: u32 = 0o777;
 const XZ_PRESET: u32 = 6;
+const SPARSE: &str = "sparse entries are not supported";
+const MULTI_VOLUME: &str = "multi-volume archives are not supported";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Compression {
@@ -53,8 +55,9 @@ enum Content {
     HardLink(usize),
     // A hard link to a name no earlier entry has.
     Dangling,
-    // Spread over holes the stream positions do not describe.
-    Sparse,
+    // Content wafu cannot read, with the reason: one spread over holes the
+    // stream positions do not describe, or a fragment of a multi-volume file.
+    Unsupported(&'static str),
 }
 
 struct Stream {
@@ -132,9 +135,7 @@ impl ArchiveReader for TarReader {
         };
         match content {
             Content::Target(target) => Ok(Box::new(Cursor::new(target.into_bytes()))),
-            Content::Sparse => Err(ArchiveError::Invalid(
-                "sparse entries are not supported".to_owned(),
-            )),
+            Content::Unsupported(reason) => Err(ArchiveError::Invalid(reason.to_owned())),
             Content::HardLink(_) | Content::Dangling => Err(ArchiveError::Invalid(
                 "the target of the hard link is not in the archive".to_owned(),
             )),
@@ -370,77 +371,8 @@ fn scan<R: Read>(entries: Entries<'_, R>) -> io::Result<(Vec<ArchiveEntry>, Vec<
                 .ok()
                 .and_then(|seconds| UNIX_EPOCH.checked_add(Duration::from_secs(seconds))),
         };
-        let link_name = || {
-            entry
-                .link_name_bytes()
-                .map(|bytes| decode_name(&bytes))
-                .unwrap_or_default()
-        };
-        let (kind, size, content) = match header.entry_type() {
-            // A PAX sparse file is a regular one holding the map of its
-            // data, under a made-up name.
-            _ if pax.sparse => (
-                ArchiveEntryKind::File,
-                pax.sparse_size.unwrap_or(entry.size()),
-                Content::Sparse,
-            ),
-            EntryType::Directory => (
-                ArchiveEntryKind::Dir,
-                0,
-                Content::Span {
-                    start: entry.raw_file_position(),
-                    len: 0,
-                },
-            ),
-            EntryType::Symlink => {
-                let target = link_name();
-                (
-                    ArchiveEntryKind::Symlink,
-                    target.len() as u64,
-                    Content::Target(target),
-                )
-            }
-            // A hard link shares the content of an entry that came before it,
-            // and a link to a link shares that of the first.
-            EntryType::Link => {
-                let target = split_name(&link_name());
-                let found = listed.iter().rposition(|listed| {
-                    listed.kind == ArchiveEntryKind::File && listed.components == target
-                });
-                match found {
-                    Some(index) => (
-                        ArchiveEntryKind::File,
-                        listed[index].size,
-                        match contents[index] {
-                            Content::HardLink(first) => Content::HardLink(first),
-                            Content::Dangling => Content::Dangling,
-                            _ => Content::HardLink(index),
-                        },
-                    ),
-                    None => (ArchiveEntryKind::File, 0, Content::Dangling),
-                }
-            }
-            EntryType::GNUSparse => (ArchiveEntryKind::File, entry.size(), Content::Sparse),
-            // Nothing could be made of devices on extraction, and a whole
-            // archive should not fail over one. The crate resolves the
-            // extensions but still hands out a PAX global header (what
-            // `git archive` starts with), which is not a member either.
-            EntryType::Char
-            | EntryType::Block
-            | EntryType::Fifo
-            | EntryType::XGlobalHeader
-            | EntryType::XHeader
-            | EntryType::GNULongName
-            | EntryType::GNULongLink => continue,
-            // Unknown types are files, as the format says.
-            _ => (
-                ArchiveEntryKind::File,
-                entry.size(),
-                Content::Span {
-                    start: entry.raw_file_position(),
-                    len: entry.size(),
-                },
-            ),
+        let Some((kind, size, content)) = member(&entry, &name, &pax, &listed, &contents) else {
+            continue;
         };
         listed.push(ArchiveEntry {
             components,
@@ -452,6 +384,111 @@ fn scan<R: Read>(entries: Entries<'_, R>) -> io::Result<(Vec<ArchiveEntry>, Vec<
         contents.push(content);
     }
     Ok((listed, contents))
+}
+
+// What an entry is, how large, and where its content is; `None` for one
+// that is not a member.
+fn member<R: Read>(
+    entry: &Entry<'_, R>,
+    name: &str,
+    pax: &PaxRecords,
+    listed: &[ArchiveEntry],
+    contents: &[Content],
+) -> Option<(ArchiveEntryKind, u64, Content)> {
+    let link_name = || {
+        entry
+            .link_name_bytes()
+            .map(|bytes| decode_name(&bytes))
+            .unwrap_or_default()
+    };
+    Some(match entry.header().entry_type() {
+        // A PAX sparse file is a regular one holding the map of its
+        // data, under a made-up name.
+        _ if pax.sparse => (
+            ArchiveEntryKind::File,
+            pax.sparse_size.unwrap_or(entry.size()),
+            Content::Unsupported(SPARSE),
+        ),
+        // The old formats have no directory type and mark a directory by
+        // a slash at the end of its name, as GNU tar still reads them. A
+        // GNU incremental dump lists a directory's contents as its data.
+        kind if kind == EntryType::Directory
+            || kind.as_byte() == b'D'
+            || (matches!(kind, EntryType::Regular | EntryType::Continuous)
+                && name.ends_with('/')) =>
+        {
+            (
+                ArchiveEntryKind::Dir,
+                0,
+                Content::Span {
+                    start: entry.raw_file_position(),
+                    len: 0,
+                },
+            )
+        }
+        EntryType::Symlink => {
+            let target = link_name();
+            (
+                ArchiveEntryKind::Symlink,
+                target.len() as u64,
+                Content::Target(target),
+            )
+        }
+        // A hard link shares the content of an entry that came before it,
+        // and a link to a link shares that of the first.
+        EntryType::Link => {
+            let target = split_name(&link_name());
+            let found = listed.iter().rposition(|listed| {
+                listed.kind == ArchiveEntryKind::File && listed.components == target
+            });
+            match found {
+                Some(index) => (
+                    ArchiveEntryKind::File,
+                    listed[index].size,
+                    match contents[index] {
+                        Content::HardLink(first) => Content::HardLink(first),
+                        Content::Dangling => Content::Dangling,
+                        _ => Content::HardLink(index),
+                    },
+                ),
+                None => (ArchiveEntryKind::File, 0, Content::Dangling),
+            }
+        }
+        EntryType::GNUSparse => (
+            ArchiveEntryKind::File,
+            entry.size(),
+            Content::Unsupported(SPARSE),
+        ),
+        // A continuation holds the rest of a file begun on the volume
+        // before, which this archive does not have.
+        kind if kind.as_byte() == b'M' => (
+            ArchiveEntryKind::File,
+            entry.size(),
+            Content::Unsupported(MULTI_VOLUME),
+        ),
+        // Nothing could be made of devices on extraction, and a whole
+        // archive should not fail over one. The crate resolves the
+        // extensions but still hands out a PAX global header (what
+        // `git archive` starts with), which is not a member either, and
+        // neither is a GNU volume label.
+        EntryType::Char
+        | EntryType::Block
+        | EntryType::Fifo
+        | EntryType::XGlobalHeader
+        | EntryType::XHeader
+        | EntryType::GNULongName
+        | EntryType::GNULongLink => return None,
+        kind if kind.as_byte() == b'V' => return None,
+        // Unknown types are files, as the format says.
+        _ => (
+            ArchiveEntryKind::File,
+            entry.size(),
+            Content::Span {
+                start: entry.raw_file_position(),
+                len: entry.size(),
+            },
+        ),
+    })
 }
 
 fn pax_records<R: Read>(entry: &mut Entry<'_, R>) -> io::Result<PaxRecords> {
@@ -657,7 +694,7 @@ mod tests {
             path,
             compression: Compression::None,
             entries: vec![reader.entries()[0].clone()],
-            contents: vec![Content::Sparse],
+            contents: vec![Content::Unsupported(SPARSE)],
             stream: None,
         };
         assert!(matches!(
@@ -696,6 +733,38 @@ mod tests {
         assert!(matches!(
             reader.open(0, None),
             Err(ArchiveError::Invalid(message)) if message.contains("sparse")
+        ));
+    }
+
+    #[test]
+    fn a_volume_label_is_left_out_a_dumpdir_is_a_directory_and_a_continuation_cannot_be_read() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.tar");
+        {
+            let mut builder = Builder::new(File::create(&path).unwrap());
+            let mut label = header_of(EntryType::new(b'V'));
+            builder
+                .append_data(&mut label, "backup", io::empty())
+                .unwrap();
+            let listing = b"Yx\0\0";
+            let mut dump = header(EntryType::new(b'D'), listing.len() as u64, None, 0o755);
+            builder.append_data(&mut dump, "d", &listing[..]).unwrap();
+            let mut rest = header(EntryType::new(b'M'), 1, None, 0o644);
+            builder.append_data(&mut rest, "big", &b"x"[..]).unwrap();
+            builder.finish().unwrap();
+        }
+
+        let mut reader = TarReader::open(&path, Compression::None).unwrap();
+
+        let entries = reader.entries().to_vec();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].components, ["d"]);
+        assert_eq!(entries[0].kind, ArchiveEntryKind::Dir);
+        assert_eq!(entries[0].size, 0);
+        assert_eq!(entries[1].components, ["big"]);
+        assert!(matches!(
+            reader.open(1, None),
+            Err(ArchiveError::Invalid(message)) if message.contains("multi-volume")
         ));
     }
 

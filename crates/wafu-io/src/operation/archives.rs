@@ -837,6 +837,32 @@ mod tests {
     }
 
     #[test]
+    fn a_tar_file_entry_whose_name_ends_with_a_slash_is_a_directory() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.tar");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        write_tar(
+            &archive,
+            &[
+                ("d/", EntryType::Regular, "", b""),
+                ("d/x", EntryType::Regular, "", b"x"),
+            ],
+        );
+
+        let (outcome, _) = run(&extract(&[archive], &dest), []);
+
+        assert_eq!(
+            outcome,
+            Outcome::Completed {
+                done: 2,
+                skipped: 0
+            }
+        );
+        assert_eq!(fs::read(dest.join("d").join("x")).unwrap(), b"x");
+    }
+
+    #[test]
     fn extract_into_dirs_unpacks_each_archive_into_a_directory_named_after_it() {
         let dir = TempDir::new().unwrap();
         let a = dir.path().join("a.zip");
@@ -1583,7 +1609,7 @@ mod tests {
             let mut header = Header::new_gnu();
             header.set_entry_type(*kind);
             header.set_size(data.len() as u64);
-            header.set_mode(if *kind == EntryType::Directory {
+            header.set_mode(if *kind == EntryType::Directory || name.ends_with('/') {
                 0o755
             } else {
                 0o644
