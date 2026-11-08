@@ -229,18 +229,20 @@ impl Worker<'_> {
                 ensure_parent(&shown, &extraction.dest, &dst)?;
                 // A hard link is extracted as a copy. Its content comes before
                 // it in a tar, so reading it there would start the stream over;
-                // the file already written has it too.
+                // the file already written has it too, unless the mode it was
+                // given keeps it from being read.
                 let copy_of = extraction
                     .reader
                     .hard_link_target(index)
-                    .and_then(|target| extraction.written.get(&target).cloned());
+                    .and_then(|target| extraction.written.get(&target))
+                    .and_then(|path| File::open(path).ok());
                 if copy_of.is_none() {
                     self.unlock(extraction, index, &shown)?;
                 }
                 let Some(dst) = self.clear_destination(&shown, &dst)? else {
                     return Ok(false);
                 };
-                let result = self.write_entry(extraction, index, copy_of.as_deref(), &dst, &shown);
+                let result = self.write_entry(extraction, index, copy_of, &dst, &shown);
                 if result.is_err() {
                     let _ = fs::remove_file(&dst);
                 }
@@ -337,12 +339,12 @@ impl Worker<'_> {
         &mut self,
         extraction: &mut Extraction,
         index: usize,
-        copy_of: Option<&Path>,
+        copy_of: Option<File>,
         dst: &Path,
         shown: &Path,
     ) -> Result<(), Stop> {
         let mut reader: Box<dyn Read> = match copy_of {
-            Some(path) => Box::new(File::open(path).map_err(fail(shown))?),
+            Some(file) => Box::new(file),
             None => extraction
                 .reader
                 .open(index, extraction.password.as_deref())
@@ -795,6 +797,44 @@ mod tests {
         );
         assert_eq!(fs::read(dest.join("same1")).unwrap(), b"data");
         assert_eq!(fs::read(dest.join("same2")).unwrap(), b"data");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_hard_link_to_a_file_extracted_unreadable_is_read_from_the_archive() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.tar");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        {
+            let mut builder = tar::Builder::new(File::create(&archive).unwrap());
+            let mut header = tar_header(EntryType::Regular, 4);
+            header.set_mode(0o200);
+            builder
+                .append_data(&mut header, "orig", &b"data"[..])
+                .unwrap();
+            builder
+                .append_link(&mut tar_header(EntryType::Link, 0), "same", "orig")
+                .unwrap();
+            builder.finish().unwrap();
+        }
+
+        let (outcome, _) = run(&extract(&[archive], &dest), []);
+
+        assert_eq!(
+            outcome,
+            Outcome::Completed {
+                done: 2,
+                skipped: 0
+            }
+        );
+        for name in ["orig", "same"] {
+            let path = dest.join(name);
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+            assert_eq!(fs::read(path).unwrap(), b"data");
+        }
     }
 
     #[cfg(unix)]
