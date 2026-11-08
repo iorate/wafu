@@ -110,6 +110,8 @@ pub struct Start {
     pub right: Option<PathBuf>,
     pub home: PathBuf,
     pub os: Os,
+    /// Whether the process runs with administrator rights (Windows).
+    pub elevated: bool,
     pub config_path: PathBuf,
     pub config: ConfigSource,
     /// `Ok(None)` when there is no state file.
@@ -183,9 +185,13 @@ pub enum Effect {
     /// Writes the state file. The window geometry is filled in by the UI,
     /// which is the only layer that knows it.
     SaveState(StateFile),
-    /// Starts another instance that takes over the state. The window
-    /// geometry is filled in by the UI, as for `SaveState`.
-    SpawnNewWindow(StateFile),
+    /// Starts another instance that takes over the state, elevated through
+    /// UAC when `as_admin` is set (Windows only). The window geometry is
+    /// filled in by the UI, as for `SaveState`.
+    SpawnNewWindow {
+        state: StateFile,
+        as_admin: bool,
+    },
     Quit,
     /// Runs a file operation on a worker; it reports through `IoEvent::Operation`.
     StartOperation(OperationSpec),
@@ -256,7 +262,9 @@ pub enum SpawnKind {
         program: String,
         args: Vec<OsString>,
     },
-    NewWindow,
+    NewWindow {
+        as_admin: bool,
+    },
 }
 
 /// The answer to [`Effect::Resolve`]: the directory to open and, when the
@@ -411,6 +419,7 @@ pub struct App {
     next_request: u64,
     home: PathBuf,
     os: Os,
+    elevated: bool,
 }
 
 impl App {
@@ -442,6 +451,7 @@ impl App {
             next_request: 1,
             home: PathBuf::new(),
             os: Os::Linux,
+            elevated: false,
         }
     }
 
@@ -456,12 +466,14 @@ impl App {
                     right,
                     home,
                     os,
+                    elevated,
                     config_path,
                     config,
                     state,
                 } = *start;
                 self.home = home;
                 self.os = os;
+                self.elevated = elevated;
                 self.config_path = config_path;
                 self.panes = [
                     Pane::new(Location::new(PathBuf::new())),
@@ -639,7 +651,11 @@ impl App {
             Command::Bookmarks => self.open_bookmarks(),
             Command::History => self.open_history(),
             Command::EditConfig => self.edit_config(effects),
-            Command::NewWindow => self.new_window(effects),
+            Command::NewWindow => self.new_window(false, effects),
+            Command::NewWindowAsAdmin if self.os != Os::Windows => {
+                self.log.push(AppError::WindowsOnly { command }.to_string());
+            }
+            Command::NewWindowAsAdmin => self.new_window(true, effects),
             Command::Quit => self.quit(true, effects),
             Command::QuitWithoutSaving => self.quit(false, effects),
             Command::External(name) => self.run_external(&name, effects),
@@ -786,11 +802,16 @@ impl App {
     }
 
     fn title(&self) -> String {
+        let name = if self.elevated {
+            "wafu (Administrator)"
+        } else {
+            "wafu"
+        };
         let path = self.active_pane().location().to_string();
         if path.is_empty() {
-            "wafu".to_owned()
+            name.to_owned()
         } else {
-            format!("wafu - {path}")
+            format!("{name} - {path}")
         }
     }
 }

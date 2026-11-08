@@ -175,10 +175,10 @@ impl Runtime {
             Effect::SaveState(state) => {
                 let _ = write_state(&self.paths.state, &state);
             }
-            Effect::SpawnNewWindow(state) => {
+            Effect::SpawnNewWindow { state, as_admin } => {
                 let error = write_handoff(&state)
                     .and_then(|handoff| {
-                        spawn_new_window(&handoff, self.paths.config_override.as_deref())
+                        spawn_new_window(&handoff, self.paths.config_override.as_deref(), as_admin)
                             .inspect_err(|_| {
                                 let _ = fs::remove_file(&handoff);
                             })
@@ -186,7 +186,7 @@ impl Runtime {
                     .err()
                     .map(|error| IoError::new(error.to_string()));
                 (self.on_event)(IoEvent::Spawned {
-                    kind: SpawnKind::NewWindow,
+                    kind: SpawnKind::NewWindow { as_admin },
                     error,
                 });
             }

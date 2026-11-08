@@ -8,7 +8,9 @@ use crate::entry::{
 use crate::listing::{SortKey, SortSpec};
 use crate::pane::InFlight;
 use crate::state::{PaneState, StateFile};
-use crate::test_support::{CONFIG_PATH, HOME, Harness, dir, file, special, start_msg_with};
+use crate::test_support::{
+    CONFIG_PATH, HOME, Harness, dir, file, special, start_msg, start_msg_with,
+};
 use crate::view::{ItemKind, RowKind};
 
 mod archives;
@@ -3488,7 +3490,13 @@ fn new_window_hands_over_the_state_and_logs_a_failure() {
     harness.press("Alt+Z");
 
     let effects = harness.take_effects();
-    let [Effect::SpawnNewWindow(state)] = effects.as_slice() else {
+    let [
+        Effect::SpawnNewWindow {
+            state,
+            as_admin: false,
+        },
+    ] = effects.as_slice()
+    else {
         panic!("expected SpawnNewWindow");
     };
     assert_eq!(state.left.path, Some(PathBuf::from("/home/user")));
@@ -3496,15 +3504,74 @@ fn new_window_hands_over_the_state_and_logs_a_failure() {
     assert_eq!(state.window, None);
 
     harness.send(Msg::Io(IoEvent::Spawned {
-        kind: SpawnKind::NewWindow,
+        kind: SpawnKind::NewWindow { as_admin: false },
         error: None,
     }));
     assert_eq!(harness.log(), Vec::<String>::new());
     harness.send(Msg::Io(IoEvent::Spawned {
-        kind: SpawnKind::NewWindow,
+        kind: SpawnKind::NewWindow { as_admin: false },
         error: Some(IoError::new("no exe")),
     }));
     assert_eq!(harness.log(), ["cannot start a new window: no exe"]);
+}
+
+#[test]
+fn new_window_as_admin_hands_over_the_state_on_windows_and_logs_a_failure() {
+    let mut harness = Harness::start_on(Os::Windows, "/home/user", "/tmp");
+    harness.take_effects();
+
+    harness.press("Alt+Shift+Z");
+
+    let effects = harness.take_effects();
+    let [
+        Effect::SpawnNewWindow {
+            state,
+            as_admin: true,
+        },
+    ] = effects.as_slice()
+    else {
+        panic!("expected SpawnNewWindow as admin, got {effects:?}");
+    };
+    assert_eq!(state.left.path, Some(PathBuf::from("/home/user")));
+
+    harness.send(Msg::Io(IoEvent::Spawned {
+        kind: SpawnKind::NewWindow { as_admin: true },
+        error: Some(IoError::new("cancelled")),
+    }));
+    assert_eq!(
+        harness.log(),
+        ["cannot start a new window as administrator: cancelled"]
+    );
+}
+
+#[test]
+fn new_window_as_admin_bound_by_the_configuration_logs_on_other_systems() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.config("[keys.filelist]\n\"Alt+Shift+Z\" = \"new_window_as_admin\"\n");
+    harness.take_effects();
+
+    harness.press("Alt+Shift+Z");
+
+    assert_eq!(
+        harness.log()[1..],
+        ["new_window_as_admin is available only on Windows"]
+    );
+    assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
+fn the_title_says_when_the_process_is_elevated() {
+    let Msg::Start(mut start) = start_msg(Os::Windows, Some("/home/user"), Some("/tmp")) else {
+        unreachable!()
+    };
+    start.elevated = true;
+    let mut harness = Harness::start_from(Msg::Start(start));
+    assert_eq!(harness.view().title, "wafu (Administrator)");
+
+    harness.resolve(Side::Left, "/home/user", None);
+    harness.load(Side::Left, Vec::new());
+
+    assert_eq!(harness.view().title, "wafu (Administrator) - /home/user");
 }
 
 #[test]

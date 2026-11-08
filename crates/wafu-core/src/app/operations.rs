@@ -238,7 +238,7 @@ impl App {
         let is_new_window =
             self.config.keys.lookup(Context::FileList, &key) == Some(Command::NewWindow);
         if is_new_window && !matches!(self.popup, Some(Popup::Input(_))) {
-            self.new_window(effects);
+            self.new_window(false, effects);
             return;
         }
         if self.popup.is_some() {
