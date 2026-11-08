@@ -22,6 +22,7 @@ const CANCEL_CHECK_INTERVAL: usize = 256;
 // One tar header, which holds the `ustar` magic at byte 257.
 const SNIFF_LEN: usize = 512;
 const TAR_CHECKSUM: std::ops::Range<usize> = 148..156;
+const NOT_ARCHIVE: &str = "not an archive";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ArchiveEntry {
@@ -107,12 +108,20 @@ pub(crate) fn open_archive(
     path: &Path,
     format: Option<ArchiveFormat>,
 ) -> Result<Box<dyn ArchiveReader>, ArchiveError> {
+    let detected = format.is_none();
     let format = match format {
         Some(format) => format,
         None => detect_format(path)?,
     };
     match compression(format) {
-        None => Ok(Box::new(zip::ZipReader::open(path)?)),
+        // Zip is what a file of no known format is tried as, so one that is
+        // not a zip either is not an archive wafu reads.
+        None => match zip::ZipReader::open(path) {
+            Err(ArchiveError::Invalid(message)) if detected && message == zip::NOT_ZIP => {
+                Err(ArchiveError::Invalid(NOT_ARCHIVE.to_owned()))
+            }
+            result => Ok(Box::new(result?)),
+        },
         Some(compression) => Ok(Box::new(tar::TarReader::open(path, compression)?)),
     }
 }

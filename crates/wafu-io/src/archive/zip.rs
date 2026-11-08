@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{self, Read};
+use std::io::{self, Read, Seek, SeekFrom};
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
@@ -16,6 +16,13 @@ use super::{ArchiveEntry, ArchiveEntryKind, ArchiveError, ArchiveReader, Archive
 const ZIP64_THRESHOLD: u64 = 4 * 1024 * 1024 * 1024;
 const FILE_TYPE: u32 = 0o170_000;
 const DIR_TYPE: u32 = 0o040_000;
+const LOCAL_SIGNATURE: &[u8] = b"PK\x03\x04";
+const END_SIGNATURE: &[u8] = b"PK\x05\x06";
+// The end record is at most its fixed part and the longest comment away from
+// the end of the file.
+const END_SEARCH_LEN: u64 = 22 + 0xffff;
+pub(crate) const NOT_ZIP: &str = "not a zip archive";
+const DAMAGED: &str = "the zip archive is damaged";
 
 pub(crate) struct ZipReader {
     archive: ZipArchive<File>,
@@ -23,6 +30,13 @@ pub(crate) struct ZipReader {
     // Where each entry is in the crate's index, which also holds the root and
     // the entries replaced by later ones.
     positions: Vec<usize>,
+}
+
+// Tells which entry a read failed in, rather than what the crate found
+// wrong, which is about the format.
+struct EntryReader<R> {
+    file: R,
+    name: String,
 }
 
 pub(crate) struct ZipArchiveWriter {
@@ -33,13 +47,34 @@ pub(crate) struct ZipArchiveWriter {
 impl ZipReader {
     pub(crate) fn open(path: &Path) -> Result<Self, ArchiveError> {
         let file = File::open(path)?;
-        let mut archive = ZipArchive::new(file).map_err(convert)?;
+        let mut archive = match ZipArchive::new(file) {
+            Ok(archive) => archive,
+            Err(error) if is_damage(&error) => {
+                let message = if has_signature(path)? {
+                    DAMAGED
+                } else {
+                    NOT_ZIP
+                };
+                return Err(ArchiveError::Invalid(message.to_owned()));
+            }
+            Err(error) => return Err(convert(error)),
+        };
         let mut found = Vec::with_capacity(archive.len());
         let mut latest: HashMap<Vec<String>, usize> = HashMap::new();
         let mut replaced = Vec::with_capacity(archive.len());
         for position in 0..archive.len() {
-            let file = archive.by_index_raw(position).map_err(convert)?;
-            let entry = entry_of(&file);
+            let read = archive.by_index_raw(position).map(|file| entry_of(&file));
+            let entry = match read {
+                Ok(entry) => entry,
+                Err(error) if is_damage(&error) => {
+                    let name = archive
+                        .by_index_data(position)
+                        .map(|entry| decode_name(entry.name_raw()))
+                        .unwrap_or_default();
+                    return Err(ArchiveError::Invalid(format!("{DAMAGED} in {name}")));
+                }
+                Err(error) => return Err(convert(error)),
+            };
             // `./` and `/`, which an archive made from `.` may start with, and
             // an empty name are the root, which has no entry of its own.
             if entry.components.is_empty() {
@@ -98,12 +133,31 @@ impl ArchiveReader for ZipReader {
                 "the compression method is not supported".to_owned(),
             ));
         }
+        let name = self.entries[index].components.join("/");
         let file = match password {
             Some(password) => self.archive.by_index_decrypt(position, password.as_bytes()),
             None => self.archive.by_index(position),
         }
-        .map_err(convert)?;
-        Ok(Box::new(file))
+        .map_err(|error| {
+            if is_damage(&error) {
+                ArchiveError::Io(damaged_in(&name))
+            } else {
+                convert(error)
+            }
+        })?;
+        Ok(Box::new(EntryReader { file, name }))
+    }
+}
+
+impl<R: Read> Read for EntryReader<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.file.read(buf).map_err(|error| {
+            if error.raw_os_error().is_some() || error.kind() == io::ErrorKind::Interrupted {
+                error
+            } else {
+                damaged_in(&self.name)
+            }
+        })
     }
 }
 
@@ -241,6 +295,42 @@ fn options(
     }
 }
 
+// What the crate says of a broken archive, or of one it ran out of, as
+// opposed to an error from the system.
+fn is_damage(error: &ZipError) -> bool {
+    match error {
+        ZipError::InvalidArchive(_) => true,
+        ZipError::Io(error) => error.raw_os_error().is_none(),
+        _ => false,
+    }
+}
+
+fn damaged_in(name: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, format!("{DAMAGED} in {name}"))
+}
+
+// The crate finds the end record however far into the file it is, so a
+// self-extracting archive with its stub in front opens. A file that starts as
+// a zip or has an end record near its end is taken for one that is damaged;
+// anything else is not a zip at all.
+fn has_signature(path: &Path) -> io::Result<bool> {
+    let mut file = File::open(path)?;
+    let mut head = Vec::with_capacity(LOCAL_SIGNATURE.len());
+    (&mut file)
+        .take(LOCAL_SIGNATURE.len() as u64)
+        .read_to_end(&mut head)?;
+    if head == LOCAL_SIGNATURE || head == END_SIGNATURE {
+        return Ok(true);
+    }
+    let len = file.metadata()?.len();
+    file.seek(SeekFrom::Start(len.saturating_sub(END_SEARCH_LEN)))?;
+    let mut tail = Vec::new();
+    file.read_to_end(&mut tail)?;
+    Ok(tail
+        .windows(END_SIGNATURE.len())
+        .any(|window| window == END_SIGNATURE))
+}
+
 fn convert(error: ZipError) -> ArchiveError {
     match error {
         ZipError::UnsupportedArchive(message) if message == ZipError::PASSWORD_REQUIRED => {
@@ -376,6 +466,78 @@ mod tests {
         assert_eq!(modes, [Some(0o600), None]);
     }
 
+    #[test]
+    fn files_that_are_not_zips_are_told_from_damaged_zips() {
+        let dir = TempDir::new().unwrap();
+        let mut seed = 1u32;
+        let noise: Vec<u8> = (0..100)
+            .map(|_| {
+                seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+                seed.to_be_bytes()[1]
+            })
+            .collect();
+        assert!(!noise.windows(2).any(|window| window == b"PK"));
+        let zip = small_zip(dir.path());
+        let mut stubbed = b"MZ stub ".to_vec();
+        stubbed.extend_from_slice(&zip);
+        let central = stubbed
+            .windows(4)
+            .position(|window| window == b"PK\x01\x02")
+            .unwrap();
+        stubbed[central + 3] = 0;
+        let cases: [(&str, Vec<u8>, &str); 4] = [
+            ("empty", Vec::new(), NOT_ZIP),
+            ("noise", noise, NOT_ZIP),
+            ("cut", zip[..zip.len() / 2].to_vec(), DAMAGED),
+            ("stubbed", stubbed, DAMAGED),
+        ];
+        for (name, content, expected) in cases {
+            let path = dir.path().join(name);
+            std::fs::write(&path, content).unwrap();
+
+            let error = ZipReader::open(&path).err().unwrap();
+
+            assert_eq!(error.to_string(), expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_damaged_entry_is_named() {
+        let dir = TempDir::new().unwrap();
+        let zip = small_zip(dir.path());
+        let second = zip
+            .windows(4)
+            .enumerate()
+            .filter(|(_, window)| *window == LOCAL_SIGNATURE)
+            .nth(1)
+            .unwrap()
+            .0;
+        let mut header = zip.clone();
+        header[second + 3] = 0;
+        let header_path = dir.path().join("header.zip");
+        std::fs::write(&header_path, header).unwrap();
+        let mut content = zip;
+        let data = second
+            + content[second..]
+                .windows(5)
+                .position(|window| window == b"hello")
+                .unwrap();
+        content[data] = b'j';
+        let content_path = dir.path().join("content.zip");
+        std::fs::write(&content_path, content).unwrap();
+
+        let error = ZipReader::open(&header_path).err().unwrap();
+        assert_eq!(error.to_string(), "the zip archive is damaged in b.txt");
+
+        let mut reader = ZipReader::open(&content_path).unwrap();
+        let error = reader
+            .open(1, None)
+            .unwrap()
+            .read_to_end(&mut Vec::new())
+            .unwrap_err();
+        assert_eq!(error.to_string(), "the zip archive is damaged in b.txt");
+    }
+
     #[cfg(windows)]
     #[test]
     fn a_name_whose_last_byte_is_a_backslash_inside_a_character_is_a_file() {
@@ -391,6 +553,19 @@ mod tests {
 
         assert_eq!(reader.entries()[0].kind, ArchiveEntryKind::File);
         assert_eq!(reader.entries()[0].components, ["表"]);
+    }
+
+    // Two stored files, `a.txt` and `b.txt`, whose content is `hello`.
+    fn small_zip(dir: &Path) -> Vec<u8> {
+        let path = dir.join("small.zip");
+        let mut writer = ZipWriter::new(File::create(&path).unwrap());
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+        for name in ["a.txt", "b.txt"] {
+            writer.start_file(name, options).unwrap();
+            io::Write::write_all(&mut writer, b"hello").unwrap();
+        }
+        writer.finish().unwrap();
+        std::fs::read(path).unwrap()
     }
 
     #[cfg(windows)]

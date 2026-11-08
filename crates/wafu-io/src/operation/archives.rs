@@ -1688,7 +1688,11 @@ mod tests {
 
         let (outcome, _) = run(&extract(std::slice::from_ref(&text), &dest), []);
 
-        assert!(matches!(outcome, Outcome::Failed { path, .. } if path == text));
+        assert!(matches!(
+            outcome,
+            Outcome::Failed { path, error, .. }
+                if path == text && error.to_string() == "not an archive"
+        ));
     }
 
     #[test]
