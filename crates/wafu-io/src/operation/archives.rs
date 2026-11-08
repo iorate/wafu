@@ -1,6 +1,8 @@
+use std::fmt;
 use std::fs::{self, File, FileTimes};
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::SystemTime;
 
 use wafu_core::{ArchiveEntries, ArchiveFormat, OperationEvent, OperationSpec, Reply};
@@ -28,11 +30,11 @@ impl Worker<'_> {
                 .as_deref()
                 .ok_or_else(|| failure(archive, "no destination"))?;
             let name = archive.file_name().unwrap_or_default();
-            let format = ArchiveFormat::from_name(name).unwrap_or(ArchiveFormat::Zip);
+            let format = ArchiveFormat::from_name(name);
             // One destination serves the whole operation; naming the directory
             // here saves the core from passing one per archive.
             let dest = if into_dir {
-                root.join(archive.file_stem().unwrap_or(name))
+                root.join(ArchiveFormat::stem_of(name))
             } else {
                 root.to_path_buf()
             };
@@ -125,7 +127,14 @@ impl Worker<'_> {
             return Ok(());
         };
         let file = File::create(&out).map_err(fail(&out))?;
-        let mut writer = create_archive(file, output.format, output.password.as_deref());
+        let writer = create_archive(file, output.format, output.password.as_deref());
+        let mut writer = match writer {
+            Ok(writer) => writer,
+            Err(error) => {
+                let _ = fs::remove_file(&out);
+                return Err(Stop::Failed { path: out, error });
+            }
+        };
         match self.add_all(&mut writer, paths) {
             Ok(()) => match writer.finish() {
                 Ok(()) => Ok(()),
@@ -322,24 +331,58 @@ impl Worker<'_> {
                 self.add_path(writer, &child, base)?;
             }
         } else if meta.is_file() {
+            let mut data = Cancellable {
+                inner: File::open(path).map_err(fail(path))?,
+                replies: self.replies,
+            };
             writer
-                .start_file(&name, meta.len(), modified, mode)
-                .map_err(fail(path))?;
-            let mut reader = File::open(path).map_err(fail(path))?;
-            let mut buffer = vec![0; CHUNK_SIZE];
-            loop {
-                self.check_cancel()?;
-                let read = reader.read(&mut buffer).map_err(fail(path))?;
-                if read == 0 {
-                    break;
-                }
-                writer.write_all(&buffer[..read]).map_err(fail(path))?;
-            }
+                .add_file(&name, meta.len(), modified, mode, &mut data)
+                .map_err(|error| {
+                    if error
+                        .get_ref()
+                        .is_some_and(|inner| inner.downcast_ref::<Cancelled>().is_some())
+                    {
+                        Stop::Cancelled
+                    } else {
+                        fail(path)(error)
+                    }
+                })?;
         } else {
             return Err(failure(path, NOT_REGULAR));
         }
         self.done += 1;
         Ok(())
+    }
+}
+
+// A file being added to an archive. The writer pulls the content, so the
+// cancellation is checked here, at each read, and comes back out of the
+// writer as an error carrying `Cancelled`.
+struct Cancellable<'a> {
+    inner: File,
+    replies: &'a Receiver<Reply>,
+}
+
+#[derive(Debug)]
+struct Cancelled;
+
+impl fmt::Display for Cancelled {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("cancelled")
+    }
+}
+
+impl std::error::Error for Cancelled {}
+
+impl Read for Cancellable<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self.replies.try_recv() {
+            Ok(Reply::Cancel) | Err(TryRecvError::Disconnected) => {
+                return Err(io::Error::other(Cancelled));
+            }
+            Ok(_) | Err(TryRecvError::Empty) => {}
+        }
+        self.inner.read(buf)
     }
 }
 
@@ -359,7 +402,7 @@ struct Extraction {
 impl Extraction {
     fn open(
         archive: &Path,
-        format: ArchiveFormat,
+        format: Option<ArchiveFormat>,
         password: Option<String>,
         dest: &Path,
     ) -> Result<Self, Stop> {
@@ -489,7 +532,6 @@ fn make_temp_dir() -> std::io::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
-    use std::io::Write;
     use std::sync::Mutex;
     use std::sync::mpsc::{self, Sender};
     use std::time::Duration;
@@ -513,19 +555,23 @@ mod tests {
         write_zip(&archive, None, |writer| {
             writer.add_dir("d", Some(modified), Some(0o755)).unwrap();
             writer
-                .start_file("d/f.txt", 5, Some(modified), Some(0o644))
+                .add_file(
+                    "d/f.txt",
+                    5,
+                    Some(modified),
+                    Some(0o644),
+                    &mut &b"hello"[..],
+                )
                 .unwrap();
-            writer.write_all(b"hello").unwrap();
             writer
-                .start_file("d/sub/g.txt", 2, Some(modified), None)
+                .add_file("d/sub/g.txt", 2, Some(modified), None, &mut &b"hi"[..])
                 .unwrap();
-            writer.write_all(b"hi").unwrap();
             writer
-                .start_file("top.txt", 3, Some(modified), None)
+                .add_file("top.txt", 3, Some(modified), None, &mut &b"top"[..])
                 .unwrap();
-            writer.write_all(b"top").unwrap();
-            writer.start_file("other.txt", 1, None, None).unwrap();
-            writer.write_all(b"x").unwrap();
+            writer
+                .add_file("other.txt", 1, None, None, &mut &b"x"[..])
+                .unwrap();
         });
 
         let (outcome, events) = run(&copy_entries(&archive, &[], &["d", "top.txt"], &dest), []);
@@ -569,8 +615,9 @@ mod tests {
         fs::create_dir(&dest).unwrap();
         write_zip(&archive, None, |writer| {
             writer.add_dir("ro", None, Some(0o555)).unwrap();
-            writer.start_file("ro/f.txt", 1, None, Some(0o644)).unwrap();
-            writer.write_all(b"f").unwrap();
+            writer
+                .add_file("ro/f.txt", 1, None, Some(0o644), &mut &b"f"[..])
+                .unwrap();
         });
 
         let (outcome, _) = run(&extract(&[archive], &dest), []);
@@ -598,8 +645,9 @@ mod tests {
         let dest = dir.path().join("out");
         fs::create_dir(&dest).unwrap();
         write_zip(&archive, None, |writer| {
-            writer.start_file("x/y/z.txt", 1, None, None).unwrap();
-            writer.write_all(b"z").unwrap();
+            writer
+                .add_file("x/y/z.txt", 1, None, None, &mut &b"z"[..])
+                .unwrap();
         });
 
         let (outcome, events) = run(&extract(&[archive], &dest), []);
@@ -626,12 +674,14 @@ mod tests {
         let dest = dir.path().join("out");
         fs::create_dir(&dest).unwrap();
         write_zip(&a, None, |writer| {
-            writer.start_file("x.txt", 1, None, None).unwrap();
-            writer.write_all(b"x").unwrap();
+            writer
+                .add_file("x.txt", 1, None, None, &mut &b"x"[..])
+                .unwrap();
         });
         write_zip(&b, None, |writer| {
-            writer.start_file("y.txt", 1, None, None).unwrap();
-            writer.write_all(b"y").unwrap();
+            writer
+                .add_file("y.txt", 1, None, None, &mut &b"y"[..])
+                .unwrap();
         });
 
         let (outcome, events) = run(&extract_into_dirs(&[a, b], &dest), []);
@@ -646,6 +696,54 @@ mod tests {
         assert_eq!(fs::read(dest.join("a").join("x.txt")).unwrap(), b"x");
         assert_eq!(fs::read(dest.join("b").join("y.txt")).unwrap(), b"y");
         assert_eq!(done_indices(&events), [0, 1]);
+    }
+
+    #[test]
+    fn a_tar_gz_round_trips_and_its_directory_drops_both_extensions() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("src");
+        fs::create_dir_all(src.join("d")).unwrap();
+        fs::write(src.join("d").join("f.txt"), b"hello").unwrap();
+        let dest = dir.path().join("dest");
+        fs::create_dir(&dest).unwrap();
+        let mut spec = compress(&[src.join("d")], &dest, "x.tar.gz", None);
+        spec.output.as_mut().unwrap().format = ArchiveFormat::TarGz;
+
+        let (outcome, _) = run(&spec, []);
+
+        assert_eq!(
+            outcome,
+            Outcome::Completed {
+                done: 2,
+                skipped: 0
+            }
+        );
+        let archive = dest.join("x.tar.gz");
+        assert_eq!(
+            fs::read(&archive).unwrap()[..2],
+            [0x1f, 0x8b],
+            "a gzip stream"
+        );
+
+        let out = dir.path().join("out");
+        fs::create_dir(&out).unwrap();
+        let (outcome, _) = run(&extract_into_dirs(std::slice::from_ref(&archive), &out), []);
+
+        assert!(matches!(outcome, Outcome::Completed { .. }));
+        assert_eq!(
+            fs::read(out.join("x").join("d").join("f.txt")).unwrap(),
+            b"hello"
+        );
+
+        // With no telling extension, the content decides.
+        let renamed = dest.join("x.bin");
+        fs::rename(&archive, &renamed).unwrap();
+        let out = dir.path().join("sniffed");
+        fs::create_dir(&out).unwrap();
+        let (outcome, _) = run(&extract(&[renamed], &out), []);
+
+        assert!(matches!(outcome, Outcome::Completed { .. }));
+        assert_eq!(fs::read(out.join("d").join("f.txt")).unwrap(), b"hello");
     }
 
     #[test]
@@ -679,8 +777,9 @@ mod tests {
         fs::write(dest.join("b"), b"file").unwrap();
         for archive in [&a, &b] {
             write_zip(archive, None, |writer| {
-                writer.start_file("x.txt", 1, None, None).unwrap();
-                writer.write_all(b"x").unwrap();
+                writer
+                    .add_file("x.txt", 1, None, None, &mut &b"x"[..])
+                    .unwrap();
             });
         }
 
@@ -704,8 +803,9 @@ mod tests {
         fs::write(dest.join("c.txt"), b"old").unwrap();
         write_zip(&archive, None, |writer| {
             for name in ["a.txt", "b.txt", "c.txt"] {
-                writer.start_file(name, 3, None, None).unwrap();
-                writer.write_all(b"new").unwrap();
+                writer
+                    .add_file(name, 3, None, None, &mut &b"new"[..])
+                    .unwrap();
             }
         });
 
@@ -762,8 +862,9 @@ mod tests {
         fs::create_dir(&dest).unwrap();
         write_zip(&archive, None, |writer| {
             writer.add_symlink("link", "f.txt", None).unwrap();
-            writer.start_file("f.txt", 1, None, None).unwrap();
-            writer.write_all(b"f").unwrap();
+            writer
+                .add_file("f.txt", 1, None, None, &mut &b"f"[..])
+                .unwrap();
         });
 
         let (outcome, _) = run(&extract(&[archive], &dest), []);
@@ -791,8 +892,9 @@ mod tests {
         fs::create_dir(&dest).unwrap();
         write_zip(&archive, None, |writer| {
             writer.add_symlink("link", "f.txt", None).unwrap();
-            writer.start_file("f.txt", 1, None, None).unwrap();
-            writer.write_all(b"f").unwrap();
+            writer
+                .add_file("f.txt", 1, None, None, &mut &b"f"[..])
+                .unwrap();
         });
         let spec = copy_entries(&archive, &[], &["link", "f.txt"], &dest);
         let (_sender, replies) = mpsc::channel();
@@ -820,8 +922,9 @@ mod tests {
         fs::create_dir(&elsewhere).unwrap();
         std::os::unix::fs::symlink(&elsewhere, dest.join("link")).unwrap();
         write_zip(&archive, None, |writer| {
-            writer.start_file("link/sub/f.txt", 1, None, None).unwrap();
-            writer.write_all(b"f").unwrap();
+            writer
+                .add_file("link/sub/f.txt", 1, None, None, &mut &b"f"[..])
+                .unwrap();
         });
 
         let (outcome, _) = run(&extract(&[archive], &dest), []);
@@ -849,8 +952,9 @@ mod tests {
         fs::create_dir(&dest).unwrap();
         write_zip(&archive, None, |writer| {
             writer.add_symlink("link", "d/sub", None).unwrap();
-            writer.start_file("d/sub/g.txt", 1, None, None).unwrap();
-            writer.write_all(b"g").unwrap();
+            writer
+                .add_file("d/sub/g.txt", 1, None, None, &mut &b"g"[..])
+                .unwrap();
         });
 
         let (outcome, _) = run(&extract(&[archive], &dest), []);
@@ -876,10 +980,12 @@ mod tests {
         let dest = dir.path().join("out");
         fs::create_dir(&dest).unwrap();
         write_zip(&archive, Some("secret"), |writer| {
-            writer.start_file("a.txt", 1, None, None).unwrap();
-            writer.write_all(b"a").unwrap();
-            writer.start_file("b.txt", 1, None, None).unwrap();
-            writer.write_all(b"b").unwrap();
+            writer
+                .add_file("a.txt", 1, None, None, &mut &b"a"[..])
+                .unwrap();
+            writer
+                .add_file("b.txt", 1, None, None, &mut &b"b"[..])
+                .unwrap();
         });
 
         let (outcome, events) = run(
@@ -938,8 +1044,9 @@ mod tests {
         fs::create_dir(&dest).unwrap();
         fs::write(dest.join("a.txt"), b"old").unwrap();
         write_zip(&archive, Some("secret"), |writer| {
-            writer.start_file("a.txt", 3, None, None).unwrap();
-            writer.write_all(b"new").unwrap();
+            writer
+                .add_file("a.txt", 3, None, None, &mut &b"new"[..])
+                .unwrap();
         });
         let spec = copy_entries(&archive, &[], &["a.txt"], &dest);
         let (sender, replies) = mpsc::channel();
@@ -971,7 +1078,9 @@ mod tests {
         let dest = dir.path().join("out");
         fs::create_dir(&dest).unwrap();
         write_zip(&archive, None, |writer| {
-            writer.start_file("a.txt", 0, None, None).unwrap();
+            writer
+                .add_file("a.txt", 0, None, None, &mut io::empty())
+                .unwrap();
         });
 
         let (outcome, _) = run(&copy_entries(&archive, &[], &["missing"], &dest), []);
@@ -1219,8 +1328,9 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let archive = dir.path().join("a.zip");
         write_zip(&archive, None, |writer| {
-            writer.start_file("a.txt", 1, None, None).unwrap();
-            writer.write_all(b"a").unwrap();
+            writer
+                .add_file("a.txt", 1, None, None, &mut &b"a"[..])
+                .unwrap();
         });
         let spec = OperationSpec {
             kind: OperationKind::ExtractToTemp,

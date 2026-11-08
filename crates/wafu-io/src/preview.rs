@@ -102,7 +102,6 @@ fn failed(error: &io::Error) -> PreviewError {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::io::Write;
     use std::path::Path;
 
     use image::{ImageFormat, RgbaImage};
@@ -237,11 +236,14 @@ mod tests {
 
     // `top.txt` at the root and `d/f.txt` below it.
     fn write_zip(path: &Path, password: Option<&str>) {
-        let mut writer = create_archive(File::create(path).unwrap(), ArchiveFormat::Zip, password);
-        writer.start_file("top.txt", 3, None, None).unwrap();
-        writer.write_all(b"top").unwrap();
-        writer.start_file("d/f.txt", 5, None, None).unwrap();
-        writer.write_all(b"inner").unwrap();
+        let mut writer =
+            create_archive(File::create(path).unwrap(), ArchiveFormat::Zip, password).unwrap();
+        writer
+            .add_file("top.txt", 3, None, None, &mut &b"top"[..])
+            .unwrap();
+        writer
+            .add_file("d/f.txt", 5, None, None, &mut &b"inner"[..])
+            .unwrap();
         writer.finish().unwrap();
     }
 }

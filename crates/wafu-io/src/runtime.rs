@@ -1065,9 +1065,11 @@ mod tests {
                 File::create(&archive).unwrap(),
                 wafu_core::ArchiveFormat::Zip,
                 None,
-            );
-            writer.start_file("d/f.txt", 1, None, None).unwrap();
-            std::io::Write::write_all(&mut writer, b"f").unwrap();
+            )
+            .unwrap();
+            writer
+                .add_file("d/f.txt", 1, None, None, &mut &b"f"[..])
+                .unwrap();
             writer.finish().unwrap();
         }
         let (runtime, events) = runtime();
@@ -1540,7 +1542,10 @@ mod tests {
     fn read_archive(path: &Path, side: Side, request: u64) -> Effect {
         Effect::ReadDir {
             side,
-            location: Location::archive_root(path.to_path_buf(), Some(wafu_core::ArchiveFormat::Zip)),
+            location: Location::archive_root(
+                path.to_path_buf(),
+                Some(wafu_core::ArchiveFormat::Zip),
+            ),
             request: RequestId(request),
         }
     }

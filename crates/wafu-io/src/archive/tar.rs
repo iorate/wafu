@@ -1,0 +1,599 @@
+use std::fs::File;
+use std::io::{self, BufReader, BufWriter, Cursor, Read, Seek, SeekFrom, Write};
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use bzip2::read::MultiBzDecoder;
+use bzip2::write::BzEncoder;
+use flate2::read::MultiGzDecoder;
+use flate2::write::GzEncoder;
+use lzma_rust2::{XzOptions, XzReader, XzWriter};
+use tar::{Archive, Builder, Entries, EntryType, Header};
+
+use super::names::{decode_name, split_name};
+use super::{ArchiveEntry, ArchiveEntryKind, ArchiveError, ArchiveReader, ArchiveWriter};
+
+const DEFAULT_FILE_MODE: u32 = 0o644;
+const DEFAULT_DIR_MODE: u32 = 0o755;
+const LINK_MODE: u32 = 0o777;
+const XZ_PRESET: u32 = 6;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Compression {
+    None,
+    Gzip,
+    Bzip2,
+    Xz,
+}
+
+// A tar can only be read front to back, so the whole archive is scanned once
+// when opened, and entries are then read from a stream that only moves
+// forward and starts over when asked for something behind it. Reading the
+// entries in index order, as an extraction does, costs one more pass.
+pub(crate) struct TarReader {
+    path: PathBuf,
+    compression: Compression,
+    entries: Vec<ArchiveEntry>,
+    contents: Vec<Content>,
+    stream: Option<Stream>,
+}
+
+pub(crate) struct TarWriter {
+    builder: Builder<Encoder>,
+}
+
+// Where the content of an entry is.
+#[derive(Debug, Clone)]
+enum Content {
+    // `len` bytes from `start` of the uncompressed stream.
+    Span { start: u64, len: u64 },
+    // A link's content is its target, which the header holds.
+    Target(String),
+    // Spread over holes the stream positions do not describe.
+    Sparse,
+}
+
+struct Stream {
+    source: Source,
+    pos: u64,
+}
+
+enum Source {
+    Plain(BufReader<File>),
+    Decoded(Box<dyn Read>),
+}
+
+// Reads one entry from the stream, no further than its end, and leaves the
+// stream positioned after what was read.
+struct EntryReader<'a> {
+    stream: &'a mut Stream,
+    remaining: u64,
+}
+
+enum Encoder {
+    Plain(BufWriter<File>),
+    Gzip(GzEncoder<BufWriter<File>>),
+    Bzip2(BzEncoder<BufWriter<File>>),
+    Xz(XzWriter<BufWriter<File>>),
+}
+
+impl TarReader {
+    pub(crate) fn open(path: &Path, compression: Compression) -> Result<Self, ArchiveError> {
+        let file = BufReader::new(File::open(path)?);
+        // A plain tar can seek past the content; a decoded one reads through it.
+        let (entries, contents) = if compression == Compression::None {
+            let mut archive = Archive::new(file);
+            scan(archive.entries_with_seek()?)?
+        } else {
+            let mut archive = Archive::new(decoder(compression, file));
+            scan(archive.entries()?)?
+        };
+        Ok(Self {
+            path: path.to_path_buf(),
+            compression,
+            entries,
+            contents,
+            stream: None,
+        })
+    }
+}
+
+impl ArchiveReader for TarReader {
+    fn entries(&self) -> &[ArchiveEntry] {
+        &self.entries
+    }
+
+    fn open(
+        &mut self,
+        index: usize,
+        _password: Option<&str>,
+    ) -> Result<Box<dyn Read + '_>, ArchiveError> {
+        match self.contents[index].clone() {
+            Content::Target(target) => Ok(Box::new(Cursor::new(target.into_bytes()))),
+            Content::Sparse => Err(ArchiveError::Invalid(
+                "sparse entries are not supported".to_owned(),
+            )),
+            Content::Span { start, len } => {
+                if self.stream.as_ref().is_none_or(|stream| stream.pos > start) {
+                    self.stream = Some(Stream::open(&self.path, self.compression)?);
+                }
+                let stream = self.stream.as_mut().expect("the stream was just opened");
+                stream.skip_to(start)?;
+                Ok(Box::new(EntryReader {
+                    stream,
+                    remaining: len,
+                }))
+            }
+        }
+    }
+}
+
+impl TarWriter {
+    pub(crate) fn new(file: File, compression: Compression) -> io::Result<Self> {
+        Ok(Self {
+            builder: Builder::new(Encoder::new(file, compression)?),
+        })
+    }
+}
+
+impl ArchiveWriter for TarWriter {
+    fn add_dir(
+        &mut self,
+        path: &str,
+        modified: Option<SystemTime>,
+        mode: Option<u32>,
+    ) -> io::Result<()> {
+        let mut header = header(
+            EntryType::Directory,
+            0,
+            modified,
+            mode.unwrap_or(DEFAULT_DIR_MODE),
+        );
+        self.builder
+            .append_data(&mut header, format!("{path}/"), io::empty())
+    }
+
+    fn add_file(
+        &mut self,
+        path: &str,
+        size: u64,
+        modified: Option<SystemTime>,
+        mode: Option<u32>,
+        data: &mut dyn Read,
+    ) -> io::Result<()> {
+        let mut header = header(
+            EntryType::Regular,
+            size,
+            modified,
+            mode.unwrap_or(DEFAULT_FILE_MODE),
+        );
+        self.builder.append_data(&mut header, path, data)
+    }
+
+    fn add_symlink(
+        &mut self,
+        path: &str,
+        target: &str,
+        modified: Option<SystemTime>,
+    ) -> io::Result<()> {
+        let mut header = header(EntryType::Symlink, 0, modified, LINK_MODE);
+        self.builder.append_link(&mut header, path, target)
+    }
+
+    fn finish(self: Box<Self>) -> io::Result<()> {
+        self.builder.into_inner()?.finish()
+    }
+}
+
+impl Stream {
+    fn open(path: &Path, compression: Compression) -> io::Result<Self> {
+        let file = BufReader::new(File::open(path)?);
+        let source = match compression {
+            Compression::None => Source::Plain(file),
+            _ => Source::Decoded(decoder(compression, file)),
+        };
+        Ok(Self { source, pos: 0 })
+    }
+
+    // Moves forward to `target`, which is never behind the position.
+    fn skip_to(&mut self, target: u64) -> io::Result<()> {
+        match &mut self.source {
+            Source::Plain(file) => {
+                file.seek(SeekFrom::Start(target))?;
+            }
+            Source::Decoded(reader) => {
+                io::copy(
+                    &mut reader.by_ref().take(target - self.pos),
+                    &mut io::sink(),
+                )?;
+            }
+        }
+        self.pos = target;
+        Ok(())
+    }
+}
+
+impl Read for Stream {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let read = match &mut self.source {
+            Source::Plain(file) => file.read(buf)?,
+            Source::Decoded(reader) => reader.read(buf)?,
+        };
+        self.pos += read as u64;
+        Ok(read)
+    }
+}
+
+impl Read for EntryReader<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.remaining == 0 || buf.is_empty() {
+            return Ok(0);
+        }
+        let want =
+            usize::try_from(self.remaining).map_or(buf.len(), |remaining| remaining.min(buf.len()));
+        let read = self.stream.read(&mut buf[..want])?;
+        if read == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "the archive ends inside an entry",
+            ));
+        }
+        self.remaining -= read as u64;
+        Ok(read)
+    }
+}
+
+impl Encoder {
+    fn new(file: File, compression: Compression) -> io::Result<Self> {
+        let file = BufWriter::new(file);
+        Ok(match compression {
+            Compression::None => Self::Plain(file),
+            Compression::Gzip => Self::Gzip(GzEncoder::new(file, flate2::Compression::default())),
+            Compression::Bzip2 => Self::Bzip2(BzEncoder::new(file, bzip2::Compression::default())),
+            Compression::Xz => Self::Xz(XzWriter::new(file, XzOptions::with_preset(XZ_PRESET))?),
+        })
+    }
+
+    fn finish(self) -> io::Result<()> {
+        let mut file = match self {
+            Self::Plain(file) => file,
+            Self::Gzip(encoder) => encoder.finish()?,
+            Self::Bzip2(encoder) => encoder.finish()?,
+            Self::Xz(encoder) => encoder.finish()?,
+        };
+        file.flush()
+    }
+}
+
+impl Write for Encoder {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self {
+            Self::Plain(file) => file.write(buf),
+            Self::Gzip(encoder) => encoder.write(buf),
+            Self::Bzip2(encoder) => encoder.write(buf),
+            Self::Xz(encoder) => encoder.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            Self::Plain(file) => file.flush(),
+            Self::Gzip(encoder) => encoder.flush(),
+            Self::Bzip2(encoder) => encoder.flush(),
+            Self::Xz(encoder) => encoder.flush(),
+        }
+    }
+}
+
+// The index of the archive, in one pass. The crate resolves the GNU and PAX
+// extensions, so long names arrive whole and their carrier entries do not
+// show up.
+fn scan<R: Read>(entries: Entries<'_, R>) -> io::Result<(Vec<ArchiveEntry>, Vec<Content>)> {
+    let mut listed: Vec<ArchiveEntry> = Vec::new();
+    let mut contents: Vec<Content> = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        let header = entry.header();
+        let components = split_name(&decode_name(&entry.path_bytes()));
+        let mode = header.mode().ok().map(|mode| mode & 0o7777);
+        let modified = header
+            .mtime()
+            .ok()
+            .map(|seconds| UNIX_EPOCH + Duration::from_secs(seconds));
+        let link_name = || {
+            entry
+                .link_name_bytes()
+                .map(|bytes| decode_name(&bytes))
+                .unwrap_or_default()
+        };
+        let (kind, size, content) = match header.entry_type() {
+            EntryType::Directory => (
+                ArchiveEntryKind::Dir,
+                0,
+                Content::Span {
+                    start: entry.raw_file_position(),
+                    len: 0,
+                },
+            ),
+            EntryType::Symlink => {
+                let target = link_name();
+                (
+                    ArchiveEntryKind::Symlink,
+                    target.len() as u64,
+                    Content::Target(target),
+                )
+            }
+            // A hard link shares the content of an entry that came before it.
+            EntryType::Link => {
+                let target = split_name(&link_name());
+                let found = listed.iter().rposition(|listed| {
+                    listed.kind == ArchiveEntryKind::File && listed.components == target
+                });
+                match found {
+                    Some(index) => (
+                        ArchiveEntryKind::File,
+                        listed[index].size,
+                        contents[index].clone(),
+                    ),
+                    None => (
+                        ArchiveEntryKind::File,
+                        0,
+                        Content::Span { start: 0, len: 0 },
+                    ),
+                }
+            }
+            EntryType::GNUSparse => (ArchiveEntryKind::File, entry.size(), Content::Sparse),
+            // Nothing could be made of these on extraction, and a whole
+            // archive should not fail over one.
+            EntryType::Char | EntryType::Block | EntryType::Fifo => continue,
+            // Unknown types are files, as the format says.
+            _ => (
+                ArchiveEntryKind::File,
+                entry.size(),
+                Content::Span {
+                    start: entry.raw_file_position(),
+                    len: entry.size(),
+                },
+            ),
+        };
+        listed.push(ArchiveEntry {
+            components,
+            kind,
+            size,
+            modified,
+            mode,
+        });
+        contents.push(content);
+    }
+    Ok((listed, contents))
+}
+
+// Multi-member streams are what parallel compressors (pigz, pbzip2) write.
+fn decoder(compression: Compression, file: BufReader<File>) -> Box<dyn Read> {
+    match compression {
+        Compression::None => Box::new(file),
+        Compression::Gzip => Box::new(MultiGzDecoder::new(file)),
+        Compression::Bzip2 => Box::new(MultiBzDecoder::new(file)),
+        Compression::Xz => Box::new(XzReader::new(file, true)),
+    }
+}
+
+// Owner fields are left at zero; wafu does not record who made the archive.
+fn header(kind: EntryType, size: u64, modified: Option<SystemTime>, mode: u32) -> Header {
+    let mut header = Header::new_gnu();
+    header.set_entry_type(kind);
+    header.set_size(size);
+    header.set_mode(mode);
+    header.set_uid(0);
+    header.set_gid(0);
+    let mtime = modified
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .map_or(0, |since| since.as_secs());
+    header.set_mtime(mtime);
+    header
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::TempDir;
+
+    use super::*;
+
+    const ALL: [Compression; 4] = [
+        Compression::None,
+        Compression::Gzip,
+        Compression::Bzip2,
+        Compression::Xz,
+    ];
+
+    #[test]
+    fn reads_what_it_wrote_in_every_compression() {
+        let dir = TempDir::new().unwrap();
+        let modified = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        let long = "x".repeat(150);
+        for compression in ALL {
+            let path = dir.path().join("a.tar");
+            {
+                let mut writer =
+                    Box::new(TarWriter::new(File::create(&path).unwrap(), compression).unwrap());
+                writer.add_dir("d", Some(modified), Some(0o755)).unwrap();
+                writer
+                    .add_file(
+                        "d/f.txt",
+                        5,
+                        Some(modified),
+                        Some(0o600),
+                        &mut &b"hello"[..],
+                    )
+                    .unwrap();
+                writer
+                    .add_file(&format!("d/{long}"), 4, None, None, &mut &b"long"[..])
+                    .unwrap();
+                writer.add_symlink("l", "d/f.txt", Some(modified)).unwrap();
+                writer.finish().unwrap();
+            }
+
+            let mut reader = TarReader::open(&path, compression).unwrap();
+
+            let entries = reader.entries().to_vec();
+            assert_eq!(entries.len(), 4, "{compression:?}");
+            assert_eq!(entries[0].components, ["d"]);
+            assert_eq!(entries[0].kind, ArchiveEntryKind::Dir);
+            assert_eq!(entries[0].mode, Some(0o755));
+            assert_eq!(entries[1].components, ["d", "f.txt"]);
+            assert_eq!(entries[1].kind, ArchiveEntryKind::File);
+            assert_eq!(entries[1].size, 5);
+            assert_eq!(entries[1].mode, Some(0o600));
+            assert_eq!(entries[1].modified, Some(modified));
+            assert_eq!(entries[2].components, ["d", long.as_str()]);
+            assert_eq!(entries[2].mode, Some(DEFAULT_FILE_MODE));
+            assert_eq!(entries[3].kind, ArchiveEntryKind::Symlink);
+            assert_eq!(entries[3].size, 7);
+            assert_eq!(content(&mut reader, 1), b"hello");
+            assert_eq!(content(&mut reader, 2), b"long");
+            assert_eq!(content(&mut reader, 3), b"d/f.txt");
+        }
+    }
+
+    #[test]
+    fn going_back_reopens_the_stream_and_a_partial_read_does_not_break_the_next() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.tgz");
+        {
+            let mut writer =
+                Box::new(TarWriter::new(File::create(&path).unwrap(), Compression::Gzip).unwrap());
+            writer
+                .add_file("a", 6, None, None, &mut &b"first_"[..])
+                .unwrap();
+            writer
+                .add_file("b", 6, None, None, &mut &b"second"[..])
+                .unwrap();
+            writer
+                .add_file("c", 5, None, None, &mut &b"third"[..])
+                .unwrap();
+            writer.finish().unwrap();
+        }
+        let mut reader = TarReader::open(&path, Compression::Gzip).unwrap();
+
+        let mut head = [0; 2];
+        reader.open(1, None).unwrap().read_exact(&mut head).unwrap();
+        assert_eq!(&head, b"se");
+        assert_eq!(content(&mut reader, 2), b"third");
+        assert_eq!(content(&mut reader, 0), b"first_");
+        assert_eq!(content(&mut reader, 1), b"second");
+    }
+
+    #[test]
+    fn a_hard_link_reads_the_content_of_its_target() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.tar");
+        {
+            let mut builder = Builder::new(File::create(&path).unwrap());
+            let mut orig = header(EntryType::Regular, 4, None, 0o644);
+            builder
+                .append_data(&mut orig, "orig", &b"data"[..])
+                .unwrap();
+            let mut same = header_of(EntryType::Link);
+            builder.append_link(&mut same, "same", "orig").unwrap();
+            let mut lost = header_of(EntryType::Link);
+            builder.append_link(&mut lost, "lost", "gone").unwrap();
+            builder.finish().unwrap();
+        }
+
+        let mut reader = TarReader::open(&path, Compression::None).unwrap();
+
+        assert_eq!(reader.entries()[1].kind, ArchiveEntryKind::File);
+        assert_eq!(reader.entries()[1].size, 4);
+        assert_eq!(content(&mut reader, 1), b"data");
+        assert_eq!(reader.entries()[2].size, 0);
+        assert_eq!(content(&mut reader, 2), b"");
+    }
+
+    #[test]
+    fn devices_are_left_out_and_sparse_files_cannot_be_read() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.tar");
+        {
+            let mut builder = Builder::new(File::create(&path).unwrap());
+            let mut fifo = header_of(EntryType::Fifo);
+            builder.append_data(&mut fifo, "pipe", io::empty()).unwrap();
+            let mut file = header(EntryType::Regular, 1, None, 0o644);
+            builder.append_data(&mut file, "f", &b"x"[..]).unwrap();
+            builder.finish().unwrap();
+        }
+        let reader = TarReader::open(&path, Compression::None).unwrap();
+        assert_eq!(reader.entries().len(), 1);
+        assert_eq!(reader.entries()[0].components, ["f"]);
+
+        let mut reader = TarReader {
+            path,
+            compression: Compression::None,
+            entries: vec![reader.entries()[0].clone()],
+            contents: vec![Content::Sparse],
+            stream: None,
+        };
+        assert!(matches!(
+            reader.open(0, None),
+            Err(ArchiveError::Invalid(message)) if message.contains("sparse")
+        ));
+    }
+
+    #[test]
+    fn a_compressed_file_that_is_not_a_tar_is_an_error() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.gz");
+        let mut encoder = GzEncoder::new(
+            BufWriter::new(File::create(&path).unwrap()),
+            flate2::Compression::default(),
+        );
+        encoder.write_all(b"just some text").unwrap();
+        encoder.finish().unwrap().flush().unwrap();
+
+        assert!(TarReader::open(&path, Compression::Gzip).is_err());
+    }
+
+    #[test]
+    fn a_truncated_entry_is_an_error_rather_than_a_short_read() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.tar");
+        {
+            let mut writer =
+                Box::new(TarWriter::new(File::create(&path).unwrap(), Compression::None).unwrap());
+            writer
+                .add_file("a", 4, None, None, &mut &b"data"[..])
+                .unwrap();
+            writer.finish().unwrap();
+        }
+        let mut reader = TarReader::open(&path, Compression::None).unwrap();
+        // Everything after the header: the content and the end blocks.
+        File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(512 + 2)
+            .unwrap();
+
+        let mut content = Vec::new();
+        let error = reader
+            .open(0, None)
+            .unwrap()
+            .read_to_end(&mut content)
+            .unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
+    }
+
+    fn content(reader: &mut TarReader, index: usize) -> Vec<u8> {
+        let mut content = Vec::new();
+        reader
+            .open(index, None)
+            .unwrap()
+            .read_to_end(&mut content)
+            .unwrap();
+        content
+    }
+
+    fn header_of(kind: EntryType) -> Header {
+        header(kind, 0, None, 0o644)
+    }
+}
