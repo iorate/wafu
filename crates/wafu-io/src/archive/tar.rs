@@ -361,7 +361,6 @@ fn scan<R: Read>(
             .sparse_name
             .clone()
             .unwrap_or_else(|| decode_name(&entry.path_bytes()));
-        last = Some(name.clone());
         let components = split_name(&name);
         // `./`, which `tar -C dir -cf x.tar .` starts with, and an empty name
         // are the root, which has no entry of its own.
@@ -384,6 +383,7 @@ fn scan<R: Read>(
         else {
             continue;
         };
+        last = Some(name);
         if let Some(earlier) = latest.insert(components.clone(), listed.len()) {
             replaced[earlier] = true;
         }
@@ -972,6 +972,31 @@ mod tests {
         let error = TarReader::open(&path, Compression::Gzip).err().unwrap();
 
         assert_eq!(error.to_string(), "the tar archive is damaged after b");
+    }
+
+    #[test]
+    fn a_tar_damaged_after_entries_left_out_is_damaged_after_the_last_one_listed() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.tar");
+        {
+            let mut builder = Builder::new(File::create(&path).unwrap());
+            builder
+                .append_data(&mut header_of(EntryType::Regular), "a", io::empty())
+                .unwrap();
+            builder
+                .append_data(&mut header_of(EntryType::Directory), "./", io::empty())
+                .unwrap();
+            let mut global = header_of(EntryType::XGlobalHeader);
+            global.set_size(11);
+            builder
+                .append_data(&mut global, "pax_global_header", &b"52 comment=x"[..11])
+                .unwrap();
+            builder.get_mut().write_all(&[b'x'; 512]).unwrap();
+        }
+
+        let error = TarReader::open(&path, Compression::None).err().unwrap();
+
+        assert_eq!(error.to_string(), "the tar archive is damaged after a");
     }
 
     #[test]
