@@ -769,8 +769,9 @@ impl App {
             return;
         };
         self.popup = None;
-        let completed = matches!(outcome, Outcome::Completed { .. });
-        if !(completed && operation.temp.is_some()) {
+        // Another program is not handed a set of files with some left out.
+        let whole = matches!(outcome, Outcome::Completed { skipped: 0, .. });
+        if !(whole && operation.temp.is_some()) {
             self.log.push(
                 OutcomeLine {
                     kind: operation.kind,
@@ -785,7 +786,7 @@ impl App {
         {
             self.refresh_showing(dest, effects);
         }
-        if completed
+        if whole
             && let Some(temp) = operation.temp
             && let Some(dir) = operation.temp_dir
         {

@@ -1346,6 +1346,32 @@ fn a_failed_temporary_extraction_starts_nothing() {
 }
 
 #[test]
+fn a_temporary_extraction_with_skipped_entries_starts_nothing() {
+    let mut harness = inside();
+    harness.press("Down");
+    harness.press("Down");
+    harness.press("E");
+    harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
+    harness.take_effects();
+
+    harness.finish(Outcome::Completed {
+        done: 0,
+        skipped: 1,
+    });
+
+    let effects = harness.take_effects();
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Spawn { .. }))
+    );
+    assert_eq!(
+        harness.log().last().map(String::as_str),
+        Some("extracted 0 items (1 skipped)")
+    );
+}
+
+#[test]
 fn history_back_inside_an_archive_leaves_it_without_recording_it() {
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.load(Side::Left, vec![dir("d")]);
