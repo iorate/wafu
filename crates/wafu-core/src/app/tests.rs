@@ -1,6 +1,7 @@
 use std::path::{MAIN_SEPARATOR, Path, PathBuf};
 
 use super::*;
+use crate::command::Context;
 use crate::config::Theme;
 use crate::entry::{
     Directory, Entry, EntryKind, LocalDateTime, SpecialKind, TargetKind, Timestamp,
@@ -1346,7 +1347,14 @@ fn palette_filters_commands_and_runs_the_selected_one() {
     harness.press("F1");
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Palette");
-    assert_eq!(harness.popup_items().len(), Command::all().count() - 4);
+    // The commands of the file list, minus the four that are Windows-only.
+    assert_eq!(
+        harness.popup_items().len(),
+        Command::all()
+            .filter(|command| command.available_in(Context::FileList))
+            .count()
+            - 4
+    );
     assert_eq!(popup.cursor, Some(0));
 
     harness.edit("clear_m");

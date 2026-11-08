@@ -1079,8 +1079,15 @@ mod tests {
     fn palette_shows_only_commands_available_in_the_context() {
         let popup = PalettePopup::new(Context::Image, Os::Windows, vec!["x".to_owned()]);
 
-        assert_eq!(popup.matches.len(), 20);
+        assert_eq!(popup.matches.len(), 26);
         assert!(!popup.matches.contains(&Command::Copy));
+        assert!(!popup.matches.contains(&Command::PreviewScrollUp));
+
+        let popup = PalettePopup::new(Context::Text, Os::Windows, vec!["x".to_owned()]);
+
+        assert_eq!(popup.matches.len(), 15);
+        assert!(popup.matches.contains(&Command::PreviewScrollUp));
+        assert!(!popup.matches.contains(&Command::PaneGrowLeft));
     }
 
     #[test]

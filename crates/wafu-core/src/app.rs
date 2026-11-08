@@ -2,7 +2,7 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::command::{Command, Context};
+use crate::command::Command;
 use crate::config::Config;
 use crate::entry::Directory;
 use crate::error::{AppError, IoError};
@@ -488,10 +488,8 @@ impl App {
                         if key.base == KeyBase::Named(NamedKey::Escape) {
                             self.cancel_navigation(&mut effects);
                         }
-                    } else if self.preview.is_some() {
-                        self.preview_key(key, &mut effects);
                     } else {
-                        if let Some(command) = self.config.keys.lookup(Context::FileList, &key) {
+                        if let Some(command) = self.config.keys.lookup(self.context(), &key) {
                             self.run_command(command, &mut effects);
                         }
                         // A key after scrolling with the mouse brings the cursor back into view.
@@ -610,20 +608,10 @@ impl App {
                 pane.set_filter(None);
             }
             Command::Reload => self.reload(side, effects),
-            Command::PaneShrinkLeft => {
-                self.split_percent = (self.split_percent - SPLIT_STEP).max(SPLIT_MIN);
-            }
-            Command::PaneGrowLeft => {
-                self.split_percent = (self.split_percent + SPLIT_STEP).min(SPLIT_MAX);
-            }
-            Command::LogShrink => {
-                let rows = (self.log.viewport_rows() - 1).max(LOG_ROWS_MIN);
-                self.log.set_viewport_rows(rows);
-            }
-            Command::LogGrow => {
-                let rows = (self.log.viewport_rows() + 1).min(LOG_ROWS_MAX);
-                self.log.set_viewport_rows(rows);
-            }
+            Command::PaneShrinkLeft => self.split_to(self.split_percent - SPLIT_STEP),
+            Command::PaneGrowLeft => self.split_to(self.split_percent + SPLIT_STEP),
+            Command::LogShrink => self.log_rows_to(self.log.viewport_rows().saturating_sub(1)),
+            Command::LogGrow => self.log_rows_to(self.log.viewport_rows() + 1),
             Command::LogScrollUp => self.log.scroll_up(),
             Command::LogScrollDown => self.log.scroll_down(),
             Command::LogPageUp => self.log.page_up(),
@@ -635,6 +623,14 @@ impl App {
                     effects.push(Effect::Clipboard(lines.join("\n")));
                 }
             }
+            Command::PreviewScrollUp
+            | Command::PreviewScrollDown
+            | Command::PreviewPageUp
+            | Command::PreviewPageDown
+            | Command::PreviewTop
+            | Command::PreviewBottom
+            | Command::PreviewToggleMode
+            | Command::ClosePreview => self.run_preview_command(&command, effects),
             Command::Palette => self.open_palette(),
             Command::GoToPath => self.open_input(InputKind::GoToPath {
                 dir: self.active_pane().location().base.clone(),

@@ -1,7 +1,6 @@
 use std::mem::{Discriminant, discriminant};
 
 use super::{App, Effect, MouseInput};
-use crate::command::Context;
 use crate::config::Bookmark;
 use crate::error::AppError;
 use crate::filter::Filter;
@@ -55,7 +54,7 @@ impl App {
     pub(super) fn open_palette(&mut self) {
         let externals = self.config.commands.keys().cloned().collect();
         self.popup = Some(Popup::Palette(PalettePopup::new(
-            Context::FileList,
+            self.context(),
             self.os,
             externals,
         )));
