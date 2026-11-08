@@ -8,7 +8,7 @@ use chrono::{DateTime, Datelike, Local, TimeZone, Timelike};
 use zip::read::ZipFile;
 use zip::result::ZipError;
 use zip::write::{FileOptions, SimpleFileOptions};
-use zip::{AesMode, CompressionMethod, ExtraField, ZipArchive, ZipWriter};
+use zip::{AesMode, CompressionMethod, ExtraField, System, ZipArchive, ZipWriter};
 
 use super::names::{decode_name, split_name};
 use super::{ArchiveEntry, ArchiveEntryKind, ArchiveError, ArchiveReader, ArchiveWriter};
@@ -168,7 +168,9 @@ fn entry_of(file: &ZipFile<'_, File>) -> ArchiveEntry {
         kind,
         size: file.size(),
         modified,
-        mode,
+        // An entry made elsewhere has only DOS attributes, from which the
+        // crate makes up a mode; the system's defaults are left to decide.
+        mode: mode.filter(|_| file.system() == System::Unix),
     }
 }
 
@@ -241,7 +243,6 @@ fn io_error(error: ZipError) -> io::Error {
 #[cfg(test)]
 mod tests {
     use tempfile::TempDir;
-    use zip::System;
 
     use super::*;
 
@@ -329,6 +330,31 @@ mod tests {
                 ArchiveEntryKind::File
             ]
         );
+    }
+
+    #[test]
+    fn only_unix_attributes_bring_a_mode() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.zip");
+        let mut writer = ZipWriter::new(File::create(&path).unwrap());
+        let unix = SimpleFileOptions::default()
+            .system(System::Unix)
+            .external_attributes(0o100_600 << 16);
+        let dos = SimpleFileOptions::default()
+            .system(System::Dos)
+            .external_attributes(0x01);
+        writer.start_file("u", unix).unwrap();
+        writer.start_file("w", dos).unwrap();
+        writer.finish().unwrap();
+
+        let reader = ZipReader::open(&path).unwrap();
+
+        let modes: Vec<Option<u32>> = reader
+            .entries()
+            .iter()
+            .map(|entry| entry.mode.map(|mode| mode & 0o777))
+            .collect();
+        assert_eq!(modes, [Some(0o600), None]);
     }
 
     #[cfg(windows)]
