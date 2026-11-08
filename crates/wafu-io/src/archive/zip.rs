@@ -29,6 +29,7 @@ const FILE_TIME_EPOCH: u64 = 116_444_736_000_000_000;
 const FILE_TIME_TICKS: u64 = 10_000_000;
 pub(crate) const NOT_ZIP: &str = "not a zip archive";
 const DAMAGED: &str = "the zip archive is damaged";
+const WRONG_OR_DAMAGED: &str = "the password is wrong or the zip archive is damaged";
 
 pub(crate) struct ZipReader {
     archive: ZipArchive<File>,
@@ -43,6 +44,7 @@ pub(crate) struct ZipReader {
 struct EntryReader<R> {
     file: R,
     name: String,
+    encrypted: bool,
 }
 
 pub(crate) struct ZipArchiveWriter {
@@ -123,11 +125,9 @@ impl ArchiveReader for ZipReader {
         // The crate opens an entry in a method it cannot decompress and fails
         // only when it is read, which would stop an extraction instead of
         // skipping the entry. Inside an AES entry this is the inner method.
-        let method = self
-            .archive
-            .by_index_data(position)
-            .map_err(convert)?
-            .compression();
+        let data = self.archive.by_index_data(position).map_err(convert)?;
+        let method = data.compression();
+        let encrypted = data.encrypted();
         if !matches!(
             method,
             CompressionMethod::Stored
@@ -146,12 +146,16 @@ impl ArchiveReader for ZipReader {
         }
         .map_err(|error| {
             if is_damage(&error) {
-                ArchiveError::Io(damaged_in(&name))
+                ArchiveError::Io(damaged_in(&name, encrypted))
             } else {
                 convert(error)
             }
         })?;
-        Ok(Box::new(EntryReader { file, name }))
+        Ok(Box::new(EntryReader {
+            file,
+            name,
+            encrypted,
+        }))
     }
 }
 
@@ -161,7 +165,7 @@ impl<R: Read> Read for EntryReader<R> {
             if error.raw_os_error().is_some() || error.kind() == io::ErrorKind::Interrupted {
                 error
             } else {
-                damaged_in(&self.name)
+                damaged_in(&self.name, self.encrypted)
             }
         })
     }
@@ -342,8 +346,12 @@ fn is_damage(error: &ZipError) -> bool {
     }
 }
 
-fn damaged_in(name: &str) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, format!("{DAMAGED} in {name}"))
+// A wrong password passes the check before the data, a byte for ZipCrypto
+// and two for AES, often enough that a failure inside an encrypted entry is
+// as likely to be the password as damage.
+fn damaged_in(name: &str, encrypted: bool) -> io::Error {
+    let message = if encrypted { WRONG_OR_DAMAGED } else { DAMAGED };
+    io::Error::new(io::ErrorKind::InvalidData, format!("{message} in {name}"))
 }
 
 // The crate finds the end record however far into the file it is, so a
@@ -575,6 +583,38 @@ mod tests {
             .read_to_end(&mut Vec::new())
             .unwrap_err();
         assert_eq!(error.to_string(), "the zip archive is damaged in b.txt");
+    }
+
+    #[test]
+    fn a_damaged_encrypted_entry_may_have_the_wrong_password() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.zip");
+        {
+            let file = File::create(&path).unwrap();
+            let mut writer = Box::new(ZipArchiveWriter::new(file, Some("secret")));
+            writer
+                .add_file("a.txt", 5, None, None, &mut &b"hello"[..])
+                .unwrap();
+            writer.finish().unwrap();
+        }
+        // Past the local header, the AES salt, and the password check.
+        let mut zip = std::fs::read(&path).unwrap();
+        let name_len = usize::from(u16::from_le_bytes([zip[26], zip[27]]));
+        let extra_len = usize::from(u16::from_le_bytes([zip[28], zip[29]]));
+        zip[30 + name_len + extra_len + 18] ^= 0xff;
+        std::fs::write(&path, zip).unwrap();
+
+        let mut reader = ZipReader::open(&path).unwrap();
+        let error = reader
+            .open(0, Some("secret"))
+            .unwrap()
+            .read_to_end(&mut Vec::new())
+            .unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "the password is wrong or the zip archive is damaged in a.txt"
+        );
     }
 
     #[test]
