@@ -226,7 +226,6 @@ impl Worker<'_> {
                 extraction.dirs.push((dst, entry));
             }
             ArchiveEntryKind::File => {
-                ensure_parent(&shown, &extraction.dest, &dst)?;
                 // A hard link is extracted as a copy. Its content comes before
                 // it in a tar, so reading it there would start the stream over;
                 // the file already written has it too, unless the mode it was
@@ -239,6 +238,9 @@ impl Worker<'_> {
                 if copy_of.is_none() {
                     self.unlock(extraction, index, &shown)?;
                 }
+                // Once the entry is known to be readable, so that one skipped
+                // leaves no directories behind.
+                ensure_parent(&shown, &extraction.dest, &dst)?;
                 let Some(dst) = self.clear_destination(&shown, &dst)? else {
                     return Ok(false);
                 };
@@ -1201,7 +1203,7 @@ mod tests {
     }
 
     #[test]
-    fn tar_entries_that_cannot_be_read_are_skipped_and_the_rest_extracted() {
+    fn tar_entries_that_cannot_be_read_are_skipped_without_their_directories() {
         let dir = TempDir::new().unwrap();
         let archive = dir.path().join("a.tar");
         let dest = dir.path().join("out");
@@ -1212,7 +1214,7 @@ mod tests {
                 .append_pax_extensions([
                     ("GNU.sparse.major", &b"1"[..]),
                     ("GNU.sparse.minor", b"0"),
-                    ("GNU.sparse.name", b"holes.bin"),
+                    ("GNU.sparse.name", b"d/holes.bin"),
                     ("GNU.sparse.realsize", b"1048576"),
                 ])
                 .unwrap();
@@ -1228,7 +1230,7 @@ mod tests {
                 .append_data(&mut tar_header(EntryType::new(b'M'), 1), "big", &b"x"[..])
                 .unwrap();
             builder
-                .append_link(&mut tar_header(EntryType::Link, 0), "lost", "gone")
+                .append_link(&mut tar_header(EntryType::Link, 0), "e/lost", "gone")
                 .unwrap();
             builder
                 .append_data(&mut tar_header(EntryType::Regular, 2), "ok.txt", &b"ok"[..])
@@ -1256,7 +1258,7 @@ mod tests {
             skipped,
             [
                 (
-                    archive.join("holes.bin"),
+                    archive.join("d").join("holes.bin"),
                     "sparse entries are not supported".to_owned()
                 ),
                 (
@@ -1264,15 +1266,15 @@ mod tests {
                     "multi-volume archives are not supported".to_owned()
                 ),
                 (
-                    archive.join("lost"),
+                    archive.join("e").join("lost"),
                     "the target of the hard link is not in the archive".to_owned()
                 ),
             ]
         );
         assert_eq!(fs::read(dest.join("ok.txt")).unwrap(), b"ok");
-        assert!(!dest.join("holes.bin").exists());
+        assert!(!dest.join("d").exists());
         assert!(!dest.join("big").exists());
-        assert!(!dest.join("lost").exists());
+        assert!(!dest.join("e").exists());
     }
 
     #[test]
