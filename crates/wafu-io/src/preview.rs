@@ -13,7 +13,8 @@ const IMAGE_PREVIEW_LIMIT: u64 = 64 * 1024 * 1024;
 // The archive previewed last, kept open so that moving through its entries
 // does not build its index again: for a compressed tar that means
 // decompressing all of it. A changed archive misses it, and previewing a
-// file outside any archive lets it go so the archive is not held open.
+// file outside any archive or `Effect::ReleasePreview` lets it go so the
+// archive is not held open.
 #[derive(Default)]
 pub(crate) struct PreviewedArchive(Option<OpenArchive>);
 
