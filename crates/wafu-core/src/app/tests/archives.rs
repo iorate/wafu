@@ -678,25 +678,25 @@ fn compress_takes_the_password_typed_in_the_second_field() {
 }
 
 #[test]
-fn compress_makes_a_zip_with_the_password_when_the_extension_is_not_an_archive() {
-    let mut harness = outside();
-    harness.press("Down");
-    harness.press("P");
-    harness.edit("backup.bak");
-    harness.edit_field(1, "hunter2");
-    harness.take_effects();
+fn compress_refuses_a_name_whose_extension_names_no_format() {
+    for name in ["backup.bak", "backup"] {
+        let mut harness = outside();
+        harness.press("Down");
+        harness.press("P");
+        harness.edit(name);
+        harness.take_effects();
 
-    harness.press("Enter");
+        harness.press("Enter");
 
-    let spec = harness.start_operation().unwrap();
-    assert_eq!(
-        spec.output,
-        Some(ArchiveOutput {
-            format: ArchiveFormat::Zip,
-            name: "backup.bak".into(),
-            password: Some("hunter2".to_owned()),
-        })
-    );
+        assert!(harness.popup().is_none(), "{name}");
+        assert_eq!(harness.take_effects(), vec![], "{name}");
+        assert_eq!(
+            harness.log().last(),
+            Some(&format!(
+                "cannot make {name}: the extension does not name an archive format"
+            )),
+        );
+    }
 }
 
 #[test]
