@@ -1,5 +1,5 @@
 use std::ffi::{OsStr, OsString};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::navigation::is_link_in_archive;
@@ -167,6 +167,21 @@ impl App {
             }
             _ => preview.image = None,
         }
+    }
+
+    // Holding an archive open keeps a removable drive from being ejected
+    // and, on Windows, keeps a deleted archive's name taken, so the io is
+    // told to let it go as soon as nothing previews its entries.
+    pub(super) fn release_preview(&self, before: Option<&Path>, effects: &mut Vec<Effect>) {
+        if before.is_some() && self.previewed_archive().as_deref() != before {
+            effects.push(Effect::ReleasePreview);
+        }
+    }
+
+    pub(super) fn previewed_archive(&self) -> Option<PathBuf> {
+        self.preview.as_ref()?;
+        let location = self.active_pane().location();
+        location.archive.as_ref().map(|_| location.base.clone())
     }
 
     pub(super) fn preview_loaded(

@@ -1,3 +1,6 @@
+pub(crate) const UNSAFE_NAME: &str = "the entry name is unsafe";
+const RESERVED_NAMES: [&str; 6] = ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"];
+const NUMBERED_RESERVED_NAMES: [&str; 2] = ["COM", "LPT"];
 #[cfg(windows)]
 const UTF8_CODE_PAGE: u32 = 65001;
 
@@ -21,13 +24,55 @@ pub(crate) fn split_name(name: &str) -> Vec<String> {
 }
 
 // Whether a component may be used as one path element under the
-// destination. Anything that could reach outside is refused.
-pub(crate) fn check_component(component: &str) -> bool {
-    !(component.is_empty()
+// destination, with the reason if not. Anything that could reach outside is
+// refused, and on Windows so is a name the system would not create as given.
+pub(crate) fn check_component(component: &str) -> Result<(), &'static str> {
+    if component.is_empty()
         || component == "."
         || component == ".."
         || component.contains(['\0', '/', '\\'])
-        || (cfg!(windows) && component.contains(':')))
+        || (cfg!(windows) && component.contains(':'))
+    {
+        return Err(UNSAFE_NAME);
+    }
+    if !cfg!(windows) {
+        return Ok(());
+    }
+    // Only these controls: DEL and the C1 controls are allowed.
+    if component.contains(|c: char| ('\u{1}'..='\u{1f}').contains(&c) || "<>\"|?*".contains(c)) {
+        Err("the entry name has a character that Windows does not allow")
+    } else if component.ends_with(['.', ' ']) {
+        // Windows drops these, so the entry would land under another name.
+        Err("the entry name ends with a dot or a space, which Windows does not allow")
+    } else if is_reserved(component) {
+        Err("the entry name is reserved for a device on Windows")
+    } else {
+        Ok(())
+    }
+}
+
+// `CON`, `COM1`, and the like name devices on Windows even with an extension
+// and with spaces before it. The superscript digits count as digits there.
+fn is_reserved(component: &str) -> bool {
+    let stem = component
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches(' ');
+    RESERVED_NAMES
+        .iter()
+        .any(|name| stem.eq_ignore_ascii_case(name))
+        || NUMBERED_RESERVED_NAMES.iter().any(|name| {
+            stem.get(..name.len())
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case(name))
+                && stem.get(name.len()..).is_some_and(|number| {
+                    let mut chars = number.chars();
+                    chars
+                        .next()
+                        .is_some_and(|c| matches!(c, '1'..='9' | '\u{b9}' | '\u{b2}' | '\u{b3}'))
+                        && chars.next().is_none()
+                })
+        })
 }
 
 #[cfg(windows)]
@@ -151,12 +196,40 @@ mod tests {
 
     #[test]
     fn unsafe_components_are_refused() {
-        assert!(check_component("a.txt"));
-        assert!(check_component("..."));
-        assert!(!check_component(".."));
-        assert!(!check_component("."));
-        assert!(!check_component(""));
-        assert!(!check_component("a\0b"));
-        assert_eq!(check_component("c:"), !cfg!(windows));
+        assert_eq!(check_component("a.txt"), Ok(()));
+        assert_eq!(check_component("...").is_ok(), !cfg!(windows));
+        assert_eq!(check_component(".."), Err(UNSAFE_NAME));
+        assert_eq!(check_component("."), Err(UNSAFE_NAME));
+        assert_eq!(check_component(""), Err(UNSAFE_NAME));
+        assert_eq!(check_component("a\0b"), Err(UNSAFE_NAME));
+        assert_eq!(check_component("c:").is_ok(), !cfg!(windows));
+    }
+
+    #[test]
+    fn names_windows_cannot_create_are_refused_there() {
+        for name in [
+            "a?b",
+            "a\u{1}b",
+            "x ",
+            "con",
+            "CON.txt",
+            "nul.tar.gz",
+            "com1",
+            "con .txt",
+            "com\u{b9}",
+        ] {
+            assert_eq!(check_component(name).is_ok(), !cfg!(windows), "{name}");
+        }
+        for name in [
+            "console",
+            "com0",
+            "com10",
+            "lpt",
+            " con",
+            "com\u{2074}",
+            "a\u{80}b",
+        ] {
+            assert_eq!(check_component(name), Ok(()), "{name}");
+        }
     }
 }

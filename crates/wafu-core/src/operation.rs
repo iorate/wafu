@@ -74,6 +74,11 @@ pub enum OperationEvent {
     ItemDone {
         index: usize,
     },
+    /// One entry could not be written and was left out; the operation goes on.
+    Skipped {
+        path: PathBuf,
+        error: IoError,
+    },
     /// `dest` exists; the worker waits for a reply.
     Conflict {
         source: PathBuf,

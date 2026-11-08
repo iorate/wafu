@@ -155,8 +155,18 @@ impl App {
         if name.is_empty() {
             return;
         }
+        let Some(format) = ArchiveFormat::from_name(OsStr::new(name)) else {
+            let name = OsString::from(name);
+            self.log.push(AppError::NoFormat { name }.to_string());
+            return;
+        };
+        if !password.is_empty() && !format.takes_password() {
+            let name = OsString::from(name);
+            self.log.push(AppError::NoPassword { name }.to_string());
+            return;
+        }
         let output = ArchiveOutput {
-            format: ArchiveFormat::from_name(OsStr::new(name)).unwrap_or(ArchiveFormat::Zip),
+            format,
             name: OsString::from(name),
             password: (!password.is_empty()).then(|| password.to_owned()),
         };
@@ -278,6 +288,13 @@ impl App {
                 {
                     self.panes[operation.side.index()].unmark(name);
                 }
+            }
+            OperationEvent::Skipped { path, error } => {
+                if let Some(temp) = &mut operation.temp {
+                    temp.entry_skipped = true;
+                }
+                self.log
+                    .push(format!("skipped {}: {error}", path.display()));
             }
             OperationEvent::Conflict { source, dest } => {
                 self.show_operation_popup(Popup::Conflict(ConflictPopup::new(source, dest, false)));
@@ -469,6 +486,7 @@ impl App {
                 cursor: Some(TempPath::Extracted(entry.name.clone())),
                 marked: Vec::new(),
                 targets: vec![entry.name.clone()],
+                entry_skipped: false,
             };
             let entries = self.archive_entries(&location, std::slice::from_ref(&entry.name));
             self.start_temp(temp, entries, effects);
@@ -484,6 +502,7 @@ impl App {
                 cursor: Some(TempPath::Extracted(OsString::from(&name))),
                 marked: Vec::new(),
                 targets: vec![OsString::from(&name)],
+                entry_skipped: false,
             };
             let entries = ArchiveEntries {
                 archive: source.path,
@@ -558,6 +577,7 @@ impl App {
             cursor,
             marked,
             targets,
+            entry_skipped: false,
         };
         let entries = self.archive_entries(&from, &extracted);
         self.start_temp(temp, entries, effects);
@@ -654,6 +674,7 @@ impl App {
             cursor: Some(TempPath::Extracted(name.clone())),
             marked: Vec::new(),
             targets: vec![name],
+            entry_skipped: false,
         }
     }
 
@@ -759,8 +780,15 @@ impl App {
             return;
         };
         self.popup = None;
-        let completed = matches!(outcome, Outcome::Completed { .. });
-        if !(completed && operation.temp.is_some()) {
+        // Another program is not handed a set of files with some left out.
+        // Conflicts answered with Skip count as skipped too, but the user
+        // chose them.
+        let launch = matches!(outcome, Outcome::Completed { .. })
+            && operation
+                .temp
+                .as_ref()
+                .is_some_and(|temp| !temp.entry_skipped);
+        if !launch {
             self.log.push(
                 OutcomeLine {
                     kind: operation.kind,
@@ -775,7 +803,7 @@ impl App {
         {
             self.refresh_showing(dest, effects);
         }
-        if completed
+        if launch
             && let Some(temp) = operation.temp
             && let Some(dir) = operation.temp_dir
         {
@@ -867,6 +895,7 @@ struct Temp {
     marked: Vec<OsString>,
     // The entries `{paths}` stands for.
     targets: Vec<OsString>,
+    entry_skipped: bool,
 }
 
 // What `{cursor_path}` stands for once the extraction is done.

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::File;
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::path::Path;
 use std::time::SystemTime;
 
@@ -11,11 +11,17 @@ use wafu_core::{ArchiveFormat, Entry, EntryKind, Permissions, TargetKind};
 use crate::time::timestamp;
 
 mod names;
+pub(crate) mod tar;
 pub(crate) mod zip;
 
-pub(crate) use names::check_component;
+pub(crate) use names::{UNSAFE_NAME, check_component};
+
+use self::tar::Compression;
 
 const CANCEL_CHECK_INTERVAL: usize = 256;
+// One tar header, which holds the `ustar` magic at byte 257.
+const SNIFF_LEN: usize = 512;
+const TAR_CHECKSUM: std::ops::Range<usize> = 148..156;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ArchiveEntry {
@@ -59,11 +65,16 @@ pub(crate) trait ArchiveReader {
         index: usize,
         password: Option<&str>,
     ) -> Result<Box<dyn Read + '_>, ArchiveError>;
+
+    // The earlier entry whose content a hard link at `index` shares.
+    fn hard_link_target(&self, _index: usize) -> Option<usize> {
+        None
+    }
 }
 
-// Writes one archive. A file is started with `start_file` and then written
-// through `Write`.
-pub(crate) trait ArchiveWriter: Write {
+// Writes one archive. A file's content is pulled from `data`, which is
+// what both the zip and the tar crate can take.
+pub(crate) trait ArchiveWriter {
     fn add_dir(
         &mut self,
         path: &str,
@@ -71,12 +82,13 @@ pub(crate) trait ArchiveWriter: Write {
         mode: Option<u32>,
     ) -> io::Result<()>;
 
-    fn start_file(
+    fn add_file(
         &mut self,
         path: &str,
         size: u64,
         modified: Option<SystemTime>,
         mode: Option<u32>,
+        data: &mut dyn Read,
     ) -> io::Result<()>;
 
     fn add_symlink(
@@ -89,12 +101,19 @@ pub(crate) trait ArchiveWriter: Write {
     fn finish(self: Box<Self>) -> io::Result<()>;
 }
 
+// Opens an archive whose format is known, or read off its content when
+// `format` is `None`.
 pub(crate) fn open_archive(
     path: &Path,
-    format: ArchiveFormat,
+    format: Option<ArchiveFormat>,
 ) -> Result<Box<dyn ArchiveReader>, ArchiveError> {
-    match format {
-        ArchiveFormat::Zip => Ok(Box::new(zip::ZipReader::open(path)?)),
+    let format = match format {
+        Some(format) => format,
+        None => detect_format(path)?,
+    };
+    match compression(format) {
+        None => Ok(Box::new(zip::ZipReader::open(path)?)),
+        Some(compression) => Ok(Box::new(tar::TarReader::open(path, compression)?)),
     }
 }
 
@@ -102,10 +121,101 @@ pub(crate) fn create_archive(
     file: File,
     format: ArchiveFormat,
     password: Option<&str>,
-) -> Box<dyn ArchiveWriter> {
-    match format {
-        ArchiveFormat::Zip => Box::new(zip::ZipArchiveWriter::new(file, password)),
+) -> io::Result<Box<dyn ArchiveWriter>> {
+    match compression(format) {
+        None => Ok(Box::new(zip::ZipArchiveWriter::new(file, password))),
+        Some(compression) => Ok(Box::new(tar::TarWriter::new(file, compression)?)),
     }
+}
+
+// The compression around a tar; `None` for zip.
+fn compression(format: ArchiveFormat) -> Option<Compression> {
+    match format {
+        ArchiveFormat::Zip => None,
+        ArchiveFormat::Tar => Some(Compression::None),
+        ArchiveFormat::TarGz => Some(Compression::Gzip),
+        ArchiveFormat::TarBz2 => Some(Compression::Bzip2),
+        ArchiveFormat::TarXz => Some(Compression::Xz),
+    }
+}
+
+fn detect_format(path: &Path) -> io::Result<ArchiveFormat> {
+    let mut head = [0; SNIFF_LEN];
+    let mut file = File::open(path)?;
+    let mut filled = 0;
+    while filled < head.len() {
+        match file.read(&mut head[filled..]) {
+            Ok(0) => break,
+            Ok(read) => filled += read,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(sniff(&head[..filled]))
+}
+
+// Zip is the fallback, as it was when every archive was one. A compressed
+// stream is taken to hold a tar; what else it could hold is not read. The
+// tar magic comes first, since a plain tar starts with the name of its first
+// member, which may look like another magic.
+fn sniff(head: &[u8]) -> ArchiveFormat {
+    if head.get(257..262) == Some(b"ustar") || has_tar_checksum(head) {
+        ArchiveFormat::Tar
+    } else if head.starts_with(&[0x1f, 0x8b]) {
+        ArchiveFormat::TarGz
+    } else if head.starts_with(b"BZh") {
+        ArchiveFormat::TarBz2
+    } else if head.starts_with(&[0xfd, b'7', b'z', b'X', b'Z', 0x00]) {
+        ArchiveFormat::TarXz
+    } else {
+        ArchiveFormat::Zip
+    }
+}
+
+// The old formats write no magic, so a tar is also known by the checksum of
+// its first header, as GNU tar knows it: the sum of the header's bytes with
+// the checksum field read as spaces, in octal. Some old tars summed signed
+// bytes, which GNU tar accepts too.
+fn has_tar_checksum(head: &[u8]) -> bool {
+    let Some(header) = head.get(..SNIFF_LEN) else {
+        return false;
+    };
+    if header.iter().all(|&byte| byte == 0) {
+        return false;
+    }
+    let field = &header[TAR_CHECKSUM];
+    let start = field.iter().take_while(|&&byte| byte == b' ').count();
+    let digits = field[start..]
+        .iter()
+        .take_while(|byte| (b'0'..=b'7').contains(*byte))
+        .count();
+    if digits == 0
+        || field
+            .get(start + digits)
+            .is_some_and(|&byte| byte != 0 && byte != b' ')
+    {
+        return false;
+    }
+    let stored = field[start..start + digits]
+        .iter()
+        .fold(0, |sum, &digit| sum * 8 + i64::from(digit - b'0'));
+    let (unsigned, signed) = header
+        .iter()
+        .enumerate()
+        .map(|(index, &byte)| {
+            if TAR_CHECKSUM.contains(&index) {
+                b' '
+            } else {
+                byte
+            }
+        })
+        .fold((0, 0), |(unsigned, signed), byte| {
+            (
+                unsigned + i64::from(byte),
+                signed + i64::from(i8::from_ne_bytes([byte])),
+            )
+        });
+    stored == unsigned || stored == signed
 }
 
 // The listing of one directory inside an archive. Directories that have no
@@ -309,6 +419,42 @@ mod tests {
         ];
 
         assert_eq!(find_entry(&duplicated, &[], "a.txt"), Some(2));
+    }
+
+    #[test]
+    fn the_format_is_read_off_the_first_bytes() {
+        assert_eq!(sniff(&[0x1f, 0x8b, 0x08]), ArchiveFormat::TarGz);
+        assert_eq!(sniff(b"BZh91AY"), ArchiveFormat::TarBz2);
+        assert_eq!(sniff(b"\xfd7zXZ\x00"), ArchiveFormat::TarXz);
+        let mut tar = [0; 512];
+        tar[257..262].copy_from_slice(b"ustar");
+        assert_eq!(sniff(&tar), ArchiveFormat::Tar);
+        tar[..7].copy_from_slice(b"BZh.txt");
+        assert_eq!(sniff(&tar), ArchiveFormat::Tar);
+        let mut v7 = ::tar::Header::new_old();
+        v7.set_path("BZh.txt").unwrap();
+        v7.set_size(1);
+        v7.set_cksum();
+        assert_eq!(sniff(v7.as_bytes()), ArchiveFormat::Tar);
+        let mut signed = v7.as_bytes().to_owned();
+        signed[0] = 0xff;
+        let sum: i64 = signed
+            .iter()
+            .enumerate()
+            .map(|(index, &byte)| {
+                if TAR_CHECKSUM.contains(&index) {
+                    i64::from(b' ')
+                } else {
+                    i64::from(i8::from_ne_bytes([byte]))
+                }
+            })
+            .sum();
+        signed[TAR_CHECKSUM].copy_from_slice(format!("{sum:06o}\0 ").as_bytes());
+        assert_eq!(sniff(&signed), ArchiveFormat::Tar);
+        signed[1] = b'!';
+        assert_eq!(sniff(&signed), ArchiveFormat::Zip);
+        assert_eq!(sniff(&[0; 512]), ArchiveFormat::Zip);
+        assert_eq!(sniff(b""), ArchiveFormat::Zip);
     }
 
     #[test]

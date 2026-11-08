@@ -172,7 +172,7 @@ fn e_on_an_archive_entry_extracts_it_with_the_preview_password_and_then_starts_t
             sources: Sources::Entries(ArchiveEntries {
                 archive: PathBuf::from(LEFT).join("a.zip"),
                 path: ArchivePath {
-                    format: ArchiveFormat::Zip,
+                    format: Some(ArchiveFormat::Zip),
                     inner: Vec::new(),
                 },
                 names: vec!["b.txt".to_owned()],
@@ -781,6 +781,36 @@ fn a_file_inside_an_archive_is_read_as_an_entry_with_the_known_password() {
 }
 
 #[test]
+fn closing_a_preview_inside_an_archive_releases_the_archive() {
+    let mut harness = inside_archive();
+    harness.press("Enter");
+    harness.preview_loaded(Document::decode(b"b".to_vec(), false));
+    harness.take_effects();
+
+    harness.press("Esc");
+
+    assert_eq!(harness.take_effects(), vec![Effect::ReleasePreview]);
+}
+
+#[test]
+fn an_image_preview_releases_the_archive_only_once_the_pane_leaves_it() {
+    let mut harness = inside_archive();
+    harness.press("Down");
+    harness.press("Enter");
+    harness.image_loaded(1, 1);
+    harness.press("Up");
+    assert!(!harness.take_effects().contains(&Effect::ReleasePreview));
+
+    harness.changed(Side::Left);
+    harness.fail_load(Side::Left, "No such file or directory");
+    harness.resolve(Side::Left, LEFT, None);
+    harness.load(Side::Left, vec![file("note.txt")]);
+
+    assert!(harness.view().preview.is_some());
+    assert!(harness.take_effects().contains(&Effect::ReleasePreview));
+}
+
+#[test]
 fn a_wrong_preview_password_is_asked_again_and_esc_closes() {
     let mut harness = inside_archive();
     harness.press("Enter");
@@ -798,7 +828,7 @@ fn a_wrong_preview_password_is_asked_again_and_esc_closes() {
 
     assert!(harness.view().popup.is_none());
     assert!(harness.view().preview.is_none());
-    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.take_effects(), vec![Effect::ReleasePreview]);
     harness.press("Enter");
     assert!(matches!(
         harness.take_effects().as_slice(),
@@ -1022,7 +1052,7 @@ fn entry_source(name: &str, password: Option<&str>) -> PreviewSource {
         path: PathBuf::from(LEFT).join("a.zip"),
         entry: Some((
             ArchivePath {
-                format: ArchiveFormat::Zip,
+                format: Some(ArchiveFormat::Zip),
                 inner: Vec::new(),
             },
             name.to_owned(),

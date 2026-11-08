@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::path::PathBuf;
 
 use thiserror::Error;
@@ -53,6 +54,10 @@ pub enum AppError {
     IntoArchive { verb: &'static str },
     #[error("cannot open {}: nested archives are not supported", path.display())]
     NestedArchive { path: PathBuf },
+    #[error("cannot make {}: only zip takes a password", name.to_string_lossy())]
+    NoPassword { name: OsString },
+    #[error("cannot make {}: the extension does not name an archive format", name.to_string_lossy())]
+    NoFormat { name: OsString },
     #[error("config: {}:{line}: {message}", path.display())]
     ConfigSyntax {
         path: PathBuf,

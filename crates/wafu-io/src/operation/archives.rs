@@ -1,16 +1,20 @@
+use std::collections::HashMap;
+use std::fmt;
 use std::fs::{self, File, FileTimes};
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::SystemTime;
 
-use wafu_core::{ArchiveEntries, ArchiveFormat, OperationEvent, OperationSpec, Reply};
+use wafu_core::{ArchiveEntries, ArchiveFormat, IoError, OperationEvent, OperationSpec, Reply};
 
 use super::{
-    CHUNK_SIZE, NOT_REGULAR, Step, Stop, Worker, children, fail, failure, is_within, open_for_times,
+    CHUNK_SIZE, NOT_REGULAR, Step, Stop, Worker, children, fail, failure, is_within,
+    open_for_times, refuse, refuse_io,
 };
 use crate::archive::{
-    ArchiveEntry, ArchiveEntryKind, ArchiveError, ArchiveReader, ArchiveWriter, check_component,
-    create_archive, open_archive,
+    ArchiveEntry, ArchiveEntryKind, ArchiveError, ArchiveReader, ArchiveWriter, UNSAFE_NAME,
+    check_component, create_archive, open_archive,
 };
 
 const TEMP_PREFIX: &str = "wafu-";
@@ -28,22 +32,22 @@ impl Worker<'_> {
                 .as_deref()
                 .ok_or_else(|| failure(archive, "no destination"))?;
             let name = archive.file_name().unwrap_or_default();
-            let format = ArchiveFormat::from_name(name).unwrap_or(ArchiveFormat::Zip);
+            let format = ArchiveFormat::from_name(name);
             // One destination serves the whole operation; naming the directory
             // here saves the core from passing one per archive.
             let dest = if into_dir {
-                root.join(archive.file_stem().unwrap_or(name))
+                root.join(ArchiveFormat::stem_of(name))
             } else {
                 root.to_path_buf()
             };
             let mut extraction = Extraction::open(archive, format, None, &dest)?;
             if into_dir {
-                ensure_dir(archive, root, &dest)?;
+                ensure_dir(archive, root, &dest).map_err(Stop::fatal)?;
             }
             let all: Vec<usize> = (0..extraction.reader.entries().len()).collect();
             let complete = self.extract_indices(&mut extraction, &all, 0)?;
-            finish_extraction(extraction)?;
-            if complete {
+            let unlinked = self.finish_extraction(extraction);
+            if complete && unlinked.is_empty() {
                 (self.report)(OperationEvent::ItemDone { index });
             }
         }
@@ -62,37 +66,56 @@ impl Worker<'_> {
             dest,
         )?;
         let prefix = &entries.path.inner;
-        let mut done = Vec::new();
-        for (index, name) in entries.names.iter().enumerate() {
-            let selected: Vec<usize> = extraction
-                .reader
-                .entries()
-                .iter()
-                .enumerate()
-                .filter(|(_, entry)| {
-                    entry.components.len() > prefix.len()
-                        && entry.components[..prefix.len()] == **prefix
-                        && entry.components[prefix.len()] == *name
-                })
-                .map(|(index, _)| index)
-                .collect();
-            if selected.is_empty() {
-                let mut components = prefix.clone();
-                components.push(name.clone());
-                return Err(failure(
-                    &shown(&extraction.archive, &components),
-                    "not found in the archive",
-                ));
-            }
-            if self.extract_indices(&mut extraction, &selected, prefix.len())? {
-                done.push(index);
+        let mut items: HashMap<&str, usize> = HashMap::new();
+        for (item, name) in entries.names.iter().enumerate() {
+            items.entry(name.as_str()).or_insert(item);
+        }
+        let owners: Vec<Option<usize>> = extraction
+            .reader
+            .entries()
+            .iter()
+            .map(|entry| match entry.components.get(prefix.len()) {
+                Some(name) if entry.components[..prefix.len()] == **prefix => {
+                    items.get(name.as_str()).copied()
+                }
+                _ => None,
+            })
+            .collect();
+        let mut found = vec![false; entries.names.len()];
+        for item in owners.iter().flatten() {
+            found[*item] = true;
+        }
+        if let Some(missing) = entries
+            .names
+            .iter()
+            .find(|name| !found[items[name.as_str()]])
+        {
+            let mut components = prefix.clone();
+            components.push(missing.clone());
+            return Err(failure(
+                &shown(&extraction.archive, &components),
+                "not found in the archive",
+            ));
+        }
+        // In archive order, since a tar is read front to back and going back
+        // reads it again from the start.
+        let mut complete = vec![true; entries.names.len()];
+        for (index, item) in owners.iter().enumerate() {
+            if let Some(item) = *item {
+                complete[item] &= self.extract_one(&mut extraction, index, prefix.len())?;
             }
         }
-        finish_extraction(extraction)?;
+        for index in self.finish_extraction(extraction) {
+            if let Some(item) = owners[index] {
+                complete[item] = false;
+            }
+        }
         // Reported once the links are made, so that an item whose link could
         // not be made keeps its mark.
-        for index in done {
-            (self.report)(OperationEvent::ItemDone { index });
+        for (index, name) in entries.names.iter().enumerate() {
+            if complete[items[name.as_str()]] {
+                (self.report)(OperationEvent::ItemDone { index });
+            }
         }
         Ok(())
     }
@@ -125,7 +148,14 @@ impl Worker<'_> {
             return Ok(());
         };
         let file = File::create(&out).map_err(fail(&out))?;
-        let mut writer = create_archive(file, output.format, output.password.as_deref());
+        let writer = create_archive(file, output.format, output.password.as_deref());
+        let mut writer = match writer {
+            Ok(writer) => writer,
+            Err(error) => {
+                let _ = fs::remove_file(&out);
+                return Err(Stop::Failed { path: out, error });
+            }
+        };
         match self.add_all(&mut writer, paths) {
             Ok(()) => match writer.finish() {
                 Ok(()) => Ok(()),
@@ -155,15 +185,32 @@ impl Worker<'_> {
         Ok(complete)
     }
 
+    // An entry that cannot be written is skipped, and the rest go on.
+    fn extract_one(&mut self, extraction: &mut Extraction, index: usize, skip: usize) -> Step {
+        match self.write_one(extraction, index, skip) {
+            Err(Stop::Entry { path, error }) => {
+                self.skip_entry(path, &error);
+                Ok(false)
+            }
+            result => result,
+        }
+    }
+
     // Writes one entry under the destination, with the first `skip`
     // components of its name left off.
-    fn extract_one(&mut self, extraction: &mut Extraction, index: usize, skip: usize) -> Step {
+    fn write_one(&mut self, extraction: &mut Extraction, index: usize, skip: usize) -> Step {
         let entry = extraction.reader.entries()[index].clone();
         let shown = shown(&extraction.archive, &entry.components);
         self.begin(&shown)?;
         let relative = &entry.components[skip..];
-        if relative.is_empty() || !relative.iter().all(|component| check_component(component)) {
-            return Err(failure(&shown, "the entry name is unsafe"));
+        if relative.is_empty() {
+            return Err(refuse(&shown, UNSAFE_NAME));
+        }
+        if let Err(reason) = relative
+            .iter()
+            .try_for_each(|component| check_component(component))
+        {
+            return Err(refuse(&shown, reason));
         }
         let dst = relative
             .iter()
@@ -171,7 +218,7 @@ impl Worker<'_> {
                 path.join(component)
             });
         if !dst.starts_with(&extraction.dest) {
-            return Err(failure(&shown, "the entry name is unsafe"));
+            return Err(refuse(&shown, UNSAFE_NAME));
         }
         match entry.kind {
             ArchiveEntryKind::Dir => {
@@ -179,17 +226,31 @@ impl Worker<'_> {
                 extraction.dirs.push((dst, entry));
             }
             ArchiveEntryKind::File => {
+                // A hard link is extracted as a copy. Its content comes before
+                // it in a tar, so reading it there would start the stream over;
+                // the file already written has it too, unless the mode it was
+                // given keeps it from being read.
+                let copy_of = extraction
+                    .reader
+                    .hard_link_target(index)
+                    .and_then(|target| extraction.written.get(&target))
+                    .and_then(|path| File::open(path).ok());
+                if copy_of.is_none() {
+                    self.unlock(extraction, index, &shown)?;
+                }
+                // Once the entry is known to be readable, so that one skipped
+                // leaves no directories behind.
                 ensure_parent(&shown, &extraction.dest, &dst)?;
-                self.unlock(extraction, index, &shown)?;
                 let Some(dst) = self.clear_destination(&shown, &dst)? else {
                     return Ok(false);
                 };
-                let result = self.write_entry(extraction, index, &dst, &shown);
+                let result = self.write_entry(extraction, index, copy_of, &dst, &shown);
                 if result.is_err() {
                     let _ = fs::remove_file(&dst);
                 }
                 result?;
                 set_entry_metadata(&dst, &entry);
+                extraction.written.insert(index, dst);
             }
             ArchiveEntryKind::Symlink => {
                 self.unlock(extraction, index, &shown)?;
@@ -197,18 +258,47 @@ impl Worker<'_> {
                 extraction
                     .reader
                     .open(index, extraction.password.as_deref())
-                    .map_err(|error| failure(&shown, &error.to_string()))?
+                    .map_err(|error| entry_error(&shown, error))?
                     .read_to_string(&mut target)
                     .map_err(fail(&shown))?;
                 ensure_parent(&shown, &extraction.dest, &dst)?;
                 let Some(dst) = self.clear_destination(&shown, &dst)? else {
                     return Ok(false);
                 };
-                extraction.links.push((dst, target));
+                // Counted once the link is made.
+                extraction.links.push((dst, target, index, shown));
+                return Ok(true);
             }
         }
         self.done += 1;
         Ok(true)
+    }
+
+    fn skip_entry(&mut self, path: PathBuf, error: &io::Error) {
+        self.skipped += 1;
+        (self.report)(OperationEvent::Skipped {
+            path,
+            error: IoError::new(error.to_string()),
+        });
+    }
+
+    // Returns the entries whose links could not be made.
+    fn finish_extraction(&mut self, extraction: Extraction) -> Vec<usize> {
+        let mut unlinked = Vec::new();
+        for (dst, target, index, shown) in extraction.links {
+            match make_link(&target, &dst) {
+                Ok(()) => self.done += 1,
+                Err(error) => {
+                    self.skip_entry(shown, &error);
+                    unlinked.push(index);
+                }
+            }
+        }
+        // Children were written after their directories, so deeper first.
+        for (dir, entry) in extraction.dirs.iter().rev() {
+            set_entry_metadata(dir, entry);
+        }
+        unlinked
     }
 
     // Makes sure the entry can be opened, asking for a password as long as
@@ -227,7 +317,7 @@ impl Worker<'_> {
                 Ok(_) => return Ok(()),
                 Err(ArchiveError::PasswordRequired) => false,
                 Err(ArchiveError::WrongPassword) => true,
-                Err(error) => return Err(failure(shown, &error.to_string())),
+                Err(error) => return Err(entry_error(shown, error)),
             };
             extraction.password = Some(self.ask_password(&extraction.archive, retry)?);
         }
@@ -251,14 +341,18 @@ impl Worker<'_> {
         &mut self,
         extraction: &mut Extraction,
         index: usize,
+        copy_of: Option<File>,
         dst: &Path,
         shown: &Path,
     ) -> Result<(), Stop> {
-        let mut reader = extraction
-            .reader
-            .open(index, extraction.password.as_deref())
-            .map_err(|error| failure(shown, &error.to_string()))?;
-        let mut writer = File::create(dst).map_err(fail(shown))?;
+        let mut reader: Box<dyn Read> = match copy_of {
+            Some(file) => Box::new(file),
+            None => extraction
+                .reader
+                .open(index, extraction.password.as_deref())
+                .map_err(|error| entry_error(shown, error))?,
+        };
+        let mut writer = File::create(dst).map_err(|error| creation_error(shown, error))?;
         let mut buffer = vec![0; CHUNK_SIZE];
         loop {
             self.check_cancel()?;
@@ -322,24 +416,58 @@ impl Worker<'_> {
                 self.add_path(writer, &child, base)?;
             }
         } else if meta.is_file() {
+            let mut data = Cancellable {
+                inner: File::open(path).map_err(fail(path))?,
+                replies: self.replies,
+            };
             writer
-                .start_file(&name, meta.len(), modified, mode)
-                .map_err(fail(path))?;
-            let mut reader = File::open(path).map_err(fail(path))?;
-            let mut buffer = vec![0; CHUNK_SIZE];
-            loop {
-                self.check_cancel()?;
-                let read = reader.read(&mut buffer).map_err(fail(path))?;
-                if read == 0 {
-                    break;
-                }
-                writer.write_all(&buffer[..read]).map_err(fail(path))?;
-            }
+                .add_file(&name, meta.len(), modified, mode, &mut data)
+                .map_err(|error| {
+                    if error
+                        .get_ref()
+                        .is_some_and(|inner| inner.downcast_ref::<Cancelled>().is_some())
+                    {
+                        Stop::Cancelled
+                    } else {
+                        fail(path)(error)
+                    }
+                })?;
         } else {
             return Err(failure(path, NOT_REGULAR));
         }
         self.done += 1;
         Ok(())
+    }
+}
+
+// A file being added to an archive. The writer pulls the content, so the
+// cancellation is checked here, at each read, and comes back out of the
+// writer as an error carrying `Cancelled`.
+struct Cancellable<'a> {
+    inner: File,
+    replies: &'a Receiver<Reply>,
+}
+
+#[derive(Debug)]
+struct Cancelled;
+
+impl fmt::Display for Cancelled {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("cancelled")
+    }
+}
+
+impl std::error::Error for Cancelled {}
+
+impl Read for Cancellable<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self.replies.try_recv() {
+            Ok(Reply::Cancel) | Err(TryRecvError::Disconnected) => {
+                return Err(io::Error::other(Cancelled));
+            }
+            Ok(_) | Err(TryRecvError::Empty) => {}
+        }
+        self.inner.read(buf)
     }
 }
 
@@ -352,14 +480,16 @@ struct Extraction {
     reader: Box<dyn ArchiveReader>,
     password: Option<String>,
     dest: PathBuf,
-    links: Vec<(PathBuf, String)>,
+    // The link, its target, the entry's index, and its path as shown.
+    links: Vec<(PathBuf, String, usize, PathBuf)>,
     dirs: Vec<(PathBuf, ArchiveEntry)>,
+    written: HashMap<usize, PathBuf>,
 }
 
 impl Extraction {
     fn open(
         archive: &Path,
-        format: ArchiveFormat,
+        format: Option<ArchiveFormat>,
         password: Option<String>,
         dest: &Path,
     ) -> Result<Self, Stop> {
@@ -372,19 +502,9 @@ impl Extraction {
             dest: dest.to_path_buf(),
             links: Vec::new(),
             dirs: Vec::new(),
+            written: HashMap::new(),
         })
     }
-}
-
-fn finish_extraction(extraction: Extraction) -> Result<(), Stop> {
-    for (dst, target) in extraction.links {
-        make_link(&target, &dst).map_err(fail(&dst))?;
-    }
-    // Children were written after their directories, so deeper first.
-    for (dir, entry) in extraction.dirs.iter().rev() {
-        set_entry_metadata(dir, entry);
-    }
-    Ok(())
 }
 
 fn shown(archive: &Path, components: &[String]) -> PathBuf {
@@ -409,20 +529,20 @@ fn archive_name(path: &Path, base: &Path) -> Result<String, Stop> {
 fn ensure_dir(shown: &Path, root: &Path, dst: &Path) -> Result<(), Stop> {
     let relative = dst
         .strip_prefix(root)
-        .map_err(|_| failure(shown, "the entry name is unsafe"))?;
+        .map_err(|_| refuse(shown, UNSAFE_NAME))?;
     let mut path = root.to_path_buf();
     for component in relative.components() {
         path.push(component);
         match fs::symlink_metadata(&path) {
             Ok(existing) if existing.is_dir() => {}
             Ok(_) => {
-                return Err(failure(
+                return Err(refuse(
                     shown,
                     "the destination exists and is not a directory",
                 ));
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                fs::create_dir(&path).map_err(fail(shown))?;
+                fs::create_dir(&path).map_err(|error| creation_error(shown, error))?;
             }
             Err(error) => {
                 return Err(fail(shown)(error));
@@ -430,6 +550,26 @@ fn ensure_dir(shown: &Path, root: &Path, dst: &Path) -> Result<(), Stop> {
         }
     }
     Ok(())
+}
+
+// An entry that cannot be read as it is, such as one in a form wafu does not
+// support, is skipped; a damaged stream stops the extraction.
+fn entry_error(shown: &Path, error: ArchiveError) -> Stop {
+    match error {
+        ArchiveError::Invalid(message) => refuse(shown, &message),
+        ArchiveError::Io(error) => fail(shown)(error),
+        error => failure(shown, &error.to_string()),
+    }
+}
+
+// Only a name the file system cannot hold is a matter of the one entry; a
+// full disk or a denied permission stops the rest as well.
+fn creation_error(shown: &Path, error: io::Error) -> Stop {
+    if error.kind() == io::ErrorKind::InvalidFilename {
+        refuse_io(shown)(error)
+    } else {
+        fail(shown)(error)
+    }
 }
 
 // Archives need not list a directory before the files in it.
@@ -489,16 +629,17 @@ fn make_temp_dir() -> std::io::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
-    use std::io::Write;
     use std::sync::Mutex;
     use std::sync::mpsc::{self, Sender};
     use std::time::Duration;
 
+    use tar::{EntryType, Header};
     use tempfile::TempDir;
     use wafu_core::{ArchiveOutput, ArchivePath, OperationKind, Outcome, Sources};
 
     use super::super::run_operation;
     use super::*;
+    use crate::archive::tar::header_of;
     use crate::archive::zip::ZipArchiveWriter;
 
     const MODIFIED: SystemTime = SystemTime::UNIX_EPOCH;
@@ -513,19 +654,23 @@ mod tests {
         write_zip(&archive, None, |writer| {
             writer.add_dir("d", Some(modified), Some(0o755)).unwrap();
             writer
-                .start_file("d/f.txt", 5, Some(modified), Some(0o644))
+                .add_file(
+                    "d/f.txt",
+                    5,
+                    Some(modified),
+                    Some(0o644),
+                    &mut &b"hello"[..],
+                )
                 .unwrap();
-            writer.write_all(b"hello").unwrap();
             writer
-                .start_file("d/sub/g.txt", 2, Some(modified), None)
+                .add_file("d/sub/g.txt", 2, Some(modified), None, &mut &b"hi"[..])
                 .unwrap();
-            writer.write_all(b"hi").unwrap();
             writer
-                .start_file("top.txt", 3, Some(modified), None)
+                .add_file("top.txt", 3, Some(modified), None, &mut &b"top"[..])
                 .unwrap();
-            writer.write_all(b"top").unwrap();
-            writer.start_file("other.txt", 1, None, None).unwrap();
-            writer.write_all(b"x").unwrap();
+            writer
+                .add_file("other.txt", 1, None, None, &mut &b"x"[..])
+                .unwrap();
         });
 
         let (outcome, events) = run(&copy_entries(&archive, &[], &["d", "top.txt"], &dest), []);
@@ -558,6 +703,143 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn named_entries_are_extracted_in_archive_order_and_reported_in_item_order() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.tar");
+        let dest = dir.path().join("out");
+        fs::create_dir_all(dest.join("d")).unwrap();
+        for name in [
+            Path::new("d").join("x"),
+            "a.txt".into(),
+            Path::new("d").join("y"),
+            "b.txt".into(),
+        ] {
+            fs::write(dest.join(name), b"old").unwrap();
+        }
+        write_tar(
+            &archive,
+            &[
+                ("d/x", EntryType::Regular, "", b"x"),
+                ("a.txt", EntryType::Regular, "", b"a"),
+                ("d/y", EntryType::Regular, "", b"y"),
+                ("b.txt", EntryType::Regular, "", b"b"),
+            ],
+        );
+
+        let (outcome, events) = run(
+            &copy_entries(&archive, &[], &["b.txt", "d", "a.txt"], &dest),
+            (0..4).map(|_| Reply::Overwrite { all: false }),
+        );
+
+        assert_eq!(
+            outcome,
+            Outcome::Completed {
+                done: 4,
+                skipped: 0
+            }
+        );
+        let asked: Vec<PathBuf> = events
+            .iter()
+            .filter_map(|event| match event {
+                OperationEvent::Conflict { source, .. } => Some(source.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            asked,
+            [
+                archive.join("d").join("x"),
+                archive.join("a.txt"),
+                archive.join("d").join("y"),
+                archive.join("b.txt"),
+            ]
+        );
+        assert_eq!(done_indices(&events), [0, 1, 2]);
+        assert_eq!(fs::read(dest.join("b.txt")).unwrap(), b"b");
+        assert_eq!(fs::read(dest.join("d").join("y")).unwrap(), b"y");
+    }
+
+    #[test]
+    fn hard_links_are_copied_from_the_extracted_file_without_reading_the_archive_again() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.tar");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        fs::write(dest.join("same1"), b"old").unwrap();
+        write_tar(
+            &archive,
+            &[
+                ("orig", EntryType::Regular, "", b"data"),
+                ("mid", EntryType::Regular, "", b"m"),
+                ("same1", EntryType::Link, "orig", b""),
+                ("same2", EntryType::Link, "orig", b""),
+            ],
+        );
+        let spec = extract(std::slice::from_ref(&archive), &dest);
+        let (sender, replies) = mpsc::channel();
+        let outcome = Mutex::new(None);
+        // With the archive gone, reading it from the start again would fail.
+        let report = |event: OperationEvent| match event {
+            OperationEvent::Conflict { .. } => {
+                fs::remove_file(&archive).unwrap();
+                sender.send(Reply::Overwrite { all: false }).unwrap();
+            }
+            OperationEvent::Finished(finished) => *outcome.lock().unwrap() = Some(finished),
+            _ => {}
+        };
+
+        run_operation(&spec, None, &replies, &report);
+
+        assert_eq!(
+            outcome.into_inner().unwrap(),
+            Some(Outcome::Completed {
+                done: 4,
+                skipped: 0
+            })
+        );
+        assert_eq!(fs::read(dest.join("same1")).unwrap(), b"data");
+        assert_eq!(fs::read(dest.join("same2")).unwrap(), b"data");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_hard_link_to_a_file_extracted_unreadable_is_read_from_the_archive() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.tar");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        {
+            let mut builder = tar::Builder::new(File::create(&archive).unwrap());
+            let mut header = header_of(EntryType::Regular, 4);
+            header.set_mode(0o200);
+            builder
+                .append_data(&mut header, "orig", &b"data"[..])
+                .unwrap();
+            builder
+                .append_link(&mut header_of(EntryType::Link, 0), "same", "orig")
+                .unwrap();
+            builder.finish().unwrap();
+        }
+
+        let (outcome, _) = run(&extract(&[archive], &dest), []);
+
+        assert_eq!(
+            outcome,
+            Outcome::Completed {
+                done: 2,
+                skipped: 0
+            }
+        );
+        for name in ["orig", "same"] {
+            let path = dest.join(name);
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+            assert_eq!(fs::read(path).unwrap(), b"data");
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn directory_permissions_are_restored_after_their_contents_are_written() {
@@ -569,8 +851,9 @@ mod tests {
         fs::create_dir(&dest).unwrap();
         write_zip(&archive, None, |writer| {
             writer.add_dir("ro", None, Some(0o555)).unwrap();
-            writer.start_file("ro/f.txt", 1, None, Some(0o644)).unwrap();
-            writer.write_all(b"f").unwrap();
+            writer
+                .add_file("ro/f.txt", 1, None, Some(0o644), &mut &b"f"[..])
+                .unwrap();
         });
 
         let (outcome, _) = run(&extract(&[archive], &dest), []);
@@ -598,8 +881,9 @@ mod tests {
         let dest = dir.path().join("out");
         fs::create_dir(&dest).unwrap();
         write_zip(&archive, None, |writer| {
-            writer.start_file("x/y/z.txt", 1, None, None).unwrap();
-            writer.write_all(b"z").unwrap();
+            writer
+                .add_file("x/y/z.txt", 1, None, None, &mut &b"z"[..])
+                .unwrap();
         });
 
         let (outcome, events) = run(&extract(&[archive], &dest), []);
@@ -619,6 +903,70 @@ mod tests {
     }
 
     #[test]
+    fn a_leading_dot_entry_and_an_empty_name_in_a_tar_are_left_out() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.tar");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        write_tar(
+            &archive,
+            &[
+                ("./", EntryType::Directory, "", b""),
+                ("./a.txt", EntryType::Regular, "", b"a"),
+                ("./d/", EntryType::Directory, "", b""),
+                ("./d/b.txt", EntryType::Regular, "", b"b"),
+                ("", EntryType::Regular, "", b"x"),
+            ],
+        );
+
+        let listed: Vec<Vec<String>> = open_archive(&archive, None)
+            .unwrap()
+            .entries()
+            .iter()
+            .map(|entry| entry.components.clone())
+            .collect();
+        assert_eq!(listed, [vec!["a.txt"], vec!["d"], vec!["d", "b.txt"]]);
+
+        let (outcome, _) = run(&extract(&[archive], &dest), []);
+
+        assert_eq!(
+            outcome,
+            Outcome::Completed {
+                done: 3,
+                skipped: 0
+            }
+        );
+        assert_eq!(fs::read(dest.join("a.txt")).unwrap(), b"a");
+        assert_eq!(fs::read(dest.join("d").join("b.txt")).unwrap(), b"b");
+    }
+
+    #[test]
+    fn a_tar_file_entry_whose_name_ends_with_a_slash_is_a_directory() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.tar");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        write_tar(
+            &archive,
+            &[
+                ("d/", EntryType::Regular, "", b""),
+                ("d/x", EntryType::Regular, "", b"x"),
+            ],
+        );
+
+        let (outcome, _) = run(&extract(&[archive], &dest), []);
+
+        assert_eq!(
+            outcome,
+            Outcome::Completed {
+                done: 2,
+                skipped: 0
+            }
+        );
+        assert_eq!(fs::read(dest.join("d").join("x")).unwrap(), b"x");
+    }
+
+    #[test]
     fn extract_into_dirs_unpacks_each_archive_into_a_directory_named_after_it() {
         let dir = TempDir::new().unwrap();
         let a = dir.path().join("a.zip");
@@ -626,12 +974,14 @@ mod tests {
         let dest = dir.path().join("out");
         fs::create_dir(&dest).unwrap();
         write_zip(&a, None, |writer| {
-            writer.start_file("x.txt", 1, None, None).unwrap();
-            writer.write_all(b"x").unwrap();
+            writer
+                .add_file("x.txt", 1, None, None, &mut &b"x"[..])
+                .unwrap();
         });
         write_zip(&b, None, |writer| {
-            writer.start_file("y.txt", 1, None, None).unwrap();
-            writer.write_all(b"y").unwrap();
+            writer
+                .add_file("y.txt", 1, None, None, &mut &b"y"[..])
+                .unwrap();
         });
 
         let (outcome, events) = run(&extract_into_dirs(&[a, b], &dest), []);
@@ -646,6 +996,43 @@ mod tests {
         assert_eq!(fs::read(dest.join("a").join("x.txt")).unwrap(), b"x");
         assert_eq!(fs::read(dest.join("b").join("y.txt")).unwrap(), b"y");
         assert_eq!(done_indices(&events), [0, 1]);
+    }
+
+    #[test]
+    fn a_tar_gz_round_trips_and_its_directory_drops_both_extensions() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("src");
+        fs::create_dir_all(src.join("d")).unwrap();
+        fs::write(src.join("d").join("f.txt"), b"hello").unwrap();
+        let dest = dir.path().join("dest");
+        fs::create_dir(&dest).unwrap();
+        let spec = compress(&[src.join("d")], &dest, "x.tar.gz", None);
+
+        let (outcome, _) = run(&spec, []);
+
+        assert_eq!(
+            outcome,
+            Outcome::Completed {
+                done: 2,
+                skipped: 0
+            }
+        );
+        let archive = dest.join("x.tar.gz");
+        assert_eq!(
+            fs::read(&archive).unwrap()[..2],
+            [0x1f, 0x8b],
+            "a gzip stream"
+        );
+
+        let out = dir.path().join("out");
+        fs::create_dir(&out).unwrap();
+        let (outcome, _) = run(&extract_into_dirs(std::slice::from_ref(&archive), &out), []);
+
+        assert!(matches!(outcome, Outcome::Completed { .. }));
+        assert_eq!(
+            fs::read(out.join("x").join("d").join("f.txt")).unwrap(),
+            b"hello"
+        );
     }
 
     #[test]
@@ -679,8 +1066,9 @@ mod tests {
         fs::write(dest.join("b"), b"file").unwrap();
         for archive in [&a, &b] {
             write_zip(archive, None, |writer| {
-                writer.start_file("x.txt", 1, None, None).unwrap();
-                writer.write_all(b"x").unwrap();
+                writer
+                    .add_file("x.txt", 1, None, None, &mut &b"x"[..])
+                    .unwrap();
             });
         }
 
@@ -704,8 +1092,9 @@ mod tests {
         fs::write(dest.join("c.txt"), b"old").unwrap();
         write_zip(&archive, None, |writer| {
             for name in ["a.txt", "b.txt", "c.txt"] {
-                writer.start_file(name, 3, None, None).unwrap();
-                writer.write_all(b"new").unwrap();
+                writer
+                    .add_file(name, 3, None, None, &mut &b"new"[..])
+                    .unwrap();
             }
         });
 
@@ -733,24 +1122,144 @@ mod tests {
     }
 
     #[test]
-    fn unsafe_names_fail_and_write_nothing_outside() {
+    fn unsafe_names_are_skipped_and_write_nothing_outside() {
         let dir = TempDir::new().unwrap();
         let dest = dir.path().join("out");
         fs::create_dir(&dest).unwrap();
         for name in ["../evil.txt", "a/../../x.txt", "nul\0.txt"] {
             let archive = dir.path().join("bad.zip");
-            fs::write(&archive, raw_zip(&[(name.as_bytes(), b"boom")])).unwrap();
+            fs::write(
+                &archive,
+                raw_zip(&[(name.as_bytes(), b"boom"), (b"good.txt", b"good")]),
+            )
+            .unwrap();
 
-            let (outcome, _) = run(&extract(std::slice::from_ref(&archive), &dest), []);
+            let (outcome, events) = run(&extract(std::slice::from_ref(&archive), &dest), []);
 
-            assert!(
-                matches!(&outcome, Outcome::Failed { error, .. } if error.to_string() == "the entry name is unsafe"),
-                "{name}: {outcome:?}"
+            assert_eq!(
+                outcome,
+                Outcome::Completed {
+                    done: 1,
+                    skipped: 1
+                },
+                "{name}"
             );
+            assert_eq!(
+                skipped_errors(&events),
+                ["the entry name is unsafe"],
+                "{name}"
+            );
+            assert_eq!(done_indices(&events), Vec::<usize>::new(), "{name}");
+            fs::remove_file(dest.join("good.txt")).unwrap();
         }
         assert!(!dir.path().join("evil.txt").exists());
         assert!(!dir.path().join("x.txt").exists());
         assert_eq!(fs::read_dir(&dest).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn tar_entries_that_cannot_be_read_are_skipped_without_their_directories() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.tar");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        {
+            let mut builder = tar::Builder::new(File::create(&archive).unwrap());
+            builder
+                .append_pax_extensions([
+                    ("GNU.sparse.major", &b"1"[..]),
+                    ("GNU.sparse.minor", b"0"),
+                    ("GNU.sparse.name", b"d/holes.bin"),
+                    ("GNU.sparse.realsize", b"1048576"),
+                ])
+                .unwrap();
+            let map = b"1\n0\n5\n";
+            builder
+                .append_data(
+                    &mut header_of(EntryType::Regular, map.len() as u64),
+                    "GNUSparseFile.0/holes.bin",
+                    &map[..],
+                )
+                .unwrap();
+            builder
+                .append_data(&mut header_of(EntryType::new(b'M'), 1), "big", &b"x"[..])
+                .unwrap();
+            builder
+                .append_link(&mut header_of(EntryType::Link, 0), "e/lost", "gone")
+                .unwrap();
+            builder
+                .append_data(&mut header_of(EntryType::Regular, 2), "ok.txt", &b"ok"[..])
+                .unwrap();
+            builder.finish().unwrap();
+        }
+
+        let (outcome, events) = run(&extract(std::slice::from_ref(&archive), &dest), []);
+
+        assert_eq!(
+            outcome,
+            Outcome::Completed {
+                done: 1,
+                skipped: 3
+            }
+        );
+        let skipped: Vec<(PathBuf, String)> = events
+            .iter()
+            .filter_map(|event| match event {
+                OperationEvent::Skipped { path, error } => Some((path.clone(), error.to_string())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            skipped,
+            [
+                (
+                    archive.join("d").join("holes.bin"),
+                    "sparse entries are not supported".to_owned()
+                ),
+                (
+                    archive.join("big"),
+                    "multi-volume archives are not supported".to_owned()
+                ),
+                (
+                    archive.join("e").join("lost"),
+                    "the target of the hard link is not in the archive".to_owned()
+                ),
+            ]
+        );
+        assert_eq!(fs::read(dest.join("ok.txt")).unwrap(), b"ok");
+        assert!(!dest.join("d").exists());
+        assert!(!dest.join("big").exists());
+        assert!(!dest.join("e").exists());
+    }
+
+    #[test]
+    fn a_file_entry_where_a_directory_exists_is_skipped() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.zip");
+        let dest = dir.path().join("out");
+        fs::create_dir_all(dest.join("d")).unwrap();
+        write_zip(&archive, None, |writer| {
+            writer.add_file("d", 1, None, None, &mut &b"d"[..]).unwrap();
+            writer
+                .add_file("e.txt", 1, None, None, &mut &b"e"[..])
+                .unwrap();
+        });
+
+        let (outcome, events) = run(&copy_entries(&archive, &[], &["d", "e.txt"], &dest), []);
+
+        assert_eq!(
+            outcome,
+            Outcome::Completed {
+                done: 1,
+                skipped: 1
+            }
+        );
+        assert_eq!(
+            skipped_errors(&events),
+            ["the destination exists and is a directory"]
+        );
+        assert_eq!(done_indices(&events), [1]);
+        assert!(dest.join("d").is_dir());
     }
 
     #[cfg(unix)]
@@ -762,8 +1271,9 @@ mod tests {
         fs::create_dir(&dest).unwrap();
         write_zip(&archive, None, |writer| {
             writer.add_symlink("link", "f.txt", None).unwrap();
-            writer.start_file("f.txt", 1, None, None).unwrap();
-            writer.write_all(b"f").unwrap();
+            writer
+                .add_file("f.txt", 1, None, None, &mut &b"f"[..])
+                .unwrap();
         });
 
         let (outcome, _) = run(&extract(&[archive], &dest), []);
@@ -791,8 +1301,9 @@ mod tests {
         fs::create_dir(&dest).unwrap();
         write_zip(&archive, None, |writer| {
             writer.add_symlink("link", "f.txt", None).unwrap();
-            writer.start_file("f.txt", 1, None, None).unwrap();
-            writer.write_all(b"f").unwrap();
+            writer
+                .add_file("f.txt", 1, None, None, &mut &b"f"[..])
+                .unwrap();
         });
         let spec = copy_entries(&archive, &[], &["link", "f.txt"], &dest);
         let (_sender, replies) = mpsc::channel();
@@ -820,21 +1331,100 @@ mod tests {
         fs::create_dir(&elsewhere).unwrap();
         std::os::unix::fs::symlink(&elsewhere, dest.join("link")).unwrap();
         write_zip(&archive, None, |writer| {
-            writer.start_file("link/sub/f.txt", 1, None, None).unwrap();
-            writer.write_all(b"f").unwrap();
+            writer
+                .add_file("link/sub/f.txt", 1, None, None, &mut &b"f"[..])
+                .unwrap();
         });
 
-        let (outcome, _) = run(&extract(&[archive], &dest), []);
+        let (outcome, events) = run(&extract(&[archive], &dest), []);
 
-        assert!(
-            matches!(
-                &outcome,
-                Outcome::Failed { error, .. }
-                    if error.to_string() == "the destination exists and is not a directory"
-            ),
-            "{outcome:?}"
+        assert_eq!(
+            outcome,
+            Outcome::Completed {
+                done: 0,
+                skipped: 1
+            }
+        );
+        assert_eq!(
+            skipped_errors(&events),
+            ["the destination exists and is not a directory"]
         );
         assert_eq!(fs::read_dir(&elsewhere).unwrap().count(), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_that_cannot_be_made_is_skipped_and_directory_times_are_still_set() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("l.zip");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        let modified = MODIFIED + Duration::from_secs(1_700_000_000);
+        write_zip(&archive, None, |writer| {
+            writer.add_dir("d", Some(modified), None).unwrap();
+            writer.add_symlink("d/l", "one", None).unwrap();
+            // The same name again, which the zip writer would otherwise refuse.
+            writer.add_symlink("d/./l", "two", None).unwrap();
+        });
+
+        let (outcome, events) = run(&copy_entries(&archive, &[], &["d"], &dest), []);
+
+        assert_eq!(
+            outcome,
+            Outcome::Completed {
+                done: 2,
+                skipped: 1
+            }
+        );
+        assert_eq!(skipped_errors(&events).len(), 1);
+        assert_eq!(done_indices(&events), Vec::<usize>::new());
+        assert_eq!(
+            fs::read_link(dest.join("d").join("l")).unwrap(),
+            PathBuf::from("one")
+        );
+        assert_eq!(modified_of(&dest.join("d")), modified);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn names_windows_cannot_create_are_skipped() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.zip");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        fs::write(
+            &archive,
+            raw_zip(&[
+                (b"a:b", b"1"),
+                (b"con", b"2"),
+                (b"x.", b"3"),
+                (b"ok.txt", b"4"),
+            ]),
+        )
+        .unwrap();
+
+        let (outcome, events) = run(&extract(std::slice::from_ref(&archive), &dest), []);
+
+        assert_eq!(
+            outcome,
+            Outcome::Completed {
+                done: 1,
+                skipped: 3
+            }
+        );
+        assert_eq!(
+            skipped_errors(&events),
+            [
+                "the entry name is unsafe",
+                "the entry name is reserved for a device on Windows",
+                "the entry name ends with a dot or a space, which Windows does not allow",
+            ]
+        );
+        let written: Vec<_> = fs::read_dir(&dest)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(written, ["ok.txt"]);
     }
 
     #[cfg(windows)]
@@ -849,8 +1439,9 @@ mod tests {
         fs::create_dir(&dest).unwrap();
         write_zip(&archive, None, |writer| {
             writer.add_symlink("link", "d/sub", None).unwrap();
-            writer.start_file("d/sub/g.txt", 1, None, None).unwrap();
-            writer.write_all(b"g").unwrap();
+            writer
+                .add_file("d/sub/g.txt", 1, None, None, &mut &b"g"[..])
+                .unwrap();
         });
 
         let (outcome, _) = run(&extract(&[archive], &dest), []);
@@ -876,10 +1467,12 @@ mod tests {
         let dest = dir.path().join("out");
         fs::create_dir(&dest).unwrap();
         write_zip(&archive, Some("secret"), |writer| {
-            writer.start_file("a.txt", 1, None, None).unwrap();
-            writer.write_all(b"a").unwrap();
-            writer.start_file("b.txt", 1, None, None).unwrap();
-            writer.write_all(b"b").unwrap();
+            writer
+                .add_file("a.txt", 1, None, None, &mut &b"a"[..])
+                .unwrap();
+            writer
+                .add_file("b.txt", 1, None, None, &mut &b"b"[..])
+                .unwrap();
         });
 
         let (outcome, events) = run(
@@ -938,8 +1531,9 @@ mod tests {
         fs::create_dir(&dest).unwrap();
         fs::write(dest.join("a.txt"), b"old").unwrap();
         write_zip(&archive, Some("secret"), |writer| {
-            writer.start_file("a.txt", 3, None, None).unwrap();
-            writer.write_all(b"new").unwrap();
+            writer
+                .add_file("a.txt", 3, None, None, &mut &b"new"[..])
+                .unwrap();
         });
         let spec = copy_entries(&archive, &[], &["a.txt"], &dest);
         let (sender, replies) = mpsc::channel();
@@ -971,7 +1565,9 @@ mod tests {
         let dest = dir.path().join("out");
         fs::create_dir(&dest).unwrap();
         write_zip(&archive, None, |writer| {
-            writer.start_file("a.txt", 0, None, None).unwrap();
+            writer
+                .add_file("a.txt", 0, None, None, &mut io::empty())
+                .unwrap();
         });
 
         let (outcome, _) = run(&copy_entries(&archive, &[], &["missing"], &dest), []);
@@ -994,6 +1590,49 @@ mod tests {
         let (outcome, _) = run(&extract(std::slice::from_ref(&text), &dest), []);
 
         assert!(matches!(outcome, Outcome::Failed { path, .. } if path == text));
+    }
+
+    #[test]
+    fn a_tar_gz_with_a_foreign_extension_is_extracted_by_its_content() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("src");
+        fs::create_dir_all(src.join("d")).unwrap();
+        fs::write(src.join("d").join("f.txt"), b"hello").unwrap();
+        run(
+            &compress(&[src.join("d")], dir.path(), "x.tar.gz", None),
+            [],
+        );
+        let archive = dir.path().join("x.bin");
+        fs::rename(dir.path().join("x.tar.gz"), &archive).unwrap();
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+
+        let (outcome, _) = run(&extract(&[archive], &dest), []);
+
+        assert!(matches!(outcome, Outcome::Completed { .. }));
+        assert_eq!(fs::read(dest.join("d").join("f.txt")).unwrap(), b"hello");
+    }
+
+    #[test]
+    fn a_gzip_that_holds_no_tar_is_not_a_tar_archive() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("t.bin");
+        let mut encoder = flate2::write::GzEncoder::new(
+            File::create(&archive).unwrap(),
+            flate2::Compression::default(),
+        );
+        encoder.write_all(&b"just some text\n".repeat(64)).unwrap();
+        encoder.finish().unwrap();
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+
+        let (outcome, _) = run(&extract(std::slice::from_ref(&archive), &dest), []);
+
+        assert!(matches!(
+            outcome,
+            Outcome::Failed { path, error, .. }
+                if path == archive && error.to_string() == "not a tar archive"
+        ));
     }
 
     #[test]
@@ -1020,7 +1659,7 @@ mod tests {
             }
         );
         assert_eq!(done_indices(&events), [0, 1]);
-        let mut reader = open_archive(&dest.join("x.zip"), ArchiveFormat::Zip).unwrap();
+        let mut reader = open_archive(&dest.join("x.zip"), Some(ArchiveFormat::Zip)).unwrap();
         let names: Vec<Vec<String>> = reader
             .entries()
             .iter()
@@ -1070,7 +1709,7 @@ mod tests {
                 skipped: 0
             }
         );
-        let mut reader = open_archive(&dest.join("x.zip"), ArchiveFormat::Zip).unwrap();
+        let mut reader = open_archive(&dest.join("x.zip"), Some(ArchiveFormat::Zip)).unwrap();
         let mut target = String::new();
         reader
             .open(0, None)
@@ -1118,7 +1757,7 @@ mod tests {
         let (outcome, _) = run(&compress(&[src], &dest, "a.zip", Some("pw")), []);
 
         assert!(matches!(outcome, Outcome::Completed { done: 1, .. }));
-        let mut reader = open_archive(&dest.join("a.zip"), ArchiveFormat::Zip).unwrap();
+        let mut reader = open_archive(&dest.join("a.zip"), Some(ArchiveFormat::Zip)).unwrap();
         assert!(matches!(
             reader.open(0, None),
             Err(ArchiveError::PasswordRequired)
@@ -1153,7 +1792,7 @@ mod tests {
             [Reply::Overwrite { all: false }],
         );
         assert!(matches!(outcome, Outcome::Completed { done: 1, .. }));
-        assert!(open_archive(&dest.join("a.zip"), ArchiveFormat::Zip).is_ok());
+        assert!(open_archive(&dest.join("a.zip"), Some(ArchiveFormat::Zip)).is_ok());
 
         let (outcome, _) = run(
             &compress(&[dir.path().to_path_buf()], &dest, "a.zip", None),
@@ -1219,8 +1858,9 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let archive = dir.path().join("a.zip");
         write_zip(&archive, None, |writer| {
-            writer.start_file("a.txt", 1, None, None).unwrap();
-            writer.write_all(b"a").unwrap();
+            writer
+                .add_file("a.txt", 1, None, None, &mut &b"a"[..])
+                .unwrap();
         });
         let spec = OperationSpec {
             kind: OperationKind::ExtractToTemp,
@@ -1289,10 +1929,41 @@ mod tests {
             .collect()
     }
 
+    fn skipped_errors(events: &[OperationEvent]) -> Vec<String> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                OperationEvent::Skipped { error, .. } => Some(error.to_string()),
+                _ => None,
+            })
+            .collect()
+    }
+
     fn write_zip(path: &Path, password: Option<&str>, fill: impl FnOnce(&mut ZipArchiveWriter)) {
         let mut writer = ZipArchiveWriter::new(File::create(path).unwrap(), password);
         fill(&mut writer);
         Box::new(writer).finish().unwrap();
+    }
+
+    // Names and link targets are written as given, which the crate's own
+    // setters would normalize or refuse.
+    fn write_tar(path: &Path, members: &[(&str, EntryType, &str, &[u8])]) {
+        let mut builder = tar::Builder::new(File::create(path).unwrap());
+        for (name, kind, link, data) in members {
+            let mut header = Header::new_gnu();
+            header.set_entry_type(*kind);
+            header.set_size(data.len() as u64);
+            header.set_mode(if *kind == EntryType::Directory || name.ends_with('/') {
+                0o755
+            } else {
+                0o644
+            });
+            header.as_old_mut().name[..name.len()].copy_from_slice(name.as_bytes());
+            header.as_old_mut().linkname[..link.len()].copy_from_slice(link.as_bytes());
+            header.set_cksum();
+            builder.append(&header, *data).unwrap();
+        }
+        builder.into_inner().unwrap().flush().unwrap();
     }
 
     fn entries(
@@ -1304,7 +1975,7 @@ mod tests {
         ArchiveEntries {
             archive: archive.to_path_buf(),
             path: ArchivePath {
-                format: ArchiveFormat::Zip,
+                format: ArchiveFormat::from_name(archive.file_name().unwrap()),
                 inner: inner.iter().map(|s| (*s).to_owned()).collect(),
             },
             names: names.iter().map(|s| (*s).to_owned()).collect(),
@@ -1362,7 +2033,7 @@ mod tests {
             sources: Sources::Paths(paths.to_vec()),
             dest: Some(dest.to_path_buf()),
             output: Some(ArchiveOutput {
-                format: ArchiveFormat::Zip,
+                format: ArchiveFormat::from_name(name.as_ref()).unwrap(),
                 name: name.into(),
                 password: password.map(ToOwned::to_owned),
             }),

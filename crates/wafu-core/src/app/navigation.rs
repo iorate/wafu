@@ -306,7 +306,7 @@ impl App {
             Some(entry) => {
                 if let Some(format) = ArchiveFormat::from_name(&entry.name) {
                     let name = entry.name.clone();
-                    self.enter_archive(&name, format, effects);
+                    self.enter_archive(&name, Some(format), effects);
                 } else {
                     let entry = entry.clone();
                     self.open_preview(&entry, effects);
@@ -327,12 +327,18 @@ impl App {
             self.log.push(AppError::NotRegularFile { path }.to_string());
             return;
         }
-        let format = ArchiveFormat::from_name(&entry.name).unwrap_or(ArchiveFormat::Zip);
+        // An unknown extension leaves the format to the content.
+        let format = ArchiveFormat::from_name(&entry.name);
         let name = entry.name.clone();
         self.enter_archive(&name, format, effects);
     }
 
-    fn enter_archive(&mut self, name: &OsStr, format: ArchiveFormat, effects: &mut Vec<Effect>) {
+    fn enter_archive(
+        &mut self,
+        name: &OsStr,
+        format: Option<ArchiveFormat>,
+        effects: &mut Vec<Effect>,
+    ) {
         let location = self.active_pane().location();
         if location.in_archive() {
             let path = PathBuf::from(location.child_display(name));

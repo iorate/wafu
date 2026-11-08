@@ -24,7 +24,7 @@ use crate::color_scheme::{ColorSchemeWatch, watch_color_scheme};
 use crate::drives::drives;
 use crate::fs_ops::{create_file, mkdir, open_with_os, rename, set_clipboard};
 use crate::operation::run_operation;
-use crate::preview::{load_image, load_preview};
+use crate::preview::{PreviewedArchive, load_image, load_preview};
 use crate::read_dir::{own_entry, read_dir_with};
 use crate::resolve::resolve;
 use crate::spawn::{spawn, spawn_new_window, wait_in_background};
@@ -143,6 +143,9 @@ impl Runtime {
                 lock(&self.pending).insert(request);
                 self.send(Job::LoadImage { source, request });
             }
+            // A reader abandoned with a preview stuck in it gets no message,
+            // but lets go of its archive when its thread ends.
+            Effect::ReleasePreview => self.preview.release_preview(),
             Effect::Watch { side, path } => {
                 lock(&self.watcher).watch(side, path, &self.on_event);
             }
@@ -415,7 +418,11 @@ impl Lane {
     }
 
     fn send(&self, job: Job) {
-        let _ = lock(&self.reader).jobs.send(job);
+        let _ = lock(&self.reader).jobs.send(Queued::Job(job));
+    }
+
+    fn release_preview(&self) {
+        let _ = lock(&self.reader).jobs.send(Queued::ReleasePreview);
     }
 
     fn cancel(&self, request: RequestId) {
@@ -433,8 +440,13 @@ impl Lane {
     }
 }
 
+enum Queued {
+    Job(Job),
+    ReleasePreview,
+}
+
 struct Reader {
-    jobs: Sender<Job>,
+    jobs: Sender<Queued>,
     running: Arc<Mutex<Option<RequestId>>>,
     abandoned: Arc<AtomicBool>,
 }
@@ -446,7 +458,7 @@ impl Reader {
         pending: &Arc<Mutex<HashSet<RequestId>>>,
         on_event: &OnEvent,
     ) -> Self {
-        let (jobs, receiver) = mpsc::channel::<Job>();
+        let (jobs, receiver) = mpsc::channel::<Queued>();
         let running = Arc::new(Mutex::new(None));
         let abandoned = Arc::new(AtomicBool::new(false));
         let reader = Self {
@@ -461,13 +473,23 @@ impl Reader {
             .name(format!("wafu-io-reader-{name}"))
             .spawn(move || {
                 let mut cache: Option<CachedArchive> = None;
-                for job in receiver {
+                let mut previewed = PreviewedArchive::default();
+                for queued in receiver {
+                    let job = match queued {
+                        Queued::Job(job) => job,
+                        Queued::ReleasePreview => {
+                            previewed = PreviewedArchive::default();
+                            continue;
+                        }
+                    };
                     let request = job.request();
                     *lock(&running) = Some(request);
                     let live = lock(&pending).contains(&request);
                     let event = live.then(|| {
-                        panic::catch_unwind(AssertUnwindSafe(|| read(&job, &mut cache, &pending)))
-                            .unwrap_or_else(|payload| job.failed(panic_error(&*payload)))
+                        panic::catch_unwind(AssertUnwindSafe(|| {
+                            read(&job, &mut cache, &mut previewed, &pending)
+                        }))
+                        .unwrap_or_else(|payload| job.failed(panic_error(&*payload)))
                     });
                     *lock(&running) = None;
                     if let Some(event) = event
@@ -501,6 +523,7 @@ pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 fn read(
     job: &Job,
     cache: &mut Option<CachedArchive>,
+    previewed: &mut PreviewedArchive,
     pending: &Mutex<HashSet<RequestId>>,
 ) -> IoEvent {
     let request = job.request();
@@ -529,11 +552,11 @@ fn read(
         },
         Job::LoadPreview { source, .. } => IoEvent::PreviewLoaded {
             request,
-            result: load_preview(source),
+            result: load_preview(source, previewed),
         },
         Job::LoadImage { source, .. } => IoEvent::ImageLoaded {
             request,
-            result: load_image(source),
+            result: load_image(source, previewed),
         },
     }
 }
@@ -773,6 +796,60 @@ mod tests {
         };
         assert_eq!(request, RequestId(1));
         assert!(matches!(result, Err(wafu_core::PreviewError::Failed(_))));
+    }
+
+    #[test]
+    fn releasing_the_preview_makes_the_next_preview_read_the_archive_again() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.tar");
+        let mut writer = crate::archive::create_archive(
+            File::create(&archive).unwrap(),
+            wafu_core::ArchiveFormat::Tar,
+            None,
+        )
+        .unwrap();
+        writer
+            .add_file("a.txt", 1, None, None, &mut &b"a"[..])
+            .unwrap();
+        writer
+            .add_file("b.txt", 1, None, None, &mut &b"b"[..])
+            .unwrap();
+        writer.finish().unwrap();
+        let (runtime, events) = runtime();
+        let load = |name: &str, request| Effect::LoadPreview {
+            source: PreviewSource {
+                path: archive.clone(),
+                entry: Some((
+                    ArchivePath {
+                        format: Some(wafu_core::ArchiveFormat::Tar),
+                        inner: Vec::new(),
+                    },
+                    name.to_owned(),
+                )),
+                password: None,
+            },
+            request: RequestId(request),
+        };
+        runtime.run(load("a.txt", 1));
+        let IoEvent::PreviewLoaded { result, .. } = events.recv_timeout(TIMEOUT).unwrap() else {
+            panic!("expected PreviewLoaded");
+        };
+        assert!(result.is_ok());
+
+        // The first header made unreadable without the archive looking
+        // changed, so that only a new index notices.
+        let modified = fs::metadata(&archive).unwrap().modified().unwrap();
+        let file = File::options().write(true).open(&archive).unwrap();
+        std::io::Write::write_all(&mut &file, &[0; 512]).unwrap();
+        file.set_modified(modified).unwrap();
+        drop(file);
+        runtime.run(Effect::ReleasePreview);
+        runtime.run(load("b.txt", 2));
+
+        let IoEvent::PreviewLoaded { result, .. } = events.recv_timeout(TIMEOUT).unwrap() else {
+            panic!("expected PreviewLoaded");
+        };
+        assert!(result.is_err());
     }
 
     #[test]
@@ -1065,13 +1142,15 @@ mod tests {
                 File::create(&archive).unwrap(),
                 wafu_core::ArchiveFormat::Zip,
                 None,
-            );
-            writer.start_file("d/f.txt", 1, None, None).unwrap();
-            std::io::Write::write_all(&mut writer, b"f").unwrap();
+            )
+            .unwrap();
+            writer
+                .add_file("d/f.txt", 1, None, None, &mut &b"f"[..])
+                .unwrap();
             writer.finish().unwrap();
         }
         let (runtime, events) = runtime();
-        let root = Location::archive_root(archive.clone(), wafu_core::ArchiveFormat::Zip);
+        let root = Location::archive_root(archive.clone(), Some(wafu_core::ArchiveFormat::Zip));
 
         runtime.run(Effect::ReadDir {
             side: Side::Left,
@@ -1540,7 +1619,10 @@ mod tests {
     fn read_archive(path: &Path, side: Side, request: u64) -> Effect {
         Effect::ReadDir {
             side,
-            location: Location::archive_root(path.to_path_buf(), wafu_core::ArchiveFormat::Zip),
+            location: Location::archive_root(
+                path.to_path_buf(),
+                Some(wafu_core::ArchiveFormat::Zip),
+            ),
             request: RequestId(request),
         }
     }

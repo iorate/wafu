@@ -70,7 +70,7 @@ fn enter_on_a_link_named_like_an_archive_opens_its_target_as_an_archive() {
             },
             Effect::ReadDir {
                 side: Side::Left,
-                location: Location::archive_root(path(LEFT, "link.zip"), ArchiveFormat::Zip),
+                location: Location::archive_root(path(LEFT, "link.zip"), Some(ArchiveFormat::Zip)),
                 request: harness.latest_request(Side::Left),
             },
         ]
@@ -89,7 +89,7 @@ fn enter_as_archive_opens_any_file_but_not_a_directory() {
     assert!(matches!(
         effects.as_slice(),
         [Effect::Watch { .. }, Effect::ReadDir { location, .. }]
-            if *location == Location::archive_root(path(LEFT, "note.txt"), ArchiveFormat::Zip)
+            if *location == Location::archive_root(path(LEFT, "note.txt"), None)
     ));
     harness.press("Esc");
     harness.press("Up");
@@ -100,6 +100,86 @@ fn enter_as_archive_opens_any_file_but_not_a_directory() {
 
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(harness.cursor_name(Side::Left), "d");
+}
+
+#[test]
+fn enter_as_archive_takes_the_format_of_a_known_extension() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("a.tar.xz")]);
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("Shift+U");
+
+    let effects = harness.take_effects();
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Watch { .. }, Effect::ReadDir { location, .. }]
+            if *location
+                == Location::archive_root(path(LEFT, "a.tar.xz"), Some(ArchiveFormat::TarXz))
+    ));
+}
+
+#[test]
+fn moving_inside_an_archive_of_unknown_format_leaves_the_format_unknown() {
+    let mut harness = outside();
+    harness.press("Down");
+    harness.press("Shift+U");
+    harness.load(Side::Left, vec![dir("docs")]);
+    harness.press("Down");
+    harness.press("Enter");
+    harness.load(Side::Left, vec![dir("deep")]);
+    harness.press("Down");
+    harness.press("Enter");
+    harness.load(Side::Left, vec![file("x")]);
+    let unknown = Location::archive_root(path(LEFT, "note.txt"), None);
+    harness.take_effects();
+
+    harness.press("BS");
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::Watch { .. }, Effect::ReadDir { location, .. }]
+            if *location == unknown.child("docs")
+    ));
+    harness.load(Side::Left, vec![dir("deep")]);
+    harness.take_effects();
+
+    harness.press("/");
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::Watch { .. }, Effect::ReadDir { location, .. }] if *location == unknown
+    ));
+}
+
+#[test]
+fn enter_on_a_tar_enters_it_with_the_format_of_its_extension() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("a.tar.gz"), file("b.gz")]);
+    harness.load(Side::Right, vec![]);
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("Enter");
+
+    let effects = harness.take_effects();
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Watch { .. }, Effect::ReadDir { location, .. }]
+            if *location
+                == Location::archive_root(path(LEFT, "a.tar.gz"), Some(ArchiveFormat::TarGz))
+    ));
+    harness.press("Esc");
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("Enter");
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::LoadPreview { .. }]
+    ));
 }
 
 #[test]
@@ -364,6 +444,31 @@ fn copy_inside_an_archive_extracts_the_marked_entries_to_the_other_side() {
 }
 
 #[test]
+fn a_skipped_entry_is_logged_and_keeps_its_mark() {
+    let mut harness = copying_inside();
+    let entry = archive().join("b.txt");
+
+    harness.operation(OperationEvent::Skipped {
+        path: entry.clone(),
+        error: IoError::new("the entry name is unsafe"),
+    });
+    harness.finish(Outcome::Completed {
+        done: 1,
+        skipped: 1,
+    });
+
+    let log = harness.log();
+    assert_eq!(
+        log[log.len() - 2..],
+        [
+            format!("skipped {}: the entry name is unsafe", entry.display()),
+            "copied 1 item (1 skipped)".to_owned(),
+        ]
+    );
+    assert_eq!(harness.marks(Side::Left), ["b.txt"]);
+}
+
+#[test]
 fn extract_unpacks_the_targets_into_the_other_side() {
     let mut harness = outside();
     harness.take_effects();
@@ -477,7 +582,7 @@ fn rename_on_the_parent_row_of_an_archive_root_renames_the_archive_and_follows_i
     assert!(matches!(
         effects.as_slice(),
         [Effect::Watch { .. }, Effect::ReadDir { location, .. }]
-            if *location == Location::archive_root(path(LEFT, "b.zip"), ArchiveFormat::Zip)
+            if *location == Location::archive_root(path(LEFT, "b.zip"), Some(ArchiveFormat::Zip))
     ));
 }
 
@@ -513,7 +618,7 @@ fn compress_asks_for_the_name_and_a_password_in_one_popup() {
     assert_eq!(popup.message, None);
     assert_eq!(
         popup.note.as_deref(),
-        Some("Leave the password empty for no encryption")
+        Some("zip, tar, tar.gz, tar.bz2, or tar.xz; only zip takes a password")
     );
     let labels: Vec<&str> = popup.fields.iter().map(|field| field.label).collect();
     assert_eq!(labels, ["Name", "Password"]);
@@ -569,6 +674,68 @@ fn compress_takes_the_password_typed_in_the_second_field() {
             name: "backup.zip".into(),
             password: Some("hunter2".to_owned()),
         })
+    );
+}
+
+#[test]
+fn compress_refuses_a_name_whose_extension_names_no_format() {
+    for name in ["backup.bak", "backup"] {
+        let mut harness = outside();
+        harness.press("Down");
+        harness.press("P");
+        harness.edit(name);
+        harness.take_effects();
+
+        harness.press("Enter");
+
+        assert!(harness.popup().is_none(), "{name}");
+        assert_eq!(harness.take_effects(), vec![], "{name}");
+        assert_eq!(
+            harness.log().last(),
+            Some(&format!(
+                "cannot make {name}: the extension does not name an archive format"
+            )),
+        );
+    }
+}
+
+#[test]
+fn compress_takes_the_format_from_the_extension_typed() {
+    let mut harness = outside();
+    harness.press("Down");
+    harness.press("P");
+    harness.edit("backup.tar.gz");
+    harness.take_effects();
+
+    harness.press("Enter");
+
+    let spec = harness.start_operation().unwrap();
+    assert_eq!(
+        spec.output,
+        Some(ArchiveOutput {
+            format: ArchiveFormat::TarGz,
+            name: "backup.tar.gz".into(),
+            password: None,
+        })
+    );
+}
+
+#[test]
+fn compress_refuses_a_password_for_a_tar() {
+    let mut harness = outside();
+    harness.press("Down");
+    harness.press("P");
+    harness.edit("backup.tar.gz");
+    harness.edit_field(1, "hunter2");
+    harness.take_effects();
+
+    harness.press("Enter");
+
+    assert!(harness.popup().is_none());
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log().last(),
+        Some(&"cannot make backup.tar.gz: only zip takes a password".to_owned())
     );
 }
 
@@ -1048,7 +1215,7 @@ fn an_external_command_on_the_parent_row_with_marks_extracts_the_marks_alone() {
         Sources::Entries(ArchiveEntries {
             archive: archive(),
             path: ArchivePath {
-                format: ArchiveFormat::Zip,
+                format: Some(ArchiveFormat::Zip),
                 inner: vec!["docs".to_owned()],
             },
             names: vec!["x".to_owned()],
@@ -1126,6 +1293,68 @@ fn a_failed_temporary_extraction_starts_nothing() {
             "cannot extract {}: disk full",
             shown(TEMP, "b.txt")
         ))
+    );
+}
+
+#[test]
+fn a_temporary_extraction_with_skipped_entries_starts_nothing() {
+    let mut harness = inside();
+    harness.press("Down");
+    harness.press("Down");
+    harness.press("E");
+    harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
+    harness.operation(OperationEvent::Skipped {
+        path: path(TEMP, "b.txt"),
+        error: IoError::new("sparse entries are not supported"),
+    });
+    harness.take_effects();
+
+    harness.finish(Outcome::Completed {
+        done: 0,
+        skipped: 1,
+    });
+
+    let effects = harness.take_effects();
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Spawn { .. }))
+    );
+    assert_eq!(
+        harness.log().last().map(String::as_str),
+        Some("extracted 0 items (1 skipped)")
+    );
+}
+
+#[test]
+fn a_temporary_extraction_with_a_conflict_skipped_still_starts_the_program() {
+    let mut harness = inside();
+    harness.press("Down");
+    harness.press("Down");
+    harness.press("E");
+    harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
+    harness.take_effects();
+    harness.operation(OperationEvent::Conflict {
+        source: path(TEMP, "b.txt"),
+        dest: path(TEMP, "b.txt"),
+    });
+    harness.press("s");
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::OperationReply(Reply::Skip { all: false })]
+    );
+
+    harness.finish(Outcome::Completed {
+        done: 0,
+        skipped: 1,
+    });
+
+    let effects = harness.take_effects();
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Spawn { .. })),
+        "{effects:?}"
     );
 }
 
@@ -1349,14 +1578,14 @@ fn archive() -> PathBuf {
 }
 
 fn root() -> Location {
-    Location::archive_root(archive(), ArchiveFormat::Zip)
+    Location::archive_root(archive(), Some(ArchiveFormat::Zip))
 }
 
 fn entries(names: &[&str], password: Option<&str>) -> ArchiveEntries {
     ArchiveEntries {
         archive: archive(),
         path: ArchivePath {
-            format: ArchiveFormat::Zip,
+            format: Some(ArchiveFormat::Zip),
             inner: Vec::new(),
         },
         names: names.iter().map(|name| (*name).to_owned()).collect(),

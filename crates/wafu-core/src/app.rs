@@ -158,6 +158,9 @@ pub enum Effect {
         source: PreviewSource,
         request: RequestId,
     },
+    /// Lets go of the archive kept open for previewing its entries, once the
+    /// preview closes or the pane leaves the archive.
+    ReleasePreview,
     /// Watches a directory for changes, replacing the side's previous watch.
     Watch {
         side: Side,
@@ -458,6 +461,7 @@ impl App {
     /// Applies a message and returns the effects it produced.
     pub fn update(&mut self, msg: Msg) -> Vec<Effect> {
         let popup_before = self.popup_shape();
+        let archive_before = self.previewed_archive();
         let mut effects = Vec::new();
         match msg {
             Msg::Start(start) => {
@@ -529,6 +533,7 @@ impl App {
         }
         // Whatever moved the cursor, the image preview follows it.
         self.sync_image_preview(&mut effects);
+        self.release_preview(archive_before.as_deref(), &mut effects);
         self.follow_popup(popup_before);
         effects
     }

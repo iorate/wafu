@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
@@ -65,16 +65,6 @@ impl ZipArchiveWriter {
     }
 }
 
-impl Write for ZipArchiveWriter {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.writer.write(buf)
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        self.writer.flush()
-    }
-}
-
 impl ArchiveWriter for ZipArchiveWriter {
     fn add_dir(
         &mut self,
@@ -86,15 +76,18 @@ impl ArchiveWriter for ZipArchiveWriter {
         self.writer.add_directory(path, options).map_err(io_error)
     }
 
-    fn start_file(
+    fn add_file(
         &mut self,
         path: &str,
         size: u64,
         modified: Option<SystemTime>,
         mode: Option<u32>,
+        data: &mut dyn Read,
     ) -> io::Result<()> {
         let options = options(self.password.as_deref(), size, modified, mode);
-        self.writer.start_file(path, options).map_err(io_error)
+        self.writer.start_file(path, options).map_err(io_error)?;
+        io::copy(data, &mut self.writer)?;
+        Ok(())
     }
 
     fn add_symlink(
@@ -224,9 +217,14 @@ mod tests {
             let mut writer = Box::new(ZipArchiveWriter::new(File::create(&path).unwrap(), None));
             writer.add_dir("d", Some(modified), Some(0o755)).unwrap();
             writer
-                .start_file("d/f.txt", 5, Some(modified), Some(0o600))
+                .add_file(
+                    "d/f.txt",
+                    5,
+                    Some(modified),
+                    Some(0o600),
+                    &mut &b"hello"[..],
+                )
                 .unwrap();
-            writer.write_all(b"hello").unwrap();
             writer.add_symlink("l", "d/f.txt", Some(modified)).unwrap();
             writer.finish().unwrap();
         }
