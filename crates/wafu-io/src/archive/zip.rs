@@ -21,6 +21,9 @@ const END_SIGNATURE: &[u8] = b"PK\x05\x06";
 // The end record is at most its fixed part and the longest comment away from
 // the end of the file.
 const END_SEARCH_LEN: u64 = 22 + 0xffff;
+// 1970 in 100 ns since 1601, and the ticks in a second.
+const FILE_TIME_EPOCH: u64 = 116_444_736_000_000_000;
+const FILE_TIME_TICKS: u64 = 10_000_000;
 pub(crate) const NOT_ZIP: &str = "not a zip archive";
 const DAMAGED: &str = "the zip archive is damaged";
 
@@ -227,15 +230,24 @@ fn entry_of(file: &ZipFile<'_, File>) -> ArchiveEntry {
         } else {
             ArchiveEntryKind::File
         };
-    // The extended timestamp is UTC to the second; the DOS time is local
-    // and even-second, so it is the fallback.
+    // NTFS times are UTC to 100 ns and extended timestamps UTC to the
+    // second; the DOS time is local and even-second, so it is the fallback.
+    // An extended timestamp is signed, and like a time before 1970 in a tar,
+    // one before 1970 is left out.
+    let ntfs = file.extra_data_fields().find_map(|field| match field {
+        ExtraField::Ntfs(ntfs) => Some(ntfs.mtime()),
+        _ => None,
+    });
     let extended = file.extra_data_fields().find_map(|field| match field {
         ExtraField::ExtendedTimestamp(stamp) => stamp.mod_time(),
         _ => None,
     });
-    let modified = extended
-        .map(|seconds| SystemTime::UNIX_EPOCH + Duration::from_secs(u64::from(seconds)))
-        .or_else(|| file.last_modified().and_then(system_time_of));
+    let modified = match (ntfs, extended) {
+        (Some(file_time), _) => system_time_of_file_time(file_time),
+        (None, Some(seconds)) => (i32::try_from(seconds).is_ok())
+            .then(|| SystemTime::UNIX_EPOCH + Duration::from_secs(seconds.into())),
+        (None, None) => file.last_modified().and_then(system_time_of),
+    };
     ArchiveEntry {
         components: split_name(&name),
         kind,
@@ -259,6 +271,15 @@ fn system_time_of(time: zip::DateTime) -> Option<SystemTime> {
         )
         .earliest()
         .map(SystemTime::from)
+}
+
+// A count of 100 ns since 1601, or `None` before 1970.
+fn system_time_of_file_time(file_time: u64) -> Option<SystemTime> {
+    let since_epoch = file_time.checked_sub(FILE_TIME_EPOCH)?;
+    let seconds = since_epoch / FILE_TIME_TICKS;
+    // Below `FILE_TIME_TICKS`, so the nanoseconds fit in a `u32`.
+    let nanos = u32::try_from(since_epoch % FILE_TIME_TICKS * 100).ok()?;
+    SystemTime::UNIX_EPOCH.checked_add(Duration::new(seconds, nanos))
 }
 
 fn dos_time_of(time: SystemTime) -> Option<zip::DateTime> {
@@ -536,6 +557,39 @@ mod tests {
             .read_to_end(&mut Vec::new())
             .unwrap_err();
         assert_eq!(error.to_string(), "the zip archive is damaged in b.txt");
+    }
+
+    #[test]
+    fn an_ntfs_time_comes_first_and_an_extended_timestamp_before_1970_is_no_time() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.zip");
+        let mut writer = ZipWriter::new(File::create(&path).unwrap());
+        let file_time = FILE_TIME_EPOCH + 1_700_000_000 * FILE_TIME_TICKS + 5_000_000;
+        let mut ntfs = vec![0, 0, 0, 0, 1, 0, 24, 0];
+        for _ in 0..3 {
+            ntfs.extend_from_slice(&file_time.to_le_bytes());
+        }
+        let mut options = FileOptions::default();
+        options
+            .add_extra_field(0x5455, [1, 0, 0, 0, 0], false)
+            .unwrap();
+        options.add_extra_field(0x000a, &ntfs, false).unwrap();
+        writer.start_file("ntfs", options).unwrap();
+        let mut options = FileOptions::default();
+        options
+            .add_extra_field(0x5455, [1, 0xff, 0xff, 0xff, 0xff], false)
+            .unwrap();
+        writer.start_file("before", options).unwrap();
+        writer.finish().unwrap();
+
+        let reader = ZipReader::open(&path).unwrap();
+
+        let entries = reader.entries();
+        assert_eq!(
+            entries[0].modified,
+            Some(SystemTime::UNIX_EPOCH + Duration::new(1_700_000_000, 500_000_000))
+        );
+        assert_eq!(entries[1].modified, None);
     }
 
     #[cfg(windows)]
