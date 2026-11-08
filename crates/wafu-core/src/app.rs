@@ -89,7 +89,7 @@ pub enum MouseInput {
     /// The divider above the log was dragged to show `rows` lines. It is
     /// clamped.
     LogRowsTo { rows: usize },
-    /// Wheel movement over a text or binary preview, in rows.
+    /// Wheel movement over a document preview, in rows.
     PreviewWheel { rows: i32 },
     /// A double click on a preview of any kind.
     PreviewDoubleClick,

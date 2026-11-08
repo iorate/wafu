@@ -69,7 +69,7 @@ socket = "#e58ae0"
 # run = "wt -d {dir}"
 
 ## Keys that replace the built-in bindings, per context: the file list, the
-## image preview, and the text preview (its hex mode included). "nop" unbinds
+## image preview, and the text preview (its binary mode included). "nop" unbinds
 ## a key, and "$name" runs a command from [commands].
 [keys.filelist]
 # "Q" = "nop"

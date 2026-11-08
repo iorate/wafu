@@ -179,7 +179,7 @@ pub enum Command {
 }
 
 /// Where a key press is interpreted. The text preview is one context in its
-/// text and hex modes alike: they are views of the same document, and a key
+/// text and binary modes alike: they are views of the same document, and a key
 /// means the same in both.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Context {
