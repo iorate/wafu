@@ -7,13 +7,16 @@ use std::time::{Duration, SystemTime};
 use chrono::{DateTime, Datelike, Local, TimeZone, Timelike};
 use zip::read::ZipFile;
 use zip::result::ZipError;
-use zip::write::{FileOptions, SimpleFileOptions};
+use zip::write::FullFileOptions;
 use zip::{AesMode, CompressionMethod, ExtraField, System, ZipArchive, ZipWriter};
 
 use super::names::{decode_name, split_name};
 use super::{ArchiveEntry, ArchiveEntryKind, ArchiveError, ArchiveReader, ArchiveWriter};
 
 const ZIP64_THRESHOLD: u64 = 4 * 1024 * 1024 * 1024;
+const EXTENDED_TIMESTAMP: u16 = 0x5455;
+// The flag that the modification time follows.
+const EXTENDED_MODIFIED: u8 = 1;
 const FILE_TYPE: u32 = 0o170_000;
 const DIR_TYPE: u32 = 0o040_000;
 const LOCAL_SIGNATURE: &[u8] = b"PK\x03\x04";
@@ -180,7 +183,7 @@ impl ArchiveWriter for ZipArchiveWriter {
         modified: Option<SystemTime>,
         mode: Option<u32>,
     ) -> io::Result<()> {
-        let options = options(self.password.as_deref(), 0, modified, mode);
+        let options = options(self.password.as_deref(), 0, modified, mode)?;
         self.writer.add_directory(path, options).map_err(io_error)
     }
 
@@ -192,7 +195,7 @@ impl ArchiveWriter for ZipArchiveWriter {
         mode: Option<u32>,
         data: &mut dyn Read,
     ) -> io::Result<()> {
-        let options = options(self.password.as_deref(), size, modified, mode);
+        let options = options(self.password.as_deref(), size, modified, mode)?;
         self.writer.start_file(path, options).map_err(io_error)?;
         io::copy(data, &mut self.writer)?;
         Ok(())
@@ -204,7 +207,7 @@ impl ArchiveWriter for ZipArchiveWriter {
         target: &str,
         modified: Option<SystemTime>,
     ) -> io::Result<()> {
-        let options = options(self.password.as_deref(), 0, modified, None);
+        let options = options(self.password.as_deref(), 0, modified, None)?;
         self.writer
             .add_symlink(path, target, options)
             .map_err(io_error)
@@ -300,20 +303,33 @@ fn options(
     size: u64,
     modified: Option<SystemTime>,
     mode: Option<u32>,
-) -> FileOptions<'_, 'static, ()> {
-    let mut options = SimpleFileOptions::default()
+) -> io::Result<FullFileOptions<'_, 'static>> {
+    let mut options = FullFileOptions::default()
         .compression_method(CompressionMethod::Deflated)
         .large_file(size >= ZIP64_THRESHOLD);
     if let Some(time) = modified.and_then(dos_time_of) {
         options = options.last_modified_time(time);
     }
+    // The DOS time is local, even-second, and from 1980 to 2107; an extended
+    // timestamp keeps the second in UTC for readers that know it. It is
+    // signed, so a time before 1970 or past 2038 is left to the DOS time.
+    let seconds = modified
+        .and_then(|time| time.duration_since(SystemTime::UNIX_EPOCH).ok())
+        .and_then(|since| i32::try_from(since.as_secs()).ok());
+    if let Some(seconds) = seconds {
+        let mut field = [EXTENDED_MODIFIED; 5];
+        field[1..].copy_from_slice(&seconds.to_le_bytes());
+        options
+            .add_extra_field(EXTENDED_TIMESTAMP, field, false)
+            .map_err(io_error)?;
+    }
     if let Some(mode) = mode {
         options = options.unix_permissions(mode);
     }
-    match password {
+    Ok(match password {
         Some(password) => options.with_aes_encryption(AesMode::Aes256, password),
         None => options,
-    }
+    })
 }
 
 // What the crate says of a broken archive, or of one it ran out of, as
@@ -373,6 +389,7 @@ fn io_error(error: ZipError) -> io::Error {
 #[cfg(test)]
 mod tests {
     use tempfile::TempDir;
+    use zip::write::{FileOptions, SimpleFileOptions};
 
     use super::*;
 
@@ -380,10 +397,11 @@ mod tests {
     fn reads_what_it_wrote_including_times_and_modes() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("a.zip");
-        let modified = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        let modified = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_001);
+        let before_dos = SystemTime::UNIX_EPOCH + Duration::from_secs(160_000_000);
         {
             let mut writer = Box::new(ZipArchiveWriter::new(File::create(&path).unwrap(), None));
-            writer.add_dir("d", Some(modified), Some(0o755)).unwrap();
+            writer.add_dir("d", Some(before_dos), Some(0o755)).unwrap();
             writer
                 .add_file(
                     "d/f.txt",
@@ -410,7 +428,7 @@ mod tests {
         if cfg!(unix) {
             assert_eq!(entries[1].mode.map(|mode| mode & 0o777), Some(0o600));
         }
-        // DOS times are local and even-second; the written instant is even.
+        assert_eq!(entries[0].modified, Some(before_dos));
         assert_eq!(entries[1].modified, Some(modified));
         assert_eq!(entries[2].kind, ArchiveEntryKind::Symlink);
 
