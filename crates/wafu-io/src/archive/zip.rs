@@ -260,9 +260,11 @@ fn entry_of(file: &ZipFile<'_, File>) -> ArchiveEntry {
         kind,
         size: file.size(),
         modified,
-        // An entry made elsewhere has only DOS attributes, from which the
-        // crate makes up a mode; the system's defaults are left to decide.
-        mode: mode.filter(|_| file.system() == System::Unix),
+        // For a DOS entry the crate makes up a mode from its attributes, and
+        // some writers mark an entry as Unix without filling in its bits;
+        // the system's defaults are left to decide both. Other systems, such
+        // as NTFS and Darwin, may carry real Unix bits.
+        mode: mode.filter(|mode| file.system() != System::Dos && mode & 0o777 != 0),
     }
 }
 
@@ -489,18 +491,22 @@ mod tests {
     }
 
     #[test]
-    fn only_unix_attributes_bring_a_mode() {
+    fn only_filled_unix_bits_outside_dos_bring_a_mode() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("a.zip");
         let mut writer = ZipWriter::new(File::create(&path).unwrap());
-        let unix = SimpleFileOptions::default()
-            .system(System::Unix)
-            .external_attributes(0o100_600 << 16);
-        let dos = SimpleFileOptions::default()
-            .system(System::Dos)
-            .external_attributes(0x01);
-        writer.start_file("u", unix).unwrap();
-        writer.start_file("w", dos).unwrap();
+        let cases = [
+            ("unix", System::Unix, 0o100_600 << 16),
+            ("ntfs", System::WindowsNTFS, 0o100_640 << 16),
+            ("dos", System::Dos, 0x01),
+            ("empty", System::Unix, 0x20),
+        ];
+        for (name, system, attributes) in cases {
+            let options = SimpleFileOptions::default()
+                .system(system)
+                .external_attributes(attributes);
+            writer.start_file(name, options).unwrap();
+        }
         writer.finish().unwrap();
 
         let reader = ZipReader::open(&path).unwrap();
@@ -510,7 +516,7 @@ mod tests {
             .iter()
             .map(|entry| entry.mode.map(|mode| mode & 0o777))
             .collect();
-        assert_eq!(modes, [Some(0o600), None]);
+        assert_eq!(modes, [Some(0o600), Some(0o640), None, None]);
     }
 
     #[test]
