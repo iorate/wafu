@@ -619,6 +619,16 @@ fn the_divider_moves_beside_a_right_pane_image_but_not_under_a_full_one() {
 }
 
 #[test]
+fn the_log_divider_moves_under_a_preview() {
+    let mut harness = document();
+
+    harness.send(Msg::Mouse(MouseInput::LogRowsTo { rows: 9 }));
+
+    assert_eq!(harness.view().log_rows, 9);
+    assert!(harness.view().preview.is_some());
+}
+
+#[test]
 fn mouse_clicks_are_ignored_during_a_full_image_preview() {
     let mut harness = listing();
     harness.press("Tab");

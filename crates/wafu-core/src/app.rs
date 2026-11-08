@@ -695,10 +695,7 @@ impl App {
             MouseInput::LogWheel { rows } => self.log.scroll_by(i64::from(rows)),
             MouseInput::LogScrollTo { top } => self.log.scroll_to(top),
             MouseInput::SplitTo { percent } => self.split_to(percent),
-            MouseInput::LogRowsTo { rows } => {
-                self.log
-                    .set_viewport_rows(rows.clamp(LOG_ROWS_MIN, LOG_ROWS_MAX));
-            }
+            MouseInput::LogRowsTo { rows } => self.log_rows_to(rows),
             MouseInput::PreviewWheel { .. }
             | MouseInput::PreviewDoubleClick
             | MouseInput::PopupClick { .. }
@@ -710,6 +707,11 @@ impl App {
     fn split_to(&mut self, percent: u8) {
         let rounded = (percent.min(100) + SPLIT_STEP / 2) / SPLIT_STEP * SPLIT_STEP;
         self.split_percent = rounded.clamp(SPLIT_MIN, SPLIT_MAX);
+    }
+
+    fn log_rows_to(&mut self, rows: usize) {
+        self.log
+            .set_viewport_rows(rows.clamp(LOG_ROWS_MIN, LOG_ROWS_MAX));
     }
 
     fn io_event(&mut self, event: IoEvent, effects: &mut Vec<Effect>) {

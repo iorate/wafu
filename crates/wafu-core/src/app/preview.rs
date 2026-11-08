@@ -81,6 +81,11 @@ impl App {
             self.close_preview(effects);
             return;
         }
+        // The log keeps its divider under every preview that shows it.
+        if let MouseInput::LogRowsTo { rows } = input {
+            self.log_rows_to(rows);
+            return;
+        }
         match &mut self.preview {
             Some(Preview::Document(preview)) => {
                 if let MouseInput::PreviewWheel { rows } = input {
