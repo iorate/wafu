@@ -941,6 +941,69 @@ mod tests {
     }
 
     #[test]
+    fn root_entries_in_a_zip_are_left_out() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.zip");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        fs::write(&archive, raw_zip(&[(b"./", b""), (b"./a.txt", b"a")])).unwrap();
+
+        let listed: Vec<Vec<String>> = open_archive(&archive, None)
+            .unwrap()
+            .entries()
+            .iter()
+            .map(|entry| entry.components.clone())
+            .collect();
+        assert_eq!(listed, [vec!["a.txt"]]);
+
+        let (outcome, events) = run(&extract(&[archive], &dest), []);
+
+        assert_eq!(
+            outcome,
+            Outcome::Completed {
+                done: 1,
+                skipped: 0
+            }
+        );
+        assert_eq!(done_indices(&events), [0]);
+        assert_eq!(fs::read(dest.join("a.txt")).unwrap(), b"a");
+    }
+
+    #[test]
+    fn a_later_zip_entry_replaces_an_earlier_one_spelled_differently() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.zip");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        fs::write(
+            &archive,
+            raw_zip(&[(b"a.txt", b"one"), (b"b.txt", b"b"), (b"./a.txt", b"two")]),
+        )
+        .unwrap();
+
+        let reader = open_archive(&archive, None).unwrap();
+        let listed: Vec<Vec<String>> = reader
+            .entries()
+            .iter()
+            .map(|entry| entry.components.clone())
+            .collect();
+        assert_eq!(listed, [vec!["b.txt"], vec!["a.txt"]]);
+        drop(reader);
+
+        let (outcome, _) = run(&extract(&[archive], &dest), []);
+
+        assert_eq!(
+            outcome,
+            Outcome::Completed {
+                done: 2,
+                skipped: 0
+            }
+        );
+        assert_eq!(fs::read(dest.join("a.txt")).unwrap(), b"two");
+        assert_eq!(fs::read(dest.join("b.txt")).unwrap(), b"b");
+    }
+
+    #[test]
     fn a_tar_file_entry_whose_name_ends_with_a_slash_is_a_directory() {
         let dir = TempDir::new().unwrap();
         let archive = dir.path().join("a.tar");
@@ -1233,6 +1296,39 @@ mod tests {
     }
 
     #[test]
+    fn zip_entries_in_a_compression_method_wafu_cannot_read_are_skipped() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.zip");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        let mut zip = raw_zip(&[(b"d/lzma.bin", b"x"), (b"ok.txt", b"ok")]);
+        // LZMA, in the local and the central header of the first entry.
+        zip[8..10].copy_from_slice(&14u16.to_le_bytes());
+        let central = zip
+            .windows(4)
+            .position(|window| window == 0x0201_4b50u32.to_le_bytes())
+            .unwrap();
+        zip[central + 10..central + 12].copy_from_slice(&14u16.to_le_bytes());
+        fs::write(&archive, zip).unwrap();
+
+        let (outcome, events) = run(&extract(std::slice::from_ref(&archive), &dest), []);
+
+        assert_eq!(
+            outcome,
+            Outcome::Completed {
+                done: 1,
+                skipped: 1
+            }
+        );
+        assert_eq!(
+            skipped_errors(&events),
+            ["the compression method is not supported"]
+        );
+        assert_eq!(fs::read(dest.join("ok.txt")).unwrap(), b"ok");
+        assert!(!dest.join("d").exists());
+    }
+
+    #[test]
     fn a_file_entry_where_a_directory_exists_is_skipped() {
         let dir = TempDir::new().unwrap();
         let archive = dir.path().join("a.zip");
@@ -1363,8 +1459,10 @@ mod tests {
         write_zip(&archive, None, |writer| {
             writer.add_dir("d", Some(modified), None).unwrap();
             writer.add_symlink("d/l", "one", None).unwrap();
-            // The same name again, which the zip writer would otherwise refuse.
-            writer.add_symlink("d/./l", "two", None).unwrap();
+            // Its directory takes the place of the link.
+            writer
+                .add_file("d/l/x", 1, None, None, &mut &b"x"[..])
+                .unwrap();
         });
 
         let (outcome, events) = run(&copy_entries(&archive, &[], &["d"], &dest), []);
@@ -1378,10 +1476,7 @@ mod tests {
         );
         assert_eq!(skipped_errors(&events).len(), 1);
         assert_eq!(done_indices(&events), Vec::<usize>::new());
-        assert_eq!(
-            fs::read_link(dest.join("d").join("l")).unwrap(),
-            PathBuf::from("one")
-        );
+        assert_eq!(fs::read(dest.join("d").join("l").join("x")).unwrap(), b"x");
         assert_eq!(modified_of(&dest.join("d")), modified);
     }
 
@@ -1589,7 +1684,11 @@ mod tests {
 
         let (outcome, _) = run(&extract(std::slice::from_ref(&text), &dest), []);
 
-        assert!(matches!(outcome, Outcome::Failed { path, .. } if path == text));
+        assert!(matches!(
+            outcome,
+            Outcome::Failed { path, error, .. }
+                if path == text && error.to_string() == "not an archive"
+        ));
     }
 
     #[test]
