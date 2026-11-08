@@ -14,6 +14,8 @@ use super::names::{decode_name, split_name};
 use super::{ArchiveEntry, ArchiveEntryKind, ArchiveError, ArchiveReader, ArchiveWriter};
 
 const ZIP64_THRESHOLD: u64 = 4 * 1024 * 1024 * 1024;
+const FILE_TYPE: u32 = 0o170_000;
+const DIR_TYPE: u32 = 0o040_000;
 
 pub(crate) struct ZipReader {
     archive: ZipArchive<File>,
@@ -141,13 +143,17 @@ impl ArchiveWriter for ZipArchiveWriter {
 // anything that is not UTF-8 as CP437.
 fn entry_of(file: &ZipFile<'_, File>) -> ArchiveEntry {
     let name = decode_name(file.name_raw());
-    let kind = if name.ends_with(['/', '\\']) {
-        ArchiveEntryKind::Dir
-    } else if file.is_symlink() {
-        ArchiveEntryKind::Symlink
-    } else {
-        ArchiveEntryKind::File
-    };
+    let mode = file.unix_mode();
+    // Some tools mark a directory only by its attributes, as Unix mode bits
+    // or the DOS directory bit, which the crate reads as the same.
+    let kind =
+        if name.ends_with(['/', '\\']) || mode.is_some_and(|mode| mode & FILE_TYPE == DIR_TYPE) {
+            ArchiveEntryKind::Dir
+        } else if file.is_symlink() {
+            ArchiveEntryKind::Symlink
+        } else {
+            ArchiveEntryKind::File
+        };
     // The extended timestamp is UTC to the second; the DOS time is local
     // and even-second, so it is the fallback.
     let extended = file.extra_data_fields().find_map(|field| match field {
@@ -162,7 +168,7 @@ fn entry_of(file: &ZipFile<'_, File>) -> ArchiveEntry {
         kind,
         size: file.size(),
         modified,
-        mode: file.unix_mode(),
+        mode,
     }
 }
 
@@ -235,6 +241,7 @@ fn io_error(error: ZipError) -> io::Error {
 #[cfg(test)]
 mod tests {
     use tempfile::TempDir;
+    use zip::System;
 
     use super::*;
 
@@ -290,6 +297,38 @@ mod tests {
             .read_to_string(&mut target)
             .unwrap();
         assert_eq!(target, "d/f.txt");
+    }
+
+    #[test]
+    fn entries_marked_as_directories_only_by_their_attributes_are_directories() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.zip");
+        let mut writer = ZipWriter::new(File::create(&path).unwrap());
+        let unix = SimpleFileOptions::default()
+            .system(System::Unix)
+            .external_attributes(0o040_755 << 16);
+        let dos = SimpleFileOptions::default()
+            .system(System::Dos)
+            .external_attributes(0x10);
+        writer.start_file("u", unix).unwrap();
+        writer.start_file("w", dos).unwrap();
+        writer
+            .start_file("f", SimpleFileOptions::default())
+            .unwrap();
+        writer.finish().unwrap();
+
+        let reader = ZipReader::open(&path).unwrap();
+
+        let kinds: Vec<ArchiveEntryKind> =
+            reader.entries().iter().map(|entry| entry.kind).collect();
+        assert_eq!(
+            kinds,
+            [
+                ArchiveEntryKind::Dir,
+                ArchiveEntryKind::Dir,
+                ArchiveEntryKind::File
+            ]
+        );
     }
 
     #[cfg(windows)]
