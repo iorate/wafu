@@ -1,5 +1,5 @@
 pub(crate) const UNSAFE_NAME: &str = "the entry name is unsafe";
-const RESERVED_NAMES: [&str; 4] = ["CON", "PRN", "AUX", "NUL"];
+const RESERVED_NAMES: [&str; 6] = ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"];
 const NUMBERED_RESERVED_NAMES: [&str; 2] = ["COM", "LPT"];
 #[cfg(windows)]
 const UTF8_CODE_PAGE: u32 = 65001;
@@ -38,7 +38,8 @@ pub(crate) fn check_component(component: &str) -> Result<(), &'static str> {
     if !cfg!(windows) {
         return Ok(());
     }
-    if component.contains(|c: char| c.is_control() || "<>\"|?*".contains(c)) {
+    // Only these controls: DEL and the C1 controls are allowed.
+    if component.contains(|c: char| ('\u{1}'..='\u{1f}').contains(&c) || "<>\"|?*".contains(c)) {
         Err("the entry name has a character that Windows does not allow")
     } else if component.ends_with(['.', ' ']) {
         // Windows drops these, so the entry would land under another name.
@@ -50,18 +51,27 @@ pub(crate) fn check_component(component: &str) -> Result<(), &'static str> {
     }
 }
 
-// `CON`, `COM1`, and the like name devices on Windows even with an extension.
+// `CON`, `COM1`, and the like name devices on Windows even with an extension
+// and with spaces before it. The superscript digits count as digits there.
 fn is_reserved(component: &str) -> bool {
-    let stem = component.split('.').next().unwrap_or_default();
+    let stem = component
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .trim_end_matches(' ');
     RESERVED_NAMES
         .iter()
         .any(|name| stem.eq_ignore_ascii_case(name))
         || NUMBERED_RESERVED_NAMES.iter().any(|name| {
-            stem.len() == name.len() + 1
-                && stem
-                    .get(..name.len())
-                    .is_some_and(|prefix| prefix.eq_ignore_ascii_case(name))
-                && stem.ends_with(|c: char| ('1'..='9').contains(&c))
+            stem.get(..name.len())
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case(name))
+                && stem.get(name.len()..).is_some_and(|number| {
+                    let mut chars = number.chars();
+                    chars
+                        .next()
+                        .is_some_and(|c| matches!(c, '1'..='9' | '\u{b9}' | '\u{b2}' | '\u{b3}'))
+                        && chars.next().is_none()
+                })
         })
 }
 
@@ -205,6 +215,7 @@ mod tests {
             "a\"b",
             "a|b",
             "a\u{1}b",
+            "a\u{1f}b",
             "x.",
             "x ",
             "con",
@@ -214,10 +225,30 @@ mod tests {
             "prn",
             "com1",
             "LPT9.log",
+            "con .txt",
+            "NUL  .tar.gz",
+            "conin$",
+            "CONOUT$.log",
+            "com\u{b9}",
+            "LPT\u{b2}.txt",
+            "com\u{b3} .x",
         ] {
             assert_eq!(check_component(name).is_ok(), !cfg!(windows), "{name}");
         }
-        for name in ["console", "com0", "com10", "lpt", "x.y", "con_"] {
+        for name in [
+            "console",
+            "com0",
+            "com10",
+            "lpt",
+            "x.y",
+            "con_",
+            " con",
+            "conin",
+            "com\u{2074}",
+            "a\u{7f}b",
+            "a\u{80}b",
+            "a\u{9f}b",
+        ] {
             assert_eq!(check_component(name), Ok(()), "{name}");
         }
     }
