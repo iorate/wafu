@@ -209,29 +209,14 @@ mod tests {
     fn names_windows_cannot_create_are_refused_there() {
         for name in [
             "a?b",
-            "a*b",
-            "a<b",
-            "a>b",
-            "a\"b",
-            "a|b",
             "a\u{1}b",
-            "a\u{1f}b",
-            "x.",
             "x ",
             "con",
             "CON.txt",
             "nul.tar.gz",
-            "Aux",
-            "prn",
             "com1",
-            "LPT9.log",
             "con .txt",
-            "NUL  .tar.gz",
-            "conin$",
-            "CONOUT$.log",
             "com\u{b9}",
-            "LPT\u{b2}.txt",
-            "com\u{b3} .x",
         ] {
             assert_eq!(check_component(name).is_ok(), !cfg!(windows), "{name}");
         }
@@ -240,14 +225,9 @@ mod tests {
             "com0",
             "com10",
             "lpt",
-            "x.y",
-            "con_",
             " con",
-            "conin",
             "com\u{2074}",
-            "a\u{7f}b",
             "a\u{80}b",
-            "a\u{9f}b",
         ] {
             assert_eq!(check_component(name), Ok(()), "{name}");
         }

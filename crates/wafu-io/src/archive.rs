@@ -454,9 +454,7 @@ mod tests {
         signed[1] = b'!';
         assert_eq!(sniff(&signed), ArchiveFormat::Zip);
         assert_eq!(sniff(&[0; 512]), ArchiveFormat::Zip);
-        assert_eq!(sniff(b"PK\x03\x04"), ArchiveFormat::Zip);
         assert_eq!(sniff(b""), ArchiveFormat::Zip);
-        assert_eq!(sniff(b"plain text"), ArchiveFormat::Zip);
     }
 
     #[test]

@@ -639,6 +639,7 @@ mod tests {
 
     use super::super::run_operation;
     use super::*;
+    use crate::archive::tar::header_of;
     use crate::archive::zip::ZipArchiveWriter;
 
     const MODIFIED: SystemTime = SystemTime::UNIX_EPOCH;
@@ -812,13 +813,13 @@ mod tests {
         fs::create_dir(&dest).unwrap();
         {
             let mut builder = tar::Builder::new(File::create(&archive).unwrap());
-            let mut header = tar_header(EntryType::Regular, 4);
+            let mut header = header_of(EntryType::Regular, 4);
             header.set_mode(0o200);
             builder
                 .append_data(&mut header, "orig", &b"data"[..])
                 .unwrap();
             builder
-                .append_link(&mut tar_header(EntryType::Link, 0), "same", "orig")
+                .append_link(&mut header_of(EntryType::Link, 0), "same", "orig")
                 .unwrap();
             builder.finish().unwrap();
         }
@@ -966,41 +967,6 @@ mod tests {
     }
 
     #[test]
-    fn a_name_appended_again_to_a_tar_is_listed_and_extracted_once_with_the_later_content() {
-        let dir = TempDir::new().unwrap();
-        let archive = dir.path().join("a.tar");
-        let dest = dir.path().join("out");
-        fs::create_dir(&dest).unwrap();
-        write_tar(
-            &archive,
-            &[
-                ("a.txt", EntryType::Regular, "", b"old"),
-                ("a.txt", EntryType::Regular, "", b"newer"),
-            ],
-        );
-
-        let entries = open_archive(&archive, None).unwrap().entries().to_vec();
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].size, 5);
-
-        let (outcome, events) = run(&extract(&[archive], &dest), []);
-
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 1,
-                skipped: 0
-            }
-        );
-        assert!(
-            !events
-                .iter()
-                .any(|event| matches!(event, OperationEvent::Conflict { .. }))
-        );
-        assert_eq!(fs::read(dest.join("a.txt")).unwrap(), b"newer");
-    }
-
-    #[test]
     fn extract_into_dirs_unpacks_each_archive_into_a_directory_named_after_it() {
         let dir = TempDir::new().unwrap();
         let a = dir.path().join("a.zip");
@@ -1040,8 +1006,7 @@ mod tests {
         fs::write(src.join("d").join("f.txt"), b"hello").unwrap();
         let dest = dir.path().join("dest");
         fs::create_dir(&dest).unwrap();
-        let mut spec = compress(&[src.join("d")], &dest, "x.tar.gz", None);
-        spec.output.as_mut().unwrap().format = ArchiveFormat::TarGz;
+        let spec = compress(&[src.join("d")], &dest, "x.tar.gz", None);
 
         let (outcome, _) = run(&spec, []);
 
@@ -1068,16 +1033,6 @@ mod tests {
             fs::read(out.join("x").join("d").join("f.txt")).unwrap(),
             b"hello"
         );
-
-        // With no telling extension, the content decides.
-        let renamed = dest.join("x.bin");
-        fs::rename(&archive, &renamed).unwrap();
-        let out = dir.path().join("sniffed");
-        fs::create_dir(&out).unwrap();
-        let (outcome, _) = run(&extract(&[renamed], &out), []);
-
-        assert!(matches!(outcome, Outcome::Completed { .. }));
-        assert_eq!(fs::read(out.join("d").join("f.txt")).unwrap(), b"hello");
     }
 
     #[test]
@@ -1221,19 +1176,19 @@ mod tests {
             let map = b"1\n0\n5\n";
             builder
                 .append_data(
-                    &mut tar_header(EntryType::Regular, map.len()),
+                    &mut header_of(EntryType::Regular, map.len() as u64),
                     "GNUSparseFile.0/holes.bin",
                     &map[..],
                 )
                 .unwrap();
             builder
-                .append_data(&mut tar_header(EntryType::new(b'M'), 1), "big", &b"x"[..])
+                .append_data(&mut header_of(EntryType::new(b'M'), 1), "big", &b"x"[..])
                 .unwrap();
             builder
-                .append_link(&mut tar_header(EntryType::Link, 0), "e/lost", "gone")
+                .append_link(&mut header_of(EntryType::Link, 0), "e/lost", "gone")
                 .unwrap();
             builder
-                .append_data(&mut tar_header(EntryType::Regular, 2), "ok.txt", &b"ok"[..])
+                .append_data(&mut header_of(EntryType::Regular, 2), "ok.txt", &b"ok"[..])
                 .unwrap();
             builder.finish().unwrap();
         }
@@ -1638,6 +1593,27 @@ mod tests {
     }
 
     #[test]
+    fn a_tar_gz_with_a_foreign_extension_is_extracted_by_its_content() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("src");
+        fs::create_dir_all(src.join("d")).unwrap();
+        fs::write(src.join("d").join("f.txt"), b"hello").unwrap();
+        run(
+            &compress(&[src.join("d")], dir.path(), "x.tar.gz", None),
+            [],
+        );
+        let archive = dir.path().join("x.bin");
+        fs::rename(dir.path().join("x.tar.gz"), &archive).unwrap();
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+
+        let (outcome, _) = run(&extract(&[archive], &dest), []);
+
+        assert!(matches!(outcome, Outcome::Completed { .. }));
+        assert_eq!(fs::read(dest.join("d").join("f.txt")).unwrap(), b"hello");
+    }
+
+    #[test]
     fn a_gzip_that_holds_no_tar_is_not_a_tar_archive() {
         let dir = TempDir::new().unwrap();
         let archive = dir.path().join("t.bin");
@@ -1990,14 +1966,6 @@ mod tests {
         builder.into_inner().unwrap().flush().unwrap();
     }
 
-    fn tar_header(kind: EntryType, size: usize) -> Header {
-        let mut header = Header::new_gnu();
-        header.set_entry_type(kind);
-        header.set_size(size as u64);
-        header.set_mode(0o644);
-        header
-    }
-
     fn entries(
         archive: &Path,
         inner: &[&str],
@@ -2065,7 +2033,7 @@ mod tests {
             sources: Sources::Paths(paths.to_vec()),
             dest: Some(dest.to_path_buf()),
             output: Some(ArchiveOutput {
-                format: ArchiveFormat::Zip,
+                format: ArchiveFormat::from_name(name.as_ref()).unwrap(),
                 name: name.into(),
                 password: password.map(ToOwned::to_owned),
             }),

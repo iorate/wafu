@@ -617,6 +617,11 @@ fn header(kind: EntryType, size: u64, modified: Option<SystemTime>, mode: u32) -
 }
 
 #[cfg(test)]
+pub(crate) fn header_of(kind: EntryType, size: u64) -> Header {
+    header(kind, size, None, 0o644)
+}
+
+#[cfg(test)]
 mod tests {
     use std::fs;
 
@@ -718,9 +723,9 @@ mod tests {
             builder
                 .append_data(&mut orig, "orig", &b"data"[..])
                 .unwrap();
-            let mut same = header_of(EntryType::Link);
+            let mut same = header_of(EntryType::Link, 0);
             builder.append_link(&mut same, "same", "orig").unwrap();
-            let mut lost = header_of(EntryType::Link);
+            let mut lost = header_of(EntryType::Link, 0);
             builder.append_link(&mut lost, "lost", "gone").unwrap();
             builder.finish().unwrap();
         }
@@ -745,11 +750,11 @@ mod tests {
             let mut builder = Builder::new(File::create(&path).unwrap());
             let mut first = header(EntryType::Regular, 3, None, 0o644);
             builder.append_data(&mut first, "f", &b"one"[..]).unwrap();
-            let mut link = header_of(EntryType::Link);
+            let mut link = header_of(EntryType::Link, 0);
             builder.append_link(&mut link, "same", "f").unwrap();
             let mut second = header(EntryType::Regular, 4, None, 0o644);
             builder.append_data(&mut second, "f", &b"two!"[..]).unwrap();
-            let mut later = header_of(EntryType::Link);
+            let mut later = header_of(EntryType::Link, 0);
             builder.append_link(&mut later, "later", "f").unwrap();
             builder.finish().unwrap();
         }
@@ -776,26 +781,23 @@ mod tests {
         let path = dir.path().join("a.tar");
         {
             let mut builder = Builder::new(File::create(&path).unwrap());
-            let mut fifo = header_of(EntryType::Fifo);
+            let mut fifo = header_of(EntryType::Fifo, 0);
             builder.append_data(&mut fifo, "pipe", io::empty()).unwrap();
-            let mut file = header(EntryType::Regular, 1, None, 0o644);
-            builder.append_data(&mut file, "f", &b"x"[..]).unwrap();
+            let mut sparse = header_of(EntryType::GNUSparse, 0);
+            sparse.as_gnu_mut().unwrap().set_real_size(0);
+            builder
+                .append_data(&mut sparse, "holes.bin", io::empty())
+                .unwrap();
             builder.finish().unwrap();
         }
-        let reader = TarReader::open(&path, Compression::None).unwrap();
-        assert_eq!(reader.entries().len(), 1);
-        assert_eq!(reader.entries()[0].components, ["f"]);
 
-        let mut reader = TarReader {
-            path,
-            compression: Compression::None,
-            entries: vec![reader.entries()[0].clone()],
-            contents: vec![Content::Unsupported(SPARSE)],
-            stream: None,
-        };
+        let mut reader = TarReader::open(&path, Compression::None).unwrap();
+
+        assert_eq!(reader.entries().len(), 1);
+        assert_eq!(reader.entries()[0].components, ["holes.bin"]);
         assert!(matches!(
             reader.open(0, None),
-            Err(ArchiveError::Invalid(message)) if message.contains("sparse")
+            Err(ArchiveError::Invalid(message)) if message == SPARSE
         ));
     }
 
@@ -838,7 +840,7 @@ mod tests {
         let path = dir.path().join("a.tar");
         {
             let mut builder = Builder::new(File::create(&path).unwrap());
-            let mut label = header_of(EntryType::new(b'V'));
+            let mut label = header_of(EntryType::new(b'V'), 0);
             builder
                 .append_data(&mut label, "backup", io::empty())
                 .unwrap();
@@ -870,7 +872,7 @@ mod tests {
         let path = dir.path().join("a.tar");
         {
             let mut builder = Builder::new(File::create(&path).unwrap());
-            let mut global = header_of(EntryType::XGlobalHeader);
+            let mut global = header_of(EntryType::XGlobalHeader, 0);
             global.set_size(11);
             builder
                 .append_data(&mut global, "pax_global_header", &b"52 comment=x"[..11])
@@ -985,12 +987,12 @@ mod tests {
         {
             let mut builder = Builder::new(File::create(&path).unwrap());
             builder
-                .append_data(&mut header_of(EntryType::Regular), "a", io::empty())
+                .append_data(&mut header_of(EntryType::Regular, 0), "a", io::empty())
                 .unwrap();
             builder
-                .append_data(&mut header_of(EntryType::Directory), "./", io::empty())
+                .append_data(&mut header_of(EntryType::Directory, 0), "./", io::empty())
                 .unwrap();
-            let mut global = header_of(EntryType::XGlobalHeader);
+            let mut global = header_of(EntryType::XGlobalHeader, 0);
             global.set_size(11);
             builder
                 .append_data(&mut global, "pax_global_header", &b"52 comment=x"[..11])
@@ -1043,9 +1045,5 @@ mod tests {
             .read_to_end(&mut content)
             .unwrap();
         content
-    }
-
-    fn header_of(kind: EntryType) -> Header {
-        header(kind, 0, None, 0o644)
     }
 }
