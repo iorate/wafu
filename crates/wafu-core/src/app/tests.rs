@@ -9,7 +9,7 @@ use crate::listing::{SortKey, SortSpec};
 use crate::pane::InFlight;
 use crate::state::{PaneState, StateFile};
 use crate::test_support::{
-    CONFIG_PATH, HOME, Harness, dir, file, special, start_msg, start_msg_with,
+    CONFIG_PATH, HOME, Harness, dir, file, path, special, start_msg, start_msg_with,
 };
 use crate::view::{ItemKind, RowKind};
 
@@ -3661,7 +3661,7 @@ fn an_exit_other_than_success_is_logged() {
 }
 
 #[test]
-fn external_commands_run_from_the_palette_with_no_targets() {
+fn external_commands_run_from_the_palette() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.config("[commands.term]\nrun = \"wt {paths}\"\n");
     harness.take_effects();
@@ -3676,7 +3676,7 @@ fn external_commands_run_from_the_palette_with_no_targets() {
         vec![Effect::Spawn {
             name: "$term".to_owned(),
             program: "wt".to_owned(),
-            args: vec![],
+            args: vec![path("/home", "user").into_os_string()],
             cwd: PathBuf::from(HOME),
         }]
     );

@@ -2,10 +2,12 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 use crate::app::{Change, Effect, IoEvent, MenuAnchor, Msg, Os, Side};
+use crate::entry::SpecialKind;
 use crate::error::IoError;
+use crate::location::Location;
 use crate::operation::{OperationEvent, OperationKind, OperationSpec, Outcome, Reply, Sources};
 use crate::popup::Popup;
-use crate::test_support::{Harness, LEFT, RIGHT, dir, file, path, shown};
+use crate::test_support::{Harness, LEFT, RIGHT, dir, file, path, shown, special};
 use crate::view::ItemKind;
 
 const WIN_LEFT: &str = r"C:\Users\me";
@@ -104,22 +106,23 @@ fn copy_without_a_location_on_the_other_side_is_logged() {
 }
 
 #[test]
-fn copy_move_and_extract_on_the_parent_row_say_nothing_about_a_missing_location() {
-    let mut harness = Harness::start_both_pending(Os::Linux, LEFT, RIGHT);
-    harness.load(Side::Left, vec![file("a")]);
-    harness.fail_load(Side::Right, "gone");
+fn copy_on_the_parent_row_takes_the_directory_itself() {
+    let mut harness = three_files();
     cursor_only(&mut harness);
     harness.take_effects();
     assert_eq!(harness.cursor_name(Side::Left), "..");
-    let log = harness.log();
 
-    for key in ["C", "M", "U"] {
-        harness.press(key);
-    }
+    harness.press("C");
 
-    assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(harness.view().popup, None);
-    assert_eq!(harness.log(), log);
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::StartOperation(OperationSpec {
+            kind: OperationKind::Copy,
+            sources: Sources::Paths(vec![PathBuf::from(LEFT)]),
+            dest: Some(PathBuf::from(RIGHT)),
+            output: None,
+        })]
+    );
 }
 
 #[test]
@@ -763,19 +766,62 @@ fn rename_left_unchanged_on_a_non_utf8_name_only_closes() {
 }
 
 #[test]
-fn rename_does_nothing_with_marks_or_on_the_parent_row() {
+fn rename_takes_the_cursor_entry_whatever_is_marked() {
     let mut harness = three_files();
-    harness.take_effects();
-
-    harness.press("R");
-    assert_eq!(harness.view().popup, None);
-
     harness.press("Down");
     harness.press("Space");
+    harness.press("Space");
+    harness.take_effects();
+    assert_eq!(harness.cursor_name(Side::Left), "c");
+
     harness.press("R");
-    assert_eq!(harness.view().popup, None);
-    assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(harness.log(), Vec::<String>::new());
+
+    assert_eq!(harness.popup_fields(), ["c"]);
+}
+
+#[test]
+fn rename_on_the_parent_row_renames_the_directory_itself_and_follows_it() {
+    let mut harness = three_files();
+    harness.take_effects();
+    assert_eq!(harness.cursor_name(Side::Left), "..");
+
+    harness.press("R");
+    assert_eq!(harness.popup_fields(), ["user"]);
+    harness.edit("me");
+    harness.press("Enter");
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Rename {
+            from: PathBuf::from(LEFT),
+            to: PathBuf::from("/home/me"),
+        }]
+    );
+
+    harness.changed_result(
+        Change::Renamed {
+            from: PathBuf::from(LEFT),
+            to: PathBuf::from("/home/me"),
+        },
+        None,
+    );
+    let effects = harness.take_effects();
+    assert!(matches!(
+        effects.as_slice(),
+        [
+            Effect::Watch {
+                side: Side::Left,
+                path
+            },
+            Effect::ReadDir {
+                side: Side::Left,
+                location,
+                ..
+            }
+        ] if path.as_os_str() == "/home/me"
+            && *location == Location::new(PathBuf::from("/home/me"))
+    ));
+    harness.load(Side::Left, vec![]);
+    assert_eq!(harness.view().left.path, "/home/me");
 }
 
 #[test]
@@ -1125,28 +1171,56 @@ fn new_text_on_an_existing_name_only_logs() {
 }
 
 #[test]
-fn edit_passes_every_target_to_the_editor() {
+fn edit_opens_the_cursor_entry_whatever_is_marked() {
     let mut harness = three_files();
-    harness.take_effects();
-
-    harness.press("E");
-    assert_eq!(harness.take_effects(), vec![]);
-
     harness.press("Down");
     harness.press("Space");
     harness.press("Space");
+    harness.take_effects();
+
     harness.press("E");
+
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
             name: "editor".to_owned(),
             program: "xdg-open".to_owned(),
-            args: vec![
-                path(LEFT, "a").into_os_string(),
-                path(LEFT, "b").into_os_string()
-            ],
+            args: vec![path(LEFT, "c").into_os_string()],
             cwd: PathBuf::from(LEFT),
         }]
+    );
+}
+
+#[test]
+fn edit_does_nothing_on_a_directory() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![dir("d")]);
+    harness.take_effects();
+
+    harness.press("E");
+    harness.press("Down");
+    harness.press("E");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.log(), Vec::<String>::new());
+}
+
+#[test]
+fn edit_refuses_a_special_file() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![special("fifo", SpecialKind::Fifo)]);
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("E");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log(),
+        [format!(
+            "cannot open {}: not a regular file",
+            shown(LEFT, "fifo")
+        )]
     );
 }
 
@@ -1233,7 +1307,7 @@ fn copy_log_copies_every_kept_line_and_nothing_when_empty() {
 }
 
 #[test]
-fn copy_path_on_the_parent_row_does_nothing() {
+fn copy_path_on_the_parent_row_copies_the_directory_itself() {
     let mut harness = three_files();
     harness.take_effects();
 
@@ -1241,7 +1315,10 @@ fn copy_path_on_the_parent_row_does_nothing() {
     harness.edit("copy_path");
     harness.press("Enter");
 
-    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Clipboard(shown("/home", "user"))]
+    );
 }
 
 #[test]
@@ -1328,26 +1405,6 @@ fn shell_menu_on_the_parent_row_takes_the_marks_or_the_directory_itself() {
 }
 
 #[test]
-fn right_click_on_the_parent_row_takes_the_directory_itself_even_with_marks() {
-    let mut harness = windows_files();
-    harness.press("Down");
-    harness.press("Space");
-    harness.take_effects();
-
-    harness.right_click(Side::Left, 0);
-
-    assert_eq!(harness.cursor_name(Side::Left), "..");
-    assert_eq!(harness.marks(Side::Left), ["a"]);
-    assert_eq!(
-        harness.take_effects(),
-        vec![Effect::ShellMenu {
-            paths: vec![PathBuf::from(WIN_LEFT)],
-            anchor: MenuAnchor::Pointer,
-        }]
-    );
-}
-
-#[test]
 fn shell_menu_in_an_empty_root_does_nothing() {
     let mut harness = Harness::start_on(Os::Windows, "/", WIN_RIGHT);
     harness.load(Side::Left, vec![]);
@@ -1360,10 +1417,8 @@ fn shell_menu_in_an_empty_root_does_nothing() {
 }
 
 #[test]
-fn right_click_on_windows_opens_the_menu_for_the_clicked_row_at_the_pointer() {
+fn right_click_on_windows_puts_the_cursor_on_the_row_and_opens_the_menu_at_the_pointer() {
     let mut harness = windows_files();
-    harness.press("Down");
-    harness.press("Space");
     harness.press("Tab");
     harness.take_effects();
 
@@ -1371,7 +1426,6 @@ fn right_click_on_windows_opens_the_menu_for_the_clicked_row_at_the_pointer() {
 
     assert!(harness.view().left.active);
     assert_eq!(harness.cursor_name(Side::Left), "b");
-    assert_eq!(harness.marks(Side::Left), ["a"]);
     assert_eq!(harness.view().title, format!("wafu - {WIN_LEFT}"));
     assert_eq!(
         harness.take_effects(),
@@ -1383,20 +1437,19 @@ fn right_click_on_windows_opens_the_menu_for_the_clicked_row_at_the_pointer() {
 }
 
 #[test]
-fn right_click_on_a_marked_row_takes_every_mark() {
+fn right_click_takes_the_marks_like_the_key() {
     let mut harness = windows_files();
-    harness.press("Down");
-    harness.press("Space");
     harness.press("Down");
     harness.press("Space");
     harness.take_effects();
 
-    harness.right_click(Side::Left, 1);
+    harness.right_click(Side::Left, 2);
 
+    assert_eq!(harness.cursor_name(Side::Left), "b");
     assert_eq!(
         harness.take_effects(),
         vec![Effect::ShellMenu {
-            paths: vec![path(WIN_LEFT, "a"), path(WIN_LEFT, "c")],
+            paths: vec![path(WIN_LEFT, "a")],
             anchor: MenuAnchor::Pointer,
         }]
     );

@@ -9,6 +9,7 @@ use crate::error::{AppError, IoError};
 use crate::external::{CommandLine, Expansion, format_line};
 use crate::history::History;
 use crate::listing::{SortKey, SortSpec};
+use crate::location::Location;
 use crate::state::{PaneState, StateError, StateFile};
 use crate::view::Style;
 
@@ -254,15 +255,27 @@ impl App {
         ));
     }
 
-    // The placeholder values for the active pane, outside an archive.
+    // The placeholder values for the active pane. Inside an archive the
+    // entries have to be extracted first, so this serves there only when
+    // nothing is marked and the cursor is on the archive file itself.
     pub(super) fn expansion(&self) -> Expansion {
         let pane = self.active_pane();
-        let base = &pane.location().base;
-        let full = |entry: &Entry| base.join(&entry.name);
+        let full = |location: &Location, entry: &Entry| location.base.join(&entry.name);
         Expansion {
-            cursor_path: pane.cursor_entry().map(full),
-            marked_paths: pane.marked_entries().map(full).collect(),
-            paths: pane.targets().into_iter().map(full).collect(),
+            cursor_path: pane
+                .cursor_target()
+                .map(|(location, entry)| full(&location, &entry)),
+            marked_paths: pane
+                .marked_entries()
+                .map(|entry| full(pane.location(), entry))
+                .collect(),
+            paths: pane.targets().map_or_else(Vec::new, |targets| {
+                targets
+                    .entries
+                    .iter()
+                    .map(|entry| full(&targets.location, entry))
+                    .collect()
+            }),
             dir: pane.location().dir().to_path_buf(),
             other_dir: self
                 .pane(self.active.other())

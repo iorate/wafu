@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::app::{Effect, IoEvent, Msg, Os, Side};
+use crate::app::{Change, Effect, IoEvent, Msg, Os, Side};
 use crate::entry::{Entry, EntryKind, TargetKind};
 use crate::error::IoError;
 use crate::location::{ArchiveFormat, ArchivePath, Location};
@@ -322,25 +322,6 @@ fn nothing_can_be_sent_into_an_archive_on_the_other_side() {
 }
 
 #[test]
-fn with_no_target_nothing_is_said_about_an_archive_on_the_other_side() {
-    let mut harness = inside();
-    harness.config("[general]\nrequire_marks = false\n");
-    harness.press("Tab");
-    harness.load(Side::Right, vec![file("r.txt")]);
-    harness.take_effects();
-    assert_eq!(harness.cursor_name(Side::Right), "..");
-    let log = harness.log();
-
-    for key in ["C", "M", "U"] {
-        harness.press(key);
-    }
-
-    assert_eq!(harness.take_effects(), vec![]);
-    assert!(harness.popup().is_none());
-    assert_eq!(harness.log(), log);
-}
-
-#[test]
 fn copy_inside_an_archive_extracts_the_marked_entries_to_the_other_side() {
     let mut harness = inside();
     harness.press("Down");
@@ -429,19 +410,94 @@ fn extract_unpacks_straight_into_the_other_side_when_configured() {
 }
 
 #[test]
-fn extract_and_compress_with_no_target_do_nothing() {
+fn compress_on_the_parent_row_offers_the_directory_itself() {
     let mut harness = outside();
-    harness.press("Up");
-    harness.press("Up");
+    harness.press("Home");
     harness.take_effects();
     assert_eq!(harness.cursor_name(Side::Left), "..");
 
-    harness.press("U");
     harness.press("P");
+    assert_eq!(harness.popup_fields(), ["user.zip", ""]);
+    harness.press("Enter");
 
-    assert_eq!(harness.take_effects(), vec![]);
-    assert!(harness.popup().is_none());
-    assert_eq!(harness.log(), Vec::<String>::new());
+    assert_eq!(
+        harness.start_operation().map(|spec| spec.sources),
+        Some(Sources::Paths(vec![PathBuf::from(LEFT)]))
+    );
+}
+
+#[test]
+fn copy_on_the_parent_row_of_an_archive_root_copies_the_archive_file() {
+    let mut harness = inside();
+    harness.config("[general]\nrequire_marks = false\n");
+    harness.press("Home");
+    harness.take_effects();
+    assert_eq!(harness.cursor_name(Side::Left), "..");
+
+    harness.press("C");
+
+    assert_eq!(
+        harness.start_operation(),
+        Some(OperationSpec {
+            kind: OperationKind::Copy,
+            sources: Sources::Paths(vec![archive()]),
+            dest: Some(PathBuf::from(RIGHT)),
+            output: None,
+        })
+    );
+}
+
+#[test]
+fn rename_on_the_parent_row_of_an_archive_root_renames_the_archive_and_follows_it() {
+    let mut harness = inside();
+    harness.press("Home");
+    harness.take_effects();
+
+    harness.press("R");
+    assert_eq!(harness.popup_fields(), ["a.zip"]);
+    assert_eq!(harness.view().popup.unwrap().fields[0].select, Some((0, 1)));
+    harness.edit("b.zip");
+    harness.press("Enter");
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Rename {
+            from: archive(),
+            to: path(LEFT, "b.zip"),
+        }]
+    );
+
+    harness.changed_result(
+        Change::Renamed {
+            from: archive(),
+            to: path(LEFT, "b.zip"),
+        },
+        None,
+    );
+    let effects = harness.take_effects();
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Watch { .. }, Effect::ReadDir { location, .. }]
+            if *location == Location::archive_root(path(LEFT, "b.zip"), ArchiveFormat::Zip)
+    ));
+}
+
+#[test]
+fn edit_on_the_parent_row_of_an_archive_root_opens_the_archive_file() {
+    let mut harness = inside();
+    harness.press("Home");
+    harness.take_effects();
+
+    harness.press("E");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Spawn {
+            name: "editor".to_owned(),
+            program: "xdg-open".to_owned(),
+            args: vec![archive().into_os_string()],
+            cwd: PathBuf::from(LEFT),
+        }]
+    );
 }
 
 #[test]
@@ -905,7 +961,7 @@ fn an_external_command_inside_an_archive_extracts_the_cursor_and_the_marks() {
 }
 
 #[test]
-fn an_external_command_on_the_parent_row_inside_an_archive_starts_without_extracting() {
+fn an_external_command_on_the_parent_row_of_an_archive_root_passes_the_archive_file() {
     let mut harness = inside();
     harness.config(
         "[commands.show]\nrun = \"show {cursor_path} {marked_paths} {paths} {dir} {other_dir}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
@@ -921,6 +977,8 @@ fn an_external_command_on_the_parent_row_inside_an_archive_starts_without_extrac
             name: "$show".into(),
             program: "show".into(),
             args: vec![
+                archive().into_os_string(),
+                archive().into_os_string(),
                 PathBuf::from(LEFT).into_os_string(),
                 PathBuf::from(RIGHT).into_os_string(),
             ],
@@ -928,6 +986,94 @@ fn an_external_command_on_the_parent_row_inside_an_archive_starts_without_extrac
         }]
     );
     assert!(harness.popup().is_none());
+}
+
+#[test]
+fn an_external_command_on_the_parent_row_inside_a_directory_extracts_the_directory() {
+    let mut harness = inside();
+    harness.config(
+        "[commands.show]\nrun = \"show {cursor_path} {marked_paths} {paths} {dir} {other_dir}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
+    );
+    harness.press("Down");
+    harness.press("Enter");
+    harness.load(Side::Left, vec![file("x")]);
+    harness.take_effects();
+    assert_eq!(harness.cursor_name(Side::Left), "..");
+
+    harness.press("F2");
+
+    let spec = harness.start_operation().unwrap();
+    assert_eq!(spec.sources, Sources::Entries(entries(&["docs"], None)));
+    harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
+    harness.finish(Outcome::Completed {
+        done: 1,
+        skipped: 0,
+    });
+
+    let effects = harness.take_effects();
+    let Some(Effect::Spawn { args, .. }) = effects.last() else {
+        panic!("expected Spawn, got {effects:?}");
+    };
+    assert_eq!(
+        *args,
+        vec![
+            path(TEMP, "docs").into_os_string(),
+            path(TEMP, "docs").into_os_string(),
+            PathBuf::from(LEFT).into_os_string(),
+            PathBuf::from(RIGHT).into_os_string(),
+        ]
+    );
+}
+
+#[test]
+fn an_external_command_on_the_parent_row_with_marks_extracts_the_marks_alone() {
+    let mut harness = inside();
+    harness.config(
+        "[commands.show]\nrun = \"show {cursor_path} {marked_paths} {paths} {dir} {other_dir}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
+    );
+    harness.press("Down");
+    harness.press("Enter");
+    harness.load(Side::Left, vec![file("x")]);
+    harness.press("Down");
+    harness.press("Space");
+    harness.press("Home");
+    harness.take_effects();
+    assert_eq!(harness.cursor_name(Side::Left), "..");
+
+    harness.press("F2");
+
+    let spec = harness.start_operation().unwrap();
+    assert_eq!(
+        spec.sources,
+        Sources::Entries(ArchiveEntries {
+            archive: archive(),
+            path: ArchivePath {
+                format: ArchiveFormat::Zip,
+                inner: vec!["docs".to_owned()],
+            },
+            names: vec!["x".to_owned()],
+            password: None,
+        })
+    );
+    harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
+    harness.finish(Outcome::Completed {
+        done: 1,
+        skipped: 0,
+    });
+
+    let effects = harness.take_effects();
+    let Some(Effect::Spawn { args, .. }) = effects.last() else {
+        panic!("expected Spawn, got {effects:?}");
+    };
+    assert_eq!(
+        *args,
+        vec![
+            path(TEMP, "x").into_os_string(),
+            path(TEMP, "x").into_os_string(),
+            PathBuf::from(LEFT).into_os_string(),
+            PathBuf::from(RIGHT).into_os_string(),
+        ]
+    );
 }
 
 #[test]
