@@ -88,9 +88,10 @@ impl ZipReader {
             if entry.components.is_empty() {
                 continue;
             }
-            // The crate merges entries only when their names are spelled
-            // alike, so `a.txt` and `./a.txt` both reach here. The later one
-            // replaces the earlier, as it does for names spelled alike.
+            // The crate merges only names spelled alike, keeping the first
+            // position with the later data, so `a.txt` and `./a.txt` both
+            // reach here. Among names spelled differently the later position
+            // wins: with `a.txt`, `./a.txt`, `a.txt`, that is `./a.txt`.
             if let Some(earlier) = latest.insert(entry.components.clone(), found.len()) {
                 replaced[earlier] = true;
             }
@@ -239,21 +240,26 @@ fn entry_of(file: &ZipFile<'_, File>) -> ArchiveEntry {
         };
     // NTFS times are UTC to 100 ns and extended timestamps UTC to the
     // second; the DOS time is local and even-second, so it is the fallback.
-    // An extended timestamp is signed, and like a time before 1970 in a tar,
-    // one before 1970 is left out.
+    // An NTFS time of 0 is unset.
     let ntfs = file.extra_data_fields().find_map(|field| match field {
-        ExtraField::Ntfs(ntfs) => Some(ntfs.mtime()),
+        ExtraField::Ntfs(ntfs) if ntfs.mtime() != 0 => Some(ntfs.mtime()),
         _ => None,
     });
     let extended = file.extra_data_fields().find_map(|field| match field {
         ExtraField::ExtendedTimestamp(stamp) => stamp.mod_time(),
         _ => None,
     });
+    let dos = file.last_modified();
+    // An extended timestamp is signed, but as Info-ZIP does, a negative one
+    // is read as unsigned when the DOS time is in 2038 or later, since a
+    // writer past 2038 stores it so. Otherwise it is before 1970 and, as in
+    // a tar, left out.
     let modified = match (ntfs, extended) {
         (Some(file_time), _) => system_time_of_file_time(file_time),
-        (None, Some(seconds)) => (i32::try_from(seconds).is_ok())
-            .then(|| SystemTime::UNIX_EPOCH + Duration::from_secs(seconds.into())),
-        (None, None) => file.last_modified().and_then(system_time_of),
+        (None, Some(seconds)) => (i32::try_from(seconds).is_ok()
+            || dos.is_some_and(|time| time.year() >= 2038))
+        .then(|| SystemTime::UNIX_EPOCH + Duration::from_secs(seconds.into())),
+        (None, None) => dos.and_then(system_time_of),
     };
     ArchiveEntry {
         components: split_name(&name),
@@ -624,26 +630,24 @@ mod tests {
     }
 
     #[test]
-    fn an_ntfs_time_comes_first_and_an_extended_timestamp_before_1970_is_no_time() {
+    fn an_ntfs_time_comes_first_unless_it_is_unset() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("a.zip");
         let mut writer = ZipWriter::new(File::create(&path).unwrap());
+        let stamp = [1, 0, 0, 0, 0];
         let file_time = FILE_TIME_EPOCH + 1_700_000_000 * FILE_TIME_TICKS + 5_000_000;
-        let mut ntfs = vec![0, 0, 0, 0, 1, 0, 24, 0];
-        for _ in 0..3 {
-            ntfs.extend_from_slice(&file_time.to_le_bytes());
-        }
         let mut options = FileOptions::default();
+        options.add_extra_field(0x5455, stamp, false).unwrap();
         options
-            .add_extra_field(0x5455, [1, 0, 0, 0, 0], false)
+            .add_extra_field(0x000a, ntfs_field(file_time), false)
             .unwrap();
-        options.add_extra_field(0x000a, &ntfs, false).unwrap();
-        writer.start_file("ntfs", options).unwrap();
+        writer.start_file("set", options).unwrap();
         let mut options = FileOptions::default();
+        options.add_extra_field(0x5455, stamp, false).unwrap();
         options
-            .add_extra_field(0x5455, [1, 0xff, 0xff, 0xff, 0xff], false)
+            .add_extra_field(0x000a, ntfs_field(0), false)
             .unwrap();
-        writer.start_file("before", options).unwrap();
+        writer.start_file("unset", options).unwrap();
         writer.finish().unwrap();
 
         let reader = ZipReader::open(&path).unwrap();
@@ -652,6 +656,33 @@ mod tests {
         assert_eq!(
             entries[0].modified,
             Some(SystemTime::UNIX_EPOCH + Duration::new(1_700_000_000, 500_000_000))
+        );
+        assert_eq!(entries[1].modified, Some(SystemTime::UNIX_EPOCH));
+    }
+
+    #[test]
+    fn a_negative_extended_timestamp_is_past_2038_only_when_the_dos_time_is() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.zip");
+        let mut writer = ZipWriter::new(File::create(&path).unwrap());
+        let seconds = 0x8000_0000u32;
+        let mut stamp = [EXTENDED_MODIFIED; 5];
+        stamp[1..].copy_from_slice(&seconds.to_le_bytes());
+        let mut options = FileOptions::default()
+            .last_modified_time(zip::DateTime::from_date_and_time(2038, 1, 20, 0, 0, 0).unwrap());
+        options.add_extra_field(0x5455, stamp, false).unwrap();
+        writer.start_file("after", options).unwrap();
+        let mut options = FileOptions::default();
+        options.add_extra_field(0x5455, stamp, false).unwrap();
+        writer.start_file("before", options).unwrap();
+        writer.finish().unwrap();
+
+        let reader = ZipReader::open(&path).unwrap();
+
+        let entries = reader.entries();
+        assert_eq!(
+            entries[0].modified,
+            Some(SystemTime::UNIX_EPOCH + Duration::from_secs(seconds.into()))
         );
         assert_eq!(entries[1].modified, None);
     }
@@ -684,6 +715,14 @@ mod tests {
         }
         writer.finish().unwrap();
         std::fs::read(path).unwrap()
+    }
+
+    fn ntfs_field(file_time: u64) -> Vec<u8> {
+        let mut field = vec![0, 0, 0, 0, 1, 0, 24, 0];
+        for _ in 0..3 {
+            field.extend_from_slice(&file_time.to_le_bytes());
+        }
+        field
     }
 
     #[cfg(windows)]

@@ -2,4 +2,4 @@
 wafu: patch
 ---
 
-Extracting a zip that starts with `./` no longer reports skipped entries, and when a zip holds the same file under two spellings, such as `a.txt` and `./a.txt`, only the later one is listed and extracted.
+Extracting a zip whose entries start with `./`, as one made from `.` does, no longer fails on its root entry; when a zip holds the same file under two spellings, such as `a.txt` and `./a.txt`, only the later one is listed and extracted.
