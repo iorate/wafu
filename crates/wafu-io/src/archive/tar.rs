@@ -18,6 +18,8 @@ const DEFAULT_FILE_MODE: u32 = 0o644;
 const DEFAULT_DIR_MODE: u32 = 0o755;
 const LINK_MODE: u32 = 0o777;
 const XZ_PRESET: u32 = 6;
+const LINK_NAME_LEN: usize = 100;
+const LONG_LINK: &[u8] = b"././@LongLink";
 const SPARSE: &str = "sparse entries are not supported";
 const MULTI_VOLUME: &str = "multi-volume archives are not supported";
 
@@ -225,8 +227,24 @@ impl ArchiveWriter for TarWriter {
         target: &str,
         modified: Option<SystemTime>,
     ) -> io::Result<()> {
+        // `append_link` rebuilds the target from its components, which on
+        // Windows writes `C:/foo` as `C:///foo`, so the target goes in as
+        // given, through a GNU long link entry when the field cannot hold it.
+        let target = target.as_bytes();
+        if target.len() > LINK_NAME_LEN {
+            let mut long = header(
+                EntryType::GNULongLink,
+                target.len() as u64 + 1,
+                None,
+                DEFAULT_FILE_MODE,
+            );
+            long.as_gnu_mut().unwrap().name[..LONG_LINK.len()].copy_from_slice(LONG_LINK);
+            long.set_cksum();
+            self.builder.append(&long, target.chain(&[0][..]))?;
+        }
         let mut header = header(EntryType::Symlink, 0, modified, LINK_MODE);
-        self.builder.append_link(&mut header, path, target)
+        header.set_link_name_literal(&target[..target.len().min(LINK_NAME_LEN)])?;
+        self.builder.append_data(&mut header, path, io::empty())
     }
 
     fn finish(self: Box<Self>) -> io::Result<()> {
@@ -623,6 +641,7 @@ pub(crate) fn header_of(kind: EntryType, size: u64) -> Header {
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
     use std::fs;
 
     use tempfile::TempDir;
@@ -683,6 +702,46 @@ mod tests {
             assert_eq!(content(&mut reader, 2), b"long");
             assert_eq!(content(&mut reader, 3), b"d/f.txt");
         }
+    }
+
+    #[test]
+    fn names_use_slashes_and_link_targets_are_stored_as_given_even_when_long() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.tar");
+        let long = format!("../{}", "y".repeat(150));
+        {
+            let mut writer =
+                Box::new(TarWriter::new(File::create(&path).unwrap(), Compression::None).unwrap());
+            writer
+                .add_file("d/f.txt", 0, None, None, &mut io::empty())
+                .unwrap();
+            writer.add_symlink("d/abs", "C:/foo", None).unwrap();
+            writer.add_symlink("d/rel", "./a//b", None).unwrap();
+            writer.add_symlink("d/long", &long, None).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let mut archive = Archive::new(File::open(&path).unwrap());
+        let stored: Vec<(Vec<u8>, Option<Vec<u8>>)> = archive
+            .entries()
+            .unwrap()
+            .map(|entry| {
+                let entry = entry.unwrap();
+                (
+                    entry.path_bytes().into_owned(),
+                    entry.link_name_bytes().map(Cow::into_owned),
+                )
+            })
+            .collect();
+        assert_eq!(
+            stored,
+            [
+                (b"d/f.txt".to_vec(), None),
+                (b"d/abs".to_vec(), Some(b"C:/foo".to_vec())),
+                (b"d/rel".to_vec(), Some(b"./a//b".to_vec())),
+                (b"d/long".to_vec(), Some(long.into_bytes())),
+            ]
+        );
     }
 
     #[test]
