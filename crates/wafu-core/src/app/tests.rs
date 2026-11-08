@@ -3661,7 +3661,7 @@ fn an_exit_other_than_success_is_logged() {
 }
 
 #[test]
-fn external_commands_run_from_the_palette_with_no_targets() {
+fn external_commands_run_from_the_palette() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.config("[commands.term]\nrun = \"wt {paths}\"\n");
     harness.take_effects();
@@ -3676,7 +3676,7 @@ fn external_commands_run_from_the_palette_with_no_targets() {
         vec![Effect::Spawn {
             name: "$term".to_owned(),
             program: "wt".to_owned(),
-            args: vec![],
+            args: vec![PathBuf::from(HOME).into_os_string()],
             cwd: PathBuf::from(HOME),
         }]
     );

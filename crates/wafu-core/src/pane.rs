@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::config::SizeFormat;
-use crate::entry::{Directory, Entry};
+use crate::entry::{Directory, Entry, EntryKind};
 use crate::error::IoError;
 use crate::filter::Filter;
 use crate::history::History;
@@ -92,6 +92,13 @@ pub enum DrivePurpose {
     Show,
     Prev,
     Next,
+}
+
+/// Entries of one location that a command acts on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Targets {
+    pub location: Location,
+    pub entries: Vec<Entry>,
 }
 
 /// How a move is recorded in the history once it succeeds.
@@ -238,12 +245,30 @@ impl Pane {
         })
     }
 
+    /// The cursor row as an entry of a location: the entry under the cursor
+    /// in this location, or, on the `..` row, the location itself in its
+    /// parent.
     #[must_use]
-    pub fn targets(&self) -> Vec<&Entry> {
-        if !self.marks.is_empty() {
-            return self.marked_entries().collect();
+    pub fn cursor_target(&self) -> Option<(Location, Entry)> {
+        match self.cursor_entry() {
+            Some(entry) => Some((self.location.clone(), entry.clone())),
+            None => Some((self.location.parent()?, self.own_entry())),
         }
-        self.cursor_entry().into_iter().collect()
+    }
+
+    /// What a command acts on: the marked entries, or the cursor row.
+    #[must_use]
+    pub fn targets(&self) -> Option<Targets> {
+        if !self.marks.is_empty() {
+            return Some(Targets {
+                location: self.location.clone(),
+                entries: self.marked_entries().cloned().collect(),
+            });
+        }
+        self.cursor_target().map(|(location, entry)| Targets {
+            location,
+            entries: vec![entry],
+        })
     }
 
     /// Replaces the location and empties the listing until the new one arrives.
@@ -614,6 +639,32 @@ impl Pane {
             .find(|&row| pred(self, row))
     }
 
+    // The read may come without the location's own entry (its metadata could
+    // not be read), and the `..` row still has to stand for the location.
+    fn own_entry(&self) -> Entry {
+        if let Some(own) = self.listing.own() {
+            return own.clone();
+        }
+        let is_archive_file = self
+            .location
+            .archive
+            .as_ref()
+            .is_some_and(|archive| archive.inner.is_empty());
+        Entry {
+            name: self.location.leaf_name().unwrap_or_default(),
+            kind: if is_archive_file {
+                EntryKind::File { executable: false }
+            } else {
+                EntryKind::Dir
+            },
+            size: 0,
+            modified: None,
+            hidden: false,
+            permissions: None,
+            link_target: None,
+        }
+    }
+
     fn row_is_marked(&self, row: usize) -> bool {
         self.entry_at(row)
             .is_some_and(|entry| self.is_marked(entry))
@@ -723,7 +774,6 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::entry::EntryKind;
 
     #[test]
     fn rows_have_no_parent_at_root() {
@@ -799,7 +849,24 @@ mod tests {
 
         pane.set_directory(entries(&["a", "c"]));
 
-        assert_eq!(names(pane.targets()), ["c"]);
+        let targets = pane.targets().unwrap();
+        assert_eq!(names(targets.entries.iter().collect()), ["c"]);
+    }
+
+    #[test]
+    fn the_parent_row_takes_the_listing_own_entry_when_there_is_one() {
+        let mut pane = Pane::new(Location::new(PathBuf::from("/home/user")));
+        pane.set_directory(Directory {
+            own: Some(Entry {
+                size: 7,
+                ..dir("user")
+            }),
+            entries: vec![file("a")],
+        });
+
+        let (_, entry) = pane.cursor_target().unwrap();
+
+        assert_eq!(entry.size, 7);
     }
 
     #[test]
