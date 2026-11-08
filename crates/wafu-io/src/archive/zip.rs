@@ -79,6 +79,25 @@ impl ArchiveReader for ZipReader {
         password: Option<&str>,
     ) -> Result<Box<dyn Read + '_>, ArchiveError> {
         let position = self.positions[index];
+        // The crate opens an entry in a method it cannot decompress and fails
+        // only when it is read, which would stop an extraction instead of
+        // skipping the entry. Inside an AES entry this is the inner method.
+        let method = self
+            .archive
+            .by_index_data(position)
+            .map_err(convert)?
+            .compression();
+        if !matches!(
+            method,
+            CompressionMethod::Stored
+                | CompressionMethod::Deflated
+                | CompressionMethod::Deflate64
+                | CompressionMethod::Bzip2
+        ) {
+            return Err(ArchiveError::Invalid(
+                "the compression method is not supported".to_owned(),
+            ));
+        }
         let file = match password {
             Some(password) => self.archive.by_index_decrypt(position, password.as_bytes()),
             None => self.archive.by_index(position),

@@ -1300,6 +1300,39 @@ mod tests {
     }
 
     #[test]
+    fn zip_entries_in_a_compression_method_wafu_cannot_read_are_skipped() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.zip");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        let mut zip = raw_zip(&[(b"d/lzma.bin", b"x"), (b"ok.txt", b"ok")]);
+        // LZMA, in the local and the central header of the first entry.
+        zip[8..10].copy_from_slice(&14u16.to_le_bytes());
+        let central = zip
+            .windows(4)
+            .position(|window| window == 0x0201_4b50u32.to_le_bytes())
+            .unwrap();
+        zip[central + 10..central + 12].copy_from_slice(&14u16.to_le_bytes());
+        fs::write(&archive, zip).unwrap();
+
+        let (outcome, events) = run(&extract(std::slice::from_ref(&archive), &dest), []);
+
+        assert_eq!(
+            outcome,
+            Outcome::Completed {
+                done: 1,
+                skipped: 1
+            }
+        );
+        assert_eq!(
+            skipped_errors(&events),
+            ["the compression method is not supported"]
+        );
+        assert_eq!(fs::read(dest.join("ok.txt")).unwrap(), b"ok");
+        assert!(!dest.join("d").exists());
+    }
+
+    #[test]
     fn a_file_entry_where_a_directory_exists_is_skipped() {
         let dir = TempDir::new().unwrap();
         let archive = dir.path().join("a.zip");
