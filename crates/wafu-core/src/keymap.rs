@@ -80,8 +80,8 @@ pub struct KeyMap {
 
 impl KeyMap {
     /// The default bindings for the OS. The image preview reuses the file
-    /// list's cursor and mark keys; the text and binary previews have fixed
-    /// keys and no bindings.
+    /// list's cursor, mark, and layout keys; the text and binary previews
+    /// have fixed keys and no bindings.
     #[must_use]
     pub fn default_for(os: Os) -> Self {
         let jumps = Command::all().filter_map(|command| match command {

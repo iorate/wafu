@@ -92,7 +92,9 @@ impl App {
         }
         // The log keeps its divider under every preview that shows it.
         if let MouseInput::LogRowsTo { rows } = input {
-            self.log_rows_to(rows);
+            if !self.hide_log() {
+                self.log_rows_to(rows);
+            }
             return;
         }
         match &mut self.preview {

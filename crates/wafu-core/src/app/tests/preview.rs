@@ -646,13 +646,18 @@ fn layout_keys_move_only_the_dividers_on_screen_during_an_image_preview() {
 }
 
 #[test]
-fn the_log_divider_moves_under_a_preview() {
+fn the_log_divider_moves_under_a_preview_unless_the_log_is_hidden() {
     let mut harness = document();
 
     harness.send(Msg::Mouse(MouseInput::LogRowsTo { rows: 9 }));
 
     assert_eq!(harness.view().log_rows, 9);
     assert!(harness.view().preview.is_some());
+
+    harness.config("[general]\nhide_log_in_preview = true\n");
+    harness.send(Msg::Mouse(MouseInput::LogRowsTo { rows: 12 }));
+
+    assert_eq!(harness.view().log_rows, 9);
 }
 
 #[test]
