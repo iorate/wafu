@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use super::navigation::is_link_in_archive;
 use super::{App, Effect, MouseInput, PreviewError, PreviewSource, Side};
-use crate::command::{Command, Context};
+use crate::command::Context;
 use crate::entry::Entry;
 use crate::error::AppError;
 use crate::key::{Key, KeyBase, NamedKey};
@@ -66,18 +66,9 @@ impl App {
                     _ => {}
                 }
             }
-            Some(Preview::Image(preview)) => {
-                let full = preview.placement == PreviewPlacement::Full;
+            Some(Preview::Image(_)) => {
                 if let Some(command) = self.config.keys.lookup(Context::Image, &key) {
-                    // A divider that is not on screen does not move, as with the mouse.
-                    let hidden = match command {
-                        Command::PaneShrinkLeft | Command::PaneGrowLeft => full,
-                        Command::LogShrink | Command::LogGrow => self.hide_log(),
-                        _ => false,
-                    };
-                    if !hidden {
-                        self.run_command(command, effects);
-                    }
+                    self.run_command(command, effects);
                 }
                 self.active_pane_mut().ensure_cursor_visible();
             }
@@ -90,12 +81,18 @@ impl App {
             self.close_preview(effects);
             return;
         }
-        // The log keeps its divider under every preview that shows it.
-        if let MouseInput::LogRowsTo { rows } = input {
-            if !self.hide_log() {
-                self.log_rows_to(rows);
+        // The UI offers a divider only where one is on screen; whatever it
+        // sends is applied.
+        match input {
+            MouseInput::SplitTo { percent } => {
+                self.split_to(percent);
+                return;
             }
-            return;
+            MouseInput::LogRowsTo { rows } => {
+                self.log_rows_to(rows);
+                return;
+            }
+            _ => {}
         }
         match &mut self.preview {
             Some(Preview::Document(preview)) => {
@@ -104,10 +101,6 @@ impl App {
                 }
             }
             Some(Preview::Image(preview)) if preview.placement == PreviewPlacement::RightPane => {
-                if let MouseInput::SplitTo { percent } = input {
-                    self.split_to(percent);
-                    return;
-                }
                 let pane = &mut self.panes[Side::Left.index()];
                 match input {
                     MouseInput::Click {
