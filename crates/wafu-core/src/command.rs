@@ -265,9 +265,10 @@ impl Command {
                         | Self::PaneGrowLeft
                         | Self::ClosePreview
                         | Self::Palette
+                        | Self::NewWindow
                 )
             }
-            Context::Text => preview || log || *self == Self::Palette,
+            Context::Text => preview || log || matches!(self, Self::Palette | Self::NewWindow),
         }
     }
 
