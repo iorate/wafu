@@ -1184,6 +1184,13 @@ mod tests {
         assert_eq!(popup.run(0), Response::Close);
     }
 
+    #[test]
+    fn stem_selection_keeps_a_leading_dot_in_the_name() {
+        assert_eq!(stem_selection(".tar.gz"), Some((0, 4)));
+        assert_eq!(stem_selection(".zip"), None);
+        assert_eq!(stem_selection("a"), None);
+    }
+
     fn bookmark(path: &str) -> Bookmark {
         Bookmark {
             name: path.to_owned(),

@@ -343,7 +343,7 @@ fn rename_in_a_conflict_asks_for_a_name() {
     let mut harness = copying();
     harness.operation(OperationEvent::Conflict {
         source: path(LEFT, "a"),
-        dest: path(RIGHT, "a.txt.bak"),
+        dest: path(RIGHT, "a.tar.gz"),
     });
     harness.press("R");
     assert_eq!(harness.view().popup.unwrap().fields[0].select, Some((0, 5)));

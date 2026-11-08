@@ -264,6 +264,12 @@ mod tests {
         assert_eq!(format("a.xz"), None);
         assert_eq!(format(".tar.gz"), None);
         assert_eq!(format("tar.gz"), None);
+        assert_eq!(format("a.TAR.XZ"), Some(ArchiveFormat::TarXz));
+        assert_eq!(format("A.TGZ"), Some(ArchiveFormat::TarGz));
+        assert_eq!(format("a.tar.gz.bak"), None);
+        assert_eq!(format("a.tar."), None);
+        assert_eq!(format(".tar"), None);
+        assert_eq!(format("a.bz2"), None);
         assert_eq!(ArchiveFormat::TarGz.extension(), "tar.gz");
         assert!(ArchiveFormat::Zip.takes_password());
         assert!(!ArchiveFormat::TarGz.takes_password());
@@ -274,6 +280,9 @@ mod tests {
         let stem = |name| ArchiveFormat::stem_of(OsStr::new(name));
 
         assert_eq!(stem("a.tar.gz"), "a");
+        assert_eq!(stem("a.TAR.GZ"), "a");
+        assert_eq!(stem("a.tar"), "a");
+        assert_eq!(stem(".tar.gz"), ".tar");
         assert_eq!(stem("a.b.tgz"), "a.b");
         assert_eq!(stem("a.zip"), "a");
         assert_eq!(stem("a.txt"), "a");

@@ -12,7 +12,7 @@ use crate::path::{expand_tilde, resolve_input};
 use crate::popup::{
     ChoiceKind, ConflictChoice, ConflictPopup, InputKind, InputPopup, ListItem, ListPopup,
     ListTarget, MenuInput, PalettePopup, PasswordPurpose, Popup, Response, SearchPopup, SortPopup,
-    menu_input, stem_selection,
+    menu_input,
 };
 use crate::view::{InputField, ItemKind, PopupItem, PopupView};
 
@@ -460,7 +460,7 @@ impl App {
                     .file_name()
                     .map(|name| name.to_string_lossy().into_owned())
                     .unwrap_or_default();
-                let select = stem_selection(&text);
+                let select = last_dot_selection(&text);
                 self.popup = Some(Popup::Input(InputPopup::single(
                     InputKind::ConflictRename {
                         source: popup.source,
@@ -525,4 +525,15 @@ impl App {
             ListTarget::Drive(letter) => self.switch_drive(letter, effects),
         }
     }
+}
+
+// Everything before the last dot, as plain Rename selects, so that both
+// Rename popups agree. A leading dot alone does not start an extension.
+fn last_dot_selection(name: &str) -> Option<(usize, usize)> {
+    name.char_indices()
+        .skip(1)
+        .filter(|&(_, c)| c == '.')
+        .map(|(index, _)| index)
+        .last()
+        .map(|index| (0, index))
 }

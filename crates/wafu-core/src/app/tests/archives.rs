@@ -103,6 +103,57 @@ fn enter_as_archive_opens_any_file_but_not_a_directory() {
 }
 
 #[test]
+fn enter_as_archive_takes_the_format_of_a_known_extension() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("a.tar.xz")]);
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("Shift+U");
+
+    let effects = harness.take_effects();
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Watch { .. }, Effect::ReadDir { location, .. }]
+            if *location
+                == Location::archive_root(path(LEFT, "a.tar.xz"), Some(ArchiveFormat::TarXz))
+    ));
+}
+
+#[test]
+fn moving_inside_an_archive_of_unknown_format_leaves_the_format_unknown() {
+    let mut harness = outside();
+    harness.press("Down");
+    harness.press("Shift+U");
+    harness.load(Side::Left, vec![dir("docs")]);
+    harness.press("Down");
+    harness.press("Enter");
+    harness.load(Side::Left, vec![dir("deep")]);
+    harness.press("Down");
+    harness.press("Enter");
+    harness.load(Side::Left, vec![file("x")]);
+    let unknown = Location::archive_root(path(LEFT, "note.txt"), None);
+    harness.take_effects();
+
+    harness.press("BS");
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::Watch { .. }, Effect::ReadDir { location, .. }]
+            if *location == unknown.child("docs")
+    ));
+    harness.load(Side::Left, vec![dir("deep")]);
+    harness.take_effects();
+
+    harness.press("/");
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::Watch { .. }, Effect::ReadDir { location, .. }] if *location == unknown
+    ));
+}
+
+#[test]
 fn enter_on_a_tar_enters_it_with_the_format_of_its_extension() {
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.load(Side::Left, vec![file("a.tar.gz"), file("b.gz")]);
@@ -129,6 +180,32 @@ fn enter_on_a_tar_enters_it_with_the_format_of_its_extension() {
         harness.take_effects().as_slice(),
         [Effect::LoadPreview { .. }]
     ));
+}
+
+#[test]
+fn enter_on_other_tar_spellings_enters_with_their_format() {
+    for (name, format) in [
+        ("a.tgz", ArchiveFormat::TarGz),
+        ("a.tar.bz2", ArchiveFormat::TarBz2),
+        ("a.tar", ArchiveFormat::Tar),
+    ] {
+        let mut harness = Harness::start(LEFT, RIGHT);
+        harness.load(Side::Left, vec![file(name)]);
+        harness.press("Down");
+        harness.take_effects();
+
+        harness.press("Enter");
+
+        let effects = harness.take_effects();
+        assert!(
+            matches!(
+                effects.as_slice(),
+                [Effect::Watch { .. }, Effect::ReadDir { location, .. }]
+                    if *location == Location::archive_root(path(LEFT, name), Some(format))
+            ),
+            "{name}"
+        );
+    }
 }
 
 #[test]
@@ -252,6 +329,25 @@ fn archives_inside_an_archive_cannot_be_entered() {
         root()
     );
     assert_eq!(harness.log(), [message.clone(), message]);
+}
+
+#[test]
+fn tars_inside_an_archive_cannot_be_entered() {
+    let mut harness = outside();
+    harness.enter_archive(Side::Left, vec![file("inner.tar.gz")]);
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("Enter");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log(),
+        [format!(
+            "cannot open {}/inner.tar.gz: nested archives are not supported",
+            root()
+        )]
+    );
 }
 
 #[test]
@@ -602,6 +698,30 @@ fn compress_takes_the_password_typed_in_the_second_field() {
 }
 
 #[test]
+fn compress_makes_a_zip_with_the_password_when_the_extension_is_not_an_archive() {
+    for name in ["backup", "backup.bak"] {
+        let mut harness = outside();
+        harness.press("Down");
+        harness.press("P");
+        harness.edit(name);
+        harness.edit_field(1, "hunter2");
+        harness.take_effects();
+
+        harness.press("Enter");
+
+        let spec = harness.start_operation().unwrap();
+        assert_eq!(
+            spec.output,
+            Some(ArchiveOutput {
+                format: ArchiveFormat::Zip,
+                name: name.into(),
+                password: Some("hunter2".to_owned()),
+            })
+        );
+    }
+}
+
+#[test]
 fn compress_takes_the_format_from_the_extension_typed() {
     let mut harness = outside();
     harness.press("Down");
@@ -624,21 +744,23 @@ fn compress_takes_the_format_from_the_extension_typed() {
 
 #[test]
 fn compress_refuses_a_password_for_a_tar() {
-    let mut harness = outside();
-    harness.press("Down");
-    harness.press("P");
-    harness.edit("backup.tar.gz");
-    harness.edit_field(1, "hunter2");
-    harness.take_effects();
+    for name in ["backup.tar.gz", "backup.tar", "backup.tgz"] {
+        let mut harness = outside();
+        harness.press("Down");
+        harness.press("P");
+        harness.edit(name);
+        harness.edit_field(1, "hunter2");
+        harness.take_effects();
 
-    harness.press("Enter");
+        harness.press("Enter");
 
-    assert!(harness.popup().is_none());
-    assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(
-        harness.log().last().map(String::as_str),
-        Some("cannot make backup.tar.gz: only zip takes a password")
-    );
+        assert!(harness.popup().is_none());
+        assert_eq!(harness.take_effects(), vec![]);
+        assert_eq!(
+            harness.log().last(),
+            Some(&format!("cannot make {name}: only zip takes a password"))
+        );
+    }
 }
 
 #[test]
