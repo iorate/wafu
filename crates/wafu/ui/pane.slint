@@ -207,6 +207,7 @@ export component PaneWidget {
             // columns do not shift between directories that fit and ones that
             // do not.
             list := ListView {
+                // Without `x`, an element narrower than its parent is centred.
                 x: 0;
                 width: parent.width - Theme.scrollbar-gutter;
                 height: parent.height;

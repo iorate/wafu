@@ -98,7 +98,9 @@ export component AppWindow inherits Window {
     // Only macOS shows the bar (it is native there), but a hidden bar still
     // handles its shortcuts, so the shortcuts come and go with it. Quit is in
     // the application menu that the platform adds on its own; closing the
-    // only window is the same as quitting.
+    // only window is the same as quitting. That Quit (Cmd+Q) ends the process
+    // without going through close-requested (slint-ui/slint#4482). A MenuBar
+    // cannot be placed inside `if`, hence `visible`.
     MenuBar {
         visible: root.menu-bar-visible;
 
@@ -149,7 +151,9 @@ export component AppWindow inherits Window {
     }
 
     // Every key, Tab included, ends here, so that Slint never moves the focus
-    // on its own.
+    // on its own. Keys typed in the list and previews never go through the
+    // IME: it runs only while an editable TextInput has focus, and there is no
+    // API to turn it off (slint-ui/slint#3811).
     scope := FocusScope {
         key-pressed(event) => {
             root.key-input(
@@ -175,6 +179,8 @@ export component AppWindow inherits Window {
                 property <bool> right-covered: root.preview.visible;
 
                 left-pane := PaneWidget {
+                    // Without `x`, an element narrower than its parent is
+                    // centred.
                     x: 0;
                     width: panes.left-width;
                     height: parent.height;

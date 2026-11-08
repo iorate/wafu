@@ -371,7 +371,9 @@ fn same_name(reported: &OsStr, watched: &OsStr) -> bool {
 }
 
 // Opening or reading the directory is reported as an access on Linux, and the
-// listing itself does that, so accesses must not count as changes.
+// listing itself does that, so accesses must not count as changes. That is why
+// notify-debouncer-mini is not used: it folds the kinds into `Any`, so these
+// could not be excluded and every listing would trigger another.
 fn is_change(kind: EventKind) -> bool {
     match kind {
         EventKind::Access(access) => access == AccessKind::Close(AccessMode::Write),
@@ -396,7 +398,9 @@ fn is_dir_entry_change(kind: EventKind) -> bool {
 // Calls `on_burst` once per burst of changes, after they stop for a moment or
 // after a while even if they do not, so that a directory written to all the
 // time is still refreshed. The thread ends when the senders are dropped or
-// `on_burst` returns false.
+// `on_burst` returns false. Not notify-debouncer-full, which stats every entry
+// under the watch for its file-ID cache, wasteful for directories with tens of
+// thousands of entries.
 fn spawn_debouncer(
     changes: mpsc::Receiver<Change>,
     mut on_burst: impl FnMut(bool) -> bool + Send + 'static,

@@ -34,7 +34,8 @@ const NAMED: [(Key, &str); 27] = [
 
 // On macOS the Option key composes a character instead of modifying the
 // letter, so the composed character is mapped back to its letter. This is the
-// US layout; e, i, n, and u are dead keys there and never arrive.
+// US layout; e, i, n, and u are dead keys there and never arrive. Combinations
+// with Shift compose other characters and are not mapped back either.
 const OPTION_LAYER: [(char, char); 22] = [
     ('å', 'a'),
     ('∫', 'b'),
@@ -77,6 +78,9 @@ pub struct Modifiers {
 /// Slint reports Cmd as `control` and the physical Control key as `meta` on
 /// macOS, so the two are swapped there. Named keys arrive from Slint as
 /// private-use characters; they are replaced with their configuration spelling.
+///
+/// Slint exposes no physical key or scan code (slint-ui/slint#4498), so a
+/// binding matches the character the keyboard layout produces.
 pub fn key_input(text: &str, modifiers: Modifiers) -> Option<KeyInput> {
     let (ctrl, os_key) = if cfg!(target_os = "macos") {
         (modifiers.meta, modifiers.control)

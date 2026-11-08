@@ -38,6 +38,9 @@ impl App {
             Command::Copy => self.start_transfer(OperationKind::Copy, effects),
             Command::Move => self.start_transfer(OperationKind::Move, effects),
             Command::Delete => self.confirm_delete(),
+            // No confirmation, unlike delete: what goes to the trash can be
+            // restored, and where it cannot go Windows warns and elsewhere the
+            // move fails.
             Command::Trash => {
                 let Some((location, names)) = self.target_names() else {
                     return;
@@ -602,7 +605,10 @@ impl App {
     }
 
     // The location a command works in: that of what it acts on, or the pane's
-    // for one that makes something new there.
+    // for one that makes something new there. Commands that open or rename look
+    // at the cursor alone, since following the marks would launch one
+    // application per marked file; the rest take the marks, else the cursor.
+    // Mistakes there are guarded by `require_marks` and the delete confirmation.
     fn command_location(&self, command: &Command) -> Location {
         let pane = self.active_pane();
         let location = match command {
@@ -918,7 +924,8 @@ fn source_paths(dir: &Path, names: &[OsString]) -> Sources {
     Sources::Paths(names.iter().map(|name| dir.join(name)).collect())
 }
 
-// The commands that require_marks keeps from acting on the cursor row alone.
+// The commands that require_marks keeps from acting on the cursor row alone:
+// those that move or remove what they act on.
 fn requires_marks(command: &Command) -> bool {
     matches!(
         command,

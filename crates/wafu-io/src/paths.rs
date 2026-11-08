@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 /// The configuration file in the user's local (non-roaming) configuration
 /// directory, or `None` when the platform does not say where that is.
+// Not the roaming directory: the contents (bookmark paths, editor, fonts) are
+// machine-specific, and the `[os.*]` sections let one file serve several OSes.
 #[must_use]
 pub fn config_path() -> Option<PathBuf> {
     dirs::config_local_dir().map(|dir| dir.join("wafu").join("config.toml"))
@@ -9,6 +11,8 @@ pub fn config_path() -> Option<PathBuf> {
 
 /// The state file in the user's state directory where the platform has one,
 /// else in the local data directory.
+// Apart from the configuration file, since writing to that file would lose
+// its comments and formatting and race the hot reload.
 #[must_use]
 pub fn state_path() -> Option<PathBuf> {
     dirs::state_dir()

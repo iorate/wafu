@@ -113,6 +113,9 @@ export component PreviewWidget inherits Rectangle {
         image-rendering: smooth;
     }
 
+    // Placed by hand with an explicit width: in a layout, a word-wrap Text
+    // takes its longest word as its minimum width (`min-width: 0` does not
+    // help), so an unbroken long line overflows instead of wrapping mid-word.
     if root.data.kind == 2: Text {
         text: root.data.message;
         width: root.width - 16px;
