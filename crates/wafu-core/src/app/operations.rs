@@ -285,6 +285,10 @@ impl App {
                     self.panes[operation.side.index()].unmark(name);
                 }
             }
+            OperationEvent::Skipped { path, error } => {
+                self.log
+                    .push(format!("skipped {}: {error}", path.display()));
+            }
             OperationEvent::Conflict { source, dest } => {
                 self.show_operation_popup(Popup::Conflict(ConflictPopup::new(source, dest, false)));
             }

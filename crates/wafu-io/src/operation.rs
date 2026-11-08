@@ -57,7 +57,7 @@ impl Worker<'_> {
                 skipped: self.skipped,
             },
             Err(Stop::Cancelled) => Outcome::Cancelled { done: self.done },
-            Err(Stop::Failed { path, error }) => Outcome::Failed {
+            Err(Stop::Failed { path, error } | Stop::Entry { path, error }) => Outcome::Failed {
                 path,
                 error: IoError::new(error.to_string()),
                 done: self.done,
@@ -226,7 +226,7 @@ impl Worker<'_> {
                 }
             };
             if existing.is_dir() {
-                return Err(failure(src, "the destination exists and is a directory"));
+                return Err(refuse(src, "the destination exists and is a directory"));
             }
             match self.resolve_conflict(src, &dst)? {
                 Resolution::Overwrite => {
@@ -436,6 +436,19 @@ enum Policy {
 enum Stop {
     Cancelled,
     Failed { path: PathBuf, error: io::Error },
+    // Only this item cannot be written. Extraction skips it and goes on;
+    // everything else stops as on `Failed`.
+    Entry { path: PathBuf, error: io::Error },
+}
+
+impl Stop {
+    // For a step whose failure concerns more than one entry.
+    fn fatal(self) -> Self {
+        match self {
+            Self::Entry { path, error } => Self::Failed { path, error },
+            stop => stop,
+        }
+    }
 }
 
 // Whether an item is copied as is, or copied because it cannot be renamed
@@ -584,6 +597,21 @@ fn failure(path: &Path, message: &str) -> Stop {
     Stop::Failed {
         path: path.to_path_buf(),
         error: io::Error::other(message),
+    }
+}
+
+fn refuse(path: &Path, message: &str) -> Stop {
+    Stop::Entry {
+        path: path.to_path_buf(),
+        error: io::Error::other(message),
+    }
+}
+
+fn refuse_io(path: &Path) -> impl Fn(io::Error) -> Stop {
+    let path = path.to_path_buf();
+    move |error| Stop::Entry {
+        path: path.clone(),
+        error,
     }
 }
 

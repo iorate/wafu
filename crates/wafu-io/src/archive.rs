@@ -14,7 +14,7 @@ mod names;
 pub(crate) mod tar;
 pub(crate) mod zip;
 
-pub(crate) use names::check_component;
+pub(crate) use names::{UNSAFE_NAME, check_component};
 
 use self::tar::Compression;
 

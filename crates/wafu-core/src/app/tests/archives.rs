@@ -489,6 +489,31 @@ fn copy_inside_an_archive_extracts_the_marked_entries_to_the_other_side() {
 }
 
 #[test]
+fn a_skipped_entry_is_logged_and_keeps_its_mark() {
+    let mut harness = copying_inside();
+    let entry = archive().join("b.txt");
+
+    harness.operation(OperationEvent::Skipped {
+        path: entry.clone(),
+        error: IoError::new("the entry name is unsafe"),
+    });
+    harness.finish(Outcome::Completed {
+        done: 1,
+        skipped: 1,
+    });
+
+    let log = harness.log();
+    assert_eq!(
+        log[log.len() - 2..],
+        [
+            format!("skipped {}: the entry name is unsafe", entry.display()),
+            "copied 1 item (1 skipped)".to_owned(),
+        ]
+    );
+    assert_eq!(harness.marks(Side::Left), ["b.txt"]);
+}
+
+#[test]
 fn extract_unpacks_the_targets_into_the_other_side() {
     let mut harness = outside();
     harness.take_effects();

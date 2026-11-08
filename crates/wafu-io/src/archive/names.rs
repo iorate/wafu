@@ -1,3 +1,4 @@
+pub(crate) const UNSAFE_NAME: &str = "the entry name is unsafe";
 #[cfg(windows)]
 const UTF8_CODE_PAGE: u32 = 65001;
 
@@ -21,13 +22,18 @@ pub(crate) fn split_name(name: &str) -> Vec<String> {
 }
 
 // Whether a component may be used as one path element under the
-// destination. Anything that could reach outside is refused.
-pub(crate) fn check_component(component: &str) -> bool {
-    !(component.is_empty()
+// destination, with the reason if not. Anything that could reach outside is
+// refused.
+pub(crate) fn check_component(component: &str) -> Result<(), &'static str> {
+    if component.is_empty()
         || component == "."
         || component == ".."
         || component.contains(['\0', '/', '\\'])
-        || (cfg!(windows) && component.contains(':')))
+        || (cfg!(windows) && component.contains(':'))
+    {
+        return Err(UNSAFE_NAME);
+    }
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -151,12 +157,12 @@ mod tests {
 
     #[test]
     fn unsafe_components_are_refused() {
-        assert!(check_component("a.txt"));
-        assert!(check_component("..."));
-        assert!(!check_component(".."));
-        assert!(!check_component("."));
-        assert!(!check_component(""));
-        assert!(!check_component("a\0b"));
-        assert_eq!(check_component("c:"), !cfg!(windows));
+        assert_eq!(check_component("a.txt"), Ok(()));
+        assert_eq!(check_component("..."), Ok(()));
+        assert_eq!(check_component(".."), Err(UNSAFE_NAME));
+        assert_eq!(check_component("."), Err(UNSAFE_NAME));
+        assert_eq!(check_component(""), Err(UNSAFE_NAME));
+        assert_eq!(check_component("a\0b"), Err(UNSAFE_NAME));
+        assert_eq!(check_component("c:").is_ok(), !cfg!(windows));
     }
 }
