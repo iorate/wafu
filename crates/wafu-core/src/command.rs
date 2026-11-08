@@ -54,6 +54,14 @@ const NAMES: &[(Command, &str)] = &[
     (Command::LogPageDown, "log_page_down"),
     (Command::ClearLog, "clear_log"),
     (Command::CopyLog, "copy_log"),
+    (Command::PreviewScrollUp, "preview_scroll_up"),
+    (Command::PreviewScrollDown, "preview_scroll_down"),
+    (Command::PreviewPageUp, "preview_page_up"),
+    (Command::PreviewPageDown, "preview_page_down"),
+    (Command::PreviewTop, "preview_top"),
+    (Command::PreviewBottom, "preview_bottom"),
+    (Command::PreviewToggleMode, "preview_toggle_mode"),
+    (Command::ClosePreview, "close_preview"),
     (Command::Copy, "copy"),
     (Command::Move, "move"),
     (Command::Delete, "delete"),
@@ -133,6 +141,15 @@ pub enum Command {
     LogPageDown,
     ClearLog,
     CopyLog,
+    PreviewScrollUp,
+    PreviewScrollDown,
+    PreviewPageUp,
+    PreviewPageDown,
+    PreviewTop,
+    PreviewBottom,
+    /// Switches a document preview between text and binary.
+    PreviewToggleMode,
+    ClosePreview,
     Copy,
     Move,
     Delete,
@@ -158,13 +175,14 @@ pub enum Command {
     External(String),
 }
 
-/// Where a key press is interpreted.
+/// Where a key press is interpreted. The text preview is one context in its
+/// text and hex modes alike: they are views of the same document, and a key
+/// means the same in both.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Context {
     FileList,
     Image,
     Text,
-    Binary,
 }
 
 impl Command {
@@ -195,37 +213,62 @@ impl Command {
             )
     }
 
-    /// Whether the command can run in the context. Commands that do nothing on
-    /// some OS still count as available, so that a shared configuration loads
-    /// without errors everywhere.
+    /// Whether the command belongs to the context: whether it has an effect
+    /// that shows in some state of it. The text preview fills the window, so
+    /// the split between the panes is not its; the log under a preview is.
+    /// Commands that do nothing on some OS still count as available, so that
+    /// a shared configuration loads without errors everywhere.
     #[must_use]
     pub fn available_in(&self, context: Context) -> bool {
+        let preview = matches!(
+            self,
+            Self::PreviewScrollUp
+                | Self::PreviewScrollDown
+                | Self::PreviewPageUp
+                | Self::PreviewPageDown
+                | Self::PreviewTop
+                | Self::PreviewBottom
+                | Self::PreviewToggleMode
+                | Self::ClosePreview
+        );
+        let log = matches!(
+            self,
+            Self::LogShrink
+                | Self::LogGrow
+                | Self::LogScrollUp
+                | Self::LogScrollDown
+                | Self::LogPageUp
+                | Self::LogPageDown
+        );
         match context {
-            Context::FileList => true,
-            Context::Image => matches!(
-                self,
-                Self::CursorUp
-                    | Self::CursorDown
-                    | Self::PageUp
-                    | Self::PageDown
-                    | Self::CursorTop
-                    | Self::CursorBottom
-                    | Self::MarkDown
-                    | Self::MarkUp
-                    | Self::MarkRangeAbove
-                    | Self::MarkRangeBelow
-                    | Self::InvertMarks
-                    | Self::InvertMarksAll
-                    | Self::MarkGlob
-                    | Self::NextMark
-                    | Self::PrevMark
-                    | Self::ClearMarks
-                    | Self::PaneShrinkLeft
-                    | Self::PaneGrowLeft
-                    | Self::LogShrink
-                    | Self::LogGrow
-            ),
-            Context::Text | Context::Binary => false,
+            Context::FileList => !preview,
+            Context::Image => {
+                log || matches!(
+                    self,
+                    Self::CursorUp
+                        | Self::CursorDown
+                        | Self::PageUp
+                        | Self::PageDown
+                        | Self::CursorTop
+                        | Self::CursorBottom
+                        | Self::MarkDown
+                        | Self::MarkUp
+                        | Self::MarkRangeAbove
+                        | Self::MarkRangeBelow
+                        | Self::InvertMarks
+                        | Self::InvertMarksAll
+                        | Self::MarkGlob
+                        | Self::NextMark
+                        | Self::PrevMark
+                        | Self::ClearMarks
+                        | Self::PaneShrinkLeft
+                        | Self::PaneGrowLeft
+                        | Self::ClosePreview
+                        | Self::Palette
+                        | Self::NewWindow
+                )
+            }
+            Context::Text => preview || log || matches!(self, Self::Palette | Self::NewWindow),
         }
     }
 

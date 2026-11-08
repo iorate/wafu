@@ -820,6 +820,62 @@ fn a_link_inside_an_archive_is_not_previewed() {
     assert!(harness.view().preview.is_none());
 }
 
+#[test]
+fn text_keys_come_from_the_text_table_in_both_modes() {
+    let mut harness = document();
+    harness.config(
+        "[keys.filelist]\n\"Down\" = \"nop\"\n[keys.text]\n\"J\" = \"preview_scroll_down\"\n",
+    );
+
+    harness.press("J");
+    harness.press("Down");
+    assert_eq!(harness.preview_lines(), ["l2", "l3", "l4"]);
+
+    harness.press("Tab");
+    harness.press("J");
+    assert!(harness.preview_lines()[0].starts_with("00000010 "));
+
+    harness.press("Alt+Up");
+    assert_eq!(harness.view().log_rows, 7);
+}
+
+#[test]
+fn image_keys_come_from_the_image_table() {
+    let mut harness = image();
+    harness.config("[keys.filelist]\n\"Down\" = \"nop\"\n[keys.image]\n\"Esc\" = \"nop\"\n");
+
+    harness.press("Down");
+    assert_eq!(harness.cursor_name(Side::Left), "two.JPG");
+
+    harness.press("Esc");
+    assert!(harness.view().preview.is_some());
+    harness.press("Enter");
+    assert!(harness.view().preview.is_none());
+}
+
+#[test]
+fn the_palette_opens_during_a_preview_with_its_commands() {
+    let mut harness = document();
+
+    harness.press("F1");
+
+    let labels: Vec<String> = harness
+        .popup_items()
+        .iter()
+        .map(|item| item.label.clone())
+        .collect();
+    assert!(labels.contains(&"preview_scroll_down".to_owned()));
+    assert!(labels.contains(&"log_grow".to_owned()));
+    assert!(!labels.contains(&"pane_grow_left".to_owned()));
+    assert!(!labels.contains(&"copy".to_owned()));
+
+    harness.edit("close_pre");
+    harness.press("Enter");
+
+    assert_eq!(harness.popup(), None);
+    assert!(harness.view().preview.is_none());
+}
+
 // The left pane lists a text file, two images, and another text file, in that order.
 fn listing() -> Harness {
     let mut harness = Harness::start(LEFT, RIGHT);

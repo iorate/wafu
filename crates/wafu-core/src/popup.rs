@@ -1076,11 +1076,11 @@ mod tests {
     }
 
     #[test]
-    fn palette_shows_only_commands_available_in_the_context() {
+    fn palette_leaves_out_external_commands_outside_the_file_list() {
         let popup = PalettePopup::new(Context::Image, Os::Windows, vec!["x".to_owned()]);
 
-        assert_eq!(popup.matches.len(), 20);
-        assert!(!popup.matches.contains(&Command::Copy));
+        assert!(popup.matches.contains(&Command::CursorUp));
+        assert!(!popup.matches.contains(&Command::External("x".to_owned())));
     }
 
     #[test]

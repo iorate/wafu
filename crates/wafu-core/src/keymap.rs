@@ -72,6 +72,56 @@ const DEFAULT_FILELIST: &[(&str, &str)] = &[
     ("Shift+PageDown", "log_page_down"),
 ];
 
+const DEFAULT_IMAGE: &[(&str, &str)] = &[
+    ("Up", "cursor_up"),
+    ("Down", "cursor_down"),
+    ("PageUp", "page_up"),
+    ("PageDown", "page_down"),
+    ("Home", "cursor_top"),
+    ("End", "cursor_bottom"),
+    ("Space", "mark_down"),
+    ("Shift+Space", "mark_up"),
+    ("Ctrl+Space", "mark_range_above"),
+    ("Ctrl+Shift+Space", "mark_range_below"),
+    ("A", "invert_marks"),
+    ("Shift+A", "invert_marks_all"),
+    ("@", "mark_glob"),
+    ("Ctrl+:", "next_mark"),
+    ("Ctrl+*", "prev_mark"),
+    ("Enter", "close_preview"),
+    ("Esc", "close_preview"),
+    ("F1", "palette"),
+    ("Alt+Z", "new_window"),
+    ("Alt+Left", "pane_shrink_left"),
+    ("Alt+Right", "pane_grow_left"),
+    ("Alt+Up", "log_grow"),
+    ("Alt+Down", "log_shrink"),
+    ("Shift+Up", "log_scroll_up"),
+    ("Shift+Down", "log_scroll_down"),
+    ("Shift+PageUp", "log_page_up"),
+    ("Shift+PageDown", "log_page_down"),
+];
+
+const DEFAULT_TEXT: &[(&str, &str)] = &[
+    ("Up", "preview_scroll_up"),
+    ("Down", "preview_scroll_down"),
+    ("PageUp", "preview_page_up"),
+    ("PageDown", "preview_page_down"),
+    ("Home", "preview_top"),
+    ("End", "preview_bottom"),
+    ("Tab", "preview_toggle_mode"),
+    ("Enter", "close_preview"),
+    ("Esc", "close_preview"),
+    ("F1", "palette"),
+    ("Alt+Z", "new_window"),
+    ("Alt+Up", "log_grow"),
+    ("Alt+Down", "log_shrink"),
+    ("Shift+Up", "log_scroll_up"),
+    ("Shift+Down", "log_scroll_down"),
+    ("Shift+PageUp", "log_page_up"),
+    ("Shift+PageDown", "log_page_down"),
+];
+
 /// Key bindings per context.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyMap {
@@ -79,42 +129,22 @@ pub struct KeyMap {
 }
 
 impl KeyMap {
-    /// The default bindings for the OS. The image preview reuses the file
-    /// list's cursor, mark, and layout keys; the text and binary previews
-    /// have fixed keys and no bindings.
+    /// The default bindings for the OS, one table per context.
     #[must_use]
     pub fn default_for(os: Os) -> Self {
         let jumps = Command::all().filter_map(|command| match command {
             Command::Jump(c) => Some((format!("Ctrl+{}", c.to_ascii_uppercase()), command)),
             _ => None,
         });
-        let filelist: HashMap<Key, Command> = DEFAULT_FILELIST
+        let filelist = DEFAULT_FILELIST
             .iter()
-            .map(|(key, name)| {
-                let command = Command::from_name(name)
-                    .unwrap_or_else(|| panic!("unknown command in the default key map: {name}"));
-                ((*key).to_owned(), command)
-            })
-            .chain(jumps)
-            .filter(|(_, command)| command.available_on(os))
-            .map(|(key, command)| {
-                let key: Key = key
-                    .parse()
-                    .unwrap_or_else(|_| panic!("invalid key in the default key map: {key}"));
-                (key, command)
-            })
-            .collect();
-        let image = filelist
-            .iter()
-            .filter(|(_, command)| command.available_in(Context::Image))
-            .map(|(key, command)| (*key, command.clone()))
-            .collect();
+            .map(|(key, name)| ((*key).to_owned(), named(name)))
+            .chain(jumps);
         Self {
             maps: HashMap::from([
-                (Context::FileList, filelist),
-                (Context::Image, image),
-                (Context::Text, HashMap::new()),
-                (Context::Binary, HashMap::new()),
+                (Context::FileList, bindings(filelist, os)),
+                (Context::Image, bindings(table(DEFAULT_IMAGE), os)),
+                (Context::Text, bindings(table(DEFAULT_TEXT), os)),
             ]),
         }
     }
@@ -158,6 +188,31 @@ impl KeyMap {
     }
 }
 
+fn table(
+    entries: &'static [(&'static str, &'static str)],
+) -> impl Iterator<Item = (String, Command)> {
+    entries
+        .iter()
+        .map(|(key, name)| ((*key).to_owned(), named(name)))
+}
+
+fn named(name: &str) -> Command {
+    Command::from_name(name)
+        .unwrap_or_else(|| panic!("unknown command in the default key map: {name}"))
+}
+
+fn bindings(entries: impl Iterator<Item = (String, Command)>, os: Os) -> HashMap<Key, Command> {
+    entries
+        .filter(|(_, command)| command.available_on(os))
+        .map(|(key, command)| {
+            let key: Key = key
+                .parse()
+                .unwrap_or_else(|_| panic!("invalid key in the default key map: {key}"));
+            (key, command)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
@@ -184,7 +239,7 @@ mod tests {
             .collect();
 
         for command in Command::all() {
-            let expected = !UNBOUND.contains(&command);
+            let expected = !UNBOUND.contains(&command) && command.available_in(Context::FileList);
             assert_eq!(bound.contains(&command), expected, "{command}");
         }
     }
@@ -197,6 +252,8 @@ mod tests {
             keymap.bindings(Context::FileList).count(),
             DEFAULT_FILELIST.len() + 36
         );
+        assert_eq!(keymap.bindings(Context::Image).count(), DEFAULT_IMAGE.len());
+        assert_eq!(keymap.bindings(Context::Text).count(), DEFAULT_TEXT.len());
     }
 
     #[test]
@@ -219,16 +276,16 @@ mod tests {
     }
 
     #[test]
-    fn image_context_has_the_cursor_mark_and_layout_keys_only() {
+    fn every_default_binding_is_available_in_its_context() {
         let keymap = KeyMap::default_for(Os::Windows);
 
-        // The twenty commands minus clear_marks, which has no key.
-        assert_eq!(keymap.bindings(Context::Image).count(), 19);
-        assert_eq!(
-            keymap.lookup(Context::Image, &"Up".parse().unwrap()),
-            Some(Command::CursorUp)
-        );
-        assert_eq!(keymap.lookup(Context::Image, &"C".parse().unwrap()), None);
-        assert_eq!(keymap.bindings(Context::Text).count(), 0);
+        for context in [Context::FileList, Context::Image, Context::Text] {
+            for (key, command) in keymap.bindings(context) {
+                assert!(
+                    command.available_in(context),
+                    "{command} on {key} in {context:?}"
+                );
+            }
+        }
     }
 }

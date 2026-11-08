@@ -4,10 +4,9 @@ use std::sync::Arc;
 
 use super::navigation::is_link_in_archive;
 use super::{App, Effect, MouseInput, PreviewError, PreviewSource, Side};
-use crate::command::Context;
+use crate::command::{Command, Context};
 use crate::entry::Entry;
 use crate::error::AppError;
-use crate::key::{Key, KeyBase, NamedKey};
 use crate::location::Location;
 use crate::pane::RequestId;
 use crate::popup::{InputPopup, PasswordPurpose, Popup};
@@ -42,37 +41,34 @@ impl App {
         self.request_document(effects);
     }
 
-    pub(super) fn preview_key(&mut self, key: Key, effects: &mut Vec<Effect>) {
-        if matches!(key.base, KeyBase::Named(NamedKey::Enter | NamedKey::Escape)) {
+    pub(super) fn context(&self) -> Context {
+        match &self.preview {
+            None => Context::FileList,
+            Some(Preview::Image(_)) => Context::Image,
+            Some(Preview::Document(_)) => Context::Text,
+        }
+    }
+
+    pub(super) fn run_preview_command(&mut self, command: &Command, effects: &mut Vec<Effect>) {
+        if *command == Command::ClosePreview {
             self.close_preview(effects);
             return;
         }
-        match &mut self.preview {
-            Some(Preview::Document(preview)) => {
-                if key.ctrl || key.shift || key.alt {
-                    return;
-                }
-                // A page is that many unwrapped lines; how many screen rows a
-                // line takes is known only to the UI.
-                let rows = self.preview_rows;
-                match key.base {
-                    KeyBase::Named(NamedKey::Up) => preview.scroll_by(-1),
-                    KeyBase::Named(NamedKey::Down) => preview.scroll_by(1),
-                    KeyBase::Named(NamedKey::PageUp) => preview.scroll_by(-to_i64(rows)),
-                    KeyBase::Named(NamedKey::PageDown) => preview.scroll_by(to_i64(rows)),
-                    KeyBase::Named(NamedKey::Home) => preview.scroll_top = 0,
-                    KeyBase::Named(NamedKey::End) => preview.scroll_to_end(rows),
-                    KeyBase::Named(NamedKey::Tab) => preview.toggle_mode(),
-                    _ => {}
-                }
-            }
-            Some(Preview::Image(_)) => {
-                if let Some(command) = self.config.keys.lookup(Context::Image, &key) {
-                    self.run_command(command, effects);
-                }
-                self.active_pane_mut().ensure_cursor_visible();
-            }
-            None => {}
+        // A page is that many unwrapped lines; how many screen rows a line
+        // takes is known only to the UI.
+        let rows = self.preview_rows;
+        let Some(Preview::Document(preview)) = &mut self.preview else {
+            return;
+        };
+        match command {
+            Command::PreviewScrollUp => preview.scroll_by(-1),
+            Command::PreviewScrollDown => preview.scroll_by(1),
+            Command::PreviewPageUp => preview.scroll_by(-to_i64(rows)),
+            Command::PreviewPageDown => preview.scroll_by(to_i64(rows)),
+            Command::PreviewTop => preview.scroll_top = 0,
+            Command::PreviewBottom => preview.scroll_to_end(rows),
+            Command::PreviewToggleMode => preview.toggle_mode(),
+            _ => {}
         }
     }
 
