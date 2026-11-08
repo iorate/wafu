@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
@@ -17,6 +18,9 @@ const ZIP64_THRESHOLD: u64 = 4 * 1024 * 1024 * 1024;
 pub(crate) struct ZipReader {
     archive: ZipArchive<File>,
     entries: Vec<ArchiveEntry>,
+    // Where each entry is in the crate's index, which also holds the root and
+    // the entries replaced by later ones.
+    positions: Vec<usize>,
 }
 
 pub(crate) struct ZipArchiveWriter {
@@ -28,12 +32,37 @@ impl ZipReader {
     pub(crate) fn open(path: &Path) -> Result<Self, ArchiveError> {
         let file = File::open(path)?;
         let mut archive = ZipArchive::new(file).map_err(convert)?;
-        let mut entries = Vec::with_capacity(archive.len());
-        for index in 0..archive.len() {
-            let file = archive.by_index_raw(index).map_err(convert)?;
-            entries.push(entry_of(&file));
+        let mut found = Vec::with_capacity(archive.len());
+        let mut latest: HashMap<Vec<String>, usize> = HashMap::new();
+        let mut replaced = Vec::with_capacity(archive.len());
+        for position in 0..archive.len() {
+            let file = archive.by_index_raw(position).map_err(convert)?;
+            let entry = entry_of(&file);
+            // `./` and `/`, which an archive made from `.` may start with, and
+            // an empty name are the root, which has no entry of its own.
+            if entry.components.is_empty() {
+                continue;
+            }
+            // The crate merges entries only when their names are spelled
+            // alike, so `a.txt` and `./a.txt` both reach here. The later one
+            // replaces the earlier, as it does for names spelled alike.
+            if let Some(earlier) = latest.insert(entry.components.clone(), found.len()) {
+                replaced[earlier] = true;
+            }
+            replaced.push(false);
+            found.push((entry, position));
         }
-        Ok(Self { archive, entries })
+        let (entries, positions) = found
+            .into_iter()
+            .zip(replaced)
+            .filter(|(_, replaced)| !replaced)
+            .map(|(found, _)| found)
+            .unzip();
+        Ok(Self {
+            archive,
+            entries,
+            positions,
+        })
     }
 }
 
@@ -47,9 +76,10 @@ impl ArchiveReader for ZipReader {
         index: usize,
         password: Option<&str>,
     ) -> Result<Box<dyn Read + '_>, ArchiveError> {
+        let position = self.positions[index];
         let file = match password {
-            Some(password) => self.archive.by_index_decrypt(index, password.as_bytes()),
-            None => self.archive.by_index(index),
+            Some(password) => self.archive.by_index_decrypt(position, password.as_bytes()),
+            None => self.archive.by_index(position),
         }
         .map_err(convert)?;
         Ok(Box::new(file))
