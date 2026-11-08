@@ -24,7 +24,7 @@ use crate::color_scheme::{ColorSchemeWatch, watch_color_scheme};
 use crate::drives::drives;
 use crate::fs_ops::{create_file, mkdir, open_with_os, rename, set_clipboard};
 use crate::operation::run_operation;
-use crate::preview::{load_image, load_preview};
+use crate::preview::{PreviewedArchive, load_image, load_preview};
 use crate::read_dir::{own_entry, read_dir_with};
 use crate::resolve::resolve;
 use crate::spawn::{spawn, spawn_new_window, wait_in_background};
@@ -461,13 +461,16 @@ impl Reader {
             .name(format!("wafu-io-reader-{name}"))
             .spawn(move || {
                 let mut cache: Option<CachedArchive> = None;
+                let mut previewed = PreviewedArchive::default();
                 for job in receiver {
                     let request = job.request();
                     *lock(&running) = Some(request);
                     let live = lock(&pending).contains(&request);
                     let event = live.then(|| {
-                        panic::catch_unwind(AssertUnwindSafe(|| read(&job, &mut cache, &pending)))
-                            .unwrap_or_else(|payload| job.failed(panic_error(&*payload)))
+                        panic::catch_unwind(AssertUnwindSafe(|| {
+                            read(&job, &mut cache, &mut previewed, &pending)
+                        }))
+                        .unwrap_or_else(|payload| job.failed(panic_error(&*payload)))
                     });
                     *lock(&running) = None;
                     if let Some(event) = event
@@ -501,6 +504,7 @@ pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 fn read(
     job: &Job,
     cache: &mut Option<CachedArchive>,
+    previewed: &mut PreviewedArchive,
     pending: &Mutex<HashSet<RequestId>>,
 ) -> IoEvent {
     let request = job.request();
@@ -529,11 +533,11 @@ fn read(
         },
         Job::LoadPreview { source, .. } => IoEvent::PreviewLoaded {
             request,
-            result: load_preview(source),
+            result: load_preview(source, previewed),
         },
         Job::LoadImage { source, .. } => IoEvent::ImageLoaded {
             request,
-            result: load_image(source),
+            result: load_image(source, previewed),
         },
     }
 }
