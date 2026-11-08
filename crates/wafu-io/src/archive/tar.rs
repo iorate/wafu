@@ -80,6 +80,7 @@ struct PaxRecords {
     sparse: bool,
     sparse_name: Option<String>,
     sparse_size: Option<u64>,
+    mtime: Option<String>,
 }
 
 struct Counted<R> {
@@ -358,12 +359,17 @@ fn scan<R: Read>(entries: Entries<'_, R>) -> io::Result<(Vec<ArchiveEntry>, Vec<
             continue;
         }
         let mode = header.mode().ok().map(|mode| mode & 0o7777);
-        // GNU tar writes a time before 1970 in base-256 two's complement,
-        // which decodes to a huge number; such a time is left out.
-        let modified = header
-            .mtime()
-            .ok()
-            .and_then(|seconds| UNIX_EPOCH.checked_add(Duration::from_secs(seconds)));
+        // A PAX record holds what the header field cannot: a time before
+        // 1970 or past 2242, or a fraction of a second. GNU tar writes a time
+        // before 1970 in base-256 two's complement, which decodes to a huge
+        // number. Either way a time before 1970 is left out.
+        let modified = match &pax.mtime {
+            Some(record) => pax_time(record),
+            None => header
+                .mtime()
+                .ok()
+                .and_then(|seconds| UNIX_EPOCH.checked_add(Duration::from_secs(seconds))),
+        };
         let link_name = || {
             entry
                 .link_name_bytes()
@@ -471,10 +477,20 @@ fn pax_records<R: Read>(entry: &mut Entry<'_, R>) -> io::Result<PaxRecords> {
                 records.sparse_size = extension.value().ok().and_then(|size| size.parse().ok());
             }
             Ok(key) if key.starts_with("GNU.sparse.") => records.sparse = true,
+            Ok("mtime") => {
+                records.mtime = Some(String::from_utf8_lossy(extension.value_bytes()).into_owned());
+            }
             _ => {}
         }
     }
     Ok(records)
+}
+
+// Decimal seconds with an optional fraction, which is dropped.
+fn pax_time(record: &str) -> Option<SystemTime> {
+    let whole = record.split_once('.').map_or(record, |(whole, _)| whole);
+    let seconds: u64 = whole.parse().ok()?;
+    UNIX_EPOCH.checked_add(Duration::from_secs(seconds))
 }
 
 // Multi-member streams are what parallel compressors (pigz, pbzip2) write.
@@ -707,6 +723,41 @@ mod tests {
         assert_eq!(reader.entries()[0].components, ["old"]);
         assert_eq!(reader.entries()[0].modified, None);
         assert_eq!(content(&mut reader, 0), b"x");
+    }
+
+    #[test]
+    fn a_pax_time_is_taken_over_the_header_to_the_second() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.tar");
+        let records: [&[u8]; 3] = [b"10413792001", b"-1000", b"1700000000.75"];
+        {
+            let mut builder = Builder::new(File::create(&path).unwrap());
+            for (index, record) in records.iter().enumerate() {
+                builder.append_pax_extensions([("mtime", *record)]).unwrap();
+                let mut file = header(EntryType::Regular, 0, None, 0o644);
+                file.set_mtime(1);
+                builder
+                    .append_data(&mut file, index.to_string(), io::empty())
+                    .unwrap();
+            }
+            builder.finish().unwrap();
+        }
+
+        let reader = TarReader::open(&path, Compression::None).unwrap();
+
+        let modified: Vec<Option<SystemTime>> = reader
+            .entries()
+            .iter()
+            .map(|entry| entry.modified)
+            .collect();
+        assert_eq!(
+            modified,
+            [
+                Some(UNIX_EPOCH + Duration::from_secs(10_413_792_001)),
+                None,
+                Some(UNIX_EPOCH + Duration::from_secs(1_700_000_000)),
+            ]
+        );
     }
 
     #[test]
