@@ -821,10 +821,10 @@ fn a_link_inside_an_archive_is_not_previewed() {
 }
 
 #[test]
-fn document_keys_come_from_the_text_and_binary_tables() {
+fn text_keys_come_from_the_text_table_in_both_modes() {
     let mut harness = document();
     harness.config(
-        "[keys.filelist]\n\"Down\" = \"nop\"\n[keys.text]\n\"J\" = \"preview_scroll_down\"\n[keys.binary]\n\"Down\" = \"nop\"\n",
+        "[keys.filelist]\n\"Down\" = \"nop\"\n[keys.text]\n\"J\" = \"preview_scroll_down\"\n",
     );
 
     harness.press("J");
@@ -832,12 +832,8 @@ fn document_keys_come_from_the_text_and_binary_tables() {
     assert_eq!(harness.preview_lines(), ["l2", "l3", "l4"]);
 
     harness.press("Tab");
-    harness.press("Down");
-    assert!(harness.preview_lines()[0].starts_with("00000000 "));
-
-    harness.press("Tab");
-    harness.press("Down");
-    assert_eq!(harness.preview_lines(), ["l1", "l2", "l3"]);
+    harness.press("J");
+    assert!(harness.preview_lines()[0].starts_with("00000010 "));
 
     harness.press("Alt+Up");
     assert_eq!(harness.view().log_rows, 7);

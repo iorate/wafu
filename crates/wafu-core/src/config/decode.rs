@@ -13,11 +13,10 @@ use crate::command::{Command, Context};
 use crate::external::CommandLine;
 use crate::key::Key;
 
-const CONTEXTS: [(&str, Context); 4] = [
+const CONTEXTS: [(&str, Context); 3] = [
     ("filelist", Context::FileList),
     ("image", Context::Image),
     ("text", Context::Text),
-    ("binary", Context::Binary),
 ];
 
 pub(super) fn parse(text: &str, os: Os) -> Result<(Config, Vec<Diagnostic>), SyntaxError> {
@@ -567,7 +566,6 @@ run = "wt -d {dir}"
 
 [keys.image]
 [keys.text]
-[keys.binary]
 
 [os.macos.general]
 editor = "open -t {paths}"

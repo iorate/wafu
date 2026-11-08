@@ -175,13 +175,14 @@ pub enum Command {
     External(String),
 }
 
-/// Where a key press is interpreted.
+/// Where a key press is interpreted. The text preview is one context in its
+/// text and hex modes alike: they are views of the same document, and a key
+/// means the same in both.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Context {
     FileList,
     Image,
     Text,
-    Binary,
 }
 
 impl Command {
@@ -213,11 +214,10 @@ impl Command {
     }
 
     /// Whether the command belongs to the context: whether it has an effect
-    /// that shows in some state of it. The text and binary previews fill the
-    /// window, so the split between the panes is not theirs; the log under a
-    /// preview is. Commands that do nothing on some OS still count as
-    /// available, so that a shared configuration loads without errors
-    /// everywhere.
+    /// that shows in some state of it. The text preview fills the window, so
+    /// the split between the panes is not its; the log under a preview is.
+    /// Commands that do nothing on some OS still count as available, so that
+    /// a shared configuration loads without errors everywhere.
     #[must_use]
     pub fn available_in(&self, context: Context) -> bool {
         let preview = matches!(
@@ -267,7 +267,7 @@ impl Command {
                         | Self::Palette
                 )
             }
-            Context::Text | Context::Binary => preview || log || *self == Self::Palette,
+            Context::Text => preview || log || *self == Self::Palette,
         }
     }
 

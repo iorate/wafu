@@ -45,10 +45,7 @@ impl App {
         match &self.preview {
             None => Context::FileList,
             Some(Preview::Image(_)) => Context::Image,
-            Some(Preview::Document(preview)) => match preview.mode {
-                DocumentMode::Text => Context::Text,
-                DocumentMode::Binary => Context::Binary,
-            },
+            Some(Preview::Document(_)) => Context::Text,
         }
     }
 

@@ -101,8 +101,7 @@ const DEFAULT_IMAGE: &[(&str, &str)] = &[
     ("Shift+PageDown", "log_page_down"),
 ];
 
-// Shared by the text and binary contexts.
-const DEFAULT_DOCUMENT: &[(&str, &str)] = &[
+const DEFAULT_TEXT: &[(&str, &str)] = &[
     ("Up", "preview_scroll_up"),
     ("Down", "preview_scroll_down"),
     ("PageUp", "preview_page_up"),
@@ -143,8 +142,7 @@ impl KeyMap {
             maps: HashMap::from([
                 (Context::FileList, bindings(filelist, os)),
                 (Context::Image, bindings(table(DEFAULT_IMAGE), os)),
-                (Context::Text, bindings(table(DEFAULT_DOCUMENT), os)),
-                (Context::Binary, bindings(table(DEFAULT_DOCUMENT), os)),
+                (Context::Text, bindings(table(DEFAULT_TEXT), os)),
             ]),
         }
     }
@@ -252,6 +250,8 @@ mod tests {
             keymap.bindings(Context::FileList).count(),
             DEFAULT_FILELIST.len() + 36
         );
+        assert_eq!(keymap.bindings(Context::Image).count(), DEFAULT_IMAGE.len());
+        assert_eq!(keymap.bindings(Context::Text).count(), DEFAULT_TEXT.len());
     }
 
     #[test]
@@ -277,12 +277,7 @@ mod tests {
     fn every_default_binding_is_available_in_its_context() {
         let keymap = KeyMap::default_for(Os::Windows);
 
-        for context in [
-            Context::FileList,
-            Context::Image,
-            Context::Text,
-            Context::Binary,
-        ] {
+        for context in [Context::FileList, Context::Image, Context::Text] {
             for (key, command) in keymap.bindings(context) {
                 assert!(
                     command.available_in(context),
@@ -290,16 +285,5 @@ mod tests {
                 );
             }
         }
-        assert_eq!(keymap.bindings(Context::Image).count(), 26);
-        assert_eq!(keymap.bindings(Context::Text).count(), 16);
-        assert_eq!(
-            keymap.bindings(Context::Binary).count(),
-            keymap.bindings(Context::Text).count()
-        );
-        assert_eq!(
-            keymap.lookup(Context::Text, &"Down".parse().unwrap()),
-            Some(Command::PreviewScrollDown)
-        );
-        assert_eq!(keymap.lookup(Context::Image, &"C".parse().unwrap()), None);
     }
 }

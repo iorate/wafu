@@ -68,15 +68,14 @@ socket = "#e58ae0"
 # [commands.open_terminal]
 # run = "wt -d {dir}"
 
-## Keys that replace the built-in bindings, per context: the file list and the
-## image, text, and binary previews. "nop" unbinds a key, and "$name" runs a
-## command from [commands].
+## Keys that replace the built-in bindings, per context: the file list, the
+## image preview, and the text preview (its hex mode included). "nop" unbinds
+## a key, and "$name" runs a command from [commands].
 [keys.filelist]
 # "Q" = "nop"
 # "F2" = "$open_terminal"
-[keys.binary]
-[keys.text]
 [keys.image]
+[keys.text]
 
 ## Items for one OS, overriding the items above.
 [os.windows.general]
