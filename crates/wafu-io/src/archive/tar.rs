@@ -70,6 +70,11 @@ struct EntryReader<'a> {
     remaining: u64,
 }
 
+struct Counted<R> {
+    inner: R,
+    read: u64,
+}
+
 enum Encoder {
     Plain(BufWriter<File>),
     Gzip(GzEncoder<BufWriter<File>>),
@@ -167,7 +172,20 @@ impl ArchiveWriter for TarWriter {
             modified,
             mode.unwrap_or(DEFAULT_FILE_MODE),
         );
-        self.builder.append_data(&mut header, path, data)
+        // The header holds `size` and the crate pads to what it copies, so
+        // a file that changes in between would throw the headers after it
+        // off. Such a file fails the archive instead.
+        let mut counted = Counted {
+            inner: (&mut *data).take(size),
+            read: 0,
+        };
+        self.builder.append_data(&mut header, path, &mut counted)?;
+        if counted.read != size || data.read(&mut [0])? != 0 {
+            return Err(io::Error::other(
+                "the file changed while it was being added",
+            ));
+        }
+        Ok(())
     }
 
     fn add_symlink(
@@ -220,6 +238,14 @@ impl Read for Stream {
             Source::Decoded(reader) => reader.read(buf)?,
         };
         self.pos += read as u64;
+        Ok(read)
+    }
+}
+
+impl<R: Read> Read for Counted<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let read = self.inner.read(buf)?;
+        self.read += read as u64;
         Ok(read)
     }
 }
@@ -296,10 +322,12 @@ fn scan<R: Read>(entries: Entries<'_, R>) -> io::Result<(Vec<ArchiveEntry>, Vec<
         let header = entry.header();
         let components = split_name(&decode_name(&entry.path_bytes()));
         let mode = header.mode().ok().map(|mode| mode & 0o7777);
+        // GNU tar writes a time before 1970 in base-256 two's complement,
+        // which decodes to a huge number; such a time is left out.
         let modified = header
             .mtime()
             .ok()
-            .map(|seconds| UNIX_EPOCH + Duration::from_secs(seconds));
+            .and_then(|seconds| UNIX_EPOCH.checked_add(Duration::from_secs(seconds)));
         let link_name = || {
             entry
                 .link_name_bytes()
@@ -343,9 +371,17 @@ fn scan<R: Read>(entries: Entries<'_, R>) -> io::Result<(Vec<ArchiveEntry>, Vec<
                 }
             }
             EntryType::GNUSparse => (ArchiveEntryKind::File, entry.size(), Content::Sparse),
-            // Nothing could be made of these on extraction, and a whole
-            // archive should not fail over one.
-            EntryType::Char | EntryType::Block | EntryType::Fifo => continue,
+            // Nothing could be made of devices on extraction, and a whole
+            // archive should not fail over one. The crate resolves the
+            // extensions but still hands out a PAX global header (what
+            // `git archive` starts with), which is not a member either.
+            EntryType::Char
+            | EntryType::Block
+            | EntryType::Fifo
+            | EntryType::XGlobalHeader
+            | EntryType::XHeader
+            | EntryType::GNULongName
+            | EntryType::GNULongLink => continue,
             // Unknown types are files, as the format says.
             _ => (
                 ArchiveEntryKind::File,
@@ -536,6 +572,48 @@ mod tests {
             reader.open(0, None),
             Err(ArchiveError::Invalid(message)) if message.contains("sparse")
         ));
+    }
+
+    #[test]
+    fn a_time_before_1970_and_a_pax_global_header_are_left_out() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.tar");
+        {
+            let mut builder = Builder::new(File::create(&path).unwrap());
+            let mut global = header_of(EntryType::XGlobalHeader);
+            global.set_size(11);
+            builder
+                .append_data(&mut global, "pax_global_header", &b"52 comment=x"[..11])
+                .unwrap();
+            let mut old = header(EntryType::Regular, 1, None, 0o644);
+            // What GNU tar writes for a negative time, read as unsigned.
+            old.set_mtime(u64::MAX - 1000);
+            builder.append_data(&mut old, "old", &b"x"[..]).unwrap();
+            builder.finish().unwrap();
+        }
+
+        let mut reader = TarReader::open(&path, Compression::None).unwrap();
+
+        assert_eq!(reader.entries().len(), 1);
+        assert_eq!(reader.entries()[0].components, ["old"]);
+        assert_eq!(reader.entries()[0].modified, None);
+        assert_eq!(content(&mut reader, 0), b"x");
+    }
+
+    #[test]
+    fn a_file_whose_size_changed_fails_instead_of_misaligning_the_archive() {
+        let dir = TempDir::new().unwrap();
+        for (size, data) in [(5, &b"abc"[..]), (3, &b"abcde"[..])] {
+            let path = dir.path().join("a.tar");
+            let mut writer =
+                TarWriter::new(File::create(&path).unwrap(), Compression::None).unwrap();
+
+            let error = writer
+                .add_file("f", size, None, None, &mut &data[..])
+                .unwrap_err();
+
+            assert!(error.to_string().contains("changed"), "{size}");
+        }
     }
 
     #[test]
