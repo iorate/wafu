@@ -46,6 +46,9 @@ component PopupInput {
     // since an element inside `if` cannot be reached from outside.
     in property <bool> active;
     in property <int> generation;
+    // False while the popup is closing: the field is about to go, and taking
+    // the focus then would leave the window without a focused element.
+    in property <bool> open;
     in-out property <string> text;
 
     callback key-input(text: string, control: bool, shift: bool, alt: bool, meta: bool);
@@ -62,9 +65,14 @@ component PopupInput {
     }
 
     // A popup replaced by another with one field keeps the same element, so
-    // `init` does not run again; the generation tells the two apart.
+    // `init` does not run again; the generation tells the two apart. It also
+    // changes when the popup closes, and this runs in the same pass as the
+    // handler that gives the focus back to the file list, in no fixed order:
+    // focusing the field then can win and leave no focused element.
     changed generation => {
-        root.select-initial();
+        if root.open {
+            root.select-initial();
+        }
     }
 
     // Typing replaces the selected part (the whole value
@@ -235,6 +243,7 @@ export component PopupOverlay {
                 single: root.fields.length == 1;
                 active: root.focused-field == 0;
                 generation: root.data.generation;
+                open: root.data.visible;
                 text <=> root.text;
                 key-input(text, control, shift, alt, meta) => {
                     root.key-input(text, control, shift, alt, meta);
@@ -257,6 +266,7 @@ export component PopupOverlay {
                 single: false;
                 active: root.focused-field == 1;
                 generation: root.data.generation;
+                open: root.data.visible;
                 text <=> root.text-2;
                 key-input(text, control, shift, alt, meta) => {
                     root.key-input(text, control, shift, alt, meta);
