@@ -863,6 +863,41 @@ mod tests {
     }
 
     #[test]
+    fn a_name_appended_again_to_a_tar_is_listed_and_extracted_once_with_the_later_content() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.tar");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        write_tar(
+            &archive,
+            &[
+                ("a.txt", EntryType::Regular, "", b"old"),
+                ("a.txt", EntryType::Regular, "", b"newer"),
+            ],
+        );
+
+        let entries = open_archive(&archive, None).unwrap().entries().to_vec();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].size, 5);
+
+        let (outcome, events) = run(&extract(&[archive], &dest), []);
+
+        assert_eq!(
+            outcome,
+            Outcome::Completed {
+                done: 1,
+                skipped: 0
+            }
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, OperationEvent::Conflict { .. }))
+        );
+        assert_eq!(fs::read(dest.join("a.txt")).unwrap(), b"newer");
+    }
+
+    #[test]
     fn extract_into_dirs_unpacks_each_archive_into_a_directory_named_after_it() {
         let dir = TempDir::new().unwrap();
         let a = dir.path().join("a.zip");

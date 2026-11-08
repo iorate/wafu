@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Cursor, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -345,6 +346,8 @@ impl Write for Encoder {
 fn scan<R: Read>(entries: Entries<'_, R>) -> io::Result<(Vec<ArchiveEntry>, Vec<Content>)> {
     let mut listed: Vec<ArchiveEntry> = Vec::new();
     let mut contents: Vec<Content> = Vec::new();
+    let mut latest: HashMap<Vec<String>, usize> = HashMap::new();
+    let mut replaced: Vec<bool> = Vec::new();
     for entry in entries {
         let mut entry = entry?;
         let pax = pax_records(&mut entry)?;
@@ -371,9 +374,14 @@ fn scan<R: Read>(entries: Entries<'_, R>) -> io::Result<(Vec<ArchiveEntry>, Vec<
                 .ok()
                 .and_then(|seconds| UNIX_EPOCH.checked_add(Duration::from_secs(seconds))),
         };
-        let Some((kind, size, content)) = member(&entry, &name, &pax, &listed, &contents) else {
+        let Some((kind, size, content)) = member(&entry, &name, &pax, &listed, &contents, &latest)
+        else {
             continue;
         };
+        if let Some(earlier) = latest.insert(components.clone(), listed.len()) {
+            replaced[earlier] = true;
+        }
+        replaced.push(false);
         listed.push(ArchiveEntry {
             components,
             kind,
@@ -383,7 +391,37 @@ fn scan<R: Read>(entries: Entries<'_, R>) -> io::Result<(Vec<ArchiveEntry>, Vec<
         });
         contents.push(content);
     }
-    Ok((listed, contents))
+    Ok(drop_replaced(listed, &contents, &replaced))
+}
+
+// An entry replaces an earlier one with the same name, as it does when tar
+// extracts them in turn, which is how `tar -r` updates an archive. A hard
+// link written in between keeps the content of the entry it was made to.
+fn drop_replaced(
+    listed: Vec<ArchiveEntry>,
+    contents: &[Content],
+    replaced: &[bool],
+) -> (Vec<ArchiveEntry>, Vec<Content>) {
+    let mut moved: Vec<Option<usize>> = Vec::with_capacity(listed.len());
+    let mut kept_entries = Vec::new();
+    let mut kept_contents = Vec::new();
+    for (index, entry) in listed.into_iter().enumerate() {
+        if replaced[index] {
+            moved.push(None);
+            continue;
+        }
+        let content = match contents[index] {
+            Content::HardLink(target) => match moved[target] {
+                Some(target) => Content::HardLink(target),
+                None => contents[target].clone(),
+            },
+            ref content => content.clone(),
+        };
+        moved.push(Some(kept_entries.len()));
+        kept_entries.push(entry);
+        kept_contents.push(content);
+    }
+    (kept_entries, kept_contents)
 }
 
 // What an entry is, how large, and where its content is; `None` for one
@@ -394,6 +432,7 @@ fn member<R: Read>(
     pax: &PaxRecords,
     listed: &[ArchiveEntry],
     contents: &[Content],
+    latest: &HashMap<Vec<String>, usize>,
 ) -> Option<(ArchiveEntryKind, u64, Content)> {
     let link_name = || {
         entry
@@ -438,9 +477,10 @@ fn member<R: Read>(
         // and a link to a link shares that of the first.
         EntryType::Link => {
             let target = split_name(&link_name());
-            let found = listed.iter().rposition(|listed| {
-                listed.kind == ArchiveEntryKind::File && listed.components == target
-            });
+            let found = latest
+                .get(&target)
+                .copied()
+                .filter(|&index| listed[index].kind == ArchiveEntryKind::File);
             match found {
                 Some(index) => (
                     ArchiveEntryKind::File,
@@ -672,6 +712,39 @@ mod tests {
             reader.open(2, None),
             Err(ArchiveError::Invalid(message)) if message.contains("hard link")
         ));
+    }
+
+    #[test]
+    fn a_later_entry_replaces_an_earlier_one_and_a_hard_link_between_keeps_the_earlier_content() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.tar");
+        {
+            let mut builder = Builder::new(File::create(&path).unwrap());
+            let mut first = header(EntryType::Regular, 3, None, 0o644);
+            builder.append_data(&mut first, "f", &b"one"[..]).unwrap();
+            let mut link = header_of(EntryType::Link);
+            builder.append_link(&mut link, "same", "f").unwrap();
+            let mut second = header(EntryType::Regular, 4, None, 0o644);
+            builder.append_data(&mut second, "f", &b"two!"[..]).unwrap();
+            let mut later = header_of(EntryType::Link);
+            builder.append_link(&mut later, "later", "f").unwrap();
+            builder.finish().unwrap();
+        }
+
+        let mut reader = TarReader::open(&path, Compression::None).unwrap();
+
+        let names: Vec<&str> = reader
+            .entries()
+            .iter()
+            .map(|entry| entry.components[0].as_str())
+            .collect();
+        assert_eq!(names, ["same", "f", "later"]);
+        assert_eq!(reader.entries()[1].size, 4);
+        assert_eq!(reader.hard_link_target(0), None);
+        assert_eq!(reader.hard_link_target(2), Some(1));
+        assert_eq!(content(&mut reader, 0), b"one");
+        assert_eq!(content(&mut reader, 1), b"two!");
+        assert_eq!(content(&mut reader, 2), b"two!");
     }
 
     #[test]
