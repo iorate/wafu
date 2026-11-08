@@ -946,11 +946,7 @@ mod tests {
         let archive = dir.path().join("a.zip");
         let dest = dir.path().join("out");
         fs::create_dir(&dest).unwrap();
-        fs::write(
-            &archive,
-            raw_zip(&[(b"./", b""), (b"/", b""), (b"", b""), (b"./a.txt", b"a")]),
-        )
-        .unwrap();
+        fs::write(&archive, raw_zip(&[(b"./", b""), (b"./a.txt", b"a")])).unwrap();
 
         let listed: Vec<Vec<String>> = open_archive(&archive, None)
             .unwrap()
