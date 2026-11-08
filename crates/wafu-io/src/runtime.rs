@@ -1071,7 +1071,7 @@ mod tests {
             writer.finish().unwrap();
         }
         let (runtime, events) = runtime();
-        let root = Location::archive_root(archive.clone(), wafu_core::ArchiveFormat::Zip);
+        let root = Location::archive_root(archive.clone(), Some(wafu_core::ArchiveFormat::Zip));
 
         runtime.run(Effect::ReadDir {
             side: Side::Left,
@@ -1540,7 +1540,7 @@ mod tests {
     fn read_archive(path: &Path, side: Side, request: u64) -> Effect {
         Effect::ReadDir {
             side,
-            location: Location::archive_root(path.to_path_buf(), wafu_core::ArchiveFormat::Zip),
+            location: Location::archive_root(path.to_path_buf(), Some(wafu_core::ArchiveFormat::Zip)),
             request: RequestId(request),
         }
     }

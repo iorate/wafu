@@ -13,12 +13,16 @@ authors.workspace = true
 
 [dependencies]
 arboard.workspace = true
+bzip2.workspace = true
 chrono.workspace = true
 dirs.workspace = true
+flate2.workspace = true
 image.workspace = true
+lzma-rust2.workspace = true
 notify.workspace = true
 open.workspace = true
 same-file.workspace = true
+tar.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 wafu-core.workspace = true

@@ -155,8 +155,14 @@ impl App {
         if name.is_empty() {
             return;
         }
+        let format = ArchiveFormat::from_name(OsStr::new(name)).unwrap_or(ArchiveFormat::Zip);
+        if !password.is_empty() && !format.takes_password() {
+            let name = OsString::from(name);
+            self.log.push(AppError::NoPassword { name }.to_string());
+            return;
+        }
         let output = ArchiveOutput {
-            format: ArchiveFormat::from_name(OsStr::new(name)).unwrap_or(ArchiveFormat::Zip),
+            format,
             name: OsString::from(name),
             password: (!password.is_empty()).then(|| password.to_owned()),
         };

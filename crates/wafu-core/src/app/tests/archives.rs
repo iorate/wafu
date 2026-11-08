@@ -70,7 +70,7 @@ fn enter_on_a_link_named_like_an_archive_opens_its_target_as_an_archive() {
             },
             Effect::ReadDir {
                 side: Side::Left,
-                location: Location::archive_root(path(LEFT, "link.zip"), ArchiveFormat::Zip),
+                location: Location::archive_root(path(LEFT, "link.zip"), Some(ArchiveFormat::Zip)),
                 request: harness.latest_request(Side::Left),
             },
         ]
@@ -89,7 +89,7 @@ fn enter_as_archive_opens_any_file_but_not_a_directory() {
     assert!(matches!(
         effects.as_slice(),
         [Effect::Watch { .. }, Effect::ReadDir { location, .. }]
-            if *location == Location::archive_root(path(LEFT, "note.txt"), ArchiveFormat::Zip)
+            if *location == Location::archive_root(path(LEFT, "note.txt"), None)
     ));
     harness.press("Esc");
     harness.press("Up");
@@ -100,6 +100,35 @@ fn enter_as_archive_opens_any_file_but_not_a_directory() {
 
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(harness.cursor_name(Side::Left), "d");
+}
+
+#[test]
+fn enter_on_a_tar_enters_it_with_the_format_of_its_extension() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("a.tar.gz"), file("b.gz")]);
+    harness.load(Side::Right, vec![]);
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("Enter");
+
+    let effects = harness.take_effects();
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Watch { .. }, Effect::ReadDir { location, .. }]
+            if *location
+                == Location::archive_root(path(LEFT, "a.tar.gz"), Some(ArchiveFormat::TarGz))
+    ));
+    harness.press("Esc");
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("Enter");
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::LoadPreview { .. }]
+    ));
 }
 
 #[test]
@@ -477,7 +506,7 @@ fn rename_on_the_parent_row_of_an_archive_root_renames_the_archive_and_follows_i
     assert!(matches!(
         effects.as_slice(),
         [Effect::Watch { .. }, Effect::ReadDir { location, .. }]
-            if *location == Location::archive_root(path(LEFT, "b.zip"), ArchiveFormat::Zip)
+            if *location == Location::archive_root(path(LEFT, "b.zip"), Some(ArchiveFormat::Zip))
     ));
 }
 
@@ -513,7 +542,7 @@ fn compress_asks_for_the_name_and_a_password_in_one_popup() {
     assert_eq!(popup.message, None);
     assert_eq!(
         popup.note.as_deref(),
-        Some("Leave the password empty for no encryption")
+        Some("zip, tar, tar.gz, tar.bz2, or tar.xz; only zip takes a password")
     );
     let labels: Vec<&str> = popup.fields.iter().map(|field| field.label).collect();
     assert_eq!(labels, ["Name", "Password"]);
@@ -569,6 +598,46 @@ fn compress_takes_the_password_typed_in_the_second_field() {
             name: "backup.zip".into(),
             password: Some("hunter2".to_owned()),
         })
+    );
+}
+
+#[test]
+fn compress_takes_the_format_from_the_extension_typed() {
+    let mut harness = outside();
+    harness.press("Down");
+    harness.press("P");
+    harness.edit("backup.tar.gz");
+    harness.take_effects();
+
+    harness.press("Enter");
+
+    let spec = harness.start_operation().unwrap();
+    assert_eq!(
+        spec.output,
+        Some(ArchiveOutput {
+            format: ArchiveFormat::TarGz,
+            name: "backup.tar.gz".into(),
+            password: None,
+        })
+    );
+}
+
+#[test]
+fn compress_refuses_a_password_for_a_tar() {
+    let mut harness = outside();
+    harness.press("Down");
+    harness.press("P");
+    harness.edit("backup.tar.gz");
+    harness.edit_field(1, "hunter2");
+    harness.take_effects();
+
+    harness.press("Enter");
+
+    assert!(harness.popup().is_none());
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log().last().map(String::as_str),
+        Some("cannot make backup.tar.gz: only zip takes a password")
     );
 }
 
@@ -1048,7 +1117,7 @@ fn an_external_command_on_the_parent_row_with_marks_extracts_the_marks_alone() {
         Sources::Entries(ArchiveEntries {
             archive: archive(),
             path: ArchivePath {
-                format: ArchiveFormat::Zip,
+                format: Some(ArchiveFormat::Zip),
                 inner: vec!["docs".to_owned()],
             },
             names: vec!["x".to_owned()],
@@ -1349,14 +1418,14 @@ fn archive() -> PathBuf {
 }
 
 fn root() -> Location {
-    Location::archive_root(archive(), ArchiveFormat::Zip)
+    Location::archive_root(archive(), Some(ArchiveFormat::Zip))
 }
 
 fn entries(names: &[&str], password: Option<&str>) -> ArchiveEntries {
     ArchiveEntries {
         archive: archive(),
         path: ArchivePath {
-            format: ArchiveFormat::Zip,
+            format: Some(ArchiveFormat::Zip),
             inner: Vec::new(),
         },
         names: names.iter().map(|name| (*name).to_owned()).collect(),

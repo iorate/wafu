@@ -1,4 +1,4 @@
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 
 use crate::app::Os;
@@ -7,6 +7,7 @@ use crate::config::Bookmark;
 use crate::history::History;
 use crate::key::{Key, KeyBase, NamedKey};
 use crate::listing::{SortKey, SortSpec};
+use crate::location::ArchiveFormat;
 use crate::view::{InputField, ItemKind, PopupItem};
 
 const ITEM_KEYS: &str = "0123456789abcdefghijklmnopqrstuvwxyz";
@@ -405,7 +406,7 @@ impl InputPopup {
     pub fn note(&self) -> Option<String> {
         match self.kind {
             InputKind::Compress { .. } => {
-                Some("Leave the password empty for no encryption".to_owned())
+                Some("zip, tar, tar.gz, tar.bz2, or tar.xz; only zip takes a password".to_owned())
             }
             _ => None,
         }
@@ -647,12 +648,8 @@ impl PalettePopup {
 /// extension, or nothing special when there is none.
 #[must_use]
 pub fn stem_selection(name: &str) -> Option<(usize, usize)> {
-    name.char_indices()
-        .skip(1)
-        .filter(|&(_, c)| c == '.')
-        .map(|(index, _)| index)
-        .last()
-        .map(|index| (0, index))
+    let stem = ArchiveFormat::stem_of(OsStr::new(name)).len();
+    (stem > 0 && stem < name.len()).then_some((0, stem))
 }
 
 // The popups that pick a row. The rules for keys and the mouse live in

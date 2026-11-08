@@ -226,7 +226,7 @@ mod tests {
             path: archive.to_path_buf(),
             entry: Some((
                 ArchivePath {
-                    format: ArchiveFormat::Zip,
+                    format: Some(ArchiveFormat::Zip),
                     inner: inner.iter().map(|part| (*part).to_owned()).collect(),
                 },
                 name.to_owned(),

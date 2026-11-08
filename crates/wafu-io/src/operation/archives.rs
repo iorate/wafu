@@ -1020,7 +1020,7 @@ mod tests {
             }
         );
         assert_eq!(done_indices(&events), [0, 1]);
-        let mut reader = open_archive(&dest.join("x.zip"), ArchiveFormat::Zip).unwrap();
+        let mut reader = open_archive(&dest.join("x.zip"), Some(ArchiveFormat::Zip)).unwrap();
         let names: Vec<Vec<String>> = reader
             .entries()
             .iter()
@@ -1070,7 +1070,7 @@ mod tests {
                 skipped: 0
             }
         );
-        let mut reader = open_archive(&dest.join("x.zip"), ArchiveFormat::Zip).unwrap();
+        let mut reader = open_archive(&dest.join("x.zip"), Some(ArchiveFormat::Zip)).unwrap();
         let mut target = String::new();
         reader
             .open(0, None)
@@ -1118,7 +1118,7 @@ mod tests {
         let (outcome, _) = run(&compress(&[src], &dest, "a.zip", Some("pw")), []);
 
         assert!(matches!(outcome, Outcome::Completed { done: 1, .. }));
-        let mut reader = open_archive(&dest.join("a.zip"), ArchiveFormat::Zip).unwrap();
+        let mut reader = open_archive(&dest.join("a.zip"), Some(ArchiveFormat::Zip)).unwrap();
         assert!(matches!(
             reader.open(0, None),
             Err(ArchiveError::PasswordRequired)
@@ -1153,7 +1153,7 @@ mod tests {
             [Reply::Overwrite { all: false }],
         );
         assert!(matches!(outcome, Outcome::Completed { done: 1, .. }));
-        assert!(open_archive(&dest.join("a.zip"), ArchiveFormat::Zip).is_ok());
+        assert!(open_archive(&dest.join("a.zip"), Some(ArchiveFormat::Zip)).is_ok());
 
         let (outcome, _) = run(
             &compress(&[dir.path().to_path_buf()], &dest, "a.zip", None),
@@ -1304,7 +1304,7 @@ mod tests {
         ArchiveEntries {
             archive: archive.to_path_buf(),
             path: ArchivePath {
-                format: ArchiveFormat::Zip,
+                format: Some(ArchiveFormat::Zip),
                 inner: inner.iter().map(|s| (*s).to_owned()).collect(),
             },
             names: names.iter().map(|s| (*s).to_owned()).collect(),

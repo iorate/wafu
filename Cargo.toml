@@ -16,6 +16,10 @@ repository = "https://github.com/iorate/wafu"
 authors = ["iorate"]
 
 [workspace.dependencies]
+bzip2 = "0.6.1"
+flate2 = { version = "1.1.10", default-features = false, features = ["zlib-rs"] }
+lzma-rust2 = { version = "0.25.0", default-features = false, features = ["std", "encoder", "xz"] }
+tar = { version = "0.4.46", default-features = false }
 arboard = { version = "3.7.0", default-features = false, features = ["wayland-data-control"] }
 chardetng = "1.0.0"
 chrono = "0.4.45"
