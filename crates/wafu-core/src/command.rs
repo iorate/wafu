@@ -220,6 +220,10 @@ impl Command {
                     | Self::NextMark
                     | Self::PrevMark
                     | Self::ClearMarks
+                    | Self::PaneShrinkLeft
+                    | Self::PaneGrowLeft
+                    | Self::LogShrink
+                    | Self::LogGrow
             ),
             Context::Text | Context::Binary => false,
         }

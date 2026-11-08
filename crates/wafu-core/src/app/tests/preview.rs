@@ -596,6 +596,66 @@ fn the_right_pane_and_right_clicks_are_ignored_beside_a_right_pane_image() {
 }
 
 #[test]
+fn the_divider_moves_beside_a_right_pane_image_but_not_under_a_full_one() {
+    let mut harness = image();
+
+    harness.send(Msg::Mouse(MouseInput::SplitTo { percent: 70 }));
+
+    assert_eq!(harness.view().split_percent, 70);
+    assert!(harness.view().preview.is_some());
+
+    harness.press("Esc");
+    harness.press("Tab");
+    harness.press("Down");
+    harness.press("Enter");
+    assert_eq!(
+        harness.view().preview.unwrap().placement,
+        PreviewPlacement::Full
+    );
+
+    harness.send(Msg::Mouse(MouseInput::SplitTo { percent: 30 }));
+
+    assert_eq!(harness.view().split_percent, 70);
+}
+
+#[test]
+fn layout_keys_move_only_the_dividers_on_screen_during_an_image_preview() {
+    let mut harness = image();
+
+    harness.press("Alt+Right");
+    harness.press("Alt+Up");
+
+    assert_eq!(harness.view().split_percent, 55);
+    assert_eq!(harness.view().log_rows, 7);
+    assert!(harness.view().preview.is_some());
+
+    harness.press("Esc");
+    harness.press("Tab");
+    harness.press("Down");
+    harness.press("Enter");
+    harness.press("Alt+Right");
+    harness.press("Alt+Up");
+
+    assert_eq!(harness.view().split_percent, 55);
+    assert_eq!(harness.view().log_rows, 8);
+
+    harness.config("[general]\nhide_log_in_preview = true\n");
+    harness.press("Alt+Up");
+
+    assert_eq!(harness.view().log_rows, 8);
+}
+
+#[test]
+fn the_log_divider_moves_under_a_preview() {
+    let mut harness = document();
+
+    harness.send(Msg::Mouse(MouseInput::LogRowsTo { rows: 9 }));
+
+    assert_eq!(harness.view().log_rows, 9);
+    assert!(harness.view().preview.is_some());
+}
+
+#[test]
 fn mouse_clicks_are_ignored_during_a_full_image_preview() {
     let mut harness = listing();
     harness.press("Tab");

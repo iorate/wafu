@@ -82,6 +82,13 @@ pub enum MouseInput {
     LogWheel { rows: i32 },
     /// The log's scrollbar was dragged; same as `ScrollTo`.
     LogScrollTo { top: usize },
+    /// The divider between the panes was dragged to put the left pane at
+    /// `percent` of the width. It is rounded to the step of the keys and
+    /// clamped.
+    SplitTo { percent: u8 },
+    /// The divider above the log was dragged to show `rows` lines. It is
+    /// clamped.
+    LogRowsTo { rows: usize },
     /// Wheel movement over a text or binary preview, in rows.
     PreviewWheel { rows: i32 },
     /// A double click on a preview of any kind.
@@ -687,12 +694,24 @@ impl App {
             MouseInput::ScrollTo { side, top } => self.panes[side.index()].scroll_to(top),
             MouseInput::LogWheel { rows } => self.log.scroll_by(i64::from(rows)),
             MouseInput::LogScrollTo { top } => self.log.scroll_to(top),
+            MouseInput::SplitTo { percent } => self.split_to(percent),
+            MouseInput::LogRowsTo { rows } => self.log_rows_to(rows),
             MouseInput::PreviewWheel { .. }
             | MouseInput::PreviewDoubleClick
             | MouseInput::PopupClick { .. }
             | MouseInput::PopupDoubleClick { .. }
             | MouseInput::PopupWheel { .. } => {}
         }
+    }
+
+    fn split_to(&mut self, percent: u8) {
+        let rounded = (percent.min(100) + SPLIT_STEP / 2) / SPLIT_STEP * SPLIT_STEP;
+        self.split_percent = rounded.clamp(SPLIT_MIN, SPLIT_MAX);
+    }
+
+    fn log_rows_to(&mut self, rows: usize) {
+        self.log
+            .set_viewport_rows(rows.clamp(LOG_ROWS_MIN, LOG_ROWS_MAX));
     }
 
     fn io_event(&mut self, event: IoEvent, effects: &mut Vec<Effect>) {
