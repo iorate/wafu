@@ -58,6 +58,7 @@ fn main() -> ExitCode {
         right: cli.right.map(absolute),
         home,
         os: os(),
+        elevated: wafu_io::is_elevated(),
         config_path,
         config,
         state,

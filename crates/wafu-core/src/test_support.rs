@@ -479,6 +479,7 @@ pub(crate) fn start_msg_with(
         right: right.map(PathBuf::from),
         home: PathBuf::from(HOME),
         os,
+        elevated: false,
         config_path: PathBuf::from(CONFIG_PATH),
         config,
         state,

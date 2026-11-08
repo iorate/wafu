@@ -60,6 +60,7 @@ const DEFAULT_FILELIST: &[(&str, &str)] = &[
     ("F1", "palette"),
     ("Z", "edit_config"),
     ("Alt+Z", "new_window"),
+    ("Alt+Shift+Z", "new_window_as_admin"),
     ("Q", "quit"),
     ("Shift+Q", "quit_without_saving"),
     ("Alt+Left", "pane_shrink_left"),
@@ -92,6 +93,7 @@ const DEFAULT_IMAGE: &[(&str, &str)] = &[
     ("Esc", "close_preview"),
     ("F1", "palette"),
     ("Alt+Z", "new_window"),
+    ("Alt+Shift+Z", "new_window_as_admin"),
     ("Alt+Left", "pane_shrink_left"),
     ("Alt+Right", "pane_grow_left"),
     ("Alt+Up", "log_grow"),
@@ -115,6 +117,7 @@ const DEFAULT_TEXT: &[(&str, &str)] = &[
     ("Esc", "close_preview"),
     ("F1", "palette"),
     ("Alt+Z", "new_window"),
+    ("Alt+Shift+Z", "new_window_as_admin"),
     ("Alt+Up", "log_grow"),
     ("Alt+Down", "log_shrink"),
     ("Shift+Up", "log_scroll_up"),
@@ -264,9 +267,17 @@ mod tests {
 
             assert_eq!(
                 keymap.bindings(Context::FileList).count(),
-                DEFAULT_FILELIST.len() + 36 - 4
+                DEFAULT_FILELIST.len() + 36 - 5
             );
-            for key in ["L", "Ctrl+Left", "Ctrl+Right", "\\"] {
+            assert_eq!(
+                keymap.bindings(Context::Image).count(),
+                DEFAULT_IMAGE.len() - 1
+            );
+            assert_eq!(
+                keymap.bindings(Context::Text).count(),
+                DEFAULT_TEXT.len() - 1
+            );
+            for key in ["L", "Ctrl+Left", "Ctrl+Right", "\\", "Alt+Shift+Z"] {
                 assert_eq!(
                     keymap.lookup(Context::FileList, &key.parse().unwrap()),
                     None,

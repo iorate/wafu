@@ -1055,7 +1055,7 @@ fn the_state_saves_the_directory_holding_the_archive() {
 
     harness.press("Alt+Z");
     let effects = harness.take_effects();
-    let [Effect::SpawnNewWindow(state)] = effects.as_slice() else {
+    let [Effect::SpawnNewWindow { state, .. }] = effects.as_slice() else {
         panic!("expected SpawnNewWindow, got {effects:?}");
     };
     assert_eq!(state.left.path, Some(PathBuf::from(LEFT)));

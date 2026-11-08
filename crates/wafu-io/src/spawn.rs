@@ -1,4 +1,4 @@
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::path::Path;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::thread;
@@ -43,7 +43,11 @@ pub(crate) fn wait_in_background(
         });
 }
 
-pub(crate) fn spawn_new_window(handoff: &Path, config: Option<&Path>) -> std::io::Result<()> {
+pub(crate) fn spawn_new_window(
+    handoff: &Path,
+    config: Option<&Path>,
+    as_admin: bool,
+) -> std::io::Result<()> {
     let exe = std::env::current_exe()?;
     let mut args = vec![
         OsStr::new("--inherit").to_owned(),
@@ -53,9 +57,78 @@ pub(crate) fn spawn_new_window(handoff: &Path, config: Option<&Path>) -> std::io
         args.push(OsStr::new("--config").to_owned());
         args.push(config.as_os_str().to_owned());
     }
+    if as_admin {
+        return spawn_elevated(&exe, &args);
+    }
     let child = spawn(exe, &args, None)?;
     wait_in_background(child, |_| {});
     Ok(())
+}
+
+// The elevated process is started by the shell, which asks through UAC; a
+// refusal comes back as `ERROR_CANCELLED`. Error dialogs of the shell are
+// suppressed so that every failure reaches the log instead.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn spawn_elevated(exe: &Path, args: &[OsString]) -> std::io::Result<()> {
+    use windows::Win32::UI::Shell::{
+        SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC, SHELLEXECUTEINFOW, ShellExecuteExW,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    use windows::core::{HSTRING, w};
+
+    use crate::com::ComScope;
+
+    let file = HSTRING::from(exe.as_os_str());
+    let parameters = command_line(args);
+    let _com = ComScope::enter();
+    let mut info = SHELLEXECUTEINFOW {
+        // The struct is a few dozen bytes.
+        #[allow(clippy::cast_possible_truncation)]
+        cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+        fMask: SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI,
+        lpVerb: w!("runas"),
+        lpFile: windows::core::PCWSTR(file.as_ptr()),
+        lpParameters: windows::core::PCWSTR(parameters.as_ptr()),
+        nShow: SW_SHOWNORMAL.0,
+        ..Default::default()
+    };
+    // SAFETY: `info` is fully initialized, and the strings it points to
+    // outlive the call.
+    unsafe { ShellExecuteExW(&raw mut info) }.map_err(std::io::Error::other)
+}
+
+#[cfg(not(windows))]
+fn spawn_elevated(_exe: &Path, _args: &[OsString]) -> std::io::Result<()> {
+    Err(std::io::Error::other(
+        "starting a window as administrator is available only on Windows",
+    ))
+}
+
+// The arguments are paths, which cannot contain a double quote on Windows, so
+// quoting only has to cover spaces.
+#[cfg(windows)]
+fn command_line(args: &[OsString]) -> Vec<u16> {
+    use std::os::windows::ffi::OsStrExt;
+
+    let mut line = Vec::new();
+    for (index, arg) in args.iter().enumerate() {
+        if index > 0 {
+            line.push(u16::from(b' '));
+        }
+        let quoted = arg
+            .encode_wide()
+            .any(|c| c == u16::from(b' ') || c == u16::from(b'\t'));
+        if quoted {
+            line.push(u16::from(b'"'));
+        }
+        line.extend(arg.encode_wide());
+        if quoted {
+            line.push(u16::from(b'"'));
+        }
+    }
+    line.push(0);
+    line
 }
 
 #[cfg(test)]

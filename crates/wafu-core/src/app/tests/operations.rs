@@ -136,7 +136,7 @@ fn an_operation_blocks_everything_but_cancel_and_new_window() {
     harness.press("Alt+Z");
     assert!(matches!(
         harness.take_effects().as_slice(),
-        [Effect::SpawnNewWindow(_)]
+        [Effect::SpawnNewWindow { .. }]
     ));
 
     harness.press("Esc");

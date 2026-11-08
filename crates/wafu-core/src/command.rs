@@ -81,6 +81,7 @@ const NAMES: &[(Command, &str)] = &[
     (Command::Palette, "palette"),
     (Command::EditConfig, "edit_config"),
     (Command::NewWindow, "new_window"),
+    (Command::NewWindowAsAdmin, "new_window_as_admin"),
     (Command::Quit, "quit"),
     (Command::QuitWithoutSaving, "quit_without_saving"),
     (Command::Nop, "nop"),
@@ -171,6 +172,7 @@ pub enum Command {
     Palette,
     EditConfig,
     NewWindow,
+    NewWindowAsAdmin,
     Quit,
     QuitWithoutSaving,
     Nop,
@@ -212,7 +214,11 @@ impl Command {
         os == Os::Windows
             || !matches!(
                 self,
-                Self::Drives | Self::DrivePrev | Self::DriveNext | Self::ShellMenu
+                Self::Drives
+                    | Self::DrivePrev
+                    | Self::DriveNext
+                    | Self::ShellMenu
+                    | Self::NewWindowAsAdmin
             )
     }
 
@@ -270,9 +276,17 @@ impl Command {
                         | Self::ClosePreview
                         | Self::Palette
                         | Self::NewWindow
+                        | Self::NewWindowAsAdmin
                 )
             }
-            Context::Text => preview || log || matches!(self, Self::Palette | Self::NewWindow),
+            Context::Text => {
+                preview
+                    || log
+                    || matches!(
+                        self,
+                        Self::Palette | Self::NewWindow | Self::NewWindowAsAdmin
+                    )
+            }
         }
     }
 

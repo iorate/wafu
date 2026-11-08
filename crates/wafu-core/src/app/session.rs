@@ -111,8 +111,11 @@ impl App {
         effects.push(Effect::Quit);
     }
 
-    pub(super) fn new_window(&mut self, effects: &mut Vec<Effect>) {
-        effects.push(Effect::SpawnNewWindow(self.state_file()));
+    pub(super) fn new_window(&mut self, as_admin: bool, effects: &mut Vec<Effect>) {
+        effects.push(Effect::SpawnNewWindow {
+            state: self.state_file(),
+            as_admin,
+        });
     }
 
     pub(super) fn run_external(&mut self, name: &str, effects: &mut Vec<Effect>) {
@@ -154,9 +157,9 @@ impl App {
             (SpawnKind::External { program, .. }, Some(source)) => {
                 AppError::SpawnFailed { program, source }.to_string()
             }
-            (SpawnKind::NewWindow, None) => return,
-            (SpawnKind::NewWindow, Some(source)) => {
-                AppError::NewWindowFailed { source }.to_string()
+            (SpawnKind::NewWindow { .. }, None) => return,
+            (SpawnKind::NewWindow { as_admin }, Some(source)) => {
+                AppError::NewWindowFailed { as_admin, source }.to_string()
             }
         };
         self.log.push(line);

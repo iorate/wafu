@@ -11,6 +11,7 @@ mod color_scheme;
 mod com;
 mod config;
 mod drives;
+mod elevation;
 mod fs_ops;
 #[cfg(windows)]
 mod message;
@@ -33,6 +34,7 @@ mod window_icon;
 mod window_place;
 
 pub use config::read_or_create;
+pub use elevation::is_elevated;
 #[cfg(windows)]
 pub use message::show_message;
 pub use paths::{config_path, is_wayland, state_path};

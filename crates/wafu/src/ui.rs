@@ -165,9 +165,11 @@ impl Ui {
                 Effect::SaveState(state) => {
                     self.runtime.run(Effect::SaveState(self.with_window(state)));
                 }
-                Effect::SpawnNewWindow(state) => {
-                    self.runtime
-                        .run(Effect::SpawnNewWindow(self.with_window(state)));
+                Effect::SpawnNewWindow { state, as_admin } => {
+                    self.runtime.run(Effect::SpawnNewWindow {
+                        state: self.with_window(state),
+                        as_admin,
+                    });
                 }
                 Effect::Quit => {
                     let _ = slint::quit_event_loop();
