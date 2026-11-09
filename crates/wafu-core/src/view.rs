@@ -281,7 +281,7 @@ impl PaneView {
         let bytes = size_with_unit(pane.size_format(), bytes);
         let filter = pane
             .filter()
-            .map(|filter| format!(" | filter: {filter}"))
+            .map(|filter| format!(" | filter: {}", show_line_breaks(filter.to_string())))
             .unwrap_or_default();
         let descending = if pane.sort().descending { " desc" } else { "" };
         let hidden = if pane.show_hidden() { "on" } else { "off" };

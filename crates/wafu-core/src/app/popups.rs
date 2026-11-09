@@ -175,7 +175,6 @@ impl App {
         };
         Some(PopupView {
             message: view.message.map(show_line_breaks),
-            note: view.note.map(show_line_breaks),
             items: view.items.map(|items| {
                 items
                     .into_iter()

@@ -566,7 +566,7 @@ fn a_failed_decode_shows_line_breaks_in_the_name_as_symbols() {
         harness.view().preview.unwrap().content,
         PreviewContent::Message(format!(
             "cannot preview {}: bad png",
-            PathBuf::from(LEFT).join("a\u{23CE}.png").display()
+            PathBuf::from(LEFT).join("a\u{21B5}.png").display()
         ))
     );
 }

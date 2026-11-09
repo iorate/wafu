@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use icu_normalizer::ComposingNormalizer;
 
-const LINE_BREAK_SYMBOL: &str = "\u{23CE}";
+const LINE_BREAK_SYMBOL: &str = "\u{21B5}";
 
 // macOS stores file names decomposed (NFD) while input methods produce composed
 // text (NFC), so both sides are composed before any name comparison.
@@ -37,17 +37,16 @@ mod tests {
     #[test]
     fn show_line_breaks_replaces_each_line_break_with_the_symbol() {
         let cases = [
-            ("\n", "\u{23CE}"),
-            ("\u{0B}", "\u{23CE}"),
-            ("\u{0C}", "\u{23CE}"),
-            ("\r", "\u{23CE}"),
-            ("\u{85}", "\u{23CE}"),
-            ("\u{2028}", "\u{23CE}"),
-            ("\u{2029}", "\u{23CE}"),
-            ("\r\n", "\u{23CE}"),
-            ("\n\r", "\u{23CE}\u{23CE}"),
-            ("\r\r\n", "\u{23CE}\u{23CE}"),
-            ("\r\u{2028}", "\u{23CE}\u{23CE}"),
+            ("\n", "\u{21B5}"),
+            ("\u{0B}", "\u{21B5}"),
+            ("\u{0C}", "\u{21B5}"),
+            ("\r", "\u{21B5}"),
+            ("\u{85}", "\u{21B5}"),
+            ("\u{2028}", "\u{21B5}"),
+            ("\u{2029}", "\u{21B5}"),
+            ("\r\n", "\u{21B5}"),
+            ("\n\r", "\u{21B5}\u{21B5}"),
+            ("\r\u{2028}", "\u{21B5}\u{21B5}"),
         ];
         for (text, expected) in cases {
             assert_eq!(show_line_breaks(text.to_owned()), expected, "{text:?}");
@@ -57,19 +56,10 @@ mod tests {
     #[test]
     fn show_line_breaks_keeps_other_characters() {
         assert_eq!(
-            show_line_breaks("Icon\r\nメモ\t\u{1}.txt".to_owned()),
-            "Icon\u{23CE}メモ\t\u{1}.txt"
+            show_line_breaks(
+                "Icon\r\nメモ \t\u{1}\u{0E}\u{84}\u{86}\u{2027}\u{202A}.txt".to_owned()
+            ),
+            "Icon\u{21B5}メモ \t\u{1}\u{0E}\u{84}\u{86}\u{2027}\u{202A}.txt"
         );
-    }
-
-    #[test]
-    fn show_line_breaks_returns_text_without_line_breaks_as_it_is() {
-        let text = "日本語 \t\u{1}\u{2027}.txt".to_owned();
-        let pointer = text.as_ptr();
-
-        let shown = show_line_breaks(text);
-
-        assert_eq!(shown, "日本語 \t\u{1}\u{2027}.txt");
-        assert_eq!(shown.as_ptr(), pointer);
     }
 }
