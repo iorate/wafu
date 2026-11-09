@@ -717,6 +717,34 @@ editor = "\"unterminated"
     }
 
     #[test]
+    fn each_font_area_is_read_into_its_own_font() {
+        let areas = [
+            "path", "filelist", "info", "log", "status", "preview", "popup",
+        ];
+        let text = areas
+            .map(|area| format!("[appearance.font.{area}]\nfamily = \"{area}\"\n"))
+            .concat();
+
+        let (config, diagnostics) = parse(&text, Os::Linux).unwrap();
+
+        assert_eq!(diagnostics, Vec::new());
+        let fonts = &config.appearance.font;
+        assert_eq!(
+            [
+                &fonts.path,
+                &fonts.filelist,
+                &fonts.info,
+                &fonts.log,
+                &fonts.status,
+                &fonts.preview,
+                &fonts.popup,
+            ]
+            .map(|font| font.family.as_deref()),
+            areas.map(Some)
+        );
+    }
+
+    #[test]
     fn keys_are_checked_against_the_commands_and_the_context() {
         let text = r#"
 [commands.term]

@@ -288,6 +288,38 @@ mod tests {
     }
 
     #[test]
+    fn keys_for_lists_the_keys_in_display_order() {
+        let mut keymap = KeyMap::default_for(Os::Windows);
+        for key in ["Ctrl+R", "Shift+F5", "Alt+R"] {
+            keymap.bind(
+                Context::FileList,
+                key.parse().unwrap(),
+                Some(Command::Reload),
+            );
+        }
+
+        assert_eq!(
+            key_names(&keymap, Context::FileList, &Command::Reload),
+            ["Alt+R", "Ctrl+R", "F5", "Shift+F5"]
+        );
+    }
+
+    #[test]
+    fn keys_for_leaves_out_keys_bound_in_another_context() {
+        let mut keymap = KeyMap::default_for(Os::Windows);
+        keymap.bind(
+            Context::Text,
+            "Ctrl+Q".parse().unwrap(),
+            Some(Command::LogGrow),
+        );
+
+        assert_eq!(
+            key_names(&keymap, Context::FileList, &Command::LogGrow),
+            ["Alt+Up"]
+        );
+    }
+
+    #[test]
     fn every_default_binding_is_available_in_its_context() {
         let keymap = KeyMap::default_for(Os::Windows);
 
@@ -299,5 +331,13 @@ mod tests {
                 );
             }
         }
+    }
+
+    fn key_names(keymap: &KeyMap, context: Context, command: &Command) -> Vec<String> {
+        keymap
+            .keys_for(context, command)
+            .iter()
+            .map(ToString::to_string)
+            .collect()
     }
 }

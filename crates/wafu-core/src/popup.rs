@@ -1019,6 +1019,40 @@ mod tests {
     }
 
     #[test]
+    fn sort_popup_letters_flip_toggles_and_pick_a_key_with_them() {
+        let mut popup = SortPopup::new(SortSpec::default());
+
+        assert_eq!(menu_input(&mut popup, key("D")), Response::Stay);
+        assert_eq!(menu_input(&mut popup, key("G")), Response::Stay);
+        assert_eq!(menu_input(&mut popup, key("C")), Response::Stay);
+        let toggled = SortSpec {
+            descending: true,
+            dirs_first: false,
+            ignore_case: false,
+            ..SortSpec::default()
+        };
+        assert_eq!(popup.draft, toggled);
+        assert_eq!(
+            menu_input(&mut popup, key("E")),
+            Response::Pick(SortSpec {
+                key: SortKey::Extension,
+                ..toggled
+            })
+        );
+    }
+
+    #[test]
+    fn password_popup_names_the_archive_and_says_when_the_password_was_wrong() {
+        let archive = PathBuf::from("/a/b.zip");
+
+        let first = InputPopup::password(archive.clone(), false, PasswordPurpose::Operation);
+        let retry = InputPopup::password(archive, true, PasswordPurpose::Operation);
+
+        assert_eq!(first.message().as_deref(), Some("b.zip"));
+        assert_eq!(retry.message().as_deref(), Some("Wrong password for b.zip"));
+    }
+
+    #[test]
     fn choice_cursor_skips_the_separator_and_wraps() {
         let mut popup = ChoicePopup::quit_during_operation(None);
         assert_eq!(popup.cursor, 1);
@@ -1033,6 +1067,16 @@ mod tests {
     }
 
     #[test]
+    fn delete_confirm_names_a_single_entry_and_counts_several() {
+        let one = ChoicePopup::delete_confirm(PathBuf::from("/d"), vec!["a".into()]);
+        let two = ChoicePopup::delete_confirm(PathBuf::from("/d"), vec!["a".into(), "b".into()]);
+
+        assert_eq!(one.message, "Delete \"a\"?");
+        assert_eq!(two.message, "Delete 2 items?");
+        assert_eq!(one.cursor, 1);
+    }
+
+    #[test]
     fn conflict_popup_flips_apply_to_all_and_picks_the_rest() {
         let mut popup = ConflictPopup::new(PathBuf::from("/a/x"), PathBuf::from("/b/x"), false);
 
@@ -1040,6 +1084,84 @@ mod tests {
         assert!(popup.all);
         assert_eq!(popup.run(3), Response::Pick(ConflictChoice::Rename));
         assert_eq!(popup.run(4), Response::Pick(ConflictChoice::Abort));
+    }
+
+    #[test]
+    fn conflict_popup_shows_the_keys_and_the_apply_to_all_state() {
+        let popup = ConflictPopup::new(PathBuf::from("/a/x"), PathBuf::from("/b/x"), true);
+
+        let items = popup.items();
+        assert_eq!(items[1].detail, "O");
+        assert_eq!(
+            (items[4].label.as_str(), items[4].detail.as_str()),
+            ("Abort", "Esc")
+        );
+        assert_eq!(items[6].kind, ItemKind::Check(true));
+        assert_eq!(popup.cursor, 1);
+    }
+
+    #[test]
+    fn menu_input_moves_the_cursor_with_up_and_down() {
+        let mut popup = conflict_popup();
+
+        assert_eq!(menu_input(&mut popup, key("Down")), Response::Stay);
+        assert_eq!(popup.cursor, 2);
+        assert_eq!(menu_input(&mut popup, key("Up")), Response::Stay);
+        assert_eq!(popup.cursor, 1);
+    }
+
+    #[test]
+    fn menu_input_enter_runs_the_row_under_the_cursor() {
+        let mut popup = conflict_popup();
+
+        popup.cursor = 2;
+        assert_eq!(
+            menu_input(&mut popup, key("Enter")),
+            Response::Pick(ConflictChoice::Skip)
+        );
+        popup.cursor = 6;
+        assert_eq!(menu_input(&mut popup, key("Enter")), Response::Stay);
+        assert!(popup.all);
+    }
+
+    #[test]
+    fn menu_input_space_toggles_a_check_row_only() {
+        let mut popup = conflict_popup();
+
+        assert_eq!(menu_input(&mut popup, key("Space")), Response::Stay);
+        assert_eq!(popup, conflict_popup());
+        popup.cursor = 6;
+        assert_eq!(menu_input(&mut popup, key("Space")), Response::Stay);
+        assert!(popup.all);
+    }
+
+    #[test]
+    fn menu_input_letters_run_their_row_without_moving_the_cursor() {
+        let mut popup = conflict_popup();
+
+        assert_eq!(menu_input(&mut popup, key("A")), Response::Stay);
+        assert_eq!((popup.cursor, popup.all), (1, true));
+        assert_eq!(menu_input(&mut popup, key("X")), Response::Stay);
+        assert_eq!(
+            menu_input(&mut popup, key("Shift+O")),
+            Response::Pick(ConflictChoice::Overwrite)
+        );
+    }
+
+    #[test]
+    fn menu_input_ignores_letters_with_ctrl_or_alt() {
+        let mut popup = conflict_popup();
+
+        assert_eq!(menu_input(&mut popup, key("Ctrl+A")), Response::Stay);
+        assert_eq!(menu_input(&mut popup, key("Alt+A")), Response::Stay);
+        assert_eq!(popup, conflict_popup());
+    }
+
+    #[test]
+    fn menu_input_closes_on_escape() {
+        let mut popup = conflict_popup();
+
+        assert_eq!(menu_input(&mut popup, key("Esc")), Response::Close);
     }
 
     #[test]
@@ -1051,6 +1173,11 @@ mod tests {
             Response::Stay
         );
         assert_eq!((popup.cursor, popup.all), (6, false));
+        assert_eq!(
+            menu_input(&mut popup, MenuInput::Click { row: 5 }),
+            Response::Stay
+        );
+        assert_eq!(popup.cursor, 6);
         assert_eq!(
             menu_input(&mut popup, MenuInput::DoubleClick { row: 5 }),
             Response::Stay
@@ -1125,6 +1252,22 @@ mod tests {
     }
 
     #[test]
+    fn palette_matches_the_query_anywhere_in_the_name() {
+        let mut popup = PalettePopup::new(Context::FileList, Os::Windows, Vec::new());
+
+        popup.set_query("marks".to_owned());
+
+        assert!(popup.matches.contains(&Command::ClearMarks));
+    }
+
+    #[test]
+    fn palette_leaves_out_windows_only_commands_on_other_systems() {
+        let popup = PalettePopup::new(Context::FileList, Os::Linux, Vec::new());
+
+        assert!(!popup.matches.contains(&Command::Drives));
+    }
+
+    #[test]
     fn list_popup_gives_keys_to_the_first_36_items_only() {
         let bookmarks = (0..40).map(|i| bookmark(&format!("/{i}"))).collect();
 
@@ -1139,6 +1282,28 @@ mod tests {
         assert_eq!(popup.items()[36].detail, "");
         assert_eq!(popup.row_for_key('Z'), Some(35));
         assert_eq!(popup.row_for_key('!'), None);
+    }
+
+    #[test]
+    fn list_popup_of_history_lists_the_newest_first() {
+        let mut history = History::new();
+        for path in ["/a", "/b", "/c"] {
+            history.visit(PathBuf::from(path));
+        }
+
+        let popup = ListPopup::history(&history, false);
+
+        let item = |key, pos, path: &str| ListItem {
+            key: Some(key),
+            label: PathBuf::from(path).display().to_string(),
+            current: pos == 2,
+            target: ListTarget::HistoryPos(pos, PathBuf::from(path)),
+        };
+        assert_eq!(
+            popup.items,
+            [item('0', 2, "/c"), item('1', 1, "/b"), item('2', 0, "/a")]
+        );
+        assert_eq!(popup.cursor, 0);
     }
 
     #[test]
@@ -1168,6 +1333,13 @@ mod tests {
     }
 
     #[test]
+    fn list_popup_closes_on_enter_when_empty() {
+        let mut popup = ListPopup::bookmarks(Vec::new());
+
+        assert_eq!(menu_input(&mut popup, key("Enter")), Response::Close);
+    }
+
+    #[test]
     fn palette_cursor_wraps_and_handles_no_matches() {
         let mut popup = PalettePopup::new(Context::FileList, Os::Windows, Vec::new());
         popup.set_query("jump_".to_owned());
@@ -1182,6 +1354,24 @@ mod tests {
         popup.cursor_down();
         assert_eq!(popup.selected(), None);
         assert_eq!(popup.run(0), Response::Close);
+    }
+
+    #[test]
+    fn stem_selection_selects_the_name_before_a_compound_extension() {
+        assert_eq!(stem_selection("a.tar.gz"), Some((0, 1)));
+    }
+
+    #[test]
+    fn stem_selection_selects_nothing_special_without_an_extension() {
+        assert_eq!(stem_selection("archive"), None);
+    }
+
+    fn key(text: &str) -> MenuInput {
+        MenuInput::Key(text.parse().unwrap())
+    }
+
+    fn conflict_popup() -> ConflictPopup {
+        ConflictPopup::new(PathBuf::from("/a/x"), PathBuf::from("/b/x"), false)
     }
 
     fn bookmark(path: &str) -> Bookmark {

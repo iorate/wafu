@@ -91,6 +91,18 @@ mod tests {
     }
 
     #[test]
+    fn parse_rejects_an_invalid_pattern() {
+        assert!(Filter::parse("[").is_err());
+    }
+
+    #[test]
+    fn matching_ignores_case() {
+        let filter = Filter::parse("*.png").unwrap().unwrap();
+
+        assert!(filter.matches(OsStr::new("c.PNG")));
+    }
+
+    #[test]
     fn matching_composes_decomposed_names() {
         let filter = Filter::parse("*\u{30d7}*").unwrap().unwrap();
 

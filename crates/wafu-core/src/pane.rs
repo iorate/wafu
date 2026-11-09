@@ -776,6 +776,8 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+    use crate::entry::TargetKind;
+    use crate::location::ArchiveFormat;
 
     #[test]
     fn rows_have_no_parent_at_root() {
@@ -856,6 +858,28 @@ mod tests {
     }
 
     #[test]
+    fn marked_summary_leaves_out_the_sizes_of_directories_and_links_to_them() {
+        let mut pane = Pane::new(Location::new(PathBuf::from("/")));
+        pane.set_directory(directory(vec![
+            sized(file("a"), 10),
+            sized(file("b"), 5),
+            sized(dir("d"), 4096),
+            sized(
+                Entry {
+                    kind: EntryKind::Symlink {
+                        target: Some(TargetKind::Dir),
+                    },
+                    ..file("l")
+                },
+                100,
+            ),
+        ]));
+        pane.invert_marks(true);
+
+        assert_eq!(pane.marked_summary(), (4, 15));
+    }
+
+    #[test]
     fn the_parent_row_takes_the_listing_own_entry_when_there_is_one() {
         let mut pane = Pane::new(Location::new(PathBuf::from("/home/user")));
         pane.set_directory(Directory {
@@ -869,6 +893,40 @@ mod tests {
         let (_, entry) = pane.cursor_target().unwrap();
 
         assert_eq!(entry.size, 7);
+    }
+
+    #[test]
+    fn the_parent_row_stands_for_the_location_in_its_parent_without_an_own_entry() {
+        let zip = Location::archive_root(PathBuf::from("/a/b/c.zip"), Some(ArchiveFormat::Zip));
+
+        assert_eq!(
+            Pane::new(Location::new(PathBuf::from("/home/user"))).cursor_target(),
+            Some((Location::new(PathBuf::from("/home")), dir("user")))
+        );
+        assert_eq!(
+            Pane::new(zip.clone()).cursor_target(),
+            Some((Location::new(PathBuf::from("/a/b")), file("c.zip")))
+        );
+        assert_eq!(
+            Pane::new(zip.child("d")).cursor_target(),
+            Some((zip, dir("d")))
+        );
+    }
+
+    #[test]
+    fn targets_are_the_marked_entries_wherever_the_cursor_is() {
+        let mut pane = pane_with("/home", &["a", "b", "c"]);
+        pane.set_cursor(1);
+        pane.mark_down();
+        pane.mark_down();
+
+        let targets = pane.targets().unwrap();
+        assert_eq!(names(targets.entries.iter().collect()), ["a", "b"]);
+
+        pane.set_cursor(0);
+        let targets = pane.targets().unwrap();
+        assert_eq!(targets.location, Location::new(PathBuf::from("/home")));
+        assert_eq!(names(targets.entries.iter().collect()), ["a", "b"]);
     }
 
     #[test]
@@ -898,6 +956,133 @@ mod tests {
         let after = pane.mark_flags();
         assert!(!Arc::ptr_eq(&before, &after));
         assert_eq!(after.as_ref(), [false, true, false]);
+    }
+
+    #[test]
+    fn set_location_drops_the_marks_and_the_filter() {
+        let mut pane = pane_with("/", &["a", "b"]);
+        pane.set_filter(Filter::parse("a*").unwrap());
+        pane.mark_down();
+
+        pane.set_location(Location::new(PathBuf::from("/other")), None);
+        pane.set_directory(entries(&["a", "b"]));
+
+        assert_eq!(marked(&pane), Vec::<String>::new());
+        assert_eq!(pane.filter(), None);
+    }
+
+    #[test]
+    fn set_location_keeps_the_archive_password_only_inside_the_same_archive() {
+        let root = Location::archive_root(PathBuf::from("/a/x.zip"), Some(ArchiveFormat::Zip));
+        let mut pane = Pane::new(root.clone());
+        pane.set_archive_password(Some("pw".to_owned()));
+
+        pane.set_location(root.child("d"), None);
+        assert_eq!(pane.archive_password(), Some("pw"));
+
+        pane.set_location(
+            Location::archive_root(PathBuf::from("/a/y.zip"), Some(ArchiveFormat::Zip)),
+            None,
+        );
+        assert_eq!(pane.archive_password(), None);
+    }
+
+    #[test]
+    fn set_sort_keeps_the_cursor_on_its_entry_and_keeps_the_marks() {
+        let mut pane = pane_with("/home", &["a", "b", "c"]);
+        pane.set_cursor(2);
+        pane.mark_down();
+        pane.set_cursor(1);
+
+        pane.set_sort(SortSpec {
+            descending: true,
+            ..SortSpec::default()
+        });
+
+        assert_eq!(pane.cursor(), 3);
+        assert_eq!(cursor_name(&pane), "a");
+        assert_eq!(marked(&pane), ["b"]);
+    }
+
+    #[test]
+    fn toggle_hidden_shows_hidden_entries_and_clears_the_marks() {
+        let mut pane = Pane::new(Location::new(PathBuf::from("/")));
+        pane.set_directory(directory(vec![
+            Entry {
+                hidden: true,
+                ..file(".h")
+            },
+            file("a"),
+        ]));
+        pane.mark_down();
+
+        pane.toggle_hidden();
+
+        assert_eq!(pane.row_count(), 2);
+        assert_eq!(marked(&pane), Vec::<String>::new());
+    }
+
+    #[test]
+    fn set_filter_applies_a_new_filter_and_clears_the_marks() {
+        let mut pane = pane_with("/", &["a.png", "b.png", "c.txt"]);
+        pane.mark_down();
+
+        assert!(pane.set_filter(Filter::parse("*.png").unwrap()));
+
+        assert_eq!(pane.row_count(), 2);
+        assert_eq!(marked(&pane), Vec::<String>::new());
+    }
+
+    #[test]
+    fn set_filter_does_nothing_when_the_filter_is_unchanged() {
+        let mut pane = pane_with("/", &["a.png", "b.png", "c.txt"]);
+        pane.set_filter(Filter::parse("*.png").unwrap());
+        pane.mark_down();
+
+        assert!(!pane.set_filter(Filter::parse("*.png").unwrap()));
+
+        assert_eq!(marked(&pane), ["a.png"]);
+    }
+
+    #[test]
+    fn a_zero_row_viewport_still_shows_the_cursor_row() {
+        let mut pane = pane_with("/", &["a", "b", "c"]);
+        pane.cursor_down();
+
+        pane.set_viewport_rows(0);
+
+        assert_eq!(pane.scroll_top(), pane.cursor());
+    }
+
+    #[test]
+    fn set_cursor_ignores_a_row_past_the_end() {
+        let mut pane = pane_with("/", &["a", "b"]);
+        pane.set_cursor(1);
+
+        pane.set_cursor(5);
+
+        assert_eq!(pane.cursor(), 1);
+    }
+
+    #[test]
+    fn restore_position_clamps_to_the_rows() {
+        let mut pane = pane_with("/", &["a", "b", "c", "d", "e"]);
+        pane.set_viewport_rows(2);
+
+        pane.restore_position(10, 10);
+
+        assert_eq!((pane.cursor(), pane.scroll_top()), (4, 3));
+    }
+
+    #[test]
+    fn cursor_down_and_up_wrap_around() {
+        let mut pane = pane_with("/home", &["a", "b"]);
+        pane.cursor_bottom();
+
+        pane.cursor_down();
+        assert_eq!(pane.cursor(), 0);
+        pane.cursor_up();
+        assert_eq!(pane.cursor(), 2);
     }
 
     #[test]
@@ -1041,6 +1226,19 @@ mod tests {
     }
 
     #[test]
+    fn mark_range_above_marks_from_the_nearest_mark_above() {
+        let mut pane = pane_with("/home", &["a", "b", "c", "d"]);
+        pane.set_cursor(1);
+        pane.mark_down();
+        pane.set_cursor(3);
+        pane.mark_down();
+
+        pane.mark_range_above();
+
+        assert_eq!(marked(&pane), ["a", "c", "d"]);
+    }
+
+    #[test]
     fn mark_range_above_does_nothing_without_a_mark_above() {
         let mut pane = pane_with("/home", &["a", "b", "c"]);
         pane.set_cursor(3);
@@ -1057,15 +1255,28 @@ mod tests {
         let mut pane = pane_with("/home", &["a", "b", "c", "d", "e"]);
         pane.set_cursor(4);
         pane.mark_up();
+        pane.set_cursor(2);
+        pane.mark_up();
         pane.set_cursor(0);
 
         pane.mark_range_below();
-        assert_eq!(marked(&pane), ["a", "b", "c", "d"]);
+        assert_eq!(marked(&pane), ["a", "b", "d"]);
 
         pane.clear_marks();
         pane.set_cursor(2);
         pane.mark_range_below();
         assert_eq!(marked(&pane), Vec::<String>::new());
+    }
+
+    #[test]
+    fn invert_marks_flips_the_files_and_the_directories_only_when_asked() {
+        let mut pane = Pane::new(Location::new(PathBuf::from("/")));
+        pane.set_directory(directory(vec![dir("d"), file("a"), file("b")]));
+
+        pane.invert_marks(false);
+        assert_eq!(marked(&pane), ["a", "b"]);
+        pane.invert_marks(true);
+        assert_eq!(marked(&pane), ["d"]);
     }
 
     #[test]
@@ -1078,6 +1289,39 @@ mod tests {
         pane.mark_matching(&Filter::parse("*.png").unwrap().unwrap());
 
         assert_eq!(marked(&pane), ["a.png", "b.txt"]);
+    }
+
+    #[test]
+    fn next_and_prev_mark_wrap_around() {
+        let mut pane = pane_with("/home", &["a", "b", "c"]);
+        pane.set_cursor(1);
+        pane.mark_down();
+        pane.set_cursor(3);
+        pane.mark_down();
+        pane.set_cursor(0);
+
+        pane.next_mark();
+        assert_eq!(pane.cursor(), 1);
+        pane.next_mark();
+        assert_eq!(pane.cursor(), 3);
+        pane.next_mark();
+        assert_eq!(pane.cursor(), 1);
+        pane.prev_mark();
+        assert_eq!(pane.cursor(), 3);
+        pane.prev_mark();
+        assert_eq!(pane.cursor(), 1);
+    }
+
+    #[test]
+    fn jump_to_moves_to_the_next_name_with_the_letter_in_any_case_and_wraps() {
+        let mut pane = pane_with("/home", &["alpha", "beta", "Bravo"]);
+
+        pane.jump_to('b');
+        assert_eq!(pane.cursor(), 2);
+        pane.jump_to('B');
+        assert_eq!(pane.cursor(), 3);
+        pane.jump_to('b');
+        assert_eq!(pane.cursor(), 2);
     }
 
     #[test]
@@ -1108,6 +1352,83 @@ mod tests {
         pane.set_cursor(0);
         pane.jump_to('\u{30a2}');
         assert_eq!(pane.cursor(), 2);
+    }
+
+    #[test]
+    fn set_size_format_rewrites_the_rows() {
+        let mut pane = Pane::new(Location::new(PathBuf::from("/")));
+        pane.set_directory(directory(vec![sized(file("a"), 1_234_567)]));
+
+        pane.set_size_format(SizeFormat::Comma);
+
+        assert_eq!(pane.rows()[0].size, "1,234,567");
+    }
+
+    #[test]
+    fn enter_records_a_visit_and_moves_within_the_history_on_a_position() {
+        let mut pane = Pane::new(Location::new(PathBuf::from("/")));
+        enter(
+            &mut pane,
+            Location::new(PathBuf::from("/a")),
+            HistoryMove::Visit,
+        );
+        enter(
+            &mut pane,
+            Location::new(PathBuf::from("/b")),
+            HistoryMove::Visit,
+        );
+
+        enter(
+            &mut pane,
+            Location::new(PathBuf::from("/a")),
+            HistoryMove::Position(0),
+        );
+
+        assert_eq!(
+            pane.history().items(),
+            [PathBuf::from("/a"), PathBuf::from("/b")]
+        );
+        assert_eq!(pane.history().pos(), 0);
+    }
+
+    #[test]
+    fn enter_does_not_record_a_place_inside_an_archive() {
+        let mut pane = Pane::new(Location::new(PathBuf::from("/")));
+        enter(
+            &mut pane,
+            Location::new(PathBuf::from("/a")),
+            HistoryMove::Visit,
+        );
+
+        enter(
+            &mut pane,
+            Location::archive_root(PathBuf::from("/a/x.zip"), Some(ArchiveFormat::Zip)),
+            HistoryMove::Visit,
+        );
+
+        assert_eq!(pane.history().items(), [PathBuf::from("/a")]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn enter_remembers_the_place_on_each_drive_outside_archives() {
+        let mut pane = Pane::new(Location::new(PathBuf::from(r"C:\")));
+        enter(
+            &mut pane,
+            Location::new(PathBuf::from(r"C:\Users")),
+            HistoryMove::Visit,
+        );
+
+        enter(
+            &mut pane,
+            Location::archive_root(PathBuf::from(r"D:\x.zip"), Some(ArchiveFormat::Zip)),
+            HistoryMove::Visit,
+        );
+
+        assert_eq!(
+            pane.drive_memory(),
+            &HashMap::from([('C', PathBuf::from(r"C:\Users"))])
+        );
     }
 
     fn pane_with(base: &str, names: &[&str]) -> Pane {
@@ -1141,6 +1462,14 @@ mod tests {
             kind: EntryKind::Dir,
             ..file(name)
         }
+    }
+
+    fn sized(entry: Entry, size: u64) -> Entry {
+        Entry { size, ..entry }
+    }
+
+    fn enter(pane: &mut Pane, target: Location, history: HistoryMove) {
+        pane.enter(target, None, entries(&[]), history);
     }
 
     fn names(entries: Vec<&Entry>) -> Vec<String> {

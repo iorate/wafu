@@ -409,3 +409,388 @@ fn size_with_unit(format: SizeFormat, bytes: u64) -> String {
         format => format!("{} bytes", format.format(bytes)),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::OsString;
+    use std::path::PathBuf;
+    use std::time::SystemTime;
+
+    use super::*;
+    use crate::config::Font;
+    use crate::entry::{Directory, LocalDateTime, Permissions, Timestamp};
+    use crate::filter::Filter;
+    use crate::listing::SortSpec;
+    use crate::location::Location;
+
+    const TIME: &str = "2026/01/02 03:04:05";
+
+    #[test]
+    fn theme_auto_follows_the_os_color_scheme() {
+        assert_eq!(theme(Theme::Auto, None), Theme::Auto);
+        assert_eq!(theme(Theme::Auto, Some(ColorScheme::Light)), Theme::Light);
+        assert_eq!(theme(Theme::Auto, Some(ColorScheme::Dark)), Theme::Dark);
+    }
+
+    #[test]
+    fn explicit_theme_ignores_the_os_color_scheme() {
+        assert_eq!(theme(Theme::Light, Some(ColorScheme::Dark)), Theme::Light);
+        assert_eq!(theme(Theme::Dark, Some(ColorScheme::Light)), Theme::Dark);
+    }
+
+    #[test]
+    fn each_area_takes_its_own_font_family() {
+        let mut config = Config::default_for(Os::Linux);
+        let font = &mut config.appearance.font;
+        for (area, family) in [
+            (&mut font.path, "path"),
+            (&mut font.filelist, "filelist"),
+            (&mut font.info, "info"),
+            (&mut font.log, "log"),
+            (&mut font.status, "status"),
+            (&mut font.preview, "preview"),
+            (&mut font.popup, "popup"),
+        ] {
+            *area = Font {
+                family: Some(family.to_owned()),
+                size: None,
+            };
+        }
+
+        let fonts = Style::from_config(&config, Os::Linux, None).fonts;
+
+        assert_eq!(
+            [
+                fonts.path.family,
+                fonts.filelist.family,
+                fonts.info.family,
+                fonts.log.family,
+                fonts.status.family,
+                fonts.preview.family,
+                fonts.popup.family,
+            ],
+            [
+                "path", "filelist", "info", "log", "status", "preview", "popup"
+            ]
+        );
+    }
+
+    #[test]
+    fn areas_without_a_family_take_the_monospace_family_of_the_os() {
+        let config = Config::default_for(Os::Windows);
+
+        let fonts = Style::from_config(&config, Os::Windows, None).fonts;
+
+        let expected = monospace_family(Os::Windows);
+        for area in [
+            fonts.path,
+            fonts.filelist,
+            fonts.info,
+            fonts.log,
+            fonts.status,
+            fonts.preview,
+            fonts.popup,
+        ] {
+            assert_eq!(area.family, expected);
+        }
+    }
+
+    #[test]
+    fn info_shows_the_filter_a_descending_sort_and_hidden_files() {
+        let mut pane = Pane::new(Location::new(PathBuf::from("/")));
+        pane.set_directory(directory(None, vec![file("a.txt"), file("b.png")]));
+        pane.set_filter(Filter::parse("*.txt").unwrap());
+        pane.set_sort(SortSpec {
+            descending: true,
+            ..SortSpec::default()
+        });
+        pane.set_show_hidden(true);
+
+        let view = PaneView::from_pane(&pane, true);
+
+        assert_eq!(
+            view.info,
+            "1 items | 0 marked (0 bytes) | filter: *.txt | sort: name desc | hidden: on"
+        );
+    }
+
+    #[test]
+    fn cursor_is_none_for_an_active_pane_with_no_rows() {
+        let mut pane = Pane::new(Location::new(PathBuf::from("/")));
+        pane.set_directory(directory(None, vec![]));
+
+        assert_eq!(PaneView::from_pane(&pane, true).cursor, None);
+    }
+
+    #[test]
+    fn parent_row_takes_its_columns_and_kind_from_the_own_entry() {
+        let own_dir = Entry {
+            modified: Some(timestamp()),
+            ..dir("user")
+        };
+        let row = RowView::parent(Some(&own_dir), SizeFormat::Plain);
+        assert_eq!(
+            (
+                row.marker,
+                row.size.as_str(),
+                row.modified.as_str(),
+                row.kind
+            ),
+            ("/", "", TIME, RowKind::Dir)
+        );
+
+        let own_file = Entry {
+            size: 1234,
+            ..file("a.zip")
+        };
+        let row = RowView::parent(Some(&own_file), SizeFormat::Plain);
+        assert_eq!((row.marker, row.size.as_str()), ("", "1234"));
+    }
+
+    #[test]
+    fn parent_row_without_an_own_entry_is_blank() {
+        let row = RowView::parent(None, SizeFormat::Plain);
+
+        assert_eq!(
+            (
+                row.marker,
+                row.size.as_str(),
+                row.modified.as_str(),
+                row.kind
+            ),
+            ("", "", "", RowKind::File)
+        );
+    }
+
+    #[test]
+    fn extension_column_has_a_leading_dot_or_is_empty() {
+        let row = RowView::from_entry(&file("a.tar.gz"), SizeFormat::Plain);
+        assert_eq!(
+            (row.name.as_str(), row.extension.as_str()),
+            ("a.tar", ".gz")
+        );
+
+        let row = RowView::from_entry(&file("noext"), SizeFormat::Plain);
+        assert_eq!(row.extension, "");
+    }
+
+    #[test]
+    fn row_kind_colors_links_as_links_and_devices_as_fifos() {
+        let cases = [
+            (EntryKind::File { executable: true }, RowKind::Exec),
+            (link_kind(Some(TargetKind::Dir)), RowKind::Link),
+            (
+                link_kind(Some(TargetKind::File { executable: false })),
+                RowKind::Link,
+            ),
+            (link_kind(None), RowKind::Broken),
+            (EntryKind::Special(SpecialKind::CharDevice), RowKind::Fifo),
+            (EntryKind::Special(SpecialKind::Socket), RowKind::Socket),
+        ];
+        for (kind, expected) in cases {
+            assert_eq!(RowKind::from_entry_kind(kind), expected, "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn size_column_is_blank_for_dir_likes_and_special_files() {
+        let cases = [
+            (dir("d"), ""),
+            (link("to_dir", Some(TargetKind::Dir)), ""),
+            (special("fifo", SpecialKind::Fifo), ""),
+            (file("empty"), "0"),
+            (
+                Entry {
+                    size: 42,
+                    ..link("to_file", Some(TargetKind::File { executable: false }))
+                },
+                "42",
+            ),
+        ];
+        for (entry, expected) in cases {
+            let (size, _) = size_and_modified(&entry, SizeFormat::Plain);
+            assert_eq!(size, expected, "{:?}", entry.name);
+        }
+    }
+
+    #[test]
+    fn broken_link_has_unknown_size_and_time() {
+        let broken = Entry {
+            modified: Some(timestamp()),
+            ..link("broken", None)
+        };
+
+        assert_eq!(
+            size_and_modified(&broken, SizeFormat::Plain),
+            ("?".to_owned(), "?".to_owned())
+        );
+    }
+
+    #[test]
+    fn status_line_at_a_root_with_no_entries_is_empty() {
+        let mut pane = Pane::new(Location::new(PathBuf::from("/")));
+        pane.set_directory(directory(None, vec![]));
+
+        assert_eq!(status_line(&pane), "");
+    }
+
+    #[test]
+    fn status_line_on_the_parent_row_describes_the_own_entry() {
+        let own = Entry {
+            modified: Some(timestamp()),
+            permissions: Some(Permissions::Mode(0o755)),
+            ..dir("user")
+        };
+        let mut pane = Pane::new(Location::new(PathBuf::from("/home/user")));
+        pane.set_directory(directory(Some(own), vec![file("a")]));
+
+        assert_eq!(status_line(&pane), format!("../ | drwxr-xr-x | {TIME}"));
+    }
+
+    #[test]
+    fn status_line_on_the_parent_row_without_an_own_entry_is_the_bare_name() {
+        let mut pane = Pane::new(Location::new(PathBuf::from("/home/user")));
+        pane.set_directory(directory(None, vec![file("a")]));
+
+        assert_eq!(status_line(&pane), "..");
+    }
+
+    #[test]
+    fn entry_status_of_a_file_lists_permissions_size_and_time() {
+        let entry = Entry {
+            size: 1234,
+            modified: Some(timestamp()),
+            permissions: Some(Permissions::Mode(0o644)),
+            ..file("a")
+        };
+
+        assert_eq!(
+            status(&entry),
+            format!("a | -rw-r--r-- | 1234 bytes | {TIME}")
+        );
+    }
+
+    #[test]
+    fn entry_status_appends_the_marker_to_the_name() {
+        assert_eq!(status(&dir("sub")), "sub/ | d?????????");
+    }
+
+    #[test]
+    fn entry_status_of_a_link_shows_the_target_with_its_marker() {
+        let entry = Entry {
+            link_target: Some(OsString::from("sub")),
+            ..link("to_dir", Some(TargetKind::Dir))
+        };
+
+        assert_eq!(status(&entry), "to_dir -> sub/ | l?????????");
+    }
+
+    #[test]
+    fn entry_status_has_no_size_for_a_special_file_but_has_one_for_a_link_to_it() {
+        assert_eq!(
+            status(&special("fifo", SpecialKind::Fifo)),
+            "fifo| | p?????????"
+        );
+        let entry = Entry {
+            link_target: Some(OsString::from("fifo")),
+            ..link("to_fifo", Some(TargetKind::Special(SpecialKind::Fifo)))
+        };
+        assert_eq!(status(&entry), "to_fifo -> fifo| | l????????? | 0 bytes");
+    }
+
+    #[test]
+    fn entry_status_of_a_broken_link_has_unknown_size_and_time() {
+        let entry = Entry {
+            modified: Some(timestamp()),
+            link_target: Some(OsString::from("missing")),
+            ..link("broken", None)
+        };
+
+        assert_eq!(status(&entry), "broken -> missing | l????????? | ? | ?");
+    }
+
+    #[test]
+    fn entry_status_of_a_link_with_an_unknown_target_path_is_the_bare_name() {
+        let entry = link("in_archive", Some(TargetKind::File { executable: false }));
+
+        assert_eq!(status(&entry), "in_archive | l????????? | 0 bytes");
+    }
+
+    #[test]
+    fn size_with_unit_appends_bytes_except_in_the_human_format() {
+        assert_eq!(
+            size_with_unit(SizeFormat::Comma, 1_234_567),
+            "1,234,567 bytes"
+        );
+        assert_eq!(size_with_unit(SizeFormat::Human, 1_234_567), "1.2M");
+    }
+
+    fn theme(theme: Theme, scheme: Option<ColorScheme>) -> Theme {
+        let mut config = Config::default_for(Os::Linux);
+        config.appearance.theme = theme;
+        Style::from_config(&config, Os::Linux, scheme).theme
+    }
+
+    fn status(entry: &Entry) -> String {
+        entry_status(
+            entry,
+            entry.name.to_string_lossy().into_owned(),
+            SizeFormat::Plain,
+        )
+    }
+
+    fn directory(own: Option<Entry>, entries: Vec<Entry>) -> Directory {
+        Directory { own, entries }
+    }
+
+    fn file(name: &str) -> Entry {
+        Entry {
+            name: OsString::from(name),
+            kind: EntryKind::File { executable: false },
+            size: 0,
+            modified: None,
+            hidden: false,
+            permissions: None,
+            link_target: None,
+        }
+    }
+
+    fn dir(name: &str) -> Entry {
+        Entry {
+            kind: EntryKind::Dir,
+            ..file(name)
+        }
+    }
+
+    fn special(name: &str, kind: SpecialKind) -> Entry {
+        Entry {
+            kind: EntryKind::Special(kind),
+            ..file(name)
+        }
+    }
+
+    fn link(name: &str, target: Option<TargetKind>) -> Entry {
+        Entry {
+            kind: link_kind(target),
+            ..file(name)
+        }
+    }
+
+    fn link_kind(target: Option<TargetKind>) -> EntryKind {
+        EntryKind::Symlink { target }
+    }
+
+    fn timestamp() -> Timestamp {
+        Timestamp {
+            at: SystemTime::UNIX_EPOCH,
+            local: LocalDateTime {
+                year: 2026,
+                month: 1,
+                day: 2,
+                hour: 3,
+                minute: 4,
+                second: 5,
+            },
+        }
+    }
+}

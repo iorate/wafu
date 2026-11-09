@@ -428,6 +428,32 @@ mod tests {
     }
 
     #[test]
+    fn font_resolves_the_area_then_the_default_then_the_built_in() {
+        let default = font(Some("A"), Some(16));
+
+        assert_eq!(
+            font(Some("B"), Some(20)).resolve(&default, "M"),
+            ("B".to_owned(), 20)
+        );
+        assert_eq!(
+            font(None, None).resolve(&default, "M"),
+            ("A".to_owned(), 16)
+        );
+        assert_eq!(
+            font(None, None).resolve(&font(None, None), "M"),
+            ("M".to_owned(), FONT_SIZE_DEFAULT)
+        );
+    }
+
+    #[test]
+    fn font_family_and_size_fall_back_independently() {
+        assert_eq!(
+            font(None, Some(20)).resolve(&font(Some("A"), None), "M"),
+            ("A".to_owned(), 20)
+        );
+    }
+
+    #[test]
     fn color_parses_long_and_short_forms() {
         assert_eq!(Color::parse("#1e1e1e"), Some(Color::new(0x1e, 0x1e, 0x1e)));
         assert_eq!(Color::parse("#ABC"), Some(Color::new(0xaa, 0xbb, 0xcc)));
@@ -445,6 +471,13 @@ mod tests {
             let (config, diagnostics) = parse_config(CONFIG_TEMPLATE, os).unwrap();
             assert_eq!(diagnostics, Vec::new(), "{os:?}");
             assert_eq!(config, Config::default_for(os), "{os:?}");
+        }
+    }
+
+    fn font(family: Option<&str>, size: Option<u16>) -> Font {
+        Font {
+            family: family.map(str::to_owned),
+            size,
         }
     }
 }

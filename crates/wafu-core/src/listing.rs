@@ -232,6 +232,36 @@ mod tests {
     use crate::entry::{EntryKind, LocalDateTime, TargetKind, Timestamp};
 
     #[test]
+    fn the_filter_applies_to_files_only() {
+        let filter = Filter::parse("*.png").unwrap().unwrap();
+        let entries = [dir("d.txt"), file("a.png", 0), file("b.txt", 0)];
+
+        let listing = Listing::new(
+            directory(&entries),
+            SortSpec::default(),
+            true,
+            Some(&filter),
+        );
+
+        assert_eq!(names(&listing), ["d.txt", "a.png"]);
+    }
+
+    #[test]
+    fn hidden_entries_are_left_out_unless_shown() {
+        let hidden = Entry {
+            hidden: true,
+            ..file(".b", 0)
+        };
+        let entries = [file("a", 0), hidden];
+
+        let shown = Listing::new(directory(&entries), SortSpec::default(), true, None);
+        let left_out = Listing::new(directory(&entries), SortSpec::default(), false, None);
+
+        assert_eq!(names(&shown), [".b", "a"]);
+        assert_eq!(names(&left_out), ["a"]);
+    }
+
+    #[test]
     fn symlink_to_directory_is_grouped_with_directories() {
         let link = Entry {
             kind: EntryKind::Symlink {

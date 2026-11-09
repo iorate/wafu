@@ -294,6 +294,15 @@ mod tests {
     }
 
     #[test]
+    fn text_without_a_bom_is_detected_as_utf_8() {
+        let text = "日本語のテキストファイルです。文字コードは自動で判定します。\n".repeat(4);
+
+        let document = Document::decode(text.into_bytes(), false);
+
+        assert_eq!(document.encoding, "UTF-8");
+    }
+
+    #[test]
     fn japanese_in_shift_jis_is_detected() {
         let text = "日本語のテキストファイルです。文字コードは自動で判定します。\n".repeat(4);
         let (raw, _, _) = encoding_rs::SHIFT_JIS.encode(&text);
@@ -384,6 +393,26 @@ mod tests {
             document.lines(DocumentMode::Text, 1, 1)[0].number,
             String::new()
         );
+    }
+
+    #[test]
+    fn digits_is_the_width_of_the_last_line_number() {
+        let digits = |text: String, truncated| {
+            Document::decode(text.into_bytes(), truncated).digits(DocumentMode::Text)
+        };
+
+        assert_eq!(digits("a\n".repeat(9), false), 1);
+        assert_eq!(digits("a\n".repeat(10), false), 2);
+        assert_eq!(digits("a\n".repeat(10), true), 2);
+        assert_eq!(digits("x".repeat(MAX_LINE_CHARS * 10), false), 1);
+        assert_eq!(digits(String::new(), false), 0);
+    }
+
+    #[test]
+    fn binary_mode_shows_no_line_numbers() {
+        let document = Document::decode("a\n".repeat(10).into_bytes(), false);
+
+        assert_eq!(document.digits(DocumentMode::Binary), 0);
     }
 
     #[test]
