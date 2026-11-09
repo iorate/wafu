@@ -11,6 +11,7 @@ export struct Row {
     marker: string,
     size: string,
     modified: string,
+    hidden: bool,
 }
 
 export struct PaneData {
@@ -40,13 +41,16 @@ component RowItem {
     in property <bool> marked;
     in property <ColumnWidths> columns;
 
-    property <brush> text-color: item.kind == 0 ? Theme.colors.dir
+    property <brush> kind-color: item.kind == 0 ? Theme.colors.dir
         : item.kind == 2 ? Theme.colors.exec
         : item.kind == 3 ? Theme.colors.link
         : item.kind == 4 ? Theme.colors.broken
         : item.kind == 5 ? Theme.colors.fifo
         : item.kind == 6 ? Theme.colors.socket
         : Theme.colors.fg;
+    // The text alone is dimmed so that the mark background and the cursor line
+    // keep their full strength.
+    property <brush> text-color: item.hidden ? kind-color.transparentize(30%) : kind-color;
 
     height: Theme.row-height;
 

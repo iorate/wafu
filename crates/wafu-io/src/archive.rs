@@ -326,7 +326,7 @@ fn synthesized_dir(name: &str) -> Entry {
     }
 }
 
-// Archives carry no hidden attribute, so the dot rule applies everywhere.
+// Archives carry no hidden attribute, so only the dot rule applies.
 fn is_hidden(name: &str) -> bool {
     name.starts_with('.')
 }
