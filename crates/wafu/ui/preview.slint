@@ -12,7 +12,8 @@ export struct PreviewData {
 }
 
 export struct PreviewLine {
-    // Empty for a continued line and for the hex dump.
+    // The line number, or the offset in the hex dump; empty for a continued
+    // line and for the note about truncation.
     number: string,
     text: string,
 }
@@ -20,7 +21,7 @@ export struct PreviewLine {
 export component PreviewWidget inherits Rectangle {
     in property <PreviewData> data;
     in property <[PreviewLine]> lines;
-    // As many zeros as the widest line number has digits; empty for no column.
+    // As many zeros as the widest line number or offset has digits; empty for no column.
     in property <string> number-sample;
     in property <image> picture;
     in property <bool> has-picture;
@@ -58,7 +59,7 @@ export component PreviewWidget inherits Rectangle {
         visible: false;
     }
 
-    // The number column is as wide as the widest number in the preview font.
+    // The number column is as wide as the widest number or offset in the preview font.
     measure-number := Text {
         text: root.number-sample;
         font-family: Theme.preview-font-family;

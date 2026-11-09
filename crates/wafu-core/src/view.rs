@@ -212,7 +212,8 @@ pub enum PreviewContent {
 /// One visible line of a document preview.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreviewLine {
-    /// The line number, or empty for a continued line and for the hex dump.
+    /// The line number, or the offset of a hex dump line; empty for a
+    /// continued line and for the note about truncation.
     pub number: String,
     pub text: String,
 }

@@ -24,6 +24,7 @@ const BINARY_PROBE: usize = 8 * 1024;
 const MAX_LINE_CHARS: usize = 1024;
 const TAB_STOP: usize = 8;
 const BYTES_PER_LINE: usize = 16;
+const OFFSET_DIGITS: usize = 8;
 const IMAGE_EXTENSIONS: [&str; 7] = ["png", "jpg", "jpeg", "gif", "bmp", "webp", "ico"];
 
 /// A file read for the preview, decoded once on the I/O thread.
@@ -111,7 +112,7 @@ impl Document {
         }
     }
 
-    /// How many digits the widest line number has; zero when no numbers are shown.
+    /// How many digits the widest line number or offset has; zero when none is shown.
     #[must_use]
     pub fn digits(&self, mode: DocumentMode) -> usize {
         match mode {
@@ -122,12 +123,13 @@ impl Document {
                 .map(|line| line.number)
                 .find(|&number| number != 0)
                 .map_or(0, |number| number.to_string().len()),
-            DocumentMode::Binary => 0,
+            DocumentMode::Binary => OFFSET_DIGITS,
         }
     }
 
     /// The lines from `top`, at most `rows` of them. Only the first piece of
-    /// a cut line carries its number. The hex dump is made on demand, so that
+    /// a cut line carries its number, and a hex dump line carries its offset
+    /// in its place. The hex dump is made on demand, so that
     /// a large file does not cost a million strings up front.
     #[must_use]
     pub fn lines(&self, mode: DocumentMode, top: usize, rows: usize) -> Vec<PreviewLine> {
@@ -150,16 +152,18 @@ impl Document {
                 .collect(),
             DocumentMode::Binary => (top.min(end)..end)
                 .map(|index| {
-                    let text = if self.truncated && index == count - 1 {
-                        truncated_note()
+                    if self.truncated && index == count - 1 {
+                        PreviewLine {
+                            number: String::new(),
+                            text: truncated_note(),
+                        }
                     } else {
                         let offset = index * BYTES_PER_LINE;
                         let end = (offset + BYTES_PER_LINE).min(self.raw.len());
-                        hex_line(offset, &self.raw[offset..end])
-                    };
-                    PreviewLine {
-                        number: String::new(),
-                        text,
+                        PreviewLine {
+                            number: format!("{offset:0OFFSET_DIGITS$x}"),
+                            text: hex_line(&self.raw[offset..end]),
+                        }
                     }
                 })
                 .collect(),
@@ -237,17 +241,20 @@ fn split_lines(text: &str) -> Vec<Line> {
     lines
 }
 
-fn hex_line(offset: usize, bytes: &[u8]) -> String {
-    let mut line = format!("{offset:08x} ");
+fn hex_line(bytes: &[u8]) -> String {
+    let mut line = String::new();
     for index in 0..BYTES_PER_LINE {
         if index == BYTES_PER_LINE / 2 {
             line.push(' ');
         }
+        if index > 0 {
+            line.push(' ');
+        }
         match bytes.get(index) {
             Some(byte) => {
-                let _ = write!(line, " {byte:02x}");
+                let _ = write!(line, "{byte:02x}");
             }
-            None => line.push_str("   "),
+            None => line.push_str("  "),
         }
     }
     line.push_str("  |");
@@ -439,13 +446,6 @@ mod tests {
     }
 
     #[test]
-    fn binary_mode_shows_no_line_numbers() {
-        let document = Document::decode("a\n".repeat(10).into_bytes(), false);
-
-        assert_eq!(document.digits(DocumentMode::Binary), 0);
-    }
-
-    #[test]
     fn hex_lines_follow_the_hexdump_layout() {
         let document = Document::decode(b"Hello world\n\x00\x01\x7f\xffabc".to_vec(), false);
 
@@ -453,10 +453,11 @@ mod tests {
         assert_eq!(
             shown(&document, DocumentMode::Binary, 0, 10),
             [
-                "00000000  48 65 6c 6c 6f 20 77 6f  72 6c 64 0a 00 01 7f ff  |Hello world.....|",
-                "00000010  61 62 63                                          |abc|",
+                "48 65 6c 6c 6f 20 77 6f  72 6c 64 0a 00 01 7f ff  |Hello world.....|",
+                "61 62 63                                          |abc|",
             ]
         );
+        assert_eq!(document.digits(DocumentMode::Binary), OFFSET_DIGITS);
         assert_eq!(document.lines(DocumentMode::Binary, 1, 1).len(), 1);
         assert_eq!(document.lines(DocumentMode::Binary, 5, 1).len(), 0);
     }
