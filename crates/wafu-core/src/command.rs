@@ -222,17 +222,13 @@ impl Command {
             )
     }
 
-    /// Whether the command can be bound and is listed in the palette in the
-    /// context. Each command acts on one target, and the target alone
-    /// decides. The image preview is for looking through images and picking
-    /// them, so it takes the cursor and the marks but nothing that changes the
-    /// listing or the files. The text preview fills the window, so it has
-    /// neither the list nor the split. The log and the application stay
-    /// under any preview. Availability is per context, not per state: the log
-    /// hidden under a preview and the split under an image filling the window
-    /// still count. Commands that do nothing on some OS still count as
-    /// available, so that a shared configuration loads without errors
-    /// everywhere.
+    /// Whether the palette lists the command in the context and a binding
+    /// there may run it. The image preview is for looking through images and
+    /// picking them, and the text preview fills the window. Availability is
+    /// per context, not per state: the log hidden under a preview and the
+    /// split under an image filling the window still count. Commands that do
+    /// nothing on some OS still count as available, so that a shared
+    /// configuration loads without errors everywhere.
     #[must_use]
     pub fn available_in(&self, context: Context) -> bool {
         match self.target() {
@@ -410,22 +406,29 @@ mod tests {
 
     #[test]
     fn each_target_decides_the_contexts() {
-        // One command of each target, with its file list, image, and text availability.
         let cases = [
-            (Command::ClosePreview, [false, true, true]),
-            (Command::PreviewScrollDown, [false, false, true]),
-            (Command::ClearLog, [true, true, true]),
-            (Command::Quit, [true, true, true]),
-            (Command::PaneGrowLeft, [true, true, false]),
-            (Command::Jump('a'), [true, true, false]),
-            (Command::Sort, [true, false, false]),
-            (Command::Open, [true, false, false]),
-            (Command::External("x".to_owned()), [true, false, false]),
+            (Command::ClosePreview, &[Context::Image, Context::Text][..]),
+            (Command::PreviewScrollDown, &[Context::Text]),
+            (
+                Command::ClearLog,
+                &[Context::FileList, Context::Image, Context::Text],
+            ),
+            (
+                Command::Quit,
+                &[Context::FileList, Context::Image, Context::Text],
+            ),
+            (Command::PaneGrowLeft, &[Context::FileList, Context::Image]),
+            (Command::Jump('a'), &[Context::FileList, Context::Image]),
+            (Command::Sort, &[Context::FileList]),
+            (Command::Open, &[Context::FileList]),
+            (Command::External("x".to_owned()), &[Context::FileList]),
         ];
 
         for (command, expected) in cases {
-            let actual = [Context::FileList, Context::Image, Context::Text]
-                .map(|context| command.available_in(context));
+            let actual: Vec<Context> = [Context::FileList, Context::Image, Context::Text]
+                .into_iter()
+                .filter(|&context| command.available_in(context))
+                .collect();
             assert_eq!(actual, expected, "{command}");
         }
     }
