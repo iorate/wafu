@@ -180,8 +180,9 @@ pub enum Effect {
     WatchColorScheme,
     /// Reads the environment of the user's login shell for the programs
     /// started from now on, and reports through `IoEvent::ShellEnvLoaded`.
-    /// Only macOS asks for it; apps started from the Finder or the Dock get a
-    /// minimal environment there.
+    /// Asked for at start-up on macOS and Linux, where apps started by a
+    /// desktop launcher lack what the shell's rc files set up, unless the
+    /// configuration turns it off.
     LoadShellEnv,
     /// Starts a program without a shell and without waiting for it. `name`
     /// is what the log calls it: `$name` for an external command, `editor`

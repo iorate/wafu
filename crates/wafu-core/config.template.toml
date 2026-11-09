@@ -7,6 +7,10 @@ new_text_creates_file = true  # Create the file before opening it in the editor
 extract_creates_dir = true    # Extract into a directory named after the archive
 require_marks = true          # Copy, move, delete, and trash act on marks only
 hide_log_in_preview = false   # Hide the log while a preview is open
+## Give the programs wafu starts the environment of your login shell (macOS and
+## Linux; read only when wafu starts). Shell startup files can skip lines such
+## as `exec tmux` while wafu reads it by checking $WAFU_RESOLVING_ENVIRONMENT.
+use_login_shell_env = true
 
 [appearance]
 theme = "auto"                # auto, light, or dark

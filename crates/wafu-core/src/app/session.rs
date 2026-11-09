@@ -49,10 +49,13 @@ impl App {
         }
         effects.push(Effect::WatchConfig(self.config_path.clone()));
         effects.push(Effect::WatchColorScheme);
+        // Desktop launchers on macOS and Linux start apps without what the
+        // shell's rc files set up.
         // An inherited instance already has the environment of the one that
         // started it; when that one failed to read it, trying again in every
-        // new window would only repeat the error.
-        if self.os == Os::MacOs && !inherited {
+        // new window would only repeat the error. The setting is read here
+        // only, since the shell runs once per process.
+        if self.os != Os::Windows && !inherited && self.config.general.use_login_shell_env {
             effects.push(Effect::LoadShellEnv);
             self.held_spawns = Some(Vec::new());
         }
