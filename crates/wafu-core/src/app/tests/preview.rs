@@ -554,6 +554,24 @@ fn a_failed_decode_shows_the_message_in_place_of_the_image() {
 }
 
 #[test]
+fn a_failed_decode_shows_line_breaks_in_the_name_as_symbols() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("a\r.png")]);
+    harness.press("Down");
+    harness.press("Enter");
+
+    harness.fail_image(PreviewError::Failed(IoError::new("bad png")));
+
+    assert_eq!(
+        harness.view().preview.unwrap().content,
+        PreviewContent::Message(format!(
+            "cannot preview {}: bad png",
+            PathBuf::from(LEFT).join("a\u{23CE}.png").display()
+        ))
+    );
+}
+
+#[test]
 fn a_stale_image_is_discarded() {
     let mut harness = image();
     let stale = harness.latest_preview_request();

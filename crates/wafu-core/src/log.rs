@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use crate::text::show_line_breaks;
+
 const MAX_LINES: usize = 1000;
 
 /// The log shown at the bottom of the window.
@@ -31,7 +33,11 @@ impl Log {
             // Keep the same lines in view after the oldest one is dropped.
             self.scroll_top = self.scroll_top.saturating_sub(1);
         }
-        self.lines = kept.iter().cloned().chain([Arc::from(line)]).collect();
+        self.lines = kept
+            .iter()
+            .cloned()
+            .chain([Arc::from(show_line_breaks(line))])
+            .collect();
     }
 
     /// The lines in order. The same allocation is returned until a line is

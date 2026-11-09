@@ -5,6 +5,7 @@ use crate::config::{ColorSet, Config, SizeFormat, Theme, monospace_family};
 use crate::entry::{Entry, EntryKind, SpecialKind, TargetKind};
 use crate::pane::Pane;
 use crate::preview::ImageData;
+use crate::text::show_line_breaks;
 
 /// A read-only snapshot of the state for rendering.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -285,7 +286,7 @@ impl PaneView {
         let descending = if pane.sort().descending { " desc" } else { "" };
         let hidden = if pane.show_hidden() { "on" } else { "off" };
         Self {
-            path: pane.location().to_string(),
+            path: show_line_breaks(pane.location().to_string()),
             cursor: (active && pane.cursor() < rows.len()).then_some(pane.cursor()),
             rows,
             marks: pane.mark_flags(),
@@ -320,12 +321,12 @@ impl RowView {
         let extension = if extension.is_empty() {
             extension
         } else {
-            format!(".{extension}")
+            format!(".{}", show_line_breaks(extension))
         };
         let (size, modified) = size_and_modified(entry, size_format);
         Self {
             kind: RowKind::from_entry_kind(entry.kind),
-            name,
+            name: show_line_breaks(name),
             extension,
             marker: entry.kind.marker(),
             size,
@@ -400,7 +401,7 @@ fn entry_status(entry: &Entry, mut name: String, size_format: SizeFormat) -> Str
             segments.push(modified.local.to_string());
         }
     }
-    segments.join(" | ")
+    show_line_breaks(segments.join(" | "))
 }
 
 fn size_with_unit(format: SizeFormat, bytes: u64) -> String {

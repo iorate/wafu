@@ -574,6 +574,21 @@ fn delete_asks_once_and_names_a_single_target() {
 }
 
 #[test]
+fn delete_confirmation_shows_line_breaks_in_the_name_as_symbols() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("Icon\r")]);
+    cursor_only(&mut harness);
+    harness.press("Down");
+
+    harness.press("D");
+
+    assert_eq!(
+        harness.view().popup.unwrap().message.as_deref(),
+        Some("Delete \"Icon\u{23CE}\"?")
+    );
+}
+
+#[test]
 fn delete_counts_several_targets_and_enter_confirms() {
     let mut harness = three_files();
     harness.press("Down");
@@ -689,6 +704,17 @@ fn rename_opens_with_the_name_and_selects_everything_but_the_extension() {
         Some("a.tar.gz")
     );
     assert_eq!(popup.fields[0].select, Some((0, 5)));
+}
+
+#[test]
+fn rename_opens_with_line_breaks_in_the_name_left_as_they_are() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("Icon\r")]);
+    harness.press("Down");
+
+    harness.press("R");
+
+    assert_eq!(harness.popup_fields(), ["Icon\r"]);
 }
 
 #[test]
