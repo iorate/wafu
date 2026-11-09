@@ -74,8 +74,8 @@ export component PreviewWidget inherits Rectangle {
         padding: 4px;
 
         for line in root.lines: HorizontalLayout {
-            // Matches the two-character gaps inside a hex dump row.
-            spacing: root.number-sample == "" ? 0 : root.data.hex-dump ? 2 * measure.preferred-width : 8px;
+            // Two characters in a hex dump, to match the gaps inside its rows.
+            spacing: root.number-sample == "" ? 0 : (root.data.hex-dump ? 2 : 1) * measure.preferred-width;
 
             Text {
                 text: line.number;
