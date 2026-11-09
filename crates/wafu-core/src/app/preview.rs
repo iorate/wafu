@@ -315,7 +315,11 @@ impl App {
                 };
                 PreviewView {
                     placement: PreviewPlacement::Full,
-                    content: PreviewContent::Lines { lines, digits },
+                    content: PreviewContent::Lines {
+                        lines,
+                        digits,
+                        hex_dump: preview.mode == DocumentMode::Binary,
+                    },
                     detail,
                 }
             }

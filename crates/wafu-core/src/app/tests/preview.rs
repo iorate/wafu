@@ -41,6 +41,7 @@ fn enter_on_a_text_file_opens_an_empty_preview_and_reads_the_file() {
         PreviewContent::Lines {
             lines: Vec::new(),
             digits: 0,
+            hex_dump: false,
         }
     );
     assert_eq!(preview.detail, "");
@@ -59,7 +60,11 @@ fn a_loaded_document_shows_its_lines_and_encoding() {
     assert_eq!(harness.preview_numbers(), ["1", "2", "3"]);
     assert!(matches!(
         preview.content,
-        PreviewContent::Lines { digits: 2, .. }
+        PreviewContent::Lines {
+            digits: 2,
+            hex_dump: false,
+            ..
+        }
     ));
 
     harness.press("Esc");
@@ -117,7 +122,12 @@ fn tab_switches_to_the_hex_dump_and_back_from_the_top() {
     assert_eq!(lines.len(), 2);
     assert!(lines[0].starts_with("6c 30 0a 6c 31 0a"));
     assert_eq!(harness.preview_numbers(), ["00000000", "00000010"]);
-    assert_eq!(harness.view().preview.unwrap().detail, "");
+    let preview = harness.view().preview.unwrap();
+    assert_eq!(preview.detail, "");
+    assert!(matches!(
+        preview.content,
+        PreviewContent::Lines { hex_dump: true, .. }
+    ));
 
     harness.press("Tab");
 

@@ -7,6 +7,7 @@ export struct PreviewData {
     full: bool,
     // 0: lines of text, 1: an image (or nothing), 2: a message
     kind: int,
+    hex-dump: bool,
     message: string,
     detail: string,
 }
@@ -73,7 +74,8 @@ export component PreviewWidget inherits Rectangle {
         padding: 4px;
 
         for line in root.lines: HorizontalLayout {
-            spacing: root.number-sample == "" ? 0 : 8px;
+            // Matches the two-character gaps inside a hex dump row.
+            spacing: root.number-sample == "" ? 0 : root.data.hex-dump ? 2 * measure.preferred-width : 8px;
 
             Text {
                 text: line.number;

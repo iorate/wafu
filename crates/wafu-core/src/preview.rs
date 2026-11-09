@@ -257,7 +257,7 @@ fn hex_line(bytes: &[u8]) -> String {
             None => line.push_str("  "),
         }
     }
-    line.push_str("  |");
+    line.push_str("  ");
     for &byte in bytes {
         line.push(if byte.is_ascii_graphic() || byte == b' ' {
             char::from(byte)
@@ -265,7 +265,6 @@ fn hex_line(bytes: &[u8]) -> String {
             '.'
         });
     }
-    line.push('|');
     line
 }
 
@@ -446,15 +445,15 @@ mod tests {
     }
 
     #[test]
-    fn hex_lines_follow_the_hexdump_layout() {
+    fn hex_lines_show_the_bytes_and_their_characters_in_aligned_columns() {
         let document = Document::decode(b"Hello world\n\x00\x01\x7f\xffabc".to_vec(), false);
 
         assert_eq!(document.line_count(DocumentMode::Binary), 2);
         assert_eq!(
             shown(&document, DocumentMode::Binary, 0, 10),
             [
-                "48 65 6c 6c 6f 20 77 6f  72 6c 64 0a 00 01 7f ff  |Hello world.....|",
-                "61 62 63                                          |abc|",
+                "48 65 6c 6c 6f 20 77 6f  72 6c 64 0a 00 01 7f ff  Hello world.....",
+                "61 62 63                                          abc",
             ]
         );
         assert_eq!(document.digits(DocumentMode::Binary), OFFSET_DIGITS);
