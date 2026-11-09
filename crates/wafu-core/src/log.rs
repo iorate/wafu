@@ -145,6 +145,16 @@ mod tests {
     }
 
     #[test]
+    fn a_viewport_of_zero_rows_counts_as_one() {
+        let mut log = log_with(5, 3);
+
+        log.set_viewport_rows(0);
+
+        assert_eq!(log.viewport_rows(), 1);
+        assert_eq!(log.scroll_top(), 4);
+    }
+
+    #[test]
     fn scroll_up_stops_at_the_top() {
         let mut log = log_with(5, 3);
 

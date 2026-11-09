@@ -676,6 +676,7 @@ editor = "open -t {paths}"
         let text = r##"
 [appearance]
 theme = 1
+size_format = "bogus"
 [appearance.font]
 size = "big"
 [appearance.font.log]
@@ -699,6 +700,7 @@ editor = "\"unterminated"
             [
                 "general.editor",
                 "appearance.theme",
+                "appearance.size_format",
                 "appearance.font.log.size",
                 "appearance.font.size",
                 "colors.light.fg",
@@ -713,6 +715,34 @@ editor = "\"unterminated"
             DiagnosticKind::InvalidValue {
                 expected: "auto, light, or dark".to_owned()
             }
+        );
+    }
+
+    #[test]
+    fn each_font_area_is_read_into_its_own_font() {
+        let areas = [
+            "path", "filelist", "info", "log", "status", "preview", "popup",
+        ];
+        let text = areas
+            .map(|area| format!("[appearance.font.{area}]\nfamily = \"{area}\"\n"))
+            .concat();
+
+        let (config, diagnostics) = parse(&text, Os::Linux).unwrap();
+
+        assert_eq!(diagnostics, Vec::new());
+        let fonts = &config.appearance.font;
+        assert_eq!(
+            [
+                &fonts.path,
+                &fonts.filelist,
+                &fonts.info,
+                &fonts.log,
+                &fonts.status,
+                &fonts.preview,
+                &fonts.popup,
+            ]
+            .map(|font| font.family.as_deref()),
+            areas.map(Some)
         );
     }
 

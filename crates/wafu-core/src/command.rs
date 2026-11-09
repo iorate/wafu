@@ -354,6 +354,32 @@ mod tests {
     }
 
     #[test]
+    fn image_preview_takes_clear_marks() {
+        assert!(Command::ClearMarks.available_in(Context::Image));
+    }
+
+    #[test]
+    fn image_preview_takes_neither_the_text_preview_nor_the_file_list_commands() {
+        assert!(!Command::PreviewScrollDown.available_in(Context::Image));
+        assert!(!Command::Copy.available_in(Context::Image));
+    }
+
+    #[test]
+    fn text_preview_takes_neither_the_split_nor_the_file_list_commands() {
+        assert!(!Command::PaneGrowLeft.available_in(Context::Text));
+        assert!(!Command::Copy.available_in(Context::Text));
+    }
+
+    #[test]
+    fn external_commands_are_available_only_in_the_file_list() {
+        let external = Command::External("x".to_owned());
+
+        assert!(external.available_in(Context::FileList));
+        assert!(!external.available_in(Context::Image));
+        assert!(!external.available_in(Context::Text));
+    }
+
+    #[test]
     fn jump_names_need_one_lower_case_letter_or_digit() {
         assert_eq!(Command::from_name("jump_"), None);
         assert_eq!(Command::from_name("jump_ab"), None);

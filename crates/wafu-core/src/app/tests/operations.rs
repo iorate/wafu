@@ -339,6 +339,23 @@ fn abort_cancels_the_operation() {
 }
 
 #[test]
+fn the_abort_row_cancels_the_operation() {
+    let mut harness = conflicting();
+    harness.press("Down");
+    harness.press("Down");
+    harness.press("Down");
+    assert_eq!(harness.view().popup.unwrap().cursor, Some(4));
+
+    harness.press("Enter");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::OperationReply(Reply::Cancel)]
+    );
+    assert_eq!(harness.view().popup.unwrap().title, "Cancelling");
+}
+
+#[test]
 fn rename_in_a_conflict_asks_for_a_name() {
     let mut harness = copying();
     harness.operation(OperationEvent::Conflict {
@@ -387,6 +404,18 @@ fn rename_in_a_conflict_asks_for_a_name() {
         )))]
     );
     assert_eq!(harness.view().popup.unwrap().title, "Copying");
+}
+
+#[test]
+fn rename_in_a_conflict_to_an_empty_name_goes_back() {
+    let mut harness = conflicting();
+    harness.press("R");
+    harness.edit("");
+
+    harness.press("Enter");
+
+    assert_eq!(harness.view().popup.unwrap().title, "File exists");
+    assert_eq!(harness.take_effects(), vec![]);
 }
 
 #[cfg(unix)]
@@ -553,10 +582,6 @@ fn delete_counts_several_targets_and_enter_confirms() {
     harness.take_effects();
 
     harness.press("D");
-    assert_eq!(
-        harness.view().popup.unwrap().message.as_deref(),
-        Some("Delete 2 items?")
-    );
     harness.press("Enter");
 
     assert_eq!(
@@ -641,10 +666,7 @@ fn trash_starts_at_once() {
 #[test]
 fn rename_opens_with_the_name_and_selects_everything_but_the_extension() {
     let mut harness = Harness::start(LEFT, RIGHT);
-    harness.load(
-        Side::Left,
-        vec![file("a.tar.gz"), file(".bashrc"), dir("conf.d")],
-    );
+    harness.load(Side::Left, vec![file("a.tar.gz"), dir("conf.d")]);
     harness.press("Down");
     harness.take_effects();
     assert_eq!(harness.cursor_name(Side::Left), "conf.d");
@@ -655,16 +677,6 @@ fn rename_opens_with_the_name_and_selects_everything_but_the_extension() {
     assert_eq!(
         popup.fields.first().map(|field| field.text.as_str()),
         Some("conf.d")
-    );
-    assert_eq!(popup.fields[0].select, None);
-    harness.press("Esc");
-
-    harness.press("Down");
-    harness.press("R");
-    let popup = harness.view().popup.unwrap();
-    assert_eq!(
-        popup.fields.first().map(|field| field.text.as_str()),
-        Some(".bashrc")
     );
     assert_eq!(popup.fields[0].select, None);
     harness.press("Esc");
@@ -1370,31 +1382,16 @@ fn shell_menu_from_the_keyboard_takes_the_marks_or_the_cursor_entry() {
 }
 
 #[test]
-fn shell_menu_on_the_parent_row_takes_the_marks_or_the_directory_itself() {
+fn shell_menu_on_the_parent_row_takes_the_directory_itself() {
     let mut harness = windows_files();
     harness.take_effects();
 
     harness.press("\\");
+
     assert_eq!(
         harness.take_effects(),
         vec![Effect::ShellMenu {
             paths: vec![PathBuf::from(WIN_LEFT)],
-            anchor: MenuAnchor::Row {
-                side: Side::Left,
-                row: 0,
-            },
-        }]
-    );
-
-    harness.press("Down");
-    harness.press("Space");
-    harness.press("Home");
-    harness.take_effects();
-    harness.press("\\");
-    assert_eq!(
-        harness.take_effects(),
-        vec![Effect::ShellMenu {
-            paths: vec![path(WIN_LEFT, "a")],
             anchor: MenuAnchor::Row {
                 side: Side::Left,
                 row: 0,

@@ -220,6 +220,37 @@ mod tests {
     }
 
     #[test]
+    fn parent_of_an_archive_root_is_the_directory_holding_the_archive() {
+        let root = inside(&[]);
+
+        assert_eq!(root.parent(), Some(Location::new(PathBuf::from("/a/b"))));
+        assert!(root.has_parent());
+        assert_eq!(root.leaf_name(), Some(OsString::from("c.zip")));
+    }
+
+    #[test]
+    fn a_filesystem_root_has_no_parent() {
+        let root = Location::new(PathBuf::from("/"));
+
+        assert_eq!(root.parent(), None);
+        assert!(!root.has_parent());
+    }
+
+    #[test]
+    fn child_appends_a_segment_inside_an_archive() {
+        assert_eq!(inside(&["d"]).child("e"), inside(&["d", "e"]));
+    }
+
+    #[test]
+    fn dir_inside_an_archive_is_the_directory_holding_the_archive() {
+        assert_eq!(inside(&["d"]).dir(), Path::new("/a/b"));
+        assert_eq!(
+            Location::new(PathBuf::from("/a/b")).dir(),
+            Path::new("/a/b")
+        );
+    }
+
+    #[test]
     fn child_display_joins_with_a_slash_inside_an_archive() {
         assert_eq!(
             inside(&["d"]).child_display(OsStr::new("f.txt")),

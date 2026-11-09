@@ -102,6 +102,44 @@ mod tests {
     }
 
     #[test]
+    fn back_returns_the_previous_place_and_stops_at_the_oldest() {
+        let mut history = History::new();
+        history.visit(PathBuf::from("/a"));
+        history.visit(PathBuf::from("/b"));
+
+        assert_eq!(history.back(), Some((0, Path::new("/a"))));
+        history.set_pos(0);
+        assert_eq!(history.back(), None);
+    }
+
+    #[test]
+    fn a_visit_after_going_back_drops_the_forward_side() {
+        let mut history = History::new();
+        for path in ["/a", "/b", "/c"] {
+            history.visit(PathBuf::from(path));
+        }
+        history.set_pos(0);
+
+        history.visit(PathBuf::from("/d"));
+
+        assert_eq!(history.items(), [PathBuf::from("/a"), PathBuf::from("/d")]);
+        assert_eq!(history.pos(), 1);
+    }
+
+    #[test]
+    fn visiting_the_current_place_after_going_back_keeps_the_forward_side() {
+        let mut history = History::new();
+        history.visit(PathBuf::from("/a"));
+        history.visit(PathBuf::from("/b"));
+        history.set_pos(0);
+
+        history.visit(PathBuf::from("/a"));
+
+        assert_eq!(history.items(), [PathBuf::from("/a"), PathBuf::from("/b")]);
+        assert_eq!(history.pos(), 0);
+    }
+
+    #[test]
     fn set_pos_moves_without_recording_and_ignores_out_of_range() {
         let mut history = History::new();
         history.visit(PathBuf::from("/a"));
