@@ -5,6 +5,7 @@ use std::path::Path;
 use chardetng::{EncodingDetector, Iso2022JpDetection, Utf8Detection};
 use encoding_rs::Encoding;
 
+use crate::text::{LINE_BREAK_SYMBOL, is_line_break};
 use crate::view::PreviewLine;
 
 /// How much of a file the preview reads.
@@ -179,8 +180,9 @@ pub fn is_image_name(name: &OsStr) -> bool {
         })
 }
 
-// Splits at `\n`, `\r\n`, and `\r`, expands tabs, and cuts lines that would be
-// taller than a screen once wrapped. A trailing newline does not add a line.
+// Splits at `\n`, `\r\n`, and `\r`, expands tabs, shows the other line breaks
+// as a symbol, and cuts lines that would be taller than a screen once wrapped.
+// A trailing newline does not add a line.
 fn split_lines(text: &str) -> Vec<Line> {
     let mut lines = Vec::new();
     let mut line = String::new();
@@ -210,6 +212,12 @@ fn split_lines(text: &str) -> Vec<Line> {
             let spaces = TAB_STOP - width % TAB_STOP;
             line.extend(std::iter::repeat_n(' ', spaces));
             width += spaces;
+        } else if is_line_break(c) {
+            // Not split here, so that line numbers stay as editors count them.
+            // Left as it is, the text layout would break the line here in rows
+            // the viewer does not count, and a cut line could outgrow a screen.
+            line.push_str(LINE_BREAK_SYMBOL);
+            width += 1;
         } else {
             line.push(c);
             width += 1;
@@ -335,6 +343,28 @@ mod tests {
         let document = Document::decode(b"a\r\nb\rc\td\n\tx".to_vec(), false);
 
         assert_eq!(texts(&document), ["a", "b", "c       d", "        x"]);
+    }
+
+    #[test]
+    fn other_line_breaks_are_shown_as_a_symbol_without_splitting() {
+        let text = "a\u{0B}b\u{0C}c\nd\u{85}e\u{2028}f\u{2029}g";
+
+        let document = Document::decode(text.as_bytes().to_vec(), false);
+
+        assert_eq!(texts(&document), ["a↵b↵c", "d↵e↵f↵g"]);
+        assert_eq!(numbers(&document), [1, 2]);
+    }
+
+    #[test]
+    fn a_line_break_symbol_counts_toward_the_cut() {
+        let text = "\u{0C}".repeat(MAX_LINE_CHARS + 1);
+
+        let document = Document::decode(text.into_bytes(), false);
+
+        assert_eq!(
+            texts(&document),
+            ["↵".repeat(MAX_LINE_CHARS), "↵".to_owned()]
+        );
     }
 
     #[test]

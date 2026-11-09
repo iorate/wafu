@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use icu_normalizer::ComposingNormalizer;
 
-const LINE_BREAK_SYMBOL: &str = "\u{21B5}";
+pub(crate) const LINE_BREAK_SYMBOL: &str = "\u{21B5}";
 
 // macOS stores file names decomposed (NFD) while input methods produce composed
 // text (NFC), so both sides are composed before any name comparison.
@@ -23,7 +23,7 @@ pub(crate) fn show_line_breaks(text: String) -> String {
         .replace(is_line_break, LINE_BREAK_SYMBOL)
 }
 
-fn is_line_break(c: char) -> bool {
+pub(crate) fn is_line_break(c: char) -> bool {
     matches!(
         c,
         '\n' | '\u{0B}' | '\u{0C}' | '\r' | '\u{85}' | '\u{2028}' | '\u{2029}'
