@@ -199,9 +199,12 @@ pub enum PreviewContent {
     /// The visible lines of a document preview, from the scroll
     /// position. Empty while the file is being read. `digits` is the width
     /// of the line number column; zero when there are no numbers.
+    /// `hex_dump` is set when the lines are a hex dump, whose columns are
+    /// two characters apart.
     Lines {
         lines: Vec<PreviewLine>,
         digits: usize,
+        hex_dump: bool,
     },
     /// An image, or nothing when the cursor is not on an image.
     Image(Option<SharedImage>),
@@ -212,7 +215,8 @@ pub enum PreviewContent {
 /// One visible line of a document preview.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreviewLine {
-    /// The line number, or empty for a continued line and for the hex dump.
+    /// The line number, or the offset of a hex dump line; empty for a
+    /// continued line and for the note about truncation.
     pub number: String,
     pub text: String,
 }

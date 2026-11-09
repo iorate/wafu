@@ -658,19 +658,22 @@ impl Ui {
         let (lines, digits, image, data) = match preview {
             None => (Vec::new(), 0, None, PreviewData::default()),
             Some(preview) => {
-                let (kind, lines, digits, image, message) = match &preview.content {
-                    PreviewContent::Lines { lines, digits } => {
-                        (0, lines.as_slice(), *digits, None, "")
-                    }
-                    PreviewContent::Image(image) => (1, [].as_slice(), 0, image.clone(), ""),
+                let (kind, lines, digits, hex_dump, image, message) = match &preview.content {
+                    PreviewContent::Lines {
+                        lines,
+                        digits,
+                        hex_dump,
+                    } => (0, lines.as_slice(), *digits, *hex_dump, None, ""),
+                    PreviewContent::Image(image) => (1, [].as_slice(), 0, false, image.clone(), ""),
                     PreviewContent::Message(message) => {
-                        (2, [].as_slice(), 0, None, message.as_str())
+                        (2, [].as_slice(), 0, false, None, message.as_str())
                     }
                 };
                 let data = PreviewData {
                     visible: true,
                     full: preview.placement == PreviewPlacement::Full,
                     kind,
+                    hex_dump,
                     message: message.into(),
                     detail: preview.detail.as_str().into(),
                 };

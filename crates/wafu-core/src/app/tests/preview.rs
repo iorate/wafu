@@ -41,6 +41,7 @@ fn enter_on_a_text_file_opens_an_empty_preview_and_reads_the_file() {
         PreviewContent::Lines {
             lines: Vec::new(),
             digits: 0,
+            hex_dump: false,
         }
     );
     assert_eq!(preview.detail, "");
@@ -59,7 +60,11 @@ fn a_loaded_document_shows_its_lines_and_encoding() {
     assert_eq!(harness.preview_numbers(), ["1", "2", "3"]);
     assert!(matches!(
         preview.content,
-        PreviewContent::Lines { digits: 2, .. }
+        PreviewContent::Lines {
+            digits: 2,
+            hex_dump: false,
+            ..
+        }
     ));
 
     harness.press("Esc");
@@ -115,10 +120,14 @@ fn tab_switches_to_the_hex_dump_and_back_from_the_top() {
 
     let lines = harness.preview_lines();
     assert_eq!(lines.len(), 2);
-    assert!(lines[0].starts_with("00000000  6c 30 0a 6c 31 0a"));
-    assert!(lines[1].starts_with("00000010 "));
-    assert_eq!(harness.preview_numbers(), ["", ""]);
-    assert_eq!(harness.view().preview.unwrap().detail, "");
+    assert!(lines[0].starts_with("6c 30 0a 6c 31 0a"));
+    assert_eq!(harness.preview_numbers(), ["00000000", "00000010"]);
+    let preview = harness.view().preview.unwrap();
+    assert_eq!(preview.detail, "");
+    assert!(matches!(
+        preview.content,
+        PreviewContent::Lines { hex_dump: true, .. }
+    ));
 
     harness.press("Tab");
 
@@ -207,8 +216,9 @@ fn a_binary_file_opens_as_a_hex_dump_with_the_note() {
 
     let lines = harness.preview_lines();
     assert_eq!(lines.len(), 2);
-    assert!(lines[0].starts_with("00000000  61 62 00"));
+    assert!(lines[0].starts_with("61 62 00"));
     assert_eq!(lines[1], truncated_note());
+    assert_eq!(harness.preview_numbers(), ["00000000", ""]);
     assert_eq!(harness.view().preview.unwrap().detail, "");
 }
 
@@ -978,7 +988,7 @@ fn text_keys_come_from_the_text_table_in_both_modes() {
 
     harness.press("Tab");
     harness.press("J");
-    assert!(harness.preview_lines()[0].starts_with("00000010 "));
+    assert_eq!(harness.preview_numbers()[0], "00000010");
 
     harness.press("Alt+Up");
     assert_eq!(harness.view().log_rows, 7);
