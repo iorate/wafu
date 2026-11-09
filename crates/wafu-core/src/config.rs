@@ -10,7 +10,12 @@ use crate::keymap::KeyMap;
 
 mod decode;
 
-/// The configuration file with every item commented out, written when there is none.
+/// The configuration file written when there is none.
+// Items with a default are live lines, so values and defaults show at a glance
+// and can be edited in place. Items with no expressible default are `# `
+// examples placed where one uncomment turns them on, with `## ` explanations
+// staying comments. The examples never repeat a table header, because a
+// duplicate header is a syntax error that rejects the whole file.
 pub const CONFIG_TEMPLATE: &str = include_str!("../config.template.toml");
 
 const FONT_SIZE_DEFAULT: u16 = 12;
@@ -352,6 +357,8 @@ impl fmt::Display for Diagnostic {
     }
 }
 
+// Slint resolves only real family names; a generic one like `monospace` does
+// nothing on any OS, so each OS gets a named default.
 pub(crate) fn monospace_family(os: Os) -> &'static str {
     match os {
         Os::Windows => "Consolas",

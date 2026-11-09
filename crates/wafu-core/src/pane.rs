@@ -308,6 +308,7 @@ impl Pane {
 
     pub fn toggle_hidden(&mut self) {
         self.show_hidden = !self.show_hidden;
+        // So that entries the user can no longer see are never acted on.
         self.marks.clear();
         self.refresh_view();
     }
@@ -329,6 +330,7 @@ impl Pane {
             return false;
         }
         self.filter = filter;
+        // So that entries the user can no longer see are never acted on.
         self.marks.clear();
         self.refresh_view();
         true

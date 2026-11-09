@@ -428,6 +428,8 @@ impl Ui {
                 ui.dispatch(Msg::CloseRequested);
             }
             // Quitting is the core's decision, carried out by `Effect::Quit`.
+            // Cmd+Q on macOS ends the process without coming here
+            // (slint-ui/slint#4482).
             CloseRequestResponse::KeepWindowShown
         });
 
@@ -844,6 +846,8 @@ fn preview_line(line: &wafu_core::PreviewLine) -> PreviewLine {
     }
 }
 
+// `slint::Image` is not `Send`, so the workers hand over raw RGBA and the
+// image is built here on the main thread.
 fn slint_image(image: &wafu_core::ImageData) -> slint::Image {
     let buffer =
         SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(&image.rgba, image.width, image.height);

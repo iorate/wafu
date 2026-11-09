@@ -325,6 +325,9 @@ impl App {
                     return;
                 }
                 let path = resolve_input(text, &self.home, &dir);
+                // A typed path does not climb to an ancestor, so that a typo
+                // cannot land somewhere unexpected; startup arguments and a
+                // location that vanished do.
                 self.resolve(self.active, path, false, None, effects);
                 return;
             }

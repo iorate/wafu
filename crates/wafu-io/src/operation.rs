@@ -282,7 +282,9 @@ impl Worker<'_> {
     }
 
     // Copies the contents in chunks, checking for a cancellation between
-    // them. Whatever was written is removed when the copy does not finish.
+    // them. Whatever was written is removed when the copy does not finish, as
+    // a file with the right name and partial content could pass for a finished
+    // one.
     fn write_file(&mut self, src: &Path, dst: &Path) -> Result<(), Stop> {
         let result = self.write_chunks(src, dst);
         if result.is_err() {

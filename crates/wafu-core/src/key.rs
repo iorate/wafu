@@ -118,6 +118,9 @@ impl FromStr for Key {
         let base = match (chars.next(), chars.next()) {
             (Some(c), None) if c.is_ascii_alphabetic() => KeyBase::Char(c.to_ascii_uppercase()),
             // Symbols are written as the typed character, never with Shift.
+            // Spelling the typed character rather than the physical key lets a
+            // binding like `@` work on every layout without per-layout defaults,
+            // and Slint offers no stable way to learn the physical key anyway.
             (Some(_), None) if shift => return Err(error()),
             (Some(c), None) => KeyBase::Char(c),
             (Some(_), Some(_)) => KeyBase::Named(base.parse().map_err(|_| error())?),

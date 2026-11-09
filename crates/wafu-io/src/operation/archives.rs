@@ -618,7 +618,8 @@ fn make_link(target: &str, dst: &Path) -> std::io::Result<()> {
 }
 
 // A fresh directory under the system's temporary directory, left for the OS
-// to clean up.
+// to clean up. Not one fixed `wafu` directory, because the temporary directory
+// is shared between users on Linux and another user may already own that name.
 fn make_temp_dir() -> std::io::Result<PathBuf> {
     Ok(tempfile::Builder::new()
         .prefix(TEMP_PREFIX)

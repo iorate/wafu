@@ -19,6 +19,10 @@ const CONTEXTS: [(&str, Context); 3] = [
     ("text", Context::Text),
 ];
 
+// The table is walked by hand rather than with serde, which cannot skip one
+// item of the wrong type and keep the rest (serde_ignored only finds unknown
+// items). A syntax error rejects the whole file and keeps the previous
+// configuration; any other error drops just that item with a warning.
 pub(super) fn parse(text: &str, os: Os) -> Result<(Config, Vec<Diagnostic>), SyntaxError> {
     let mut table: Table = toml::from_str(text).map_err(|error| SyntaxError {
         line: line_of(text, error.span()),

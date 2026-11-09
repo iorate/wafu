@@ -49,6 +49,10 @@ fn shell_delete(path: &Path, owner_window: Option<isize>) -> windows::core::Resu
     // SAFETY: the operation is fully set up; the call blocks while the shell
     // works and shows its dialogs on this thread.
     unsafe { operation.PerformOperations() }?;
+    // A permanent delete the user accepted in the shell's warning also
+    // succeeds, so it cannot be told from a move to the trash here; that would
+    // take `IFileOperationProgressSink::PostDeleteItem` (a null
+    // `psiNewlyCreated`).
     // SAFETY: a query on the finished operation.
     if unsafe { operation.GetAnyOperationsAborted() }?.as_bool() {
         return Err(COPYENGINE_E_USER_CANCELLED.into());
@@ -56,6 +60,7 @@ fn shell_delete(path: &Path, owner_window: Option<isize>) -> windows::core::Resu
     Ok(())
 }
 
+// An unavailable trash is an error, never a fall back to permanent deletion.
 #[cfg(not(windows))]
 pub(crate) fn trash(path: &Path, _owner_window: Option<isize>) -> io::Result<()> {
     trash_context()
