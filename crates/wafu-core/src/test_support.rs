@@ -73,8 +73,19 @@ impl Harness {
     }
 
     // Starts from a `Start` message built by `start_msg` and changed as the
-    // test needs, without answering anything.
+    // test needs, answering only the request for the login shell's
+    // environment, so that programs start at once.
     pub(crate) fn start_from(msg: Msg) -> Self {
+        let mut harness = Self::start_raw(msg);
+        if harness.effects.contains(&Effect::LoadShellEnv) {
+            harness.send(Msg::Io(IoEvent::ShellEnvLoaded { error: None }));
+        }
+        harness
+    }
+
+    // Starts without answering anything, for tests of the login shell's
+    // environment.
+    pub(crate) fn start_raw(msg: Msg) -> Self {
         let mut harness = Self {
             app: App::new(),
             effects: Vec::new(),

@@ -32,12 +32,18 @@ pub fn print_env() {
     let _ = stdout.write_all(&output).and_then(|()| stdout.flush());
 }
 
-// zsh is the default login shell on macOS; finding the user's shell without
-// `$SHELL` would take the passwd database, which only unsafe code can reach.
+// Without `$SHELL`, the fallback is the default login shell of macOS, and
+// elsewhere the shell every system has; finding the user's own shell would take
+// the passwd database, which only unsafe code can reach.
 pub(crate) fn load_shell_env() -> io::Result<Vec<(OsString, OsString)>> {
+    let fallback = if cfg!(target_os = "macos") {
+        "/bin/zsh"
+    } else {
+        "/bin/sh"
+    };
     let shell = std::env::var_os("SHELL")
         .filter(|shell| !shell.is_empty())
-        .unwrap_or_else(|| OsString::from("/bin/zsh"));
+        .unwrap_or_else(|| OsString::from(fallback));
     let shell = Path::new(&shell);
     // These shells do not take the command line `resolve` builds (PowerShell
     // needs `&` before a quoted path, Nushell needs `^`, and xonsh parses the

@@ -202,6 +202,9 @@ fn read_general(root: &mut Reader<'_>, config: &mut Config) {
     if let Some(value) = general.bool("hide_log_in_preview") {
         config.general.hide_log_in_preview = value;
     }
+    if let Some(value) = general.bool("use_login_shell_env") {
+        config.general.use_login_shell_env = value;
+    }
     if let Some(text) = general.string("editor") {
         match CommandLine::parse(&text) {
             Ok(editor) => config.general.editor = editor,

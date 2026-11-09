@@ -26,6 +26,7 @@ fn start_resolves_both_panes_then_watches_and_reads_them() {
         vec![
             Effect::WatchConfig(PathBuf::from(CONFIG_PATH)),
             Effect::WatchColorScheme,
+            Effect::LoadShellEnv,
             Effect::Resolve {
                 side: Side::Left,
                 path: PathBuf::from("/home/user"),
@@ -3633,9 +3634,8 @@ fn external_commands_expand_placeholders_and_report_their_start() {
 }
 
 #[test]
-fn on_macos_programs_wait_for_the_login_shell_environment_in_order() {
-    let mut harness =
-        start_on_macos_with_term(start_msg(Os::MacOs, Some("/Users/user"), Some("/tmp")));
+fn programs_wait_for_the_login_shell_environment_in_order() {
+    let mut harness = start_with_term(Os::Linux, false, "");
     assert!(harness.take_effects().contains(&Effect::LoadShellEnv));
 
     harness.press("F2");
@@ -3652,7 +3652,7 @@ fn on_macos_programs_wait_for_the_login_shell_environment_in_order() {
         ),
         "expected Spawn and then SpawnNewWindow, got {effects:?}"
     );
-    assert_eq!(harness.log(), ["config reloaded"]);
+    assert_eq!(harness.log(), Vec::<String>::new());
 
     harness.press("F2");
     assert!(matches!(
@@ -3661,10 +3661,11 @@ fn on_macos_programs_wait_for_the_login_shell_environment_in_order() {
     ));
 }
 
+// On macOS rather than Linux, so that between them the two tests catch a
+// condition that names either OS alone.
 #[test]
 fn failing_to_read_the_login_shell_environment_is_logged_and_releases_the_programs() {
-    let mut harness =
-        start_on_macos_with_term(start_msg(Os::MacOs, Some("/Users/user"), Some("/tmp")));
+    let mut harness = start_with_term(Os::MacOs, false, "");
     harness.take_effects();
     harness.press("F2");
 
@@ -3677,18 +3678,40 @@ fn failing_to_read_the_login_shell_environment_is_logged_and_releases_the_progra
         [Effect::Spawn { .. }]
     ));
     assert_eq!(
-        harness.log()[1..],
+        harness.log(),
         ["cannot read the login shell's environment: timed out"]
     );
 }
 
 #[test]
-fn an_inherited_instance_on_macos_starts_programs_at_once() {
-    let Msg::Start(mut start) = start_msg(Os::MacOs, Some("/Users/user"), Some("/tmp")) else {
-        unreachable!()
-    };
-    start.inherited = true;
-    let mut harness = start_on_macos_with_term(Msg::Start(start));
+fn an_inherited_instance_starts_programs_at_once() {
+    let mut harness = start_with_term(Os::Linux, true, "");
+    assert!(!harness.take_effects().contains(&Effect::LoadShellEnv));
+
+    harness.press("F2");
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::Spawn { .. }]
+    ));
+}
+
+#[test]
+fn turning_off_use_login_shell_env_starts_programs_at_once() {
+    let mut harness = start_with_term(Os::Linux, false, "[general]\nuse_login_shell_env = false\n");
+    assert!(!harness.take_effects().contains(&Effect::LoadShellEnv));
+
+    harness.press("F2");
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::Spawn { .. }]
+    ));
+}
+
+#[test]
+fn on_windows_programs_start_at_once() {
+    let mut harness = start_with_term(Os::Windows, false, "");
     assert!(!harness.take_effects().contains(&Effect::LoadShellEnv));
 
     harness.press("F2");
@@ -3794,13 +3817,27 @@ fn timestamp() -> Timestamp {
     }
 }
 
-fn start_on_macos_with_term(start: Msg) -> Harness {
-    let mut harness = Harness::start_from(start);
-    harness.resolve(Side::Left, "/Users/user", None);
+// Starts without answering the request for the login shell's environment,
+// with F2 bound to an external command.
+fn start_with_term(os: Os, inherited: bool, config: &str) -> Harness {
+    let config = format!(
+        "[commands.term]\nrun = \"term {{dir}}\"\n[keys.filelist]\n\"F2\" = \"$term\"\n{config}"
+    );
+    let Msg::Start(mut start) = start_msg_with(
+        os,
+        Some(HOME),
+        Some("/tmp"),
+        ConfigSource::Text(config),
+        Ok(None),
+    ) else {
+        unreachable!()
+    };
+    start.inherited = inherited;
+    let mut harness = Harness::start_raw(Msg::Start(start));
+    harness.resolve(Side::Left, HOME, None);
     harness.resolve(Side::Right, "/tmp", None);
     harness.load(Side::Left, vec![file("a")]);
     harness.load(Side::Right, vec![]);
-    harness.config("[commands.term]\nrun = \"term {dir}\"\n[keys.filelist]\n\"F2\" = \"$term\"\n");
     harness
 }
 
