@@ -3633,6 +3633,73 @@ fn external_commands_expand_placeholders_and_report_their_start() {
 }
 
 #[test]
+fn on_macos_programs_wait_for_the_login_shell_environment_in_order() {
+    let mut harness =
+        start_on_macos_with_term(start_msg(Os::MacOs, Some("/Users/user"), Some("/tmp")));
+    assert!(harness.take_effects().contains(&Effect::LoadShellEnv));
+
+    harness.press("F2");
+    harness.press("Alt+Z");
+    assert_eq!(harness.take_effects(), vec![]);
+
+    harness.send(Msg::Io(IoEvent::ShellEnvLoaded { error: None }));
+
+    let effects = harness.take_effects();
+    assert!(
+        matches!(
+            effects.as_slice(),
+            [Effect::Spawn { .. }, Effect::SpawnNewWindow { .. }]
+        ),
+        "expected Spawn and then SpawnNewWindow, got {effects:?}"
+    );
+    assert_eq!(harness.log(), ["config reloaded"]);
+
+    harness.press("F2");
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::Spawn { .. }]
+    ));
+}
+
+#[test]
+fn failing_to_read_the_login_shell_environment_is_logged_and_releases_the_programs() {
+    let mut harness =
+        start_on_macos_with_term(start_msg(Os::MacOs, Some("/Users/user"), Some("/tmp")));
+    harness.take_effects();
+    harness.press("F2");
+
+    harness.send(Msg::Io(IoEvent::ShellEnvLoaded {
+        error: Some(IoError::new("timed out")),
+    }));
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::Spawn { .. }]
+    ));
+    assert_eq!(
+        harness.log()[1..],
+        ["cannot read the login shell's environment: timed out"]
+    );
+}
+
+#[test]
+fn an_inherited_instance_on_macos_starts_programs_at_once() {
+    let Msg::Start(mut start) = start_msg(Os::MacOs, Some("/Users/user"), Some("/tmp")) else {
+        unreachable!()
+    };
+    start.inherited = true;
+    let mut harness = start_on_macos_with_term(Msg::Start(start));
+    assert!(!harness.take_effects().contains(&Effect::LoadShellEnv));
+
+    harness.press("F2");
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::Spawn { .. }]
+    ));
+}
+
+#[test]
 fn an_exit_other_than_success_is_logged() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.take_effects();
@@ -3725,6 +3792,16 @@ fn timestamp() -> Timestamp {
             second: 5,
         },
     }
+}
+
+fn start_on_macos_with_term(start: Msg) -> Harness {
+    let mut harness = Harness::start_from(start);
+    harness.resolve(Side::Left, "/Users/user", None);
+    harness.resolve(Side::Right, "/tmp", None);
+    harness.load(Side::Left, vec![file("a")]);
+    harness.load(Side::Right, vec![]);
+    harness.config("[commands.term]\nrun = \"term {dir}\"\n[keys.filelist]\n\"F2\" = \"$term\"\n");
+    harness
 }
 
 fn many_bookmarks() -> Harness {

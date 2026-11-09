@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use super::{App, ColorScheme, ConfigSource, Effect, Side, SpawnKind};
+use super::{App, ColorScheme, ConfigSource, Effect, Os, Side, SpawnKind};
 use crate::command::Command;
 use crate::config::{Config, parse_config};
 use crate::entry::Entry;
@@ -20,6 +20,7 @@ impl App {
         right: Option<PathBuf>,
         config: ConfigSource,
         state: Result<Option<StateFile>, StateError>,
+        inherited: bool,
         effects: &mut Vec<Effect>,
     ) {
         self.load_config(config);
@@ -48,6 +49,13 @@ impl App {
         }
         effects.push(Effect::WatchConfig(self.config_path.clone()));
         effects.push(Effect::WatchColorScheme);
+        // An inherited instance already has the environment of the one that
+        // started it; when that one failed to read it, trying again in every
+        // new window would only repeat the error.
+        if self.os == Os::MacOs && !inherited {
+            effects.push(Effect::LoadShellEnv);
+            self.held_spawns = Some(Vec::new());
+        }
         let saved = |pane: Option<&PaneState>| pane.and_then(|pane| pane.path.clone());
         let left = left
             .or_else(|| saved(left_state))
@@ -78,6 +86,22 @@ impl App {
     pub(super) fn color_scheme_changed(&mut self, scheme: ColorScheme) {
         self.color_scheme = Some(scheme);
         self.restyle();
+    }
+
+    pub(super) fn shell_env_loaded(&mut self, error: Option<IoError>, effects: &mut Vec<Effect>) {
+        if let Some(source) = error {
+            self.log
+                .push(AppError::ShellEnvFailed { source }.to_string());
+        }
+        effects.extend(self.held_spawns.take().into_iter().flatten());
+    }
+
+    pub(super) fn hold_spawns(&mut self, effects: &mut Vec<Effect>) {
+        if let Some(held) = &mut self.held_spawns {
+            held.extend(effects.extract_if(.., |effect| {
+                matches!(effect, Effect::Spawn { .. } | Effect::SpawnNewWindow { .. })
+            }));
+        }
     }
 
     pub(super) fn state_file(&self) -> StateFile {

@@ -7,9 +7,12 @@ pub(crate) fn spawn(
     program: impl AsRef<OsStr>,
     args: &[impl AsRef<OsStr>],
     cwd: Option<&Path>,
+    env: &[(OsString, OsString)],
 ) -> std::io::Result<Child> {
     let mut command = Command::new(program);
-    command.args(args);
+    command
+        .args(args)
+        .envs(env.iter().map(|(key, value)| (key, value)));
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
     }
@@ -47,6 +50,7 @@ pub(crate) fn spawn_new_window(
     handoff: &Path,
     config: Option<&Path>,
     as_admin: bool,
+    env: &[(OsString, OsString)],
 ) -> std::io::Result<()> {
     let exe = std::env::current_exe()?;
     let mut args = vec![
@@ -60,7 +64,7 @@ pub(crate) fn spawn_new_window(
     if as_admin {
         return spawn_elevated(&exe, &args);
     }
-    let child = spawn(exe, &args, None)?;
+    let child = spawn(exe, &args, None, env)?;
     wait_in_background(child, |_| {});
     Ok(())
 }
@@ -142,8 +146,8 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let (program, args) = silent_program();
 
-        assert!(spawn("wafu-no-such-program", &["x"], Some(dir.path())).is_err());
-        assert!(spawn(program, args, Some(&dir.path().join("gone"))).is_err());
+        assert!(spawn("wafu-no-such-program", &["x"], Some(dir.path()), &[]).is_err());
+        assert!(spawn(program, args, Some(&dir.path().join("gone")), &[]).is_err());
     }
 
     // The child inherits the test's console on Windows, so anything it printed

@@ -21,6 +21,8 @@ mod preview;
 mod read_dir;
 mod resolve;
 mod runtime;
+#[cfg(unix)]
+mod shell_env;
 #[cfg(windows)]
 mod shell_menu;
 mod spawn;
@@ -39,6 +41,8 @@ pub use elevation::is_elevated;
 pub use message::show_message;
 pub use paths::{config_path, is_wayland, state_path};
 pub use runtime::{Paths, Runtime};
+#[cfg(unix)]
+pub use shell_env::print_env;
 #[cfg(windows)]
 pub use shell_menu::{ShellMenuError, shell_menu};
 pub use state::{read_handoff, read_state};

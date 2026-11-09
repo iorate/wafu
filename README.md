@@ -28,6 +28,12 @@ The app is not notarized, so macOS blocks it on the first launch. Open System Se
 xattr -dr com.apple.quarantine /Applications/wafu.app
 ```
 
+When wafu is not started from a terminal (for example from the Finder or the Dock), it gets the environment for the programs it starts, such as the editor and external commands, from your login shell: it runs `$SHELL` as an interactive login shell in the background. Your shell's startup files can check the `WAFU_RESOLVING_ENVIRONMENT` variable to skip lines that should not run then, such as `exec tmux`:
+
+```sh
+[ -z "$WAFU_RESOLVING_ENVIRONMENT" ] && exec tmux
+```
+
 ### Linux
 
 Install the build dependencies and then wafu with Cargo. On Debian and Ubuntu:
