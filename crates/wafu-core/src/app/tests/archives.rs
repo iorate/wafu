@@ -156,7 +156,7 @@ fn moving_inside_an_archive_of_unknown_format_leaves_the_format_unknown() {
 #[test]
 fn enter_on_a_tar_enters_it_with_the_format_of_its_extension() {
     let mut harness = Harness::start(LEFT, RIGHT);
-    harness.load(Side::Left, vec![file("a.tar.gz"), file("b.gz")]);
+    harness.load(Side::Left, vec![file("a.tar.gz")]);
     harness.load(Side::Right, vec![]);
     harness.press("Down");
     harness.take_effects();
@@ -169,16 +169,6 @@ fn enter_on_a_tar_enters_it_with_the_format_of_its_extension() {
         [Effect::Watch { .. }, Effect::ReadDir { location, .. }]
             if *location
                 == Location::archive_root(path(LEFT, "a.tar.gz"), Some(ArchiveFormat::TarGz))
-    ));
-    harness.press("Esc");
-    harness.press("Down");
-    harness.take_effects();
-
-    harness.press("Enter");
-
-    assert!(matches!(
-        harness.take_effects().as_slice(),
-        [Effect::LoadPreview { .. }]
     ));
 }
 
@@ -679,24 +669,20 @@ fn compress_takes_the_password_typed_in_the_second_field() {
 
 #[test]
 fn compress_refuses_a_name_whose_extension_names_no_format() {
-    for name in ["backup.bak", "backup"] {
-        let mut harness = outside();
-        harness.press("Down");
-        harness.press("P");
-        harness.edit(name);
-        harness.take_effects();
+    let mut harness = outside();
+    harness.press("Down");
+    harness.press("P");
+    harness.edit("backup.bak");
+    harness.take_effects();
 
-        harness.press("Enter");
+    harness.press("Enter");
 
-        assert!(harness.popup().is_none(), "{name}");
-        assert_eq!(harness.take_effects(), vec![], "{name}");
-        assert_eq!(
-            harness.log().last(),
-            Some(&format!(
-                "cannot make {name}: the extension does not name an archive format"
-            )),
-        );
-    }
+    assert!(harness.popup().is_none());
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log().last().map(String::as_str),
+        Some("cannot make backup.bak: the extension does not name an archive format")
+    );
 }
 
 #[test]

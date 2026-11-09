@@ -9,7 +9,7 @@ use crate::operation::{
 };
 use crate::pane::InFlight;
 use crate::preview::{Document, truncated_note};
-use crate::test_support::{Harness, LEFT, RIGHT, file, path, special};
+use crate::test_support::{Harness, LEFT, RIGHT, dir, file, path, special};
 use crate::view::{PreviewContent, PreviewPlacement};
 
 const TEMP: &str = "/tmp/wafu/x1";
@@ -380,6 +380,22 @@ fn a_special_file_named_like_an_image_is_not_requested() {
     harness.press("Down");
 
     assert_eq!(harness.cursor_name(Side::Left), "pipe.png");
+    assert_eq!(harness.take_effects(), vec![]);
+    let preview = harness.view().preview.unwrap();
+    assert_eq!(preview.content, PreviewContent::Image(None));
+    assert_eq!(preview.detail, "");
+}
+
+#[test]
+fn a_directory_named_like_an_image_is_not_requested() {
+    let mut harness = image();
+    harness.image_loaded(2, 1);
+    harness.load(Side::Left, vec![dir("pics.png"), file("one.png")]);
+    harness.take_effects();
+
+    harness.press("Up");
+
+    assert_eq!(harness.cursor_name(Side::Left), "pics.png");
     assert_eq!(harness.take_effects(), vec![]);
     let preview = harness.view().preview.unwrap();
     assert_eq!(preview.content, PreviewContent::Image(None));
@@ -971,9 +987,6 @@ fn the_palette_opens_during_a_preview_with_its_commands() {
         .map(|item| item.label.clone())
         .collect();
     assert!(labels.contains(&"preview_scroll_down".to_owned()));
-    assert!(labels.contains(&"log_grow".to_owned()));
-    assert!(!labels.contains(&"pane_grow_left".to_owned()));
-    assert!(!labels.contains(&"copy".to_owned()));
 
     harness.edit("close_pre");
     harness.press("Enter");

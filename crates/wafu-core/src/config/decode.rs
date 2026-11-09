@@ -676,6 +676,7 @@ editor = "open -t {paths}"
         let text = r##"
 [appearance]
 theme = 1
+size_format = "bogus"
 [appearance.font]
 size = "big"
 [appearance.font.log]
@@ -699,6 +700,7 @@ editor = "\"unterminated"
             [
                 "general.editor",
                 "appearance.theme",
+                "appearance.size_format",
                 "appearance.font.log.size",
                 "appearance.font.size",
                 "colors.light.fg",

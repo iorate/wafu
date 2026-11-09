@@ -545,6 +545,10 @@ mod tests {
         };
         let row = RowView::parent(Some(&own_file), SizeFormat::Plain);
         assert_eq!((row.marker, row.size.as_str()), ("", "1234"));
+
+        let own_link = link("tmp", Some(TargetKind::Dir));
+        let row = RowView::parent(Some(&own_link), SizeFormat::Plain);
+        assert_eq!((row.marker, row.kind), ("@", RowKind::Link));
     }
 
     #[test]
@@ -577,6 +581,7 @@ mod tests {
     #[test]
     fn row_kind_colors_links_as_links_and_devices_as_fifos() {
         let cases = [
+            (EntryKind::File { executable: false }, RowKind::File),
             (EntryKind::File { executable: true }, RowKind::Exec),
             (link_kind(Some(TargetKind::Dir)), RowKind::Link),
             (
@@ -645,6 +650,19 @@ mod tests {
         pane.set_directory(directory(Some(own), vec![file("a")]));
 
         assert_eq!(status_line(&pane), format!("../ | drwxr-xr-x | {TIME}"));
+    }
+
+    #[test]
+    fn status_line_on_the_parent_row_of_a_link_shows_its_target() {
+        let own = Entry {
+            permissions: Some(Permissions::Mode(0o755)),
+            link_target: Some(OsString::from("private/tmp")),
+            ..link("tmp", Some(TargetKind::Dir))
+        };
+        let mut pane = Pane::new(Location::new(PathBuf::from("/tmp")));
+        pane.set_directory(directory(Some(own), vec![]));
+
+        assert_eq!(status_line(&pane), ".. -> private/tmp/ | lrwxr-xr-x");
     }
 
     #[test]
