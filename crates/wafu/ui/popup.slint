@@ -284,7 +284,7 @@ export component PopupOverlay {
 
             if data.note != "": PopupText {
                 text: data.note;
-                opacity: 0.7;
+                opacity: Theme.dim-text-alpha;
                 overflow: elide;
                 height: Theme.popup-row-height;
                 vertical-alignment: center;
@@ -344,7 +344,7 @@ export component PopupOverlay {
 
                             PopupText {
                                 text: item.detail;
-                                opacity: 0.7;
+                                opacity: Theme.dim-text-alpha;
                                 vertical-alignment: center;
                                 horizontal-alignment: right;
                                 horizontal-stretch: 0;
