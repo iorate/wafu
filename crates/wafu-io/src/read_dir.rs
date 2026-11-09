@@ -119,8 +119,12 @@ fn permissions(metadata: &Metadata) -> Permissions {
     Permissions::Mode(metadata.permissions().mode() & 0o7777)
 }
 
+fn is_hidden(name: &OsStr, metadata: Option<&Metadata>) -> bool {
+    name.as_encoded_bytes().first() == Some(&b'.') || has_hidden_attribute(metadata)
+}
+
 #[cfg(windows)]
-fn is_hidden(_name: &OsString, metadata: Option<&Metadata>) -> bool {
+fn has_hidden_attribute(metadata: Option<&Metadata>) -> bool {
     use std::os::windows::fs::MetadataExt;
 
     const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
@@ -128,9 +132,21 @@ fn is_hidden(_name: &OsString, metadata: Option<&Metadata>) -> bool {
     metadata.is_some_and(|metadata| metadata.file_attributes() & FILE_ATTRIBUTE_HIDDEN != 0)
 }
 
-#[cfg(not(windows))]
-fn is_hidden(name: &OsString, _metadata: Option<&Metadata>) -> bool {
-    name.as_encoded_bytes().first() == Some(&b'.')
+// Finder's invisible bit in the `com.apple.FinderInfo` extended attribute is
+// not read: on APFS, setting that bit also sets `UF_HIDDEN`, so the flag
+// covers it without a `getxattr` per entry.
+#[cfg(target_os = "macos")]
+fn has_hidden_attribute(metadata: Option<&Metadata>) -> bool {
+    use std::os::macos::fs::MetadataExt;
+
+    const UF_HIDDEN: u32 = 0x8000;
+
+    metadata.is_some_and(|metadata| metadata.st_flags() & UF_HIDDEN != 0)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn has_hidden_attribute(_metadata: Option<&Metadata>) -> bool {
+    false
 }
 
 #[cfg(unix)]
@@ -238,7 +254,6 @@ mod tests {
         assert_eq!(error.kind(), io::ErrorKind::Interrupted);
     }
 
-    #[cfg(not(windows))]
     #[test]
     fn dot_files_are_hidden() {
         let dir = TempDir::new().unwrap();
@@ -249,6 +264,40 @@ mod tests {
 
         assert!(find(&entries, ".hidden").hidden);
         assert!(!find(&entries, "shown").hidden);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn files_with_the_hidden_attribute_are_hidden() {
+        let dir = TempDir::new().unwrap();
+        fs::File::create(dir.path().join("secret")).unwrap();
+        let status = std::process::Command::new("attrib")
+            .arg("+h")
+            .arg(dir.path().join("secret"))
+            .status()
+            .unwrap();
+        assert!(status.success());
+
+        let entries = read_dir_with(dir.path(), || false).unwrap().entries;
+
+        assert!(find(&entries, "secret").hidden);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn files_with_the_hidden_flag_are_hidden() {
+        let dir = TempDir::new().unwrap();
+        fs::File::create(dir.path().join("secret")).unwrap();
+        let status = std::process::Command::new("chflags")
+            .arg("hidden")
+            .arg(dir.path().join("secret"))
+            .status()
+            .unwrap();
+        assert!(status.success());
+
+        let entries = read_dir_with(dir.path(), || false).unwrap().entries;
+
+        assert!(find(&entries, "secret").hidden);
     }
 
     #[cfg(unix)]

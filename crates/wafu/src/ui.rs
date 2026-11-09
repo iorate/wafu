@@ -938,6 +938,7 @@ fn row(row: &RowView) -> Row {
         marker: row.marker.into(),
         size: row.size.as_str().into(),
         modified: row.modified.as_str().into(),
+        hidden: row.hidden,
     }
 }
 

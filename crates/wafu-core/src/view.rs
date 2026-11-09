@@ -85,6 +85,8 @@ pub struct RowView {
     pub marker: &'static str,
     pub size: String,
     pub modified: String,
+    /// Whether the entry is a hidden one, which is drawn dimmed.
+    pub hidden: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -303,6 +305,8 @@ impl PaneView {
 
 impl RowView {
     // The `..` row, whose marker, size, and time columns and color describe the location itself.
+    // It is not dimmed even in a hidden location: dimming marks the rows that hiding hidden
+    // entries takes away, and this row always stays.
     pub(crate) fn parent(own: Option<&Entry>, size_format: SizeFormat) -> Self {
         let (size, modified) =
             own.map_or_else(Default::default, |own| size_and_modified(own, size_format));
@@ -313,6 +317,7 @@ impl RowView {
             marker: own.map_or("", |own| own.kind.marker()),
             size,
             modified,
+            hidden: false,
         }
     }
 
@@ -331,6 +336,7 @@ impl RowView {
             marker: entry.kind.marker(),
             size,
             modified,
+            hidden: entry.hidden,
         }
     }
 }

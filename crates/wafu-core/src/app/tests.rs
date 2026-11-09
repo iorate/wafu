@@ -2876,6 +2876,32 @@ fn rows_carry_the_kind_of_their_entry_for_coloring() {
 }
 
 #[test]
+fn rows_carry_whether_their_entry_is_hidden_for_dimming() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(
+        Side::Left,
+        vec![
+            file("a"),
+            Entry {
+                hidden: true,
+                ..file(".b")
+            },
+        ],
+    );
+
+    harness.press(".");
+
+    let hidden: Vec<bool> = harness
+        .view()
+        .left
+        .rows
+        .iter()
+        .map(|row| row.hidden)
+        .collect();
+    assert_eq!(hidden, [false, true, false]);
+}
+
+#[test]
 fn start_takes_paths_from_the_arguments_then_the_state_then_home() {
     let state = StateFile {
         left: PaneState {
