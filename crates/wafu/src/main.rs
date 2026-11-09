@@ -21,6 +21,11 @@ fn main() -> ExitCode {
         Ok(cli) => cli,
         Err(error) => return report_cli_error(&error),
     };
+    #[cfg(unix)]
+    if cli.print_env {
+        wafu_io::print_env();
+        return ExitCode::SUCCESS;
+    }
     let home = home_dir();
     let config_override = cli.config.map(absolute);
     let Some(config_path) = config_override.clone().or_else(wafu_io::config_path) else {
@@ -31,6 +36,7 @@ fn main() -> ExitCode {
     };
     // Read before the window exists: its colors and fonts come from them.
     let config = wafu_io::read_or_create(&config_path, CONFIG_TEMPLATE);
+    let inherited = cli.inherit.is_some();
     let state = match &cli.inherit {
         Some(handoff) => wafu_io::read_handoff(handoff),
         None => wafu_io::read_state(&state_path),
@@ -62,6 +68,7 @@ fn main() -> ExitCode {
         config_path,
         config,
         state,
+        inherited,
     })));
     match ui.window().run() {
         Ok(()) => ExitCode::SUCCESS,

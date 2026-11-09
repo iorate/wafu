@@ -116,6 +116,8 @@ pub struct Start {
     pub config: ConfigSource,
     /// `Ok(None)` when there is no state file.
     pub state: Result<Option<StateFile>, StateError>,
+    /// Whether another instance started this one and handed over its state.
+    pub inherited: bool,
 }
 
 /// How the configuration file was found at start-up.
@@ -176,6 +178,11 @@ pub enum Effect {
     /// change. Only Windows reports anything; elsewhere the window follows
     /// the OS by itself.
     WatchColorScheme,
+    /// Reads the environment of the user's login shell for the programs
+    /// started from now on, and reports through `IoEvent::ShellEnvLoaded`.
+    /// Only macOS asks for it; apps started from the Finder or the Dock get a
+    /// minimal environment there.
+    LoadShellEnv,
     /// Starts a program without a shell and without waiting for it. `name`
     /// is what the log calls it: `$name` for an external command, `editor`
     /// for the editor.
@@ -342,6 +349,11 @@ pub enum IoEvent {
     ColorScheme {
         scheme: ColorScheme,
     },
+    /// The answer to `Effect::LoadShellEnv`, sent exactly once. The programs
+    /// keep the original environment when it is an error.
+    ShellEnvLoaded {
+        error: Option<IoError>,
+    },
     Spawned {
         kind: SpawnKind,
         error: Option<IoError>,
@@ -418,6 +430,10 @@ pub struct App {
     operation: Option<operations::Operation>,
     // A file made for `new_text`, to open in the editor once it exists.
     edit_after_create: Option<(PathBuf, PathBuf)>,
+    // Programs to start once the login shell's environment is known, so that
+    // none of them starts with the environment wafu was launched with; `None`
+    // when nothing is waiting for it.
+    held_spawns: Option<Vec<Effect>>,
     split_percent: u8,
     next_request: u64,
     home: PathBuf,
@@ -450,6 +466,7 @@ impl App {
             preview_rows: 1,
             operation: None,
             edit_after_create: None,
+            held_spawns: None,
             split_percent: 50,
             next_request: 1,
             home: PathBuf::new(),
@@ -474,6 +491,7 @@ impl App {
                     config_path,
                     config,
                     state,
+                    inherited,
                 } = *start;
                 self.home = home;
                 self.os = os;
@@ -483,7 +501,7 @@ impl App {
                     Pane::new(Location::new(PathBuf::new())),
                     Pane::new(Location::new(PathBuf::new())),
                 ];
-                self.start(left, right, config, state, &mut effects);
+                self.start(left, right, config, state, inherited, &mut effects);
                 return effects;
             }
             Msg::CloseRequested => {
@@ -535,6 +553,7 @@ impl App {
         self.sync_image_preview(&mut effects);
         self.release_preview(archive_before.as_deref(), &mut effects);
         self.follow_popup(popup_before);
+        self.hold_spawns(&mut effects);
         effects
     }
 
@@ -763,6 +782,7 @@ impl App {
             }
             IoEvent::ConfigLoaded { result } => self.config_loaded(result),
             IoEvent::ColorScheme { scheme } => self.color_scheme_changed(scheme),
+            IoEvent::ShellEnvLoaded { error } => self.shell_env_loaded(error, effects),
             IoEvent::ConfigWatchFailed { error } => {
                 self.log.push(
                     AppError::Watch {

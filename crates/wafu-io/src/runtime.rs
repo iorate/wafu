@@ -5,11 +5,13 @@ use std::ffi::OsString;
 use std::fmt::Display;
 use std::fs;
 use std::io;
+#[cfg(unix)]
+use std::io::IsTerminal;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Sender};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::thread;
 
 use wafu_core::{
@@ -27,6 +29,8 @@ use crate::operation::run_operation;
 use crate::preview::{PreviewedArchive, load_image, load_preview};
 use crate::read_dir::{own_entry, read_dir_with};
 use crate::resolve::resolve;
+#[cfg(unix)]
+use crate::shell_env::load_shell_env;
 use crate::spawn::{spawn, spawn_new_window, wait_in_background};
 use crate::state::{write_handoff, write_state};
 use crate::watch::{Group, Watcher, watch_config};
@@ -58,6 +62,8 @@ pub struct Runtime {
     operation: Mutex<Option<Sender<Reply>>>,
     owner_window: Mutex<Option<isize>>,
     clipboard: Mutex<Option<arboard::Clipboard>>,
+    // The login shell's environment for the programs started, once read.
+    shell_env: Arc<OnceLock<Vec<(OsString, OsString)>>>,
     on_event: OnEvent,
 }
 
@@ -83,6 +89,7 @@ impl Runtime {
             operation: Mutex::new(None),
             owner_window: Mutex::new(None),
             clipboard: Mutex::new(None),
+            shell_env: Arc::new(OnceLock::new()),
             on_event,
         }
     }
@@ -168,6 +175,7 @@ impl Runtime {
             }
             #[cfg(not(windows))]
             Effect::WatchColorScheme => {}
+            Effect::LoadShellEnv => self.load_shell_env(),
             Effect::Spawn {
                 name,
                 program,
@@ -181,10 +189,15 @@ impl Runtime {
             Effect::SpawnNewWindow { state, as_admin } => {
                 let error = write_handoff(&state)
                     .and_then(|handoff| {
-                        spawn_new_window(&handoff, self.paths.config_override.as_deref(), as_admin)
-                            .inspect_err(|_| {
-                                let _ = fs::remove_file(&handoff);
-                            })
+                        spawn_new_window(
+                            &handoff,
+                            self.paths.config_override.as_deref(),
+                            as_admin,
+                            self.shell_env(),
+                        )
+                        .inspect_err(|_| {
+                            let _ = fs::remove_file(&handoff);
+                        })
                     })
                     .err()
                     .map(|error| IoError::new(error.to_string()));
@@ -214,7 +227,7 @@ impl Runtime {
     // The start is reported before the child is waited for, so that a child
     // that ends at once is not reported as ended first.
     fn spawn(&self, name: String, program: String, args: Vec<OsString>, cwd: &Path) {
-        let child = spawn(&program, &args, Some(cwd));
+        let child = spawn(&program, &args, Some(cwd), self.shell_env());
         (self.on_event)(IoEvent::Spawned {
             kind: SpawnKind::External {
                 name: name.clone(),
@@ -232,6 +245,42 @@ impl Runtime {
                 });
             });
         }
+    }
+
+    fn shell_env(&self) -> &[(OsString, OsString)] {
+        self.shell_env.get().map_or(&[], Vec::as_slice)
+    }
+
+    // Started from a terminal, wafu already has the shell's environment. The
+    // answer is sent even then, and even after a panic, since the application
+    // holds back the programs it starts until it gets one.
+    #[cfg(unix)]
+    fn load_shell_env(&self) {
+        if io::stdin().is_terminal() {
+            (self.on_event)(IoEvent::ShellEnvLoaded { error: None });
+            return;
+        }
+        let shell_env = Arc::clone(&self.shell_env);
+        let on_event = Arc::clone(&self.on_event);
+        thread::Builder::new()
+            .name("wafu-io-shell-env".to_owned())
+            .spawn(move || {
+                let error = match panic::catch_unwind(load_shell_env) {
+                    Ok(Ok(vars)) => {
+                        let _ = shell_env.set(vars);
+                        None
+                    }
+                    Ok(Err(error)) => Some(IoError::new(error.to_string())),
+                    Err(payload) => Some(panic_error(&*payload)),
+                };
+                on_event(IoEvent::ShellEnvLoaded { error });
+            })
+            .expect("the shell environment thread should start");
+    }
+
+    #[cfg(not(unix))]
+    fn load_shell_env(&self) {
+        (self.on_event)(IoEvent::ShellEnvLoaded { error: None });
     }
 
     fn run_file_effect(&self, effect: Effect) {

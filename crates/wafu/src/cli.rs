@@ -19,4 +19,9 @@ pub struct Cli {
     // A state file written by the instance that started this one.
     #[arg(long, value_name = "PATH", hide = true)]
     pub inherit: Option<PathBuf>,
+
+    // Prints the environment for the instance that reads the login shell's.
+    #[cfg(unix)]
+    #[arg(long, hide = true)]
+    pub print_env: bool,
 }
