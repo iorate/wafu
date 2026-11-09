@@ -688,15 +688,20 @@ fn the_right_pane_and_right_clicks_are_ignored_beside_a_right_pane_image() {
 }
 
 #[test]
-fn dragged_dividers_move_under_a_preview() {
+fn dividers_and_the_log_take_the_mouse_under_a_preview() {
     let mut harness = image();
+    harness.config("[general]\na = 1\nb = 2\n");
 
     harness.send(Msg::Mouse(MouseInput::SplitTo { percent: 70 }));
-    harness.send(Msg::Mouse(MouseInput::LogRowsTo { rows: 9 }));
+    harness.send(Msg::Mouse(MouseInput::LogRowsTo { rows: 1 }));
+    harness.send(Msg::Mouse(MouseInput::LogScrollTo { top: 0 }));
+    harness.send(Msg::Mouse(MouseInput::LogWheel { rows: 1 }));
 
-    assert_eq!(harness.view().split_percent, 70);
-    assert_eq!(harness.view().log_rows, 9);
-    assert!(harness.view().preview.is_some());
+    let view = harness.view();
+    assert_eq!(view.split_percent, 70);
+    assert_eq!(view.log_rows, 1);
+    assert_eq!(view.log.scroll_top, 1);
+    assert!(view.preview.is_some());
 }
 
 #[test]
