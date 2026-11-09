@@ -649,7 +649,7 @@ impl PalettePopup {
 #[must_use]
 pub fn stem_selection(name: &str) -> Option<(usize, usize)> {
     let stem = ArchiveFormat::stem_of(OsStr::new(name)).len();
-    (stem > 0 && stem < name.len()).then_some((0, stem))
+    (stem < name.len()).then_some((0, stem))
 }
 
 // The popups that pick a row. The rules for keys and the mouse live in
