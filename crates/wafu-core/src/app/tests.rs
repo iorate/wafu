@@ -9,7 +9,7 @@ use crate::listing::{SortKey, SortSpec};
 use crate::pane::InFlight;
 use crate::state::{PaneState, StateFile};
 use crate::test_support::{
-    CONFIG_PATH, HOME, Harness, dir, file, path, special, start_msg, start_msg_with,
+    CONFIG_PATH, HOME, Harness, dir, file, path, shown, special, start_msg, start_msg_with,
 };
 use crate::view::{ItemKind, RowKind};
 
@@ -94,6 +94,19 @@ fn extension_column_includes_the_dot() {
             ("a.tar", ".gz", ""),
             ("noext", "", ""),
         ]
+    );
+}
+
+#[test]
+fn rows_show_line_breaks_in_the_name_and_the_extension_as_symbols() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+
+    harness.load(Side::Left, vec![file("Icon\r.t\nxt")]);
+
+    let row = &harness.view().left.rows[1];
+    assert_eq!(
+        (row.name.as_str(), row.extension.as_str()),
+        ("Icon\u{21B5}", ".t\u{21B5}xt")
     );
 }
 
@@ -187,6 +200,16 @@ fn status_line_on_the_parent_row_of_an_archive_root_describes_the_archive_file()
         (row.marker, row.size.as_str(), row.modified.as_str()),
         ("", "1234", "")
     );
+}
+
+#[test]
+fn status_line_shows_line_breaks_in_the_name_as_symbols() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("Icon\r")]);
+
+    harness.press("Down");
+
+    assert_eq!(harness.view().status, "Icon\u{21B5} | -????????? | 0 bytes");
 }
 
 #[test]
@@ -332,6 +355,47 @@ fn navigating_keeps_the_old_listing_until_the_new_one_arrives() {
     assert_eq!(
         harness.history(Side::Left),
         ["/home/user".to_owned(), docs.display().to_string()]
+    );
+}
+
+#[test]
+fn reading_popup_shows_line_breaks_in_the_target_as_symbols() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![dir("a\rb")]);
+    harness.press("Down");
+
+    harness.press("Enter");
+
+    assert_eq!(
+        harness.view().popup.unwrap().message,
+        Some(format!("Reading {}", shown("/home/user", "a\u{21B5}b")))
+    );
+}
+
+#[test]
+fn path_shows_line_breaks_in_the_location_as_symbols() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![dir("a\rb")]);
+    harness.press("Down");
+    harness.press("Enter");
+
+    harness.load(Side::Left, vec![]);
+
+    assert_eq!(harness.view().left.path, shown("/home/user", "a\u{21B5}b"));
+}
+
+#[test]
+fn title_shows_line_breaks_in_the_location_as_symbols() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![dir("a\rb")]);
+    harness.press("Down");
+    harness.press("Enter");
+
+    harness.load(Side::Left, vec![]);
+
+    assert_eq!(
+        harness.view().title,
+        format!("wafu - {}", shown("/home/user", "a\u{21B5}b"))
     );
 }
 
@@ -489,6 +553,24 @@ fn read_error_is_logged_and_the_pane_stays_where_it_was() {
         Some(InFlight::Refresh { .. })
     ));
     assert_eq!(harness.history(Side::Left), ["/home/user"]);
+}
+
+#[test]
+fn log_shows_line_breaks_in_a_path_as_symbols() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![dir("a\rb")]);
+    harness.press("Down");
+    harness.press("Enter");
+
+    harness.fail_load(Side::Left, "permission denied");
+
+    assert_eq!(
+        harness.log(),
+        [format!(
+            "cannot read {}: permission denied",
+            shown("/home/user", "a\u{21B5}b")
+        )]
+    );
 }
 
 #[test]
@@ -743,6 +825,21 @@ fn filter_popup_applies_a_glob_and_shows_it_in_the_info_line() {
     assert_eq!(
         harness.view().left.info,
         "2 items | 0 marked (0 bytes) | filter: *.png | sort: name | hidden: off"
+    );
+}
+
+#[test]
+fn info_line_shows_line_breaks_in_the_filter_as_symbols() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a\rb")]);
+    harness.press(":");
+    harness.edit("a\r*");
+
+    harness.press("Enter");
+
+    assert_eq!(
+        harness.view().left.info,
+        "1 items | 0 marked (0 bytes) | filter: a\u{21B5}* | sort: name | hidden: off"
     );
 }
 
@@ -1850,6 +1947,22 @@ fn history_popup_lists_newest_first_and_picks_by_key() {
     harness.press("H");
     harness.press("Esc");
     assert_eq!(harness.popup(), None);
+}
+
+#[test]
+fn history_popup_shows_line_breaks_in_the_places_as_symbols() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![dir("a\rb")]);
+    harness.press("Down");
+    harness.press("Enter");
+    harness.load(Side::Left, vec![]);
+
+    harness.press("H");
+
+    assert_eq!(
+        harness.popup_labels(),
+        [shown("/home/user", "a\u{21B5}b"), "/home/user".to_owned()]
+    );
 }
 
 #[test]

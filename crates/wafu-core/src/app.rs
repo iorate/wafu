@@ -14,6 +14,7 @@ use crate::pane::{DrivePurpose, Pane, RequestId};
 use crate::popup::{InputKind, Popup};
 use crate::preview::{Document, ImageData};
 use crate::state::{StateError, StateFile};
+use crate::text::show_line_breaks;
 use crate::view::{LogView, PaneView, Style, View, status_line};
 
 mod navigation;
@@ -833,7 +834,7 @@ impl App {
         } else {
             "wafu"
         };
-        let path = self.active_pane().location().to_string();
+        let path = show_line_breaks(self.active_pane().location().to_string());
         if path.is_empty() {
             name.to_owned()
         } else {

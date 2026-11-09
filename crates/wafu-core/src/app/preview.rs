@@ -11,6 +11,7 @@ use crate::location::Location;
 use crate::pane::RequestId;
 use crate::popup::{InputPopup, PasswordPurpose, Popup};
 use crate::preview::{Document, DocumentMode, ImageData, is_image_name};
+use crate::text::show_line_breaks;
 use crate::view::{PreviewContent, PreviewPlacement, PreviewView, SharedImage};
 
 impl App {
@@ -334,7 +335,7 @@ impl App {
                 PreviewView {
                     placement: preview.placement,
                     content: match &preview.error {
-                        Some(error) => PreviewContent::Message(error.clone()),
+                        Some(error) => PreviewContent::Message(show_line_breaks(error.clone())),
                         None => PreviewContent::Image(preview.image.clone().map(SharedImage)),
                     },
                     detail,

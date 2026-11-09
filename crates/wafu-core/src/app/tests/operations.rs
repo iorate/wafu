@@ -692,6 +692,17 @@ fn rename_opens_with_the_name_and_selects_everything_but_the_extension() {
 }
 
 #[test]
+fn rename_opens_with_line_breaks_in_the_name_left_as_they_are() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("Icon\r")]);
+    harness.press("Down");
+
+    harness.press("R");
+
+    assert_eq!(harness.popup_fields(), ["Icon\r"]);
+}
+
+#[test]
 fn rename_to_the_same_name_does_nothing() {
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.load(Side::Left, vec![file("a.tar.gz")]);

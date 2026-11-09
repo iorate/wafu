@@ -14,6 +14,7 @@ use crate::popup::{
     ListTarget, MenuInput, PalettePopup, PasswordPurpose, Popup, Response, SearchPopup, SortPopup,
     menu_input,
 };
+use crate::text::show_line_breaks;
 use crate::view::{InputField, ItemKind, PopupItem, PopupView};
 
 impl App {
@@ -168,9 +169,26 @@ impl App {
     }
 
     pub(super) fn popup_view(&self) -> Option<PopupView> {
-        let Some(popup) = self.popup.as_ref() else {
-            return self.operation_view().or_else(|| self.loading_view());
+        let view = match self.popup.as_ref() {
+            Some(popup) => self.open_popup_view(popup),
+            None => self.operation_view().or_else(|| self.loading_view())?,
         };
+        Some(PopupView {
+            message: view.message.map(show_line_breaks),
+            items: view.items.map(|items| {
+                items
+                    .into_iter()
+                    .map(|item| PopupItem {
+                        label: show_line_breaks(item.label),
+                        ..item
+                    })
+                    .collect()
+            }),
+            ..view
+        })
+    }
+
+    fn open_popup_view(&self, popup: &Popup) -> PopupView {
         let view = match popup {
             Popup::Sort(popup) => PopupView {
                 title: "Sort".to_owned(),
@@ -239,11 +257,11 @@ impl App {
                 ..PopupView::default()
             },
         };
-        Some(PopupView {
+        PopupView {
             scroll_top: self.popup_top,
             generation: self.popup_generation,
             ..view
-        })
+        }
     }
 
     fn show_popup_cursor(&mut self) {
