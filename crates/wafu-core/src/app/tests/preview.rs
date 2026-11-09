@@ -995,6 +995,123 @@ fn the_palette_opens_during_a_preview_with_its_commands() {
     assert!(harness.view().preview.is_none());
 }
 
+#[test]
+fn search_during_an_image_preview_moves_the_cursor_and_the_image_follows() {
+    let mut harness = image();
+
+    harness.press("F");
+    harness.edit("two");
+
+    assert_eq!(harness.cursor_name(Side::Left), "two.JPG");
+    assert!(harness.take_effects().iter().any(|effect| matches!(
+        effect,
+        Effect::LoadImage { source, .. } if source.path == PathBuf::from(LEFT).join("two.JPG")
+    )));
+    harness.press("Enter");
+    assert_eq!(harness.popup(), None);
+    assert!(harness.view().preview.is_some());
+}
+
+#[test]
+fn esc_on_a_search_during_an_image_preview_keeps_the_preview() {
+    let mut harness = image();
+    harness.press("F");
+    harness.edit("two");
+
+    harness.press("Esc");
+
+    assert_eq!(harness.popup(), None);
+    assert_eq!(harness.cursor_name(Side::Left), "one.png");
+    assert!(harness.view().preview.is_some());
+}
+
+#[test]
+fn jump_keys_move_the_cursor_during_an_image_preview() {
+    let mut harness = image();
+
+    harness.press("Ctrl+T");
+
+    assert_eq!(harness.cursor_name(Side::Left), "two.JPG");
+    assert!(harness.view().preview.is_some());
+}
+
+#[test]
+fn quit_during_a_text_preview_saves_the_state_and_quits() {
+    let mut harness = document();
+    harness.config("[keys.text]\n\"Q\" = \"quit\"\n");
+    harness.take_effects();
+
+    harness.press("Q");
+
+    let effects = harness.take_effects();
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::SaveState(_), Effect::Quit]
+    ));
+}
+
+#[test]
+fn edit_config_from_the_palette_during_an_image_preview_keeps_the_preview() {
+    let mut harness = image();
+
+    harness.press("F1");
+    harness.edit("edit_config");
+    harness.press("Enter");
+
+    assert!(
+        harness
+            .take_effects()
+            .iter()
+            .any(|effect| matches!(effect, Effect::Spawn { name, .. } if name == "editor"))
+    );
+    assert!(harness.view().preview.is_some());
+}
+
+#[test]
+fn copy_log_from_the_palette_during_a_text_preview_copies_the_log() {
+    let mut harness = document();
+    harness.config("[general]\nbogus = 1\n");
+    let log = harness.log().join("\n");
+    harness.take_effects();
+
+    harness.press("F1");
+    harness.edit("copy_log");
+    harness.press("Enter");
+
+    assert_eq!(harness.take_effects(), vec![Effect::Clipboard(log)]);
+    assert!(harness.view().preview.is_some());
+}
+
+#[test]
+fn clear_log_bound_in_the_image_table_clears_the_log() {
+    let mut harness = image();
+    harness.config("[keys.image]\n\"X\" = \"clear_log\"\n");
+    assert_eq!(harness.log(), ["config reloaded"]);
+
+    harness.press("X");
+
+    assert_eq!(harness.log(), Vec::<String>::new());
+    assert!(harness.view().preview.is_some());
+}
+
+#[test]
+fn the_wheel_scrolls_the_log_under_a_text_preview() {
+    let mut harness = logged(document());
+
+    harness.send(Msg::Mouse(MouseInput::LogWheel { rows: -1 }));
+
+    assert_eq!(harness.view().log.scroll_top, 1);
+}
+
+#[test]
+fn the_scrollbar_scrolls_the_log_under_an_image_preview() {
+    let mut harness = logged(image());
+
+    harness.send(Msg::Mouse(MouseInput::LogScrollTo { top: 1 }));
+
+    assert_eq!(harness.view().log.scroll_top, 1);
+}
+
 // The left pane lists a text file, two images, and another text file, in that order.
 fn listing() -> Harness {
     let mut harness = Harness::start(LEFT, RIGHT);
@@ -1038,6 +1155,16 @@ fn image() -> Harness {
     harness.press("Down");
     harness.press("Enter");
     harness.take_effects();
+    harness
+}
+
+// Four log lines in two rows, following the tail.
+fn logged(mut harness: Harness) -> Harness {
+    harness.config("[general]\na = 1\nb = 2\nc = 3\n");
+    for _ in 0..4 {
+        harness.press("Alt+Down");
+    }
+    assert_eq!(harness.view().log.scroll_top, 2);
     harness
 }
 

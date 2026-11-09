@@ -222,71 +222,25 @@ impl Command {
             )
     }
 
-    /// Whether the command belongs to the context: whether it has an effect
-    /// that shows in some state of it. The text preview fills the window, so
-    /// the split between the panes is not its; the log under a preview is.
-    /// Commands that do nothing on some OS still count as available, so that
-    /// a shared configuration loads without errors everywhere.
+    /// Whether the command can be bound and is listed in the palette in the
+    /// context. Each command acts on one target, and the target alone
+    /// decides. The image preview is for looking through images and picking
+    /// them, so it takes the cursor and the marks but nothing that changes the
+    /// listing or the files. The text preview fills the window, so it has
+    /// neither the list nor the split. The log and the application stay
+    /// under any preview. Availability is per context, not per state: the log
+    /// hidden under a preview and the split under an image filling the window
+    /// still count. Commands that do nothing on some OS still count as
+    /// available, so that a shared configuration loads without errors
+    /// everywhere.
     #[must_use]
     pub fn available_in(&self, context: Context) -> bool {
-        let preview = matches!(
-            self,
-            Self::PreviewScrollUp
-                | Self::PreviewScrollDown
-                | Self::PreviewPageUp
-                | Self::PreviewPageDown
-                | Self::PreviewTop
-                | Self::PreviewBottom
-                | Self::PreviewToggleMode
-                | Self::PreviewEdit
-                | Self::ClosePreview
-        );
-        let log = matches!(
-            self,
-            Self::LogShrink
-                | Self::LogGrow
-                | Self::LogScrollUp
-                | Self::LogScrollDown
-                | Self::LogPageUp
-                | Self::LogPageDown
-        );
-        match context {
-            Context::FileList => !preview,
-            Context::Image => {
-                log || matches!(
-                    self,
-                    Self::CursorUp
-                        | Self::CursorDown
-                        | Self::PageUp
-                        | Self::PageDown
-                        | Self::CursorTop
-                        | Self::CursorBottom
-                        | Self::MarkDown
-                        | Self::MarkUp
-                        | Self::MarkRangeAbove
-                        | Self::MarkRangeBelow
-                        | Self::InvertMarks
-                        | Self::InvertMarksAll
-                        | Self::MarkGlob
-                        | Self::NextMark
-                        | Self::PrevMark
-                        | Self::ClearMarks
-                        | Self::PaneShrinkLeft
-                        | Self::PaneGrowLeft
-                        | Self::ClosePreview
-                        | Self::Palette
-                        | Self::NewWindow
-                        | Self::NewWindowAsAdmin
-                )
-            }
-            Context::Text => {
-                preview
-                    || log
-                    || matches!(
-                        self,
-                        Self::Palette | Self::NewWindow | Self::NewWindowAsAdmin
-                    )
-            }
+        match self.target() {
+            Target::Log | Target::App => true,
+            Target::AnyPreview => context != Context::FileList,
+            Target::TextPreview => context == Context::Text,
+            Target::Split | Target::Cursor => context != Context::Text,
+            Target::ListView | Target::Location | Target::Files => context == Context::FileList,
         }
     }
 
@@ -311,6 +265,95 @@ impl Command {
             .find(|(_, n)| *n == name)
             .map(|(command, _)| command.clone())
     }
+
+    // Every variant is listed, so that a new command has to choose its target.
+    fn target(&self) -> Target {
+        match self {
+            Self::ClosePreview => Target::AnyPreview,
+            Self::PreviewScrollUp
+            | Self::PreviewScrollDown
+            | Self::PreviewPageUp
+            | Self::PreviewPageDown
+            | Self::PreviewTop
+            | Self::PreviewBottom
+            | Self::PreviewToggleMode
+            | Self::PreviewEdit => Target::TextPreview,
+            Self::LogShrink
+            | Self::LogGrow
+            | Self::LogScrollUp
+            | Self::LogScrollDown
+            | Self::LogPageUp
+            | Self::LogPageDown
+            | Self::ClearLog
+            | Self::CopyLog => Target::Log,
+            Self::Palette
+            | Self::NewWindow
+            | Self::NewWindowAsAdmin
+            | Self::Quit
+            | Self::QuitWithoutSaving
+            | Self::EditConfig => Target::App,
+            Self::PaneShrinkLeft | Self::PaneGrowLeft => Target::Split,
+            Self::CursorUp
+            | Self::CursorDown
+            | Self::PageUp
+            | Self::PageDown
+            | Self::CursorTop
+            | Self::CursorBottom
+            | Self::Search
+            | Self::Jump(_)
+            | Self::MarkDown
+            | Self::MarkUp
+            | Self::MarkRangeAbove
+            | Self::MarkRangeBelow
+            | Self::InvertMarks
+            | Self::InvertMarksAll
+            | Self::MarkGlob
+            | Self::NextMark
+            | Self::PrevMark
+            | Self::ClearMarks => Target::Cursor,
+            Self::Sort | Self::ToggleHidden | Self::Filter | Self::ClearFilter | Self::Reload => {
+                Target::ListView
+            }
+            Self::Open
+            | Self::GoParent
+            | Self::GoRoot
+            | Self::GoHome
+            | Self::GoToPath
+            | Self::Bookmarks
+            | Self::History
+            | Self::HistoryBack
+            | Self::HistoryForward
+            | Self::Drives
+            | Self::DrivePrev
+            | Self::DriveNext
+            | Self::FocusLeft
+            | Self::FocusRight
+            | Self::SwitchPane
+            | Self::SyncToOther
+            | Self::SyncOtherToThis
+            | Self::SwapPanes
+            | Self::EnterAsArchive => Target::Location,
+            // `nop` only unbinds a key, which the configuration allows in
+            // every context; in the palette it stays with the file list.
+            Self::Copy
+            | Self::Move
+            | Self::Delete
+            | Self::Trash
+            | Self::Rename
+            | Self::Mkdir
+            | Self::NewFile
+            | Self::NewText
+            | Self::Edit
+            | Self::Compress
+            | Self::Extract
+            | Self::ShellMenu
+            | Self::OpenWithOs
+            | Self::CopyPath
+            | Self::CopyName
+            | Self::External(_)
+            | Self::Nop => Target::Files,
+        }
+    }
 }
 
 impl fmt::Display for Command {
@@ -327,6 +370,18 @@ impl fmt::Display for Command {
             }
         }
     }
+}
+
+enum Target {
+    AnyPreview,
+    TextPreview,
+    Log,
+    App,
+    Split,
+    Cursor,
+    ListView,
+    Location,
+    Files,
 }
 
 #[cfg(test)]
@@ -354,29 +409,25 @@ mod tests {
     }
 
     #[test]
-    fn image_preview_takes_clear_marks() {
-        assert!(Command::ClearMarks.available_in(Context::Image));
-    }
+    fn each_target_decides_the_contexts() {
+        // One command of each target, with its file list, image, and text availability.
+        let cases = [
+            (Command::ClosePreview, [false, true, true]),
+            (Command::PreviewScrollDown, [false, false, true]),
+            (Command::ClearLog, [true, true, true]),
+            (Command::Quit, [true, true, true]),
+            (Command::PaneGrowLeft, [true, true, false]),
+            (Command::Jump('a'), [true, true, false]),
+            (Command::Sort, [true, false, false]),
+            (Command::Open, [true, false, false]),
+            (Command::External("x".to_owned()), [true, false, false]),
+        ];
 
-    #[test]
-    fn image_preview_takes_neither_the_text_preview_nor_the_file_list_commands() {
-        assert!(!Command::PreviewScrollDown.available_in(Context::Image));
-        assert!(!Command::Copy.available_in(Context::Image));
-    }
-
-    #[test]
-    fn text_preview_takes_neither_the_split_nor_the_file_list_commands() {
-        assert!(!Command::PaneGrowLeft.available_in(Context::Text));
-        assert!(!Command::Copy.available_in(Context::Text));
-    }
-
-    #[test]
-    fn external_commands_are_available_only_in_the_file_list() {
-        let external = Command::External("x".to_owned());
-
-        assert!(external.available_in(Context::FileList));
-        assert!(!external.available_in(Context::Image));
-        assert!(!external.available_in(Context::Text));
+        for (command, expected) in cases {
+            let actual = [Context::FileList, Context::Image, Context::Text]
+                .map(|context| command.available_in(context));
+            assert_eq!(actual, expected, "{command}");
+        }
     }
 
     #[test]

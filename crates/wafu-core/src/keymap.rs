@@ -4,7 +4,7 @@ use crate::app::Os;
 use crate::command::{Command, Context};
 use crate::key::Key;
 
-// The jump commands are generated in `default_for`.
+// The jump commands are generated in `default_for`, for the file list and the image preview.
 const DEFAULT_FILELIST: &[(&str, &str)] = &[
     ("Up", "cursor_up"),
     ("Down", "cursor_down"),
@@ -89,6 +89,7 @@ const DEFAULT_IMAGE: &[(&str, &str)] = &[
     ("@", "mark_glob"),
     ("Ctrl+:", "next_mark"),
     ("Ctrl+*", "prev_mark"),
+    ("F", "search"),
     ("Enter", "close_preview"),
     ("Esc", "close_preview"),
     ("F1", "palette"),
@@ -136,18 +137,22 @@ impl KeyMap {
     /// The default bindings for the OS, one table per context.
     #[must_use]
     pub fn default_for(os: Os) -> Self {
-        let jumps = Command::all().filter_map(|command| match command {
-            Command::Jump(c) => Some((format!("Ctrl+{}", c.to_ascii_uppercase()), command)),
-            _ => None,
-        });
-        let filelist = DEFAULT_FILELIST
-            .iter()
-            .map(|(key, name)| ((*key).to_owned(), named(name)))
-            .chain(jumps);
+        let jumps = || {
+            Command::all().filter_map(|command| match command {
+                Command::Jump(c) => Some((format!("Ctrl+{}", c.to_ascii_uppercase()), command)),
+                _ => None,
+            })
+        };
         Self {
             maps: HashMap::from([
-                (Context::FileList, bindings(filelist, os)),
-                (Context::Image, bindings(table(DEFAULT_IMAGE), os)),
+                (
+                    Context::FileList,
+                    bindings(table(DEFAULT_FILELIST).chain(jumps()), os),
+                ),
+                (
+                    Context::Image,
+                    bindings(table(DEFAULT_IMAGE).chain(jumps()), os),
+                ),
                 (Context::Text, bindings(table(DEFAULT_TEXT), os)),
             ]),
         }
@@ -256,7 +261,10 @@ mod tests {
             keymap.bindings(Context::FileList).count(),
             DEFAULT_FILELIST.len() + 36
         );
-        assert_eq!(keymap.bindings(Context::Image).count(), DEFAULT_IMAGE.len());
+        assert_eq!(
+            keymap.bindings(Context::Image).count(),
+            DEFAULT_IMAGE.len() + 36
+        );
         assert_eq!(keymap.bindings(Context::Text).count(), DEFAULT_TEXT.len());
     }
 
@@ -271,7 +279,7 @@ mod tests {
             );
             assert_eq!(
                 keymap.bindings(Context::Image).count(),
-                DEFAULT_IMAGE.len() - 1
+                DEFAULT_IMAGE.len() + 36 - 1
             );
             assert_eq!(
                 keymap.bindings(Context::Text).count(),

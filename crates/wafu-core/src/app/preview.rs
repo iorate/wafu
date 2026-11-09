@@ -85,17 +85,16 @@ impl App {
             return;
         }
         // The UI offers a divider only where one is on screen; whatever it
-        // sends is applied.
-        match input {
-            MouseInput::SplitTo { percent } => {
-                self.split_to(percent);
-                return;
-            }
-            MouseInput::LogRowsTo { rows } => {
-                self.log_rows_to(rows);
-                return;
-            }
-            _ => {}
+        // sends is applied. The log stays under every preview.
+        if matches!(
+            input,
+            MouseInput::SplitTo { .. }
+                | MouseInput::LogRowsTo { .. }
+                | MouseInput::LogWheel { .. }
+                | MouseInput::LogScrollTo { .. }
+        ) {
+            self.mouse(input, effects);
+            return;
         }
         match &mut self.preview {
             Some(Preview::Document(preview)) => {
