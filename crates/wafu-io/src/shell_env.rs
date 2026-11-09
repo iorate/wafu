@@ -38,7 +38,18 @@ pub(crate) fn load_shell_env() -> io::Result<Vec<(OsString, OsString)>> {
     let shell = std::env::var_os("SHELL")
         .filter(|shell| !shell.is_empty())
         .unwrap_or_else(|| OsString::from("/bin/zsh"));
-    resolve(Path::new(&shell), &std::env::current_exe()?, TIMEOUT)
+    let shell = Path::new(&shell);
+    // These shells do not take the command line `resolve` builds (PowerShell
+    // needs `&` before a quoted path, Nushell needs `^`, and xonsh parses the
+    // line as Python), so trying would fail on every start with an error no rc
+    // file can fix. Programs keep the environment wafu was launched with.
+    if matches!(
+        shell.file_name().and_then(OsStr::to_str),
+        Some("pwsh" | "powershell" | "pwsh-preview" | "powershell-preview" | "nu" | "xonsh")
+    ) {
+        return Ok(Vec::new());
+    }
+    resolve(shell, &std::env::current_exe()?, TIMEOUT)
 }
 
 // The shell runs as an interactive login shell so that both kinds of rc files
