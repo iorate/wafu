@@ -145,9 +145,9 @@ pub enum InputKind {
     NewText {
         dir: PathBuf,
     },
-    /// A command line to start in the active pane, from `run_file`.
+    /// A command line to start in the active pane's directory, from `run_file`.
     RunFile,
-    /// A command line to start in the active pane, from `run_command`.
+    /// A command line to start in the active pane's directory, from `run_command`.
     RunCommand,
     /// The "Rename" choice of a conflict; Esc goes back to the conflict popup.
     ConflictRename {

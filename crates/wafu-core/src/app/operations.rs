@@ -555,8 +555,8 @@ impl App {
         }
     }
 
-    // Every placeholder may be used, so the cursor entry and the marked entries
-    // are all extracted, from one place in the archive.
+    // The line may use any path placeholder, so the cursor entry and the
+    // marked entries are all extracted, from one place in the archive.
     pub(super) fn run_in_archive(
         &mut self,
         name: String,

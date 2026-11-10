@@ -320,9 +320,10 @@ impl App {
         ));
     }
 
-    // The placeholder values for the active pane. Inside an archive the
-    // entries have to be extracted first, so this serves there only when
-    // nothing is marked and the cursor is on the archive file itself.
+    // The placeholder values for the active pane. Inside an archive the paths
+    // of entries do not exist on disk until they are extracted, so there this
+    // serves only a line that uses no such path, or a cursor on the archive
+    // file itself with nothing marked.
     pub(super) fn expansion(&self) -> Expansion {
         let pane = self.active_pane();
         let full = |location: &Location, entry: &Entry| location.base.join(&entry.name);

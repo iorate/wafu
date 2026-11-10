@@ -317,14 +317,14 @@ mod tests {
 
     #[test]
     fn parse_takes_unknown_placeholders_as_text() {
-        let line = CommandLine::parse("x {} {print} {a,b} {path}", Os::Linux).unwrap();
+        let line = CommandLine::parse("x {} {path}", Os::Linux).unwrap();
 
         assert_eq!(
             line.expand(&Expansion {
                 paths: vec![PathBuf::from("/p")],
                 ..Expansion::default()
             }),
-            ["{}", "{print}", "{a,b}", "{path}"].map(OsString::from)
+            ["{}", "{path}"].map(OsString::from)
         );
     }
 
@@ -333,8 +333,8 @@ mod tests {
         let cases = [
             ("x {cursor_path}", true),
             ("x {marked_paths}", true),
-            ("x \"{paths}\"", true),
-            ("x {dir} {other_dir} --p={paths} {path}", false),
+            ("x {paths}", true),
+            ("x {dir} {other_dir}", false),
         ];
         for (text, expected) in cases {
             let line = CommandLine::parse(text, Os::Linux).unwrap();

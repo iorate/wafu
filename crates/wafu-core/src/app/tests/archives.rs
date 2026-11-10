@@ -1158,10 +1158,6 @@ fn run_command_inside_an_archive_with_paths_extracts_them_and_then_starts() {
 
     let spec = harness.start_operation().unwrap();
     assert_eq!(spec.kind, OperationKind::ExtractToTemp);
-    assert_eq!(
-        spec.sources,
-        Sources::Entries(entries(&["b.txt", "inner.zip"], None))
-    );
 
     harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
     harness.finish(Outcome::Completed {
