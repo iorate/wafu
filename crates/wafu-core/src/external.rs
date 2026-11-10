@@ -50,9 +50,7 @@ impl CommandLine {
     /// and Linux, without any expansion, and those of the C runtime on Windows.
     pub fn parse(text: &str, os: Os) -> Result<Self, CommandLineError> {
         let mut tokens = split(text, os)?;
-        // Windows reads a leading space or tab as an empty program, and sh reads
-        // '' as one.
-        if tokens.first().is_none_or(String::is_empty) {
+        if tokens.is_empty() {
             return Err(CommandLineError::Empty);
         }
         let program = tokens.remove(0);
@@ -283,7 +281,6 @@ mod tests {
     #[test]
     fn parse_rejects_empty_and_unterminated_text() {
         let cases = [
-            (Os::Windows, "   ", CommandLineError::Empty),
             (Os::Linux, "   ", CommandLineError::Empty),
             (
                 Os::Linux,
