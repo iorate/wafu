@@ -134,10 +134,16 @@ impl EntryKind {
         )
     }
 
-    /// Whether the item is a file the OS can start, as the list marks with `*`.
+    /// Whether the item is a file the OS can start, or a link to one.
     #[must_use]
     pub fn is_executable(self) -> bool {
-        self == Self::File { executable: true }
+        matches!(
+            self,
+            Self::File { executable: true }
+                | Self::Symlink {
+                    target: Some(TargetKind::File { executable: true })
+                }
+        )
     }
 
     #[must_use]
@@ -276,6 +282,17 @@ mod tests {
         assert_eq!(EntryKind::Special(SpecialKind::Socket).marker(), "=");
         assert_eq!(EntryKind::Special(SpecialKind::BlockDevice).marker(), "");
         assert_eq!(EntryKind::Special(SpecialKind::CharDevice).marker(), "");
+    }
+
+    #[test]
+    fn executable_files_and_links_to_them_are_executable() {
+        let link = |executable| EntryKind::Symlink {
+            target: Some(TargetKind::File { executable }),
+        };
+
+        assert!(EntryKind::File { executable: true }.is_executable());
+        assert!(link(true).is_executable());
+        assert!(!link(false).is_executable());
     }
 
     #[test]
