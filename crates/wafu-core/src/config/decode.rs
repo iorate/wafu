@@ -675,12 +675,19 @@ editor = "open -t {paths}"
 
     #[test]
     fn command_lines_are_split_by_the_rules_of_the_given_os() {
-        let (config, diagnostics) =
-            parse("[general]\neditor = \"x 'a b'\"\n", Os::Windows).unwrap();
+        let (config, diagnostics) = parse(
+            "[general]\neditor = \"x 'a b'\"\n[commands.x]\nrun = \"x 'a b'\"\n",
+            Os::Windows,
+        )
+        .unwrap();
 
         assert_eq!(diagnostics, Vec::new());
         assert_eq!(
             config.general.editor.expand(&Expansion::default()),
+            ["'a", "b'"].map(OsString::from)
+        );
+        assert_eq!(
+            config.commands["x"].expand(&Expansion::default()),
             ["'a", "b'"].map(OsString::from)
         );
     }
