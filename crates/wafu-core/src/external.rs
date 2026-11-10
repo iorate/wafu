@@ -50,7 +50,9 @@ impl CommandLine {
     /// and Linux, without any expansion, and those of the C runtime on Windows.
     pub fn parse(text: &str, os: Os) -> Result<Self, CommandLineError> {
         let mut tokens = split(text, os)?;
-        if tokens.is_empty() {
+        // Windows reads a leading space or tab as an empty program, and sh reads
+        // '' as one.
+        if tokens.first().is_none_or(String::is_empty) {
             return Err(CommandLineError::Empty);
         }
         let program = tokens.remove(0);
@@ -146,12 +148,6 @@ fn split(text: &str, os: Os) -> Result<Vec<String>, CommandLineError> {
 // Hand-written because no maintained crate both splits and quotes by the
 // current C runtime rules on every host.
 fn split_windows(text: &str) -> Vec<String> {
-    // The text is a configured line rather than a process's own command line,
-    // so spaces and tabs before the program are skipped instead of making it empty.
-    let text = text.trim_start_matches([' ', '\t']);
-    if text.is_empty() {
-        return Vec::new();
-    }
     let mut chars = text.chars().peekable();
     let mut program = String::new();
     let mut quoted = false;
@@ -210,7 +206,7 @@ fn quote_program(text: &str, os: Os) -> Cow<'_, str> {
         // The program has no escapes, but one read by the program rule never
         // holds a `"`.
         Os::Windows => {
-            if text.is_empty() || text.contains([' ', '\t']) {
+            if text.contains([' ', '\t']) {
                 Cow::Owned(format!("\"{text}\""))
             } else {
                 Cow::Borrowed(text)
@@ -274,8 +270,8 @@ mod tests {
 
     #[test]
     fn parse_reads_the_program_and_the_arguments() {
-        let line = CommandLine::parse(r#"  "C:\Program Files\app.exe"  -n  "a b"  "#, Os::Windows)
-            .unwrap();
+        let line =
+            CommandLine::parse(r#""C:\Program Files\app.exe"  -n  "a b"  "#, Os::Windows).unwrap();
 
         assert_eq!(line.program(), r"C:\Program Files\app.exe");
         assert_eq!(
@@ -288,6 +284,7 @@ mod tests {
     fn parse_rejects_empty_and_unterminated_text() {
         let cases = [
             (Os::Windows, "   ", CommandLineError::Empty),
+            (Os::Linux, "   ", CommandLineError::Empty),
             (
                 Os::Linux,
                 r#"a "b"#,
@@ -366,14 +363,13 @@ mod tests {
             r"C:\my dir\",
             r#"\\"\\"#,
         ];
+        let program = r"C:\my dir\";
+        let mut expected = vec![program];
+        expected.extend(args);
         for os in [Os::Windows, Os::MacOs, Os::Linux] {
-            for program in [r"C:\my dir\", ""] {
-                let line = format_line(program, &args.map(OsString::from), os);
+            let line = format_line(program, &args.map(OsString::from), os);
 
-                let mut expected = vec![program];
-                expected.extend(args);
-                assert_eq!(split(&line, os).unwrap(), expected, "{os:?} {line:?}");
-            }
+            assert_eq!(split(&line, os).unwrap(), expected, "{os:?} {line:?}");
         }
     }
 
@@ -390,6 +386,7 @@ mod tests {
             (r#"C:\dir\"a b"\x y"#, &[r"C:\dir\a b\x", "y"]),
             (r#""a""b" c"#, &["ab", "c"]),
             (r#"p "" "#, &["p", ""]),
+            (" p a", &["", "p", "a"]),
             ("p\ta\tb", &["p", "a", "b"]),
             ("p a\nb\u{3000}c", &["p", "a\nb\u{3000}c"]),
         ];
