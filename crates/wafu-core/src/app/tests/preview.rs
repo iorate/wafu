@@ -9,7 +9,7 @@ use crate::operation::{
 };
 use crate::pane::InFlight;
 use crate::preview::{Document, truncated_note};
-use crate::test_support::{Harness, LEFT, RIGHT, dir, file, path, special};
+use crate::test_support::{Harness, LEFT, RIGHT, dir, file, path, shown, special};
 use crate::view::{PreviewContent, PreviewPlacement};
 
 const TEMP: &str = "/tmp/wafu/x1";
@@ -973,6 +973,140 @@ fn a_link_inside_an_archive_is_not_previewed() {
 
     assert_eq!(harness.take_effects(), vec![]);
     assert!(harness.view().preview.is_none());
+}
+
+#[test]
+fn v_opens_an_image_in_the_text_preview() {
+    let mut harness = listing();
+    harness.press("Down");
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("V");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::LoadPreview {
+            source: PreviewSource {
+                path: PathBuf::from(LEFT).join("one.png"),
+                entry: None,
+                password: None,
+            },
+            request: harness.latest_preview_request(),
+        }]
+    );
+    assert!(matches!(
+        harness.view().preview.unwrap().content,
+        PreviewContent::Lines { .. }
+    ));
+}
+
+#[test]
+fn v_on_an_archive_inside_an_archive_opens_it_in_the_text_preview() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("a.zip")]);
+    harness.press("Down");
+    harness.press("Enter");
+    harness.load(Side::Left, vec![file("inner.zip")]);
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("V");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::LoadPreview {
+            source: entry_source("inner.zip", None),
+            request: harness.latest_preview_request(),
+        }]
+    );
+    assert_eq!(harness.log(), Vec::<String>::new());
+}
+
+#[test]
+fn v_on_the_parent_row_does_nothing() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("a.txt")]);
+    harness.take_effects();
+
+    harness.press("V");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.view().left.path, LEFT);
+    assert!(harness.view().preview.is_none());
+    assert_eq!(harness.log(), Vec::<String>::new());
+}
+
+#[test]
+fn v_on_a_directory_does_nothing() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![dir("d")]);
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("V");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert!(harness.view().preview.is_none());
+    assert_eq!(harness.log(), Vec::<String>::new());
+}
+
+#[test]
+fn v_on_a_broken_link_logs_an_error() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    let link = Entry {
+        kind: EntryKind::Symlink { target: None },
+        ..file("dead.png")
+    };
+    harness.load(Side::Left, vec![link]);
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("V");
+
+    assert_eq!(
+        harness.log(),
+        [format!(
+            "cannot open {}: the symbolic link is broken",
+            shown(LEFT, "dead.png")
+        )]
+    );
+    assert_eq!(harness.take_effects(), vec![]);
+    assert!(harness.view().preview.is_none());
+}
+
+#[test]
+fn v_on_a_special_file_logs_an_error() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![special("pipe", SpecialKind::Fifo)]);
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("V");
+
+    assert_eq!(
+        harness.log(),
+        [format!(
+            "cannot open {}: not a regular file",
+            shown(LEFT, "pipe")
+        )]
+    );
+    assert_eq!(harness.take_effects(), vec![]);
+    assert!(harness.view().preview.is_none());
+}
+
+#[test]
+fn v_on_a_link_inside_an_archive_does_nothing() {
+    let mut harness = inside_archive();
+    harness.press("Down");
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("V");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert!(harness.view().preview.is_none());
+    assert_eq!(harness.log(), Vec::<String>::new());
 }
 
 #[test]

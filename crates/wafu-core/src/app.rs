@@ -607,6 +607,7 @@ impl App {
         let pane = &mut self.panes[side.index()];
         match command {
             Command::Open => self.open_entry(effects),
+            Command::OpenAsText => self.open_as_text(effects),
             Command::GoParent => self.go_parent(effects),
             Command::GoRoot => self.go_root(effects),
             Command::GoHome => self.go_home(effects),
@@ -655,12 +656,7 @@ impl App {
             Command::LogPageUp => self.log.page_up(),
             Command::LogPageDown => self.log.page_down(),
             Command::ClearLog => self.log.clear(),
-            Command::CopyLog => {
-                let lines = self.log.lines();
-                if !lines.is_empty() {
-                    effects.push(Effect::Clipboard(lines.join("\n")));
-                }
-            }
+            Command::CopyLog => self.copy_log(effects),
             Command::PreviewScrollUp
             | Command::PreviewScrollDown
             | Command::PreviewPageUp
@@ -751,6 +747,13 @@ impl App {
     fn log_rows_to(&mut self, rows: usize) {
         self.log
             .set_viewport_rows(rows.clamp(LOG_ROWS_MIN, LOG_ROWS_MAX));
+    }
+
+    fn copy_log(&self, effects: &mut Vec<Effect>) {
+        let lines = self.log.lines();
+        if !lines.is_empty() {
+            effects.push(Effect::Clipboard(lines.join("\n")));
+        }
     }
 
     fn io_event(&mut self, event: IoEvent, effects: &mut Vec<Effect>) {

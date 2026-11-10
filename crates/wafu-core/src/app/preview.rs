@@ -31,9 +31,13 @@ impl App {
             }));
             return;
         }
+        self.open_document(&entry.name, effects);
+    }
+
+    pub(super) fn open_document(&mut self, name: &OsStr, effects: &mut Vec<Effect>) {
         self.preview = Some(Preview::Document(DocumentPreview {
-            name: entry.name.to_string_lossy().into_owned(),
-            source: self.preview_source(&entry.name),
+            name: name.to_string_lossy().into_owned(),
+            source: self.preview_source(name),
             loading: None,
             document: None,
             mode: DocumentMode::Text,
