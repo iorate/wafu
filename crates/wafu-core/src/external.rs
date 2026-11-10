@@ -39,8 +39,6 @@ pub struct Expansion {
 pub enum CommandLineError {
     #[error("no program given")]
     Empty,
-    #[error("unterminated quote")]
-    UnterminatedQuote,
     #[error("unterminated quote or trailing backslash")]
     UnterminatedQuoteOrBackslash,
     #[error("unknown placeholder {0}")]
@@ -119,10 +117,11 @@ impl Expansion {
 /// the same `os` split it back into the same parts.
 #[must_use]
 pub fn format_line(program: &str, args: &[OsString], os: Os) -> String {
-    let args = args.iter().map(|arg| arg.to_string_lossy());
-    std::iter::once(Cow::Borrowed(program))
+    let args = args
+        .iter()
+        .map(|arg| quote_arg(&arg.to_string_lossy(), os).into_owned());
+    std::iter::once(quote_program(program, os).into_owned())
         .chain(args)
-        .map(|part| quote(&part, os).into_owned())
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -137,7 +136,7 @@ enum Arg {
 // compiled and tested on every host.
 fn split(text: &str, os: Os) -> Result<Vec<String>, CommandLineError> {
     match os {
-        Os::Windows => split_windows(text),
+        Os::Windows => Ok(split_windows(text)),
         Os::MacOs | Os::Linux => {
             shlex::split(text).ok_or(CommandLineError::UnterminatedQuoteOrBackslash)
         }
@@ -145,15 +144,27 @@ fn split(text: &str, os: Os) -> Result<Vec<String>, CommandLineError> {
 }
 
 // Hand-written because no maintained crate both splits and quotes by the
-// current C runtime rules on every host. An unterminated quote is an error so
-// that a missing quote is reported instead of swallowing the rest of the line.
-// The program gets no argv[0] rule because it is passed to the child
-// separately, not re-read as argv[0].
-fn split_windows(text: &str) -> Result<Vec<String>, CommandLineError> {
-    let mut tokens = Vec::new();
+// current C runtime rules on every host.
+fn split_windows(text: &str) -> Vec<String> {
+    // The text is a configured line rather than a process's own command line,
+    // so spaces and tabs before the program are skipped instead of making it empty.
+    let text = text.trim_start_matches([' ', '\t']);
+    if text.is_empty() {
+        return Vec::new();
+    }
+    let mut chars = text.chars().peekable();
+    let mut program = String::new();
+    let mut quoted = false;
+    for c in chars.by_ref() {
+        match c {
+            '"' => quoted = !quoted,
+            ' ' | '\t' if !quoted => break,
+            c => program.push(c),
+        }
+    }
+    let mut tokens = vec![program];
     let mut current: Option<String> = None;
     let mut quoted = false;
-    let mut chars = text.chars().peekable();
     while let Some(c) = chars.next() {
         match c {
             ' ' | '\t' if !quoted => {
@@ -188,27 +199,39 @@ fn split_windows(text: &str) -> Result<Vec<String>, CommandLineError> {
             c => current.get_or_insert_with(String::new).push(c),
         }
     }
-    if quoted {
-        return Err(CommandLineError::UnterminatedQuote);
-    }
     if let Some(token) = current {
         tokens.push(token);
     }
-    Ok(tokens)
+    tokens
 }
 
-fn quote(text: &str, os: Os) -> Cow<'_, str> {
+fn quote_program(text: &str, os: Os) -> Cow<'_, str> {
     match os {
-        Os::Windows => quote_windows(text),
+        // The program has no escapes, but one read by the program rule never
+        // holds a `"`.
+        Os::Windows => {
+            if text.is_empty() || text.contains([' ', '\t']) {
+                Cow::Owned(format!("\"{text}\""))
+            } else {
+                Cow::Borrowed(text)
+            }
+        }
+        Os::MacOs | Os::Linux => quote_arg(text, os),
+    }
+}
+
+fn quote_arg(text: &str, os: Os) -> Cow<'_, str> {
+    match os {
+        Os::Windows => quote_windows_arg(text),
         // `try_quote` fails only on a NUL, which spawning rejects, so no line
         // that is shown can hold one.
         Os::MacOs | Os::Linux => shlex::try_quote(text).unwrap_or(Cow::Borrowed(text)),
     }
 }
 
-// The inverse of `split_windows`, as the Rust standard library quotes
-// arguments for `Command` on Windows.
-fn quote_windows(text: &str) -> Cow<'_, str> {
+// The inverse of the argument rules of `split_windows`, as the Rust standard
+// library quotes arguments for `Command` on Windows.
+fn quote_windows_arg(text: &str) -> Cow<'_, str> {
     let quoted = text.is_empty() || text.contains([' ', '\t']);
     if !quoted && !text.contains('"') {
         return Cow::Borrowed(text);
@@ -264,17 +287,10 @@ mod tests {
     #[test]
     fn parse_rejects_empty_and_unterminated_text() {
         let cases = [
-            (Os::Windows, "", CommandLineError::Empty),
             (Os::Windows, "   ", CommandLineError::Empty),
-            (Os::Windows, r#"a "b"#, CommandLineError::UnterminatedQuote),
-            (
-                Os::Windows,
-                r#"x "C:\dir\""#,
-                CommandLineError::UnterminatedQuote,
-            ),
             (
                 Os::Linux,
-                r"a b\",
+                r#"a "b"#,
                 CommandLineError::UnterminatedQuoteOrBackslash,
             ),
         ];
@@ -340,7 +356,7 @@ mod tests {
 
     #[test]
     fn format_line_is_read_back_as_the_same_arguments() {
-        let parts = [
+        let args = [
             "a b",
             "a\tb",
             "",
@@ -350,31 +366,32 @@ mod tests {
             r"C:\my dir\",
             r#"\\"\\"#,
         ];
-        let program = parts[0];
-        let args = parts[1..].iter().map(OsString::from).collect::<Vec<_>>();
         for os in [Os::Windows, Os::MacOs, Os::Linux] {
-            let line = format_line(program, &args, os);
+            for program in [r"C:\my dir\", ""] {
+                let line = format_line(program, &args.map(OsString::from), os);
 
-            assert_eq!(split(&line, os).unwrap(), parts, "{os:?} {line:?}");
+                let mut expected = vec![program];
+                expected.extend(args);
+                assert_eq!(split(&line, os).unwrap(), expected, "{os:?} {line:?}");
+            }
         }
     }
 
     #[test]
     fn split_on_windows_follows_the_c_runtime() {
         let cases = [
-            // The first four rows are examples from Microsoft's documentation of
-            // the rules; the fifth is its fifth example with the quote closed,
-            // since an open quote is an error here.
-            (r#""abc" d e"#, &["abc", "d", "e"][..]),
-            (r#"a\\b d"e f"g h"#, &[r"a\\b", "de fg", "h"]),
-            (r#"a\\\"b c d"#, &[r#"a\"b"#, "c", "d"]),
-            (r#"a\\\\"b c" d e"#, &[r"a\\b c", "d", "e"]),
-            (r#"a"b"" c d""#, &[r#"ab" c d"#]),
-            (r"explorer C:\Users\me\", &["explorer", r"C:\Users\me\"]),
-            (r#"x "C:\dir\\""#, &["x", r"C:\dir\"]),
-            (r#"x "" "#, &["x", ""]),
-            ("a\tb", &["a", "b"]),
-            ("a\nb\u{3000}c", &["a\nb\u{3000}c"]),
+            // The first five rows are Microsoft's examples, after a program since
+            // they show argv[1..].
+            (r#"p "abc" d e"#, &["p", "abc", "d", "e"][..]),
+            (r#"p a\\b d"e f"g h"#, &["p", r"a\\b", "de fg", "h"]),
+            (r#"p a\\\"b c d"#, &["p", r#"a\"b"#, "c", "d"]),
+            (r#"p a\\\\"b c" d e"#, &["p", r"a\\b c", "d", "e"]),
+            (r#"p a"b"" c d"#, &["p", r#"ab" c d"#]),
+            (r#"C:\dir\"a b"\x y"#, &[r"C:\dir\a b\x", "y"]),
+            (r#""a""b" c"#, &["ab", "c"]),
+            (r#"p "" "#, &["p", ""]),
+            ("p\ta\tb", &["p", "a", "b"]),
+            ("p a\nb\u{3000}c", &["p", "a\nb\u{3000}c"]),
         ];
         for (text, expected) in cases {
             assert_eq!(split(text, Os::Windows).unwrap(), expected, "{text:?}");
