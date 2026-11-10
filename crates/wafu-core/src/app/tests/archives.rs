@@ -3,12 +3,13 @@ use std::path::PathBuf;
 use crate::app::{Change, Effect, IoEvent, Msg, Os, Side};
 use crate::entry::{Entry, EntryKind, TargetKind};
 use crate::error::IoError;
+use crate::external::CommandLine;
 use crate::location::{ArchiveFormat, ArchivePath, Location};
 use crate::operation::{
     ArchiveEntries, ArchiveOutput, OperationEvent, OperationKind, OperationSpec, Outcome, Reply,
     Sources,
 };
-use crate::test_support::{Harness, LEFT, RIGHT, dir, file, path, shown};
+use crate::test_support::{Harness, LEFT, RIGHT, dir, executable, file, path, shown};
 
 const TEMP: &str = "/tmp/wafu/x1";
 
@@ -1078,6 +1079,68 @@ fn open_with_os_on_the_parent_row_inside_an_archive_extracts_the_directory_itsel
         [Effect::ReadDir { .. }, Effect::OpenWithOs(path)] if *path == self::path(TEMP, "docs")
     ));
     assert_eq!(harness.cursor_name(Side::Left), "..");
+}
+
+#[test]
+fn enter_on_an_executable_zip_enters_it() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![executable("a.zip")]);
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("Enter");
+
+    assert!(harness.take_effects().contains(&Effect::Watch {
+        side: Side::Left,
+        path: archive(),
+    }));
+    assert!(harness.popup().is_none());
+}
+
+#[test]
+fn run_file_inside_an_archive_extracts_the_cursor_entry_alone_and_then_opens_the_dialog() {
+    let mut harness = outside();
+    harness.enter_archive(Side::Left, vec![file("b.txt"), executable("tool")]);
+    harness.press("Down");
+    harness.press("Space");
+    harness.take_effects();
+
+    harness.press("X");
+
+    let spec = harness.start_operation().unwrap();
+    assert_eq!(spec.kind, OperationKind::ExtractToTemp);
+    assert_eq!(spec.sources, Sources::Entries(entries(&["tool"], None)));
+    assert!(harness.popup().is_none());
+
+    harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
+    harness.finish(Outcome::Completed {
+        done: 1,
+        skipped: 0,
+    });
+
+    let field = &harness.view().popup.unwrap().fields[0];
+    let line = CommandLine::parse_literal(&field.text, Os::Linux).unwrap();
+    assert_eq!(line.program(), path(TEMP, "tool").to_string_lossy());
+    assert_eq!(field.select, Some((field.text.len(), field.text.len())));
+}
+
+#[test]
+fn run_command_inside_an_archive_starts_in_the_directory_holding_it() {
+    let mut harness = inside();
+
+    harness.press("Shift+X");
+    harness.edit("tool");
+    harness.press("Enter");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Spawn {
+            name: "run_command".to_owned(),
+            program: "tool".to_owned(),
+            args: Vec::new(),
+            cwd: PathBuf::from(LEFT),
+        }]
+    );
 }
 
 #[test]

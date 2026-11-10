@@ -998,6 +998,7 @@ fn popup_field(field: &InputField) -> PopupField {
     PopupField {
         label: field.label.into(),
         secret: field.secret,
+        select_all: field.select.is_none(),
         select_start: i32::try_from(start).unwrap_or(0),
         select_end: i32::try_from(end).unwrap_or(0),
     }

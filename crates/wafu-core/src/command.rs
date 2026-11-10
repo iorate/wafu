@@ -73,6 +73,8 @@ const NAMES: &[(Command, &str)] = &[
     (Command::NewFile, "new_file"),
     (Command::NewText, "new_text"),
     (Command::Edit, "edit"),
+    (Command::RunFile, "run_file"),
+    (Command::RunCommandLine, "run_command"),
     (Command::CopyPath, "copy_path"),
     (Command::CopyName, "copy_name"),
     (Command::ShellMenu, "shell_menu"),
@@ -166,6 +168,10 @@ pub enum Command {
     NewFile,
     NewText,
     Edit,
+    /// Asks for a command line, starting from the cursor item's path.
+    RunFile,
+    /// Asks for a command line, starting empty.
+    RunCommandLine,
     CopyPath,
     CopyName,
     ShellMenu,
@@ -344,6 +350,8 @@ impl Command {
             | Self::NewFile
             | Self::NewText
             | Self::Edit
+            | Self::RunFile
+            | Self::RunCommandLine
             | Self::Compress
             | Self::Extract
             | Self::ShellMenu

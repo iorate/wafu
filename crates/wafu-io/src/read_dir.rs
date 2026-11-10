@@ -36,6 +36,17 @@ pub(crate) fn own_entry(path: &Path) -> Option<Entry> {
     Some(entry(path, name, Some(&metadata)))
 }
 
+// What CreateProcessW starts when named directly; it hands bat and cmd to
+// cmd.exe. The rest of PATHEXT (vbs, js, msc, ...) does not start that way.
+#[cfg(not(unix))]
+pub(crate) fn is_executable_name(name: &OsStr) -> bool {
+    Path::new(name).extension().is_some_and(|extension| {
+        ["exe", "com", "bat", "cmd"]
+            .into_iter()
+            .any(|known| extension.eq_ignore_ascii_case(known))
+    })
+}
+
 fn entry(path: &Path, name: OsString, metadata: Option<&Metadata>) -> Entry {
     let hidden = is_hidden(&name, metadata);
     let Some(metadata) = metadata else {
@@ -180,14 +191,7 @@ fn is_executable(_name: &OsStr, metadata: &Metadata) -> bool {
 
 #[cfg(not(unix))]
 fn is_executable(name: &OsStr, _metadata: &Metadata) -> bool {
-    // What CreateProcessW starts when named directly; it hands bat and cmd
-    // to cmd.exe. The rest of PATHEXT (vbs, js, msc, ...) does not start
-    // that way.
-    Path::new(name).extension().is_some_and(|extension| {
-        ["exe", "com", "bat", "cmd"]
-            .into_iter()
-            .any(|known| extension.eq_ignore_ascii_case(known))
-    })
+    is_executable_name(name)
 }
 
 #[cfg(test)]

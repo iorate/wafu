@@ -363,6 +363,8 @@ impl App {
             | InputKind::Filter
             | InputKind::MarkGlob
             | InputKind::GoToPath { .. }
+            | InputKind::RunFile { .. }
+            | InputKind::RunCommand { .. }
             | InputKind::ArchivePassword { .. }
             | InputKind::Compress { .. } => return,
         };
@@ -399,6 +401,8 @@ impl App {
             | InputKind::Filter
             | InputKind::MarkGlob
             | InputKind::GoToPath { .. }
+            | InputKind::RunFile { .. }
+            | InputKind::RunCommand { .. }
             | InputKind::ArchivePassword { .. }
             | InputKind::Compress { .. } => {}
         }
@@ -528,6 +532,26 @@ impl App {
             self.start_temp(Self::temp_open(entry.name), entries, effects);
         } else {
             effects.push(Effect::OpenWithOs(location.base.join(&entry.name)));
+        }
+    }
+
+    pub(super) fn run_file(&mut self, effects: &mut Vec<Effect>) {
+        let Some((location, entry)) = self.active_pane().cursor_target() else {
+            return;
+        };
+        let executable = entry.kind.is_executable();
+        if location.in_archive() {
+            let temp = Temp {
+                action: TempAction::RunFile { executable },
+                cursor: Some(TempPath::Extracted(entry.name.clone())),
+                marked: Vec::new(),
+                targets: vec![entry.name.clone()],
+                entry_skipped: false,
+            };
+            let entries = self.archive_entries(&location, std::slice::from_ref(&entry.name));
+            self.start_temp(temp, entries, effects);
+        } else {
+            self.open_run_file(&location.base.join(&entry.name), executable);
         }
     }
 
@@ -845,6 +869,11 @@ impl App {
                     effects.push(Effect::OpenWithOs(path.clone()));
                 }
             }
+            TempAction::RunFile { executable } => {
+                if let Some(path) = expansion.paths.first() {
+                    self.open_run_file(path, executable);
+                }
+            }
             TempAction::External(name) => match self.config.commands.get(&name) {
                 Some(line) => Self::spawn_external(&name, line, &expansion, effects),
                 None => self.log.push(
@@ -917,6 +946,7 @@ enum TempPath {
 enum TempAction {
     Edit,
     OpenWithOs,
+    RunFile { executable: bool },
     External(String),
 }
 

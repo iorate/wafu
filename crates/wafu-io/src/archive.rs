@@ -292,7 +292,7 @@ fn listed_entry(name: &str, entry: &ArchiveEntry) -> Entry {
     let kind = match entry.kind {
         ArchiveEntryKind::Dir => EntryKind::Dir,
         ArchiveEntryKind::File => EntryKind::File {
-            executable: entry.mode.is_some_and(|mode| mode & 0o111 != 0),
+            executable: is_executable(name, entry.mode),
         },
         // What the link points to is not known until it is extracted.
         ArchiveEntryKind::Symlink => EntryKind::Symlink {
@@ -312,6 +312,18 @@ fn listed_entry(name: &str, entry: &ArchiveEntry) -> Entry {
         permissions: entry.mode.map(|mode| Permissions::Mode(mode & 0o7777)),
         link_target: None,
     }
+}
+
+// The bits the archive records are what an extracted file gets on Unix; on
+// Windows a file starts by its name, as on disk.
+#[cfg(unix)]
+fn is_executable(_name: &str, mode: Option<u32>) -> bool {
+    mode.is_some_and(|mode| mode & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn is_executable(name: &str, _mode: Option<u32>) -> bool {
+    crate::read_dir::is_executable_name(std::ffi::OsStr::new(name))
 }
 
 fn synthesized_dir(name: &str) -> Entry {
@@ -384,6 +396,24 @@ mod tests {
             }
         );
         assert_eq!(root[0].size, 2);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_mode_bits_make_a_file_executable() {
+        let root = list_dir(&executable_candidates(), &[], || false).unwrap();
+
+        assert_eq!(root[0].kind, EntryKind::File { executable: true });
+        assert_eq!(root[1].kind, EntryKind::File { executable: false });
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_extension_makes_a_file_executable() {
+        let root = list_dir(&executable_candidates(), &[], || false).unwrap();
+
+        assert_eq!(root[0].kind, EntryKind::File { executable: false });
+        assert_eq!(root[1].kind, EntryKind::File { executable: true });
     }
 
     #[test]
@@ -483,6 +513,16 @@ mod tests {
             modified: Some(SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000)),
             mode: None,
         }
+    }
+
+    fn executable_candidates() -> [ArchiveEntry; 2] {
+        [
+            ArchiveEntry {
+                mode: Some(0o755),
+                ..file(&["run"], 0)
+            },
+            file(&["setup.exe"], 0),
+        ]
     }
 
     fn dir(components: &[&str]) -> ArchiveEntry {

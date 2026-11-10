@@ -24,10 +24,11 @@ export struct PopupData {
 }
 
 // One input field. The part to select when it opens is given as byte
-// offsets; all of it when they are equal.
+// offsets, which put the caret there when they are equal.
 export struct PopupField {
     label: string,
     secret: bool,
+    select-all: bool,
     select-start: int,
     select-end: int,
 }
@@ -81,10 +82,10 @@ component PopupInput {
         if root.active {
             input.focus();
         }
-        if root.field.select-end > root.field.select-start {
-            input.set-selection-offsets(root.field.select-start, root.field.select-end);
-        } else {
+        if root.field.select-all {
             input.select-all();
+        } else {
+            input.set-selection-offsets(root.field.select-start, root.field.select-end);
         }
     }
 

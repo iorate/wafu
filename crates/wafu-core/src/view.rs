@@ -125,8 +125,9 @@ pub struct InputField {
     pub text: String,
     /// Hides what is typed, as for a password.
     pub secret: bool,
-    /// The part of the text to select when the field opens, as byte offsets.
-    /// The whole text is selected when this is `None`.
+    /// The part of the text to select when the field opens, as byte offsets;
+    /// equal offsets put the caret there without selecting anything. The
+    /// whole text is selected when this is `None`.
     pub select: Option<(usize, usize)>,
 }
 

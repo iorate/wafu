@@ -9,7 +9,7 @@ use crate::operation::{
 };
 use crate::pane::InFlight;
 use crate::preview::{Document, truncated_note};
-use crate::test_support::{Harness, LEFT, RIGHT, dir, file, path, shown, special};
+use crate::test_support::{Harness, LEFT, RIGHT, dir, executable, file, path, shown, special};
 use crate::view::{PreviewContent, PreviewPlacement};
 
 const TEMP: &str = "/tmp/wafu/x1";
@@ -47,6 +47,30 @@ fn enter_on_a_text_file_opens_an_empty_preview_and_reads_the_file() {
     assert_eq!(preview.detail, "");
     // The progress popup is held back by the UI for a moment.
     assert!(view.popup.is_some_and(|popup| popup.progress));
+}
+
+#[test]
+fn enter_on_an_executable_file_opens_the_run_dialog() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![executable("tool")]);
+    harness.press("Down");
+
+    harness.press("Enter");
+
+    assert_eq!(harness.view().popup.unwrap().title, "Run");
+    assert!(harness.view().preview.is_none());
+}
+
+#[test]
+fn enter_on_an_executable_image_previews_it() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![executable("one.png")]);
+    harness.press("Down");
+
+    harness.press("Enter");
+
+    assert!(harness.popup().is_none());
+    assert!(harness.view().preview.is_some());
 }
 
 #[test]
