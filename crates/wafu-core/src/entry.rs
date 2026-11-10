@@ -134,6 +134,12 @@ impl EntryKind {
         )
     }
 
+    /// Whether the item is a file the OS can start, as the list marks with `*`.
+    #[must_use]
+    pub fn is_executable(self) -> bool {
+        self == Self::File { executable: true }
+    }
+
     #[must_use]
     pub fn is_special(self) -> bool {
         matches!(self, Self::Special(_))

@@ -8,6 +8,7 @@ use crate::error::{AppError, IoError};
 use crate::location::{ArchiveFormat, Location};
 use crate::pane::{DrivePurpose, HistoryMove, InFlight, Pane, RequestId};
 use crate::path::{drive_letter, root_of};
+use crate::preview::is_image_name;
 
 impl App {
     pub(super) fn navigating(&self) -> bool {
@@ -308,6 +309,8 @@ impl App {
                 if let Some(format) = ArchiveFormat::from_name(&entry.name) {
                     let name = entry.name.clone();
                     self.enter_archive(&location, &name, Some(format), effects);
+                } else if entry.kind.is_executable() && !is_image_name(&entry.name) {
+                    self.run_file(effects);
                 } else {
                     let entry = entry.clone();
                     self.open_preview(&entry, effects);

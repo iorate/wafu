@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 use crate::command::Command;
+use crate::external::CommandLineError;
 use crate::filter::FilterError;
 use crate::state::StateError;
 
@@ -70,6 +71,11 @@ pub enum AppError {
     StateUnreadable { source: StateError },
     #[error("unknown command {command}")]
     UnknownCommand { command: Command },
+    #[error("invalid command line for {command}: {source}")]
+    InvalidCommandLine {
+        command: Command,
+        source: CommandLineError,
+    },
     #[error("cannot start {program}: {source}")]
     SpawnFailed { program: String, source: IoError },
     #[error("cannot read the login shell's environment: {source}")]

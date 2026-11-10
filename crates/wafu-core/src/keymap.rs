@@ -48,6 +48,8 @@ const DEFAULT_FILELIST: &[(&str, &str)] = &[
     ("K", "mkdir"),
     ("E", "edit"),
     ("Shift+E", "new_text"),
+    ("X", "run_file"),
+    ("Shift+X", "run_command"),
     ("P", "compress"),
     ("U", "extract"),
     ("Shift+U", "enter_as_archive"),

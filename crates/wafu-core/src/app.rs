@@ -680,6 +680,8 @@ impl App {
             Command::NewWindowAsAdmin => self.new_window(true, effects),
             Command::Quit => self.quit(true, effects),
             Command::QuitWithoutSaving => self.quit(false, effects),
+            Command::RunFile => self.run_file(effects),
+            Command::RunCommandLine => self.open_run_command(),
             Command::External(name) => self.run_external(&name, effects),
             Command::OpenWithOs
             | Command::Copy

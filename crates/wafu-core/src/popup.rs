@@ -145,6 +145,14 @@ pub enum InputKind {
     NewText {
         dir: PathBuf,
     },
+    /// A command line to start in `dir`, from `run_file`.
+    RunFile {
+        dir: PathBuf,
+    },
+    /// A command line to start in `dir`, from `run_command`.
+    RunCommand {
+        dir: PathBuf,
+    },
     /// The "Rename" choice of a conflict; Esc goes back to the conflict popup.
     ConflictRename {
         source: PathBuf,
@@ -424,6 +432,7 @@ impl InputKind {
             Self::Mkdir { .. } => "Make directory",
             Self::NewFile { .. } => "New file",
             Self::NewText { .. } => "New text",
+            Self::RunFile { .. } | Self::RunCommand { .. } => "Run",
             Self::ArchivePassword { .. } => "Password",
             Self::Compress { .. } => "Compress",
         }

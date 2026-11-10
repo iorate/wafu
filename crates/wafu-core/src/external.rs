@@ -49,11 +49,7 @@ impl CommandLine {
     /// Splits the text by the quoting rules of `os`: those of `sh` on macOS
     /// and Linux, without any expansion, and those of the C runtime on Windows.
     pub fn parse(text: &str, os: Os) -> Result<Self, CommandLineError> {
-        let mut tokens = split(text, os)?;
-        if tokens.first().is_none_or(String::is_empty) {
-            return Err(CommandLineError::Empty);
-        }
-        let program = tokens.remove(0);
+        let (program, tokens) = split_program(text, os)?;
         let args = tokens
             .into_iter()
             .map(|token| match placeholder(&token) {
@@ -62,6 +58,14 @@ impl CommandLine {
                 None => Ok(Arg::Literal(token)),
             })
             .collect::<Result<_, _>>()?;
+        Ok(Self { program, args })
+    }
+
+    /// Splits the text as [`CommandLine::parse`] does, taking every argument
+    /// as it is written, placeholders included.
+    pub fn parse_literal(text: &str, os: Os) -> Result<Self, CommandLineError> {
+        let (program, tokens) = split_program(text, os)?;
+        let args = tokens.into_iter().map(Arg::Literal).collect();
         Ok(Self { program, args })
     }
 
@@ -130,6 +134,15 @@ pub fn format_line(program: &str, args: &[OsString], os: Os) -> String {
 enum Arg {
     Literal(String),
     Placeholder(Placeholder),
+}
+
+fn split_program(text: &str, os: Os) -> Result<(String, Vec<String>), CommandLineError> {
+    let mut tokens = split(text, os)?;
+    if tokens.first().is_none_or(String::is_empty) {
+        return Err(CommandLineError::Empty);
+    }
+    let program = tokens.remove(0);
+    Ok((program, tokens))
 }
 
 // The rules follow the `Os` value rather than `cfg` so that both sets are
@@ -208,7 +221,7 @@ fn placeholder(token: &str) -> Option<Result<Placeholder, CommandLineError>> {
     )
 }
 
-fn quote_program(text: &str, os: Os) -> Cow<'_, str> {
+pub(crate) fn quote_program(text: &str, os: Os) -> Cow<'_, str> {
     match os {
         // The program rule has no escapes, so a `"` could not be written, but a
         // program it read never holds one.
@@ -223,7 +236,7 @@ fn quote_program(text: &str, os: Os) -> Cow<'_, str> {
     }
 }
 
-fn quote_arg(text: &str, os: Os) -> Cow<'_, str> {
+pub(crate) fn quote_arg(text: &str, os: Os) -> Cow<'_, str> {
     match os {
         Os::Windows => quote_windows_arg(text),
         // `try_quote` fails only on a NUL, which spawning rejects, so no line
@@ -313,6 +326,19 @@ mod tests {
         assert_eq!(
             CommandLine::parse("x {path}", Os::Linux),
             Err(CommandLineError::UnknownPlaceholder("{path}".to_owned()))
+        );
+    }
+
+    #[test]
+    fn parse_literal_keeps_placeholders_as_text() {
+        let line = CommandLine::parse_literal("x {paths} {path}", Os::Linux).unwrap();
+
+        assert_eq!(
+            line.expand(&Expansion {
+                paths: vec![PathBuf::from("/p")],
+                ..Expansion::default()
+            }),
+            ["{paths}", "{path}"].map(OsString::from)
         );
     }
 

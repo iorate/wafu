@@ -519,6 +519,13 @@ pub(crate) fn file(name: &str) -> Entry {
     }
 }
 
+pub(crate) fn executable(name: &str) -> Entry {
+    Entry {
+        kind: EntryKind::File { executable: true },
+        ..file(name)
+    }
+}
+
 pub(crate) fn dir(name: &str) -> Entry {
     Entry {
         kind: EntryKind::Dir,

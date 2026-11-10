@@ -4,10 +4,11 @@ use std::path::PathBuf;
 use crate::app::{Change, Effect, IoEvent, MenuAnchor, Msg, Os, Side};
 use crate::entry::SpecialKind;
 use crate::error::IoError;
+use crate::external::{CommandLine, Expansion};
 use crate::location::Location;
 use crate::operation::{OperationEvent, OperationKind, OperationSpec, Outcome, Reply, Sources};
 use crate::popup::Popup;
-use crate::test_support::{Harness, LEFT, RIGHT, dir, file, path, shown, special};
+use crate::test_support::{Harness, LEFT, RIGHT, dir, executable, file, path, shown, special};
 use crate::view::ItemKind;
 
 const WIN_LEFT: &str = r"C:\Users\me";
@@ -1287,6 +1288,93 @@ fn open_with_os_on_the_parent_row_opens_the_directory_itself() {
         vec![Effect::OpenWithOs(PathBuf::from(LEFT))]
     );
     assert_eq!(harness.cursor_name(Side::Left), "..");
+}
+
+#[test]
+fn run_file_on_an_executable_puts_the_caret_after_its_quoted_path() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![executable("my tool")]);
+    harness.press("Down");
+
+    harness.press("X");
+
+    let popup = harness.view().popup.unwrap();
+    assert_eq!(popup.title, "Run");
+    let field = &popup.fields[0];
+    let line = CommandLine::parse_literal(&field.text, Os::Linux).unwrap();
+    assert_eq!(line.program(), path(LEFT, "my tool").to_string_lossy());
+    assert!(field.text.ends_with(' '), "{:?}", field.text);
+    assert_eq!(field.select, Some((field.text.len(), field.text.len())));
+}
+
+#[test]
+fn run_file_on_anything_else_puts_the_caret_before_its_quoted_path() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![dir("my dir")]);
+    harness.press("Down");
+
+    harness.press("X");
+
+    let field = &harness.view().popup.unwrap().fields[0];
+    let line = CommandLine::parse_literal(&format!("p{}", field.text), Os::Linux).unwrap();
+    assert_eq!(
+        line.expand(&Expansion::default()),
+        [path(LEFT, "my dir").into_os_string()]
+    );
+    assert!(field.text.starts_with(' '), "{:?}", field.text);
+    assert_eq!(field.select, Some((0, 0)));
+}
+
+#[test]
+fn run_command_starts_the_line_as_typed_in_the_pane_directory() {
+    let mut harness = three_files();
+    harness.take_effects();
+
+    harness.press("Shift+X");
+    assert_eq!(harness.popup_fields(), [""]);
+    harness.edit("tool {paths} 'a b'");
+    harness.press("Enter");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Spawn {
+            name: "run_command".to_owned(),
+            program: "tool".to_owned(),
+            args: vec!["{paths}".into(), "a b".into()],
+            cwd: PathBuf::from(LEFT),
+        }]
+    );
+    assert!(harness.popup().is_none());
+}
+
+#[test]
+fn a_blank_command_line_closes_the_dialog_and_starts_nothing() {
+    let mut harness = three_files();
+    harness.press("Shift+X");
+    harness.edit(" \t ");
+    harness.take_effects();
+
+    harness.press("Enter");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert!(harness.popup().is_none());
+    assert_eq!(harness.log(), Vec::<String>::new());
+}
+
+#[test]
+fn a_command_line_without_a_program_is_logged() {
+    let mut harness = three_files();
+    harness.press("Shift+X");
+    harness.edit("'' a");
+    harness.take_effects();
+
+    harness.press("Enter");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log(),
+        ["invalid command line for run_command: no program given"]
+    );
 }
 
 #[test]

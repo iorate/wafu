@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::{App, ColorScheme, ConfigSource, Effect, Os, Side, SpawnKind};
@@ -6,10 +6,11 @@ use crate::command::Command;
 use crate::config::{Config, parse_config};
 use crate::entry::Entry;
 use crate::error::{AppError, IoError};
-use crate::external::{CommandLine, Expansion, format_line};
+use crate::external::{CommandLine, Expansion, format_line, quote_arg, quote_program};
 use crate::history::History;
 use crate::listing::{SortKey, SortSpec};
 use crate::location::Location;
+use crate::popup::{InputKind, InputPopup, Popup};
 use crate::state::{PaneState, StateError, StateFile};
 use crate::view::Style;
 
@@ -162,6 +163,57 @@ impl App {
         }
         let expansion = self.expansion();
         Self::spawn_external(name, line, &expansion, effects);
+    }
+
+    // The path is quoted to read back as one word: as the program when it can
+    // be started, so that arguments go after it, and otherwise as an argument,
+    // so that a program goes before it.
+    pub(super) fn open_run_file(&mut self, path: &Path, executable: bool) {
+        let path = path.to_string_lossy();
+        let (text, caret) = if executable {
+            let text = format!("{} ", quote_program(&path, self.os));
+            let caret = text.len();
+            (text, caret)
+        } else {
+            (format!(" {}", quote_arg(&path, self.os)), 0)
+        };
+        let kind = InputKind::RunFile {
+            dir: self.active_pane().location().dir().to_path_buf(),
+        };
+        let popup = InputPopup::single(kind, text, Some((caret, caret)));
+        self.popup = Some(Popup::Input(popup));
+    }
+
+    pub(super) fn open_run_command(&mut self) {
+        let kind = InputKind::RunCommand {
+            dir: self.active_pane().location().dir().to_path_buf(),
+        };
+        self.popup = Some(Popup::Input(InputPopup::single(kind, String::new(), None)));
+    }
+
+    pub(super) fn run_line(
+        &mut self,
+        command: Command,
+        text: &str,
+        dir: PathBuf,
+        effects: &mut Vec<Effect>,
+    ) {
+        if text.trim().is_empty() {
+            return;
+        }
+        let line = match CommandLine::parse_literal(text, self.os) {
+            Ok(line) => line,
+            Err(source) => {
+                self.log
+                    .push(AppError::InvalidCommandLine { command, source }.to_string());
+                return;
+            }
+        };
+        let expansion = Expansion {
+            dir,
+            ..Expansion::default()
+        };
+        Self::spawn(command.to_string(), &line, &expansion, effects);
     }
 
     pub(super) fn edit_config(&mut self, effects: &mut Vec<Effect>) {
