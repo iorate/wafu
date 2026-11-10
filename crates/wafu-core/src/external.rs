@@ -50,7 +50,7 @@ impl CommandLine {
     /// and Linux, without any expansion, and those of the C runtime on Windows.
     pub fn parse(text: &str, os: Os) -> Result<Self, CommandLineError> {
         let mut tokens = split(text, os)?;
-        if tokens.is_empty() {
+        if tokens.first().is_none_or(String::is_empty) {
             return Err(CommandLineError::Empty);
         }
         let program = tokens.remove(0);
@@ -279,9 +279,12 @@ mod tests {
     }
 
     #[test]
-    fn parse_rejects_empty_and_unterminated_text() {
+    fn parse_rejects_an_empty_program_and_unterminated_text() {
         let cases = [
+            (Os::Windows, "", CommandLineError::Empty),
+            (Os::Windows, " p a", CommandLineError::Empty),
             (Os::Linux, "   ", CommandLineError::Empty),
+            (Os::Linux, r#""" a"#, CommandLineError::Empty),
             (
                 Os::Linux,
                 r#"a "b"#,
