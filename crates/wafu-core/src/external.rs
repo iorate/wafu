@@ -7,8 +7,8 @@ use thiserror::Error;
 
 use crate::app::Os;
 
-/// A command line from the configuration: the program and its arguments,
-/// split before the placeholders are filled in.
+/// A command line: the program and its arguments, split before the
+/// placeholders are filled in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandLine {
     program: String,
@@ -41,37 +41,44 @@ pub enum CommandLineError {
     Empty,
     #[error("unterminated quote or trailing backslash")]
     UnterminatedQuoteOrBackslash,
-    #[error("unknown placeholder {0}")]
-    UnknownPlaceholder(String),
 }
 
 impl CommandLine {
     /// Splits the text by the quoting rules of `os`: those of `sh` on macOS
     /// and Linux, without any expansion, and those of the C runtime on Windows.
     pub fn parse(text: &str, os: Os) -> Result<Self, CommandLineError> {
-        let (program, tokens) = split_program(text, os)?;
+        let mut tokens = split(text, os)?;
+        if tokens.first().is_none_or(String::is_empty) {
+            return Err(CommandLineError::Empty);
+        }
+        let program = tokens.remove(0);
         let args = tokens
             .into_iter()
             .map(|token| match placeholder(&token) {
-                Some(Ok(placeholder)) => Ok(Arg::Placeholder(placeholder)),
-                Some(Err(error)) => Err(error),
-                None => Ok(Arg::Literal(token)),
+                Some(placeholder) => Arg::Placeholder(placeholder),
+                None => Arg::Literal(token),
             })
-            .collect::<Result<_, _>>()?;
-        Ok(Self { program, args })
-    }
-
-    /// Splits the text as [`CommandLine::parse`] does, taking every argument
-    /// as it is written, placeholders included.
-    pub fn parse_literal(text: &str, os: Os) -> Result<Self, CommandLineError> {
-        let (program, tokens) = split_program(text, os)?;
-        let args = tokens.into_iter().map(Arg::Literal).collect();
+            .collect();
         Ok(Self { program, args })
     }
 
     #[must_use]
     pub fn program(&self) -> &str {
         &self.program
+    }
+
+    /// Whether an argument stands for paths of entries, which inside an
+    /// archive have to be extracted first.
+    #[must_use]
+    pub fn uses_paths(&self) -> bool {
+        self.args.iter().any(|arg| {
+            matches!(
+                arg,
+                Arg::Placeholder(
+                    Placeholder::CursorPath | Placeholder::MarkedPaths | Placeholder::Paths
+                )
+            )
+        })
     }
 
     /// The arguments with each placeholder replaced by as many arguments as it
@@ -134,15 +141,6 @@ pub fn format_line(program: &str, args: &[OsString], os: Os) -> String {
 enum Arg {
     Literal(String),
     Placeholder(Placeholder),
-}
-
-fn split_program(text: &str, os: Os) -> Result<(String, Vec<String>), CommandLineError> {
-    let mut tokens = split(text, os)?;
-    if tokens.first().is_none_or(String::is_empty) {
-        return Err(CommandLineError::Empty);
-    }
-    let program = tokens.remove(0);
-    Ok((program, tokens))
 }
 
 // The rules follow the `Os` value rather than `cfg` so that both sets are
@@ -213,12 +211,8 @@ fn split_windows(text: &str) -> Vec<String> {
 }
 
 // A placeholder is a whole argument; `{dir}` inside a longer argument is text.
-fn placeholder(token: &str) -> Option<Result<Placeholder, CommandLineError>> {
-    let name = token.strip_prefix('{')?.strip_suffix('}')?;
-    Some(
-        Placeholder::from_name(name)
-            .ok_or_else(|| CommandLineError::UnknownPlaceholder(token.to_owned())),
-    )
+fn placeholder(token: &str) -> Option<Placeholder> {
+    Placeholder::from_name(token.strip_prefix('{')?.strip_suffix('}')?)
 }
 
 pub(crate) fn quote_program(text: &str, os: Os) -> Cow<'_, str> {
@@ -322,24 +316,31 @@ mod tests {
     }
 
     #[test]
-    fn parse_rejects_unknown_placeholders() {
-        assert_eq!(
-            CommandLine::parse("x {path}", Os::Linux),
-            Err(CommandLineError::UnknownPlaceholder("{path}".to_owned()))
-        );
-    }
-
-    #[test]
-    fn parse_literal_keeps_placeholders_as_text() {
-        let line = CommandLine::parse_literal("x {paths} {path}", Os::Linux).unwrap();
+    fn parse_takes_unknown_placeholders_as_text() {
+        let line = CommandLine::parse("x {} {print} {a,b} {path}", Os::Linux).unwrap();
 
         assert_eq!(
             line.expand(&Expansion {
                 paths: vec![PathBuf::from("/p")],
                 ..Expansion::default()
             }),
-            ["{paths}", "{path}"].map(OsString::from)
+            ["{}", "{print}", "{a,b}", "{path}"].map(OsString::from)
         );
+    }
+
+    #[test]
+    fn uses_paths_is_true_only_for_a_placeholder_of_entry_paths() {
+        let cases = [
+            ("x {cursor_path}", true),
+            ("x {marked_paths}", true),
+            ("x \"{paths}\"", true),
+            ("x {dir} {other_dir} --p={paths} {path}", false),
+        ];
+        for (text, expected) in cases {
+            let line = CommandLine::parse(text, Os::Linux).unwrap();
+
+            assert_eq!(line.uses_paths(), expected, "{text:?}");
+        }
     }
 
     #[test]

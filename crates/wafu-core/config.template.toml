@@ -72,7 +72,8 @@ socket = "#e58ae0"
 ## and a word starting with # begins a comment; on Windows they are the C
 ## runtime's, where a backslash before a double quote in an argument escapes it.
 ## Placeholders: {cursor_path}, {marked_paths}, {paths} (marked items or the
-## cursor item), {dir}, and {other_dir}.
+## cursor item), {dir}, and {other_dir}, each as a whole argument; any other
+## text in braces is passed as written.
 # [commands.open_terminal]
 # run = "wt -d {dir}"
 

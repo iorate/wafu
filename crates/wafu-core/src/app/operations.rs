@@ -5,7 +5,7 @@ use super::{App, Change, Effect, MenuAnchor, Os, PreviewSource, Side};
 use crate::command::{Command, Context};
 use crate::entry::Entry;
 use crate::error::{AppError, IoError};
-use crate::external::Expansion;
+use crate::external::{CommandLine, Expansion};
 use crate::key::{Key, KeyBase, NamedKey};
 use crate::location::{ArchiveFormat, Location};
 use crate::operation::{
@@ -363,8 +363,8 @@ impl App {
             | InputKind::Filter
             | InputKind::MarkGlob
             | InputKind::GoToPath { .. }
-            | InputKind::RunFile { .. }
-            | InputKind::RunCommand { .. }
+            | InputKind::RunFile
+            | InputKind::RunCommand
             | InputKind::ArchivePassword { .. }
             | InputKind::Compress { .. } => return,
         };
@@ -401,8 +401,8 @@ impl App {
             | InputKind::Filter
             | InputKind::MarkGlob
             | InputKind::GoToPath { .. }
-            | InputKind::RunFile { .. }
-            | InputKind::RunCommand { .. }
+            | InputKind::RunFile
+            | InputKind::RunCommand
             | InputKind::ArchivePassword { .. }
             | InputKind::Compress { .. } => {}
         }
@@ -557,7 +557,12 @@ impl App {
 
     // Every placeholder may be used, so the cursor entry and the marked entries
     // are all extracted, from one place in the archive.
-    pub(super) fn run_external_in_archive(&mut self, name: &str, effects: &mut Vec<Effect>) {
+    pub(super) fn run_in_archive(
+        &mut self,
+        name: String,
+        line: CommandLine,
+        effects: &mut Vec<Effect>,
+    ) {
         let pane = self.active_pane();
         let location = pane.location().clone();
         let marked: Vec<OsString> = pane
@@ -588,10 +593,7 @@ impl App {
             _ => (location, None, marked.clone()),
         };
         if extracted.is_empty() {
-            let expansion = self.expansion();
-            if let Some(line) = self.config.commands.get(name) {
-                Self::spawn_external(name, line, &expansion, effects);
-            }
+            Self::spawn(name, &line, &self.expansion(), effects);
             return;
         }
         let targets = if marked.is_empty() {
@@ -600,7 +602,7 @@ impl App {
             marked.clone()
         };
         let temp = Temp {
-            action: TempAction::External(name.to_owned()),
+            action: TempAction::Spawn { name, line },
             cursor,
             marked,
             targets,
@@ -874,15 +876,7 @@ impl App {
                     self.open_run_file(path, executable);
                 }
             }
-            TempAction::External(name) => match self.config.commands.get(&name) {
-                Some(line) => Self::spawn_external(&name, line, &expansion, effects),
-                None => self.log.push(
-                    AppError::UnknownCommand {
-                        command: Command::External(name),
-                    }
-                    .to_string(),
-                ),
-            },
+            TempAction::Spawn { name, line } => Self::spawn(name, &line, &expansion, effects),
         }
     }
 
@@ -947,7 +941,7 @@ enum TempAction {
     Edit,
     OpenWithOs,
     RunFile { executable: bool },
-    External(String),
+    Spawn { name: String, line: CommandLine },
 }
 
 fn source_paths(dir: &Path, names: &[OsString]) -> Sources {

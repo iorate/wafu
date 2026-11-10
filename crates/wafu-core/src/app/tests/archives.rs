@@ -1119,17 +1119,19 @@ fn run_file_inside_an_archive_extracts_the_cursor_entry_alone_and_then_opens_the
     });
 
     let field = &harness.view().popup.unwrap().fields[0];
-    let line = CommandLine::parse_literal(&field.text, Os::Linux).unwrap();
+    let line = CommandLine::parse(&field.text, Os::Linux).unwrap();
     assert_eq!(line.program(), path(TEMP, "tool").to_string_lossy());
     assert_eq!(field.select, Some((field.text.len(), field.text.len())));
 }
 
 #[test]
-fn run_command_inside_an_archive_starts_in_the_directory_holding_it() {
+fn run_command_inside_an_archive_without_paths_starts_at_once_in_the_directory_holding_it() {
     let mut harness = inside();
+    harness.press("Down");
+    harness.press("Space");
 
     harness.press("Shift+X");
-    harness.edit("tool");
+    harness.edit("tool {dir}");
     harness.press("Enter");
 
     assert_eq!(
@@ -1137,9 +1139,44 @@ fn run_command_inside_an_archive_starts_in_the_directory_holding_it() {
         vec![Effect::Spawn {
             name: "run_command".to_owned(),
             program: "tool".to_owned(),
-            args: Vec::new(),
+            args: vec![PathBuf::from(LEFT).into_os_string()],
             cwd: PathBuf::from(LEFT),
         }]
+    );
+}
+
+#[test]
+fn run_command_inside_an_archive_with_paths_extracts_them_and_then_starts() {
+    let mut harness = inside();
+    harness.press("Down");
+    harness.press("Down");
+    harness.press("Space");
+
+    harness.press("Shift+X");
+    harness.edit("tool {paths}");
+    harness.press("Enter");
+
+    let spec = harness.start_operation().unwrap();
+    assert_eq!(spec.kind, OperationKind::ExtractToTemp);
+    assert_eq!(
+        spec.sources,
+        Sources::Entries(entries(&["b.txt", "inner.zip"], None))
+    );
+
+    harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
+    harness.finish(Outcome::Completed {
+        done: 2,
+        skipped: 0,
+    });
+
+    assert_eq!(
+        harness.take_effects().last(),
+        Some(&Effect::Spawn {
+            name: "run_command".to_owned(),
+            program: "tool".to_owned(),
+            args: vec![path(TEMP, "b.txt").into_os_string()],
+            cwd: PathBuf::from(LEFT),
+        })
     );
 }
 

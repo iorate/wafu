@@ -681,9 +681,7 @@ impl App {
             Command::Quit => self.quit(true, effects),
             Command::QuitWithoutSaving => self.quit(false, effects),
             Command::RunFile => self.run_file(effects),
-            Command::RunCommandLine => self.open_input(InputKind::RunCommand {
-                dir: self.active_pane().location().dir().to_path_buf(),
-            }),
+            Command::RunCommandLine => self.open_input(InputKind::RunCommand),
             Command::External(name) => self.run_external(&name, effects),
             Command::OpenWithOs
             | Command::Copy
