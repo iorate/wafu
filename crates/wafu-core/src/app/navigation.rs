@@ -315,6 +315,29 @@ impl App {
         }
     }
 
+    pub(super) fn open_as_text(&mut self, effects: &mut Vec<Effect>) {
+        let pane = self.active_pane();
+        let location = pane.location();
+        match pane.cursor_entry() {
+            None => {}
+            Some(entry) if entry.kind.is_dir_like() => {}
+            Some(entry) if entry.kind.is_broken_link() => {
+                let path = location.base.join(&entry.name);
+                self.log.push(AppError::BrokenLink { path }.to_string());
+            }
+            Some(entry) if entry.kind.is_special() => {
+                let path = location.base.join(&entry.name);
+                self.log.push(AppError::NotRegularFile { path }.to_string());
+            }
+            // A link inside an archive leads nowhere until extracted.
+            Some(entry) if is_link_in_archive(location, entry.kind) => {}
+            Some(entry) => {
+                let name = entry.name.clone();
+                self.open_document(&name, effects);
+            }
+        }
+    }
+
     pub(super) fn enter_as_archive(&mut self, effects: &mut Vec<Effect>) {
         let Some(entry) = self.active_pane().cursor_entry() else {
             return;
