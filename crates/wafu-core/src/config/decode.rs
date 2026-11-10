@@ -773,7 +773,7 @@ editor = "\"unterminated"
 [commands.term]
 run = "wt"
 [commands.broken]
-run = "x {nope}"
+run = "x 'unterminated"
 [keys.filelist]
 "F1" = "$term"
 "F2" = "$missing"

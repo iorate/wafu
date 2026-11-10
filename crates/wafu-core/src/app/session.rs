@@ -157,12 +157,9 @@ impl App {
             );
             return;
         };
-        if self.active_pane().location().in_archive() {
-            self.run_external_in_archive(name, effects);
-            return;
-        }
-        let expansion = self.expansion();
-        Self::spawn_external(name, line, &expansion, effects);
+        let line = line.clone();
+        let name = Command::External(name.to_owned()).to_string();
+        self.start_line(name, line, effects);
     }
 
     // The path is quoted to read back as one word: as the program when it can
@@ -177,24 +174,15 @@ impl App {
         } else {
             (format!(" {}", quote_arg(&path, self.os)), 0)
         };
-        let kind = InputKind::RunFile {
-            dir: self.active_pane().location().dir().to_path_buf(),
-        };
-        let popup = InputPopup::single(kind, text, Some((caret, caret)));
+        let popup = InputPopup::single(InputKind::RunFile, text, Some((caret, caret)));
         self.popup = Some(Popup::Input(popup));
     }
 
-    pub(super) fn run_line(
-        &mut self,
-        command: Command,
-        text: &str,
-        dir: PathBuf,
-        effects: &mut Vec<Effect>,
-    ) {
+    pub(super) fn run_line(&mut self, command: Command, text: &str, effects: &mut Vec<Effect>) {
         if text.trim().is_empty() {
             return;
         }
-        let line = match CommandLine::parse_literal(text, self.os) {
+        let line = match CommandLine::parse(text, self.os) {
             Ok(line) => line,
             Err(source) => {
                 self.log
@@ -202,11 +190,7 @@ impl App {
                 return;
             }
         };
-        let expansion = Expansion {
-            dir,
-            ..Expansion::default()
-        };
-        Self::spawn(command.to_string(), &line, &expansion, effects);
+        self.start_line(command.to_string(), line, effects);
     }
 
     pub(super) fn edit_config(&mut self, effects: &mut Vec<Effect>) {
@@ -327,9 +311,10 @@ impl App {
         ));
     }
 
-    // The placeholder values for the active pane. Inside an archive the
-    // entries have to be extracted first, so this serves there only when
-    // nothing is marked and the cursor is on the archive file itself.
+    // The placeholder values for the active pane. Inside an archive the paths
+    // of entries do not exist on disk until they are extracted, so there this
+    // serves only a line that uses no such path, or a cursor on the archive
+    // file itself with nothing marked.
     pub(super) fn expansion(&self) -> Expansion {
         let pane = self.active_pane();
         let full = |location: &Location, entry: &Entry| location.base.join(&entry.name);
@@ -357,16 +342,6 @@ impl App {
         }
     }
 
-    pub(super) fn spawn_external(
-        name: &str,
-        line: &CommandLine,
-        expansion: &Expansion,
-        effects: &mut Vec<Effect>,
-    ) {
-        let name = Command::External(name.to_owned()).to_string();
-        Self::spawn(name, line, expansion, effects);
-    }
-
     pub(super) fn spawn_editor(
         line: &CommandLine,
         expansion: &Expansion,
@@ -375,7 +350,12 @@ impl App {
         Self::spawn("editor".to_owned(), line, expansion, effects);
     }
 
-    fn spawn(name: String, line: &CommandLine, expansion: &Expansion, effects: &mut Vec<Effect>) {
+    pub(super) fn spawn(
+        name: String,
+        line: &CommandLine,
+        expansion: &Expansion,
+        effects: &mut Vec<Effect>,
+    ) {
         effects.push(Effect::Spawn {
             name,
             program: line.program().to_owned(),

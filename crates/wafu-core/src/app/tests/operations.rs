@@ -1299,7 +1299,7 @@ fn run_file_on_an_executable_puts_the_caret_after_its_quoted_path() {
     harness.press("X");
 
     let field = &harness.view().popup.unwrap().fields[0];
-    let line = CommandLine::parse_literal(&format!("{}a", field.text), Os::Linux).unwrap();
+    let line = CommandLine::parse(&format!("{}a", field.text), Os::Linux).unwrap();
     assert_eq!(
         line.expand(&Expansion::default()),
         ["a"].map(OsString::from)
@@ -1337,7 +1337,7 @@ fn run_file_quotes_the_path_by_the_rules_of_windows_there() {
     harness.press("X");
 
     let text = &harness.popup_fields()[0];
-    let line = CommandLine::parse_literal(text, Os::Windows).unwrap();
+    let line = CommandLine::parse(text, Os::Windows).unwrap();
     assert_eq!(
         line.program(),
         path(WIN_LEFT, "my tool.exe").to_string_lossy()
@@ -1353,7 +1353,7 @@ fn run_file_on_anything_else_puts_the_caret_before_its_quoted_path() {
     harness.press("X");
 
     let field = &harness.view().popup.unwrap().fields[0];
-    let line = CommandLine::parse_literal(&format!("p{}", field.text), Os::Linux).unwrap();
+    let line = CommandLine::parse(&format!("p{}", field.text), Os::Linux).unwrap();
     assert_eq!(
         line.expand(&Expansion::default()),
         [path(LEFT, "my dir").into_os_string()]
@@ -1362,8 +1362,10 @@ fn run_file_on_anything_else_puts_the_caret_before_its_quoted_path() {
 }
 
 #[test]
-fn run_command_starts_the_line_as_typed_in_the_pane_directory() {
+fn run_command_starts_the_line_with_its_placeholders_filled_in_the_pane_directory() {
     let mut harness = three_files();
+    harness.press("Down");
+    harness.press("Space");
     harness.take_effects();
 
     harness.press("Shift+X");
@@ -1376,7 +1378,7 @@ fn run_command_starts_the_line_as_typed_in_the_pane_directory() {
         vec![Effect::Spawn {
             name: "run_command".to_owned(),
             program: "tool".to_owned(),
-            args: vec!["{paths}".into()],
+            args: vec![path(LEFT, "a").into_os_string()],
             cwd: PathBuf::from(LEFT),
         }]
     );

@@ -37,8 +37,8 @@ impl App {
             | InputKind::Mkdir { .. }
             | InputKind::NewFile { .. }
             | InputKind::NewText { .. }
-            | InputKind::RunFile { .. }
-            | InputKind::RunCommand { .. }
+            | InputKind::RunFile
+            | InputKind::RunCommand
             | InputKind::ConflictRename { .. }
             | InputKind::ArchivePassword { .. }
             | InputKind::Compress { .. } => String::new(),
@@ -359,12 +359,12 @@ impl App {
                 self.confirm_name(popup.kind, &text, effects);
                 return;
             }
-            InputKind::RunFile { dir } => {
-                self.run_line(Command::RunFile, &text, dir, effects);
+            InputKind::RunFile => {
+                self.run_line(Command::RunFile, &text, effects);
                 return;
             }
-            InputKind::RunCommand { dir } => {
-                self.run_line(Command::RunCommandLine, &text, dir, effects);
+            InputKind::RunCommand => {
+                self.run_line(Command::RunCommandLine, &text, effects);
                 return;
             }
             InputKind::ArchivePassword {
