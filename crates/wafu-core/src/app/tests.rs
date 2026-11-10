@@ -3328,7 +3328,7 @@ fn the_title_says_when_the_process_is_elevated() {
 
 #[test]
 fn external_commands_expand_placeholders_and_report_their_start() {
-    let mut harness = Harness::start("/home/user", "/tmp");
+    let mut harness = Harness::start_on(Os::Windows, "/home/user", "/tmp");
     harness.config(
         "[commands.term]\nrun = \"wt -d {dir} {paths} --other {other_dir} {cursor_path}\"\n[keys.filelist]\n\"F2\" = \"$term\"\n",
     );

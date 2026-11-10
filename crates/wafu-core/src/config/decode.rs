@@ -32,11 +32,11 @@ pub(super) fn parse(text: &str, os: Os) -> Result<(Config, Vec<Diagnostic>), Syn
     merge_os_section(&mut table, os, &mut diagnostics);
     let mut config = Config::default_for(os);
     let mut root = Reader::new(table, String::new(), &mut diagnostics);
-    read_general(&mut root, &mut config);
+    read_general(&mut root, &mut config, os);
     read_appearance(&mut root, &mut config);
     read_colors(&mut root, &mut config);
     read_bookmarks(&mut root, &mut config);
-    read_commands(&mut root, &mut config);
+    read_commands(&mut root, &mut config, os);
     read_keys(&mut root, &mut config);
     root.finish();
     Ok((config, diagnostics))
@@ -183,7 +183,7 @@ impl<'a> Reader<'a> {
     }
 }
 
-fn read_general(root: &mut Reader<'_>, config: &mut Config) {
+fn read_general(root: &mut Reader<'_>, config: &mut Config, os: Os) {
     let Some(mut general) = root.table("general") else {
         return;
     };
@@ -206,7 +206,7 @@ fn read_general(root: &mut Reader<'_>, config: &mut Config) {
         config.general.use_login_shell_env = value;
     }
     if let Some(text) = general.string("editor") {
-        match CommandLine::parse(&text) {
+        match CommandLine::parse(&text, os) {
             Ok(editor) => config.general.editor = editor,
             Err(error) => {
                 let path = general.path_of("editor");
@@ -336,7 +336,7 @@ fn read_bookmarks(root: &mut Reader<'_>, config: &mut Config) {
     }
 }
 
-fn read_commands(root: &mut Reader<'_>, config: &mut Config) {
+fn read_commands(root: &mut Reader<'_>, config: &mut Config, os: Os) {
     let Some(mut commands) = root.table("commands") else {
         return;
     };
@@ -348,7 +348,7 @@ fn read_commands(root: &mut Reader<'_>, config: &mut Config) {
         let path = commands.path_of(&name);
         let mut reader = Reader::new(table, path, commands.diagnostics);
         if let Some(run) = reader.required_string("run") {
-            match CommandLine::parse(&run) {
+            match CommandLine::parse(&run, os) {
                 Ok(line) => {
                     config.commands.insert(name, line);
                 }
@@ -521,8 +521,10 @@ fn line_of(text: &str, span: Option<Range<usize>>) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
+
     use super::*;
-    use crate::external::CommandLineError;
+    use crate::external::{CommandLineError, Expansion};
 
     const EXAMPLE: &str = r##"
 [general]
@@ -588,7 +590,7 @@ editor = "open -t {paths}"
         assert_eq!(diagnostics, Vec::new());
         assert_eq!(
             config.general.editor,
-            CommandLine::parse("notepad {paths}").unwrap()
+            CommandLine::parse("notepad {paths}", Os::Linux).unwrap()
         );
         assert_eq!(
             config.appearance.font.default.family,
@@ -599,7 +601,7 @@ editor = "open -t {paths}"
         assert_eq!(config.bookmarks, [bookmark("Downloads", "~/Downloads")]);
         assert_eq!(
             config.commands["open_terminal"],
-            CommandLine::parse("wt -d {dir}").unwrap()
+            CommandLine::parse("wt -d {dir}", Os::Linux).unwrap()
         );
         assert_eq!(
             config
@@ -626,7 +628,7 @@ editor = "open -t {paths}"
         assert_eq!(diagnostics, Vec::new());
         assert_eq!(
             config.general.editor,
-            CommandLine::parse("open -t {paths}").unwrap()
+            CommandLine::parse("open -t {paths}", Os::MacOs).unwrap()
         );
         assert!(config.general.mkdir_then_enter);
         assert!(!config.general.new_text_creates_file);
@@ -672,6 +674,25 @@ editor = "open -t {paths}"
     }
 
     #[test]
+    fn command_lines_are_split_by_the_rules_of_the_given_os() {
+        let (config, diagnostics) = parse(
+            "[general]\neditor = \"x 'a b'\"\n[commands.x]\nrun = \"x 'a b'\"\n",
+            Os::Windows,
+        )
+        .unwrap();
+
+        assert_eq!(diagnostics, Vec::new());
+        assert_eq!(
+            config.general.editor.expand(&Expansion::default()),
+            ["'a", "b'"].map(OsString::from)
+        );
+        assert_eq!(
+            config.commands["x"].expand(&Expansion::default()),
+            ["'a", "b'"].map(OsString::from)
+        );
+    }
+
+    #[test]
     fn invalid_values_fall_back_item_by_item() {
         let text = r##"
 [appearance]
@@ -708,7 +729,7 @@ editor = "\"unterminated"
         );
         assert_eq!(
             diagnostics[0].kind,
-            DiagnosticKind::InvalidCommandLine(CommandLineError::UnterminatedQuote)
+            DiagnosticKind::InvalidCommandLine(CommandLineError::UnterminatedQuoteOrBackslash)
         );
         assert_eq!(
             diagnostics[1].kind,

@@ -5356,6 +5356,7 @@ dependencies = [
  "icu_collator",
  "icu_normalizer",
  "serde",
+ "shlex 2.0.1",
  "thiserror 2.0.21",
  "toml",
 ]

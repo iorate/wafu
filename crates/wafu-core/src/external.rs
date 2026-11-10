@@ -1,8 +1,11 @@
 use std::borrow::Cow;
 use std::ffi::OsString;
+use std::iter::repeat_n;
 use std::path::PathBuf;
 
 use thiserror::Error;
+
+use crate::app::Os;
 
 /// A command line from the configuration: the program and its arguments,
 /// split before the placeholders are filled in.
@@ -36,18 +39,18 @@ pub struct Expansion {
 pub enum CommandLineError {
     #[error("no program given")]
     Empty,
-    #[error("unterminated quote")]
-    UnterminatedQuote,
+    #[error("unterminated quote or trailing backslash")]
+    UnterminatedQuoteOrBackslash,
     #[error("unknown placeholder {0}")]
     UnknownPlaceholder(String),
 }
 
 impl CommandLine {
-    /// Splits the text at spaces, keeping double-quoted parts together. A
-    /// backslash is an ordinary character so that Windows paths survive.
-    pub fn parse(text: &str) -> Result<Self, CommandLineError> {
-        let mut tokens = split(text)?;
-        if tokens.is_empty() {
+    /// Splits the text by the quoting rules of `os`: those of `sh` on macOS
+    /// and Linux, without any expansion, and those of the C runtime on Windows.
+    pub fn parse(text: &str, os: Os) -> Result<Self, CommandLineError> {
+        let mut tokens = split(text, os)?;
+        if tokens.first().is_none_or(String::is_empty) {
             return Err(CommandLineError::Empty);
         }
         let program = tokens.remove(0);
@@ -110,14 +113,15 @@ impl Expansion {
     }
 }
 
-/// The program and its arguments as one line, written as the configuration
-/// would write them.
+/// The program and its arguments as one line, quoted so that the rules of
+/// the same `os` split it back into the same parts.
 #[must_use]
-pub fn format_line(program: &str, args: &[OsString]) -> String {
-    let args = args.iter().map(|arg| arg.to_string_lossy());
-    std::iter::once(Cow::Borrowed(program))
+pub fn format_line(program: &str, args: &[OsString], os: Os) -> String {
+    let args = args
+        .iter()
+        .map(|arg| quote_arg(&arg.to_string_lossy(), os).into_owned());
+    std::iter::once(quote_program(program, os).into_owned())
         .chain(args)
-        .map(|part| quote(&part))
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -128,39 +132,71 @@ enum Arg {
     Placeholder(Placeholder),
 }
 
-fn split(text: &str) -> Result<Vec<String>, CommandLineError> {
-    let mut tokens = Vec::new();
+// The rules follow the `Os` value rather than `cfg` so that both sets are
+// compiled and tested on every host.
+fn split(text: &str, os: Os) -> Result<Vec<String>, CommandLineError> {
+    match os {
+        Os::Windows => Ok(split_windows(text)),
+        Os::MacOs | Os::Linux => {
+            shlex::split(text).ok_or(CommandLineError::UnterminatedQuoteOrBackslash)
+        }
+    }
+}
+
+// Hand-written because no maintained crate both splits and quotes by the
+// current C runtime rules on every host.
+fn split_windows(text: &str) -> Vec<String> {
+    let mut chars = text.chars().peekable();
+    let mut program = String::new();
+    let mut quoted = false;
+    for c in chars.by_ref() {
+        match c {
+            '"' => quoted = !quoted,
+            ' ' | '\t' if !quoted => break,
+            c => program.push(c),
+        }
+    }
+    let mut tokens = vec![program];
     let mut current: Option<String> = None;
     let mut quoted = false;
-    for c in text.chars() {
+    while let Some(c) = chars.next() {
         match c {
-            '"' => {
-                quoted = !quoted;
-                current.get_or_insert_with(String::new);
-            }
-            c if c.is_whitespace() && !quoted => {
+            ' ' | '\t' if !quoted => {
                 if let Some(token) = current.take() {
                     tokens.push(token);
+                }
+            }
+            '\\' => {
+                let mut count = 1;
+                while chars.next_if_eq(&'\\').is_some() {
+                    count += 1;
+                }
+                let token = current.get_or_insert_with(String::new);
+                if chars.peek() == Some(&'"') {
+                    token.extend(repeat_n('\\', count / 2));
+                    if count % 2 == 1 {
+                        chars.next();
+                        token.push('"');
+                    }
+                } else {
+                    token.extend(repeat_n('\\', count));
+                }
+            }
+            '"' => {
+                let token = current.get_or_insert_with(String::new);
+                if quoted && chars.next_if_eq(&'"').is_some() {
+                    token.push('"');
+                } else {
+                    quoted = !quoted;
                 }
             }
             c => current.get_or_insert_with(String::new).push(c),
         }
     }
-    if quoted {
-        return Err(CommandLineError::UnterminatedQuote);
-    }
     if let Some(token) = current {
         tokens.push(token);
     }
-    Ok(tokens)
-}
-
-fn quote(text: &str) -> String {
-    if text.is_empty() || text.chars().any(char::is_whitespace) {
-        format!("\"{text}\"")
-    } else {
-        text.to_owned()
-    }
+    tokens
 }
 
 // A placeholder is a whole argument; `{dir}` inside a longer argument is text.
@@ -172,45 +208,94 @@ fn placeholder(token: &str) -> Option<Result<Placeholder, CommandLineError>> {
     )
 }
 
+fn quote_program(text: &str, os: Os) -> Cow<'_, str> {
+    match os {
+        // The program rule has no escapes, so a `"` could not be written, but a
+        // program it read never holds one.
+        Os::Windows => {
+            if text.contains([' ', '\t']) {
+                Cow::Owned(format!("\"{text}\""))
+            } else {
+                Cow::Borrowed(text)
+            }
+        }
+        Os::MacOs | Os::Linux => quote_arg(text, os),
+    }
+}
+
+fn quote_arg(text: &str, os: Os) -> Cow<'_, str> {
+    match os {
+        Os::Windows => quote_windows_arg(text),
+        // `try_quote` fails only on a NUL, which spawning rejects, so no line
+        // that is shown can hold one.
+        Os::MacOs | Os::Linux => shlex::try_quote(text).unwrap_or(Cow::Borrowed(text)),
+    }
+}
+
+// The inverse of the argument rules of `split_windows`, as the Rust standard
+// library quotes arguments for `Command` on Windows.
+fn quote_windows_arg(text: &str) -> Cow<'_, str> {
+    let quoted = text.is_empty() || text.contains([' ', '\t']);
+    if !quoted && !text.contains('"') {
+        return Cow::Borrowed(text);
+    }
+    let mut result = String::new();
+    if quoted {
+        result.push('"');
+    }
+    let mut backslashes = 0;
+    for c in text.chars() {
+        if c == '\\' {
+            backslashes += 1;
+        } else {
+            if c == '"' {
+                result.extend(repeat_n('\\', backslashes + 1));
+            }
+            backslashes = 0;
+        }
+        result.push(c);
+    }
+    if quoted {
+        result.extend(repeat_n('\\', backslashes));
+        result.push('"');
+    }
+    Cow::Owned(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn parse_splits_at_spaces_and_keeps_quoted_parts_together() {
-        let line =
-            CommandLine::parse(r#"  "C:\Program Files\app.exe"  -n  "a b"  c  ""  "#).unwrap();
+    fn parse_reads_the_program_and_the_arguments() {
+        let line = CommandLine::parse("p -n a", Os::Linux).unwrap();
 
-        assert_eq!(line.program(), r"C:\Program Files\app.exe");
+        assert_eq!(line.program(), "p");
         assert_eq!(
             line.expand(&Expansion::default()),
-            ["-n", "a b", "c", ""].map(OsString::from)
+            ["-n", "a"].map(OsString::from)
         );
     }
 
     #[test]
-    fn parse_treats_backslashes_as_text() {
-        let line = CommandLine::parse(r"explorer C:\Users\me").unwrap();
-
-        assert_eq!(
-            line.expand(&Expansion::default()),
-            [OsString::from(r"C:\Users\me")]
-        );
-    }
-
-    #[test]
-    fn parse_rejects_empty_and_unterminated_text() {
-        assert_eq!(CommandLine::parse(""), Err(CommandLineError::Empty));
-        assert_eq!(CommandLine::parse("   "), Err(CommandLineError::Empty));
-        assert_eq!(
-            CommandLine::parse(r#"a "b"#),
-            Err(CommandLineError::UnterminatedQuote)
-        );
+    fn parse_rejects_an_empty_program_and_unterminated_text() {
+        let cases = [
+            (Os::Linux, "   ", CommandLineError::Empty),
+            (Os::Linux, r#""" a"#, CommandLineError::Empty),
+            (
+                Os::Linux,
+                r#"a "b"#,
+                CommandLineError::UnterminatedQuoteOrBackslash,
+            ),
+        ];
+        for (os, text, error) in cases {
+            assert_eq!(CommandLine::parse(text, os), Err(error), "{os:?} {text:?}");
+        }
     }
 
     #[test]
     fn parse_recognizes_placeholders_only_as_whole_arguments() {
-        let line = CommandLine::parse("code --dir={dir} {dir} \"{paths}\"").unwrap();
+        let line = CommandLine::parse("code --dir={dir} {dir} \"{paths}\"", Os::Linux).unwrap();
 
         let expansion = Expansion {
             dir: PathBuf::from("/d"),
@@ -226,25 +311,15 @@ mod tests {
     #[test]
     fn parse_rejects_unknown_placeholders() {
         assert_eq!(
-            CommandLine::parse("x {path}"),
+            CommandLine::parse("x {path}", Os::Linux),
             Err(CommandLineError::UnknownPlaceholder("{path}".to_owned()))
         );
     }
 
     #[test]
-    fn format_line_quotes_parts_with_spaces_and_empty_ones() {
-        let args = ["-a", "Wez Term", "", "x\ty"].map(OsString::from);
-
-        assert_eq!(
-            format_line("/Applications/My App/open", &args),
-            "\"/Applications/My App/open\" -a \"Wez Term\" \"\" \"x\ty\""
-        );
-        assert_eq!(format_line("wt", &[]), "wt");
-    }
-
-    #[test]
     fn expand_gives_each_placeholder_as_many_arguments_as_it_has_values() {
-        let line = CommandLine::parse("x {cursor_path} {marked_paths} {other_dir} end").unwrap();
+        let line = CommandLine::parse("x {cursor_path} {marked_paths} {other_dir} end", Os::Linux)
+            .unwrap();
 
         let expansion = Expansion {
             cursor_path: None,
@@ -256,5 +331,60 @@ mod tests {
             line.expand(&expansion),
             ["/m1", "/m2", "/o", "end"].map(OsString::from)
         );
+    }
+
+    #[test]
+    fn format_line_quotes_only_the_parts_that_need_it_on_windows() {
+        let args = ["-a", "Wez Term", ""].map(OsString::from);
+
+        assert_eq!(
+            format_line(r"C:\My App\open", &args, Os::Windows),
+            r#""C:\My App\open" -a "Wez Term" """#
+        );
+    }
+
+    #[test]
+    fn format_line_is_read_back_as_the_same_arguments() {
+        let args = [
+            "a b",
+            "a\tb",
+            "",
+            r#"say "hi""#,
+            "it's",
+            r"C:\dir\",
+            r"C:\my dir\",
+            r#"\\"\\"#,
+        ];
+        let program = r"C:\my dir\";
+        let mut expected = vec![program];
+        expected.extend(args);
+        for os in [Os::Windows, Os::Linux] {
+            let line = format_line(program, &args.map(OsString::from), os);
+
+            assert_eq!(split(&line, os).unwrap(), expected, "{os:?} {line:?}");
+        }
+    }
+
+    #[test]
+    fn split_on_windows_follows_the_c_runtime() {
+        let cases = [
+            // The first five rows are Microsoft's examples, after a program since
+            // they show argv[1..].
+            (r#"p "abc" d e"#, &["p", "abc", "d", "e"][..]),
+            (r#"p a\\b d"e f"g h"#, &["p", r"a\\b", "de fg", "h"]),
+            (r#"p a\\\"b c d"#, &["p", r#"a\"b"#, "c", "d"]),
+            (r#"p a\\\\"b c" d e"#, &["p", r"a\\b c", "d", "e"]),
+            (r#"p a"b"" c d"#, &["p", r#"ab" c d"#]),
+            (r#"C:\dir\"a b"\x y"#, &[r"C:\dir\a b\x", "y"]),
+            (r#""a""b" c"#, &["ab", "c"]),
+            (r#"p "" "#, &["p", ""]),
+            (r#"p "a b"#, &["p", "a b"]),
+            (" p a", &["", "p", "a"]),
+            ("p\ta\tb", &["p", "a", "b"]),
+            ("p a\nb\u{3000}c", &["p", "a\nb\u{3000}c"]),
+        ];
+        for (text, expected) in cases {
+            assert_eq!(split(text, Os::Windows).unwrap(), expected, "{text:?}");
+        }
     }
 }
