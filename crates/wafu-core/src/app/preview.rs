@@ -31,13 +31,19 @@ impl App {
             }));
             return;
         }
-        self.open_document(&entry.name, effects);
+        let location = self.active_pane().location().clone();
+        self.open_document(&location, &entry.name, effects);
     }
 
-    pub(super) fn open_document(&mut self, name: &OsStr, effects: &mut Vec<Effect>) {
+    pub(super) fn open_document(
+        &mut self,
+        location: &Location,
+        name: &OsStr,
+        effects: &mut Vec<Effect>,
+    ) {
         self.preview = Some(Preview::Document(DocumentPreview {
             name: name.to_string_lossy().into_owned(),
-            source: self.preview_source(name),
+            source: self.preview_source(location, name),
             loading: None,
             document: None,
             mode: DocumentMode::Text,
@@ -154,7 +160,9 @@ impl App {
         if target == preview.shown {
             return;
         }
-        let source = target.as_deref().map(|name| self.preview_source(name));
+        let source = target
+            .as_deref()
+            .map(|name| self.preview_source(pane.location(), name));
         let request = source.is_some().then(|| self.next_request_id());
         let Some(Preview::Image(preview)) = &mut self.preview else {
             return;
@@ -416,9 +424,7 @@ impl App {
         )));
     }
 
-    fn preview_source(&self, name: &OsStr) -> PreviewSource {
-        let pane = self.active_pane();
-        let location = pane.location();
+    fn preview_source(&self, location: &Location, name: &OsStr) -> PreviewSource {
         match &location.archive {
             None => PreviewSource {
                 path: location.base.join(name),
@@ -428,7 +434,7 @@ impl App {
             Some(archive) => PreviewSource {
                 path: location.base.clone(),
                 entry: Some((archive.clone(), name.to_string_lossy().into_owned())),
-                password: pane.archive_password().map(ToOwned::to_owned),
+                password: self.active_pane().archive_password().map(ToOwned::to_owned),
             },
         }
     }

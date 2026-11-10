@@ -186,6 +186,19 @@ fn enter_as_archive_on_the_parent_row_does_nothing() {
 }
 
 #[test]
+fn enter_as_archive_on_the_parent_row_of_an_archive_root_does_nothing() {
+    let mut harness = inside();
+    harness.press("Home");
+    harness.take_effects();
+
+    harness.press("Shift+U");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.view().left.path, root().to_string());
+    assert_eq!(harness.log(), Vec::<String>::new());
+}
+
+#[test]
 fn directories_inside_an_archive_descend_and_backspace_returns_with_the_cursor() {
     let mut harness = inside();
     harness.press("Down");
