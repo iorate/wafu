@@ -292,7 +292,7 @@ fn listed_entry(name: &str, entry: &ArchiveEntry) -> Entry {
     let kind = match entry.kind {
         ArchiveEntryKind::Dir => EntryKind::Dir,
         ArchiveEntryKind::File => EntryKind::File {
-            executable: entry.mode.is_some_and(|mode| mode & 0o111 != 0),
+            executable: is_executable(name, entry.mode),
         },
         // What the link points to is not known until it is extracted.
         ArchiveEntryKind::Symlink => EntryKind::Symlink {
@@ -312,6 +312,18 @@ fn listed_entry(name: &str, entry: &ArchiveEntry) -> Entry {
         permissions: entry.mode.map(|mode| Permissions::Mode(mode & 0o7777)),
         link_target: None,
     }
+}
+
+// The bits the archive records are what an extracted file gets on Unix; on
+// Windows a file starts by its name, as on disk.
+#[cfg(unix)]
+fn is_executable(_name: &str, mode: Option<u32>) -> bool {
+    mode.is_some_and(|mode| mode & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn is_executable(name: &str, _mode: Option<u32>) -> bool {
+    crate::read_dir::is_executable_name(std::ffi::OsStr::new(name))
 }
 
 fn synthesized_dir(name: &str) -> Entry {
@@ -384,6 +396,25 @@ mod tests {
             }
         );
         assert_eq!(root[0].size, 2);
+    }
+
+    #[test]
+    fn files_are_executable_by_the_rule_of_the_os() {
+        let entries = [
+            ArchiveEntry {
+                mode: Some(0o755),
+                ..file(&["run"], 0)
+            },
+            file(&["setup.exe"], 0),
+        ];
+
+        let root = list_dir(&entries, &[], || false).unwrap();
+
+        let executable = |entry: &Entry| entry.kind == EntryKind::File { executable: true };
+        assert_eq!(
+            (executable(&root[0]), executable(&root[1])),
+            (cfg!(unix), cfg!(windows))
+        );
     }
 
     #[test]
