@@ -82,6 +82,7 @@ component PopupInput {
         if root.active {
             input.focus();
         }
+        input.scroll = 0;
         if root.field.select-all {
             input.select-all();
         } else {
@@ -106,48 +107,72 @@ component PopupInput {
             border-color: Palette.border;
             border-radius: 2px;
 
-            input := TextInput {
+            // TextInput does not scroll by itself, so it sits in a clipped
+            // viewport and is moved to keep the caret in view.
+            Rectangle {
                 x: 4px;
                 width: parent.width - 8px;
                 height: parent.height;
-                font-family: Theme.popup-font-family;
-                font-size: Theme.popup-font-size;
-                vertical-alignment: center;
-                single-line: true;
-                input-type: root.field.secret ? InputType.password : InputType.text;
-                text <=> root.text;
+                clip: true;
 
-                init => {
-                    root.select-initial();
-                }
+                input := TextInput {
+                    // Where the caret last asked the text to be. The bounds keep
+                    // deleting text or widening the popup from leaving a blank
+                    // gap on the right.
+                    property <length> scroll;
+                    x: min(0px, max(parent.width - self.width, self.scroll));
+                    // Wide enough for the caret after the last character.
+                    width: max(parent.width, self.preferred-width + self.text-cursor-width);
+                    height: parent.height;
+                    font-family: Theme.popup-font-family;
+                    font-size: Theme.popup-font-size;
+                    vertical-alignment: center;
+                    single-line: true;
+                    input-type: root.field.secret ? InputType.password : InputType.text;
+                    text <=> root.text;
 
-                edited => {
-                    root.edited(self.text);
-                }
-
-                accepted => {
-                    root.accepted();
-                }
-
-                // Esc goes to the core. With one field the arrows do too;
-                // with more they and Tab move between the fields, which is
-                // the UI's business alone.
-                key-pressed(event) => {
-                    if event.text == Key.Escape {
-                        root.key-input(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt, event.modifiers.meta);
-                        return accept;
+                    init => {
+                        root.select-initial();
                     }
-                    if event.text == Key.UpArrow || event.text == Key.DownArrow || event.text == Key.Tab || event.text == Key.Backtab {
-                        if root.single {
-                            if event.text != Key.Tab && event.text != Key.Backtab {
-                                root.key-input(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt, event.modifiers.meta);
-                            }
+
+                    cursor-position-changed(pos) => {
+                        if pos.x + self.x < 0 {
+                            self.scroll = -pos.x;
+                        } else if pos.x + self.x > parent.width - self.text-cursor-width {
+                            self.scroll = parent.width - self.text-cursor-width - pos.x;
                         } else {
-                            root.move-focus();
+                            self.scroll = self.x;
                         }
-                        return accept;
                     }
-                    reject
+
+                    edited => {
+                        root.edited(self.text);
+                    }
+
+                    accepted => {
+                        root.accepted();
+                    }
+
+                    // Esc goes to the core. With one field the arrows do too;
+                    // with more they and Tab move between the fields, which is
+                    // the UI's business alone.
+                    key-pressed(event) => {
+                        if event.text == Key.Escape {
+                            root.key-input(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt, event.modifiers.meta);
+                            return accept;
+                        }
+                        if event.text == Key.UpArrow || event.text == Key.DownArrow || event.text == Key.Tab || event.text == Key.Backtab {
+                            if root.single {
+                                if event.text != Key.Tab && event.text != Key.Backtab {
+                                    root.key-input(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt, event.modifiers.meta);
+                                }
+                            } else {
+                                root.move-focus();
+                            }
+                            return accept;
+                        }
+                        reject
+                    }
                 }
             }
         }
