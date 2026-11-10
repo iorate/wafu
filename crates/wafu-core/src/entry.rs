@@ -291,6 +291,7 @@ mod tests {
         };
 
         assert!(EntryKind::File { executable: true }.is_executable());
+        assert!(!EntryKind::File { executable: false }.is_executable());
         assert!(link(true).is_executable());
         assert!(!link(false).is_executable());
     }

@@ -184,13 +184,6 @@ impl App {
         self.popup = Some(Popup::Input(popup));
     }
 
-    pub(super) fn open_run_command(&mut self) {
-        let kind = InputKind::RunCommand {
-            dir: self.active_pane().location().dir().to_path_buf(),
-        };
-        self.popup = Some(Popup::Input(InputPopup::single(kind, String::new(), None)));
-    }
-
     pub(super) fn run_line(
         &mut self,
         command: Command,

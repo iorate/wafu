@@ -1082,6 +1082,22 @@ fn open_with_os_on_the_parent_row_inside_an_archive_extracts_the_directory_itsel
 }
 
 #[test]
+fn enter_on_an_executable_zip_enters_it() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![executable("a.zip")]);
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("Enter");
+
+    assert!(harness.take_effects().contains(&Effect::Watch {
+        side: Side::Left,
+        path: archive(),
+    }));
+    assert!(harness.popup().is_none());
+}
+
+#[test]
 fn run_file_inside_an_archive_extracts_the_cursor_entry_alone_and_then_opens_the_dialog() {
     let mut harness = outside();
     harness.enter_archive(Side::Left, vec![file("b.txt"), executable("tool")]);
@@ -1102,9 +1118,10 @@ fn run_file_inside_an_archive_extracts_the_cursor_entry_alone_and_then_opens_the
         skipped: 0,
     });
 
-    let text = &harness.popup_fields()[0];
-    let line = CommandLine::parse_literal(text, Os::Linux).unwrap();
+    let field = &harness.view().popup.unwrap().fields[0];
+    let line = CommandLine::parse_literal(&field.text, Os::Linux).unwrap();
     assert_eq!(line.program(), path(TEMP, "tool").to_string_lossy());
+    assert_eq!(field.select, Some((field.text.len(), field.text.len())));
 }
 
 #[test]

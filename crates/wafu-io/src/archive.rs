@@ -398,23 +398,22 @@ mod tests {
         assert_eq!(root[0].size, 2);
     }
 
+    #[cfg(unix)]
     #[test]
-    fn files_are_executable_by_the_rule_of_the_os() {
-        let entries = [
-            ArchiveEntry {
-                mode: Some(0o755),
-                ..file(&["run"], 0)
-            },
-            file(&["setup.exe"], 0),
-        ];
+    fn the_mode_bits_make_a_file_executable() {
+        let root = list_dir(&executable_candidates(), &[], || false).unwrap();
 
-        let root = list_dir(&entries, &[], || false).unwrap();
+        assert_eq!(root[0].kind, EntryKind::File { executable: true });
+        assert_eq!(root[1].kind, EntryKind::File { executable: false });
+    }
 
-        let executable = |entry: &Entry| entry.kind == EntryKind::File { executable: true };
-        assert_eq!(
-            (executable(&root[0]), executable(&root[1])),
-            (cfg!(unix), cfg!(windows))
-        );
+    #[cfg(windows)]
+    #[test]
+    fn the_extension_makes_a_file_executable() {
+        let root = list_dir(&executable_candidates(), &[], || false).unwrap();
+
+        assert_eq!(root[0].kind, EntryKind::File { executable: false });
+        assert_eq!(root[1].kind, EntryKind::File { executable: true });
     }
 
     #[test]
@@ -514,6 +513,16 @@ mod tests {
             modified: Some(SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000)),
             mode: None,
         }
+    }
+
+    fn executable_candidates() -> [ArchiveEntry; 2] {
+        [
+            ArchiveEntry {
+                mode: Some(0o755),
+                ..file(&["run"], 0)
+            },
+            file(&["setup.exe"], 0),
+        ]
     }
 
     fn dir(components: &[&str]) -> ArchiveEntry {

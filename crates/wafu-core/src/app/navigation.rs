@@ -309,6 +309,9 @@ impl App {
                 if let Some(format) = ArchiveFormat::from_name(&entry.name) {
                     let name = entry.name.clone();
                     self.enter_archive(&location, &name, Some(format), effects);
+                // The name decides first: where a file system marks every file
+                // executable (a Windows drive mounted in WSL), the bit tells
+                // nothing, and an image should still be previewed.
                 } else if entry.kind.is_executable() && !is_image_name(&entry.name) {
                     self.run_file(effects);
                 } else {

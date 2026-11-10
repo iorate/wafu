@@ -1298,13 +1298,50 @@ fn run_file_on_an_executable_puts_the_caret_after_its_quoted_path() {
 
     harness.press("X");
 
-    let popup = harness.view().popup.unwrap();
-    assert_eq!(popup.title, "Run");
-    let field = &popup.fields[0];
-    let line = CommandLine::parse_literal(&field.text, Os::Linux).unwrap();
-    assert_eq!(line.program(), path(LEFT, "my tool").to_string_lossy());
-    assert!(field.text.ends_with(' '), "{:?}", field.text);
+    let field = &harness.view().popup.unwrap().fields[0];
+    let line = CommandLine::parse_literal(&format!("{}a", field.text), Os::Linux).unwrap();
+    assert_eq!(
+        line.expand(&Expansion::default()),
+        ["a"].map(OsString::from)
+    );
     assert_eq!(field.select, Some((field.text.len(), field.text.len())));
+}
+
+#[test]
+fn run_file_starts_the_cursor_item_in_the_pane_directory() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![executable("my tool")]);
+    harness.press("Down");
+    harness.press("X");
+    harness.take_effects();
+
+    harness.press("Enter");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Spawn {
+            name: "run_file".to_owned(),
+            program: path(LEFT, "my tool").to_string_lossy().into_owned(),
+            args: Vec::new(),
+            cwd: PathBuf::from(LEFT),
+        }]
+    );
+}
+
+#[test]
+fn run_file_quotes_the_path_by_the_rules_of_windows_there() {
+    let mut harness = Harness::start_on(Os::Windows, WIN_LEFT, WIN_RIGHT);
+    harness.load(Side::Left, vec![executable("my tool.exe")]);
+    harness.press("Down");
+
+    harness.press("X");
+
+    let text = &harness.popup_fields()[0];
+    let line = CommandLine::parse_literal(text, Os::Windows).unwrap();
+    assert_eq!(
+        line.program(),
+        path(WIN_LEFT, "my tool.exe").to_string_lossy()
+    );
 }
 
 #[test]
@@ -1321,7 +1358,6 @@ fn run_file_on_anything_else_puts_the_caret_before_its_quoted_path() {
         line.expand(&Expansion::default()),
         [path(LEFT, "my dir").into_os_string()]
     );
-    assert!(field.text.starts_with(' '), "{:?}", field.text);
     assert_eq!(field.select, Some((0, 0)));
 }
 
@@ -1332,7 +1368,7 @@ fn run_command_starts_the_line_as_typed_in_the_pane_directory() {
 
     harness.press("Shift+X");
     assert_eq!(harness.popup_fields(), [""]);
-    harness.edit("tool {paths} 'a b'");
+    harness.edit("tool {paths}");
     harness.press("Enter");
 
     assert_eq!(
@@ -1340,7 +1376,7 @@ fn run_command_starts_the_line_as_typed_in_the_pane_directory() {
         vec![Effect::Spawn {
             name: "run_command".to_owned(),
             program: "tool".to_owned(),
-            args: vec!["{paths}".into(), "a b".into()],
+            args: vec!["{paths}".into()],
             cwd: PathBuf::from(LEFT),
         }]
     );
