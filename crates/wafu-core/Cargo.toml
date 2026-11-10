@@ -18,6 +18,8 @@ globset.workspace = true
 icu_collator.workspace = true
 icu_normalizer.workspace = true
 serde = { workspace = true, features = ["derive"] }
+# sh's quoting rules have too many cases to be worth writing by hand.
+shlex.workspace = true
 thiserror.workspace = true
 toml.workspace = true
 

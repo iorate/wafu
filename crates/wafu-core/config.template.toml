@@ -66,7 +66,11 @@ socket = "#e58ae0"
 # name = "Downloads"
 # path = "~/Downloads"
 
-## External commands, run without a shell in the active pane's directory.
+## External commands, run without a shell in the active pane's directory. A
+## command line, here and in editor, is split by the OS's own quoting rules:
+## sh's on macOS and Linux, where $VAR, ~, and wildcards are not expanded and a
+## word starting with # begins a comment, and the C runtime's on Windows, where
+## a backslash before a double quote escapes it.
 ## Placeholders: {cursor_path}, {marked_paths}, {paths} (marked items or the
 ## cursor item), {dir}, and {other_dir}.
 # [commands.open_terminal]

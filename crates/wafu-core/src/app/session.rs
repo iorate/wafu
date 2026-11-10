@@ -181,7 +181,7 @@ impl App {
                     args,
                 },
                 None,
-            ) => format!("started {name}: {}", format_line(&program, &args)),
+            ) => format!("started {name}: {}", format_line(&program, &args, self.os)),
             (SpawnKind::External { program, .. }, Some(source)) => {
                 AppError::SpawnFailed { program, source }.to_string()
             }

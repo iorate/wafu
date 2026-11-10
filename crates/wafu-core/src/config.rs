@@ -375,7 +375,7 @@ fn default_editor(os: Os) -> CommandLine {
         Os::MacOs => "open -t {paths}",
         Os::Linux => "xdg-open {paths}",
     };
-    CommandLine::parse(text).expect("the default editor should parse")
+    CommandLine::parse(text, os).expect("the default editor should parse")
 }
 
 fn human_readable(bytes: u64) -> String {
