@@ -284,6 +284,7 @@ impl App {
         let pane = &self.panes[side.index()];
         let location = pane.location().clone();
         match pane.cursor_entry() {
+            // `..` stands for this place, and opening it would only show it again, so it moves up.
             None => self.go_parent(effects),
             Some(entry) if entry.kind.is_dir_like() => {
                 let target = if location.in_archive() {
@@ -306,7 +307,7 @@ impl App {
             Some(entry) => {
                 if let Some(format) = ArchiveFormat::from_name(&entry.name) {
                     let name = entry.name.clone();
-                    self.enter_archive(&name, Some(format), effects);
+                    self.enter_archive(&location, &name, Some(format), effects);
                 } else {
                     let entry = entry.clone();
                     self.open_preview(&entry, effects);
@@ -316,53 +317,58 @@ impl App {
     }
 
     pub(super) fn open_as_text(&mut self, effects: &mut Vec<Effect>) {
-        let pane = self.active_pane();
-        let location = pane.location();
-        match pane.cursor_entry() {
-            None => {}
-            Some(entry) if entry.kind.is_dir_like() => {}
-            Some(entry) if entry.kind.is_broken_link() => {
-                let path = location.base.join(&entry.name);
-                self.log.push(AppError::BrokenLink { path }.to_string());
-            }
-            Some(entry) if entry.kind.is_special() => {
-                let path = location.base.join(&entry.name);
-                self.log.push(AppError::NotRegularFile { path }.to_string());
-            }
-            // A link inside an archive leads nowhere until extracted.
-            Some(entry) if is_link_in_archive(location, entry.kind) => {}
-            Some(entry) => {
-                let name = entry.name.clone();
-                self.open_document(&name, effects);
-            }
+        let Some((location, entry)) = self.active_pane().cursor_target() else {
+            return;
+        };
+        if entry.kind.is_dir_like() {
+            return;
         }
+        if entry.kind.is_broken_link() {
+            let path = location.base.join(&entry.name);
+            self.log.push(AppError::BrokenLink { path }.to_string());
+            return;
+        }
+        if entry.kind.is_special() {
+            let path = location.base.join(&entry.name);
+            self.log.push(AppError::NotRegularFile { path }.to_string());
+            return;
+        }
+        // A link inside an archive leads nowhere until extracted.
+        if is_link_in_archive(&location, entry.kind) {
+            return;
+        }
+        self.open_document(&location, &entry.name, effects);
     }
 
     pub(super) fn enter_as_archive(&mut self, effects: &mut Vec<Effect>) {
-        let Some(entry) = self.active_pane().cursor_entry() else {
+        let Some((location, entry)) = self.active_pane().cursor_target() else {
             return;
         };
         if entry.kind.is_dir_like() {
             return;
         }
         if entry.kind.is_special() {
-            let path = self.active_pane().location().base.join(&entry.name);
+            let path = location.base.join(&entry.name);
             self.log.push(AppError::NotRegularFile { path }.to_string());
+            return;
+        }
+        // The `..` row at an archive root is the archive the pane is in;
+        // entering it would only reload it, dropping the marks and the filter.
+        if !location.in_archive() && self.active_pane().location().in_archive() {
             return;
         }
         // An unknown extension leaves the format to the content.
         let format = ArchiveFormat::from_name(&entry.name);
-        let name = entry.name.clone();
-        self.enter_archive(&name, format, effects);
+        self.enter_archive(&location, &entry.name, format, effects);
     }
 
     fn enter_archive(
         &mut self,
+        location: &Location,
         name: &OsStr,
         format: Option<ArchiveFormat>,
         effects: &mut Vec<Effect>,
     ) {
-        let location = self.active_pane().location();
         if location.in_archive() {
             let path = PathBuf::from(location.child_display(name));
             self.log.push(AppError::NestedArchive { path }.to_string());

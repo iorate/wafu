@@ -1038,6 +1038,27 @@ fn v_on_the_parent_row_does_nothing() {
 }
 
 #[test]
+fn v_on_the_parent_row_of_an_archive_root_opens_the_archive_file() {
+    let mut harness = inside_archive();
+    harness.press("Home");
+    harness.take_effects();
+
+    harness.press("V");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::LoadPreview {
+            source: PreviewSource {
+                path: PathBuf::from(LEFT).join("a.zip"),
+                entry: None,
+                password: None,
+            },
+            request: harness.latest_preview_request(),
+        }]
+    );
+}
+
+#[test]
 fn v_on_a_directory_does_nothing() {
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.load(Side::Left, vec![dir("d")]);
