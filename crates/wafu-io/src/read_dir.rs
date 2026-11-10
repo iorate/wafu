@@ -180,9 +180,14 @@ fn is_executable(_name: &OsStr, metadata: &Metadata) -> bool {
 
 #[cfg(not(unix))]
 fn is_executable(name: &OsStr, _metadata: &Metadata) -> bool {
-    Path::new(name)
-        .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+    // What CreateProcessW starts when named directly; it hands bat and cmd
+    // to cmd.exe. The rest of PATHEXT (vbs, js, msc, ...) does not start
+    // that way.
+    Path::new(name).extension().is_some_and(|extension| {
+        ["exe", "com", "bat", "cmd"]
+            .into_iter()
+            .any(|known| extension.eq_ignore_ascii_case(known))
+    })
 }
 
 #[cfg(test)]
@@ -332,26 +337,29 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn exe_files_are_executable() {
+    fn exe_com_bat_and_cmd_files_are_executable() {
+        let cases = [
+            ("a.exe", true),
+            ("B.EXE", true),
+            ("c.com", true),
+            ("d.bat", true),
+            ("e.cmd", true),
+            ("f.vbs", false),
+        ];
         let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("a.exe"), b"").unwrap();
-        fs::write(dir.path().join("B.EXE"), b"").unwrap();
-        fs::write(dir.path().join("c.txt"), b"").unwrap();
+        for (name, _) in cases {
+            fs::write(dir.path().join(name), b"").unwrap();
+        }
 
         let entries = read_dir_with(dir.path(), || false).unwrap().entries;
 
-        assert_eq!(
-            find(&entries, "a.exe").kind,
-            EntryKind::File { executable: true }
-        );
-        assert_eq!(
-            find(&entries, "B.EXE").kind,
-            EntryKind::File { executable: true }
-        );
-        assert_eq!(
-            find(&entries, "c.txt").kind,
-            EntryKind::File { executable: false }
-        );
+        for (name, executable) in cases {
+            assert_eq!(
+                find(&entries, name).kind,
+                EntryKind::File { executable },
+                "{name}"
+            );
+        }
     }
 
     #[cfg(unix)]
