@@ -555,9 +555,10 @@ impl App {
         }
     }
 
-    // The line may use any path placeholder, so the cursor entry and the
-    // marked entries are all extracted, from one place in the archive.
-    pub(super) fn run_in_archive(
+    // Inside an archive, a line that uses a path placeholder may use any of
+    // them, so the cursor entry and the marked entries are all extracted
+    // first, from one place in the archive.
+    pub(super) fn start_line(
         &mut self,
         name: String,
         line: CommandLine,
@@ -565,6 +566,10 @@ impl App {
     ) {
         let pane = self.active_pane();
         let location = pane.location().clone();
+        if !location.in_archive() || !line.uses_paths() {
+            Self::spawn(name, &line, &self.expansion(), effects);
+            return;
+        }
         let marked: Vec<OsString> = pane
             .marked_entries()
             .map(|entry| entry.name.clone())

@@ -159,11 +159,7 @@ impl App {
         };
         let line = line.clone();
         let name = Command::External(name.to_owned()).to_string();
-        if self.active_pane().location().in_archive() {
-            self.run_in_archive(name, line, effects);
-            return;
-        }
-        Self::spawn(name, &line, &self.expansion(), effects);
+        self.start_line(name, line, effects);
     }
 
     // The path is quoted to read back as one word: as the program when it can
@@ -194,12 +190,7 @@ impl App {
                 return;
             }
         };
-        let name = command.to_string();
-        if self.active_pane().location().in_archive() && line.uses_paths() {
-            self.run_in_archive(name, line, effects);
-            return;
-        }
-        Self::spawn(name, &line, &self.expansion(), effects);
+        self.start_line(command.to_string(), line, effects);
     }
 
     pub(super) fn edit_config(&mut self, effects: &mut Vec<Effect>) {
