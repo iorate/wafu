@@ -699,7 +699,8 @@ impl App {
             | Command::EnterAsArchive
             | Command::Extract
             | Command::Compress
-            | Command::CalculateSize => self.run_file_command(command, effects),
+            | Command::CalculateSize
+            | Command::CalculateSizeOnDisk => self.run_file_command(command, effects),
             Command::Nop => {}
         }
     }
