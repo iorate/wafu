@@ -11,11 +11,9 @@ use crate::keymap::KeyMap;
 mod decode;
 
 /// The configuration file written when there is none.
-// Items with a default are live lines, so values and defaults show at a glance
-// and can be edited in place. Items with no expressible default are `# `
-// examples placed where one uncomment turns them on, with `## ` explanations
-// staying comments. The examples never repeat a table header, because a
-// duplicate header is a syntax error that rejects the whole file.
+// Only a link to the documentation: the file is never rewritten once created,
+// so any description or default value in it would go stale or pin an old
+// default after an upgrade.
 pub const CONFIG_TEMPLATE: &str = include_str!("../config.template.toml");
 
 const FONT_SIZE_DEFAULT: u16 = 12;

@@ -584,7 +584,7 @@ editor = "open -t {paths}"
 "##;
 
     #[test]
-    fn the_example_from_the_documentation_reads_without_warnings() {
+    fn a_full_example_reads_without_warnings() {
         let (config, diagnostics) = parse(EXAMPLE, Os::Linux).unwrap();
 
         assert_eq!(diagnostics, Vec::new());
