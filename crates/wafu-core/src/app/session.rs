@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use super::{App, ColorScheme, ConfigSource, Effect, Os, Side, SpawnKind, SpawnName};
+use super::{App, ColorScheme, ConfigSource, Effect, Os, Side, SpawnKind, SpawnName, Start};
 use crate::command::Command;
 use crate::config::{Config, parse_config};
 use crate::entry::Entry;
@@ -10,25 +10,44 @@ use crate::external::{CommandLine, Expansion, format_line, quote_arg, quote_prog
 use crate::history::History;
 use crate::listing::{SortKey, SortSpec};
 use crate::location::Location;
+use crate::pane::Pane;
 use crate::popup::{InputKind, InputPopup, Popup};
 use crate::state::{PaneState, StateFile};
 use crate::view::Style;
 
 impl App {
-    pub(super) fn start(
-        &mut self,
-        left: Option<PathBuf>,
-        right: Option<PathBuf>,
-        config: ConfigSource,
-        state: Result<Option<StateFile>, AppError>,
-        inherited: bool,
-        effects: &mut Vec<Effect>,
-    ) {
+    pub(super) fn start(&mut self, start: Start, effects: &mut Vec<Effect>) {
+        let Start {
+            left,
+            right,
+            home,
+            os,
+            elevated,
+            config_path,
+            config,
+            state,
+            state_read_from,
+            inherited,
+        } = start;
+        self.home = home;
+        self.os = os;
+        self.elevated = elevated;
+        self.config_path = config_path;
+        self.panes = [
+            Pane::new(Location::new(PathBuf::new())),
+            Pane::new(Location::new(PathBuf::new())),
+        ];
         self.load_config(config);
         let state = match state {
             Ok(state) => state,
-            Err(error) => {
-                self.log.push(error.to_string());
+            Err(source) => {
+                self.log.push(
+                    AppError::StateUnreadable {
+                        path: state_read_from,
+                        source,
+                    }
+                    .to_string(),
+                );
                 None
             }
         };
@@ -157,7 +176,7 @@ impl App {
             return;
         };
         let line = line.clone();
-        let name = SpawnName::Command(Command::External(name.to_owned()).to_string());
+        let name = SpawnName::Command(Command::External(name.to_owned()));
         self.start_line(name, line, effects);
     }
 
@@ -189,7 +208,7 @@ impl App {
                 return;
             }
         };
-        self.start_line(SpawnName::Command(command.to_string()), line, effects);
+        self.start_line(SpawnName::Command(command), line, effects);
     }
 
     pub(super) fn edit_config(&mut self, effects: &mut Vec<Effect>) {

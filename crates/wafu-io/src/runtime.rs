@@ -671,6 +671,7 @@ mod tests {
     use std::time::Duration;
 
     use tempfile::TempDir;
+    use wafu_core::Command;
 
     use super::*;
     use crate::watch::tests::symlink;
@@ -1382,7 +1383,7 @@ mod tests {
         let (runtime, events) = runtime();
 
         runtime.run(Effect::Spawn {
-            name: SpawnName::Command("$x".to_owned()),
+            name: SpawnName::Command(Command::External("x".to_owned())),
             program: "wafu-no-such-program".to_owned(),
             args: Vec::new(),
             cwd: dir.path().to_path_buf(),
@@ -1395,7 +1396,7 @@ mod tests {
         assert_eq!(
             kind,
             SpawnKind::External {
-                name: SpawnName::Command("$x".to_owned()),
+                name: SpawnName::Command(Command::External("x".to_owned())),
                 program: "wafu-no-such-program".to_owned(),
                 args: Vec::new(),
             }
@@ -1415,7 +1416,7 @@ mod tests {
         let args: Vec<OsString> = args.into_iter().map(OsString::from).collect();
 
         runtime.run(Effect::Spawn {
-            name: SpawnName::Command("$x".to_owned()),
+            name: SpawnName::Command(Command::External("x".to_owned())),
             program: program.to_owned(),
             args: args.clone(),
             cwd: dir.path().to_path_buf(),
@@ -1425,7 +1426,7 @@ mod tests {
             events.recv_timeout(TIMEOUT).unwrap(),
             IoEvent::Spawned {
                 kind: SpawnKind::External {
-                    name: SpawnName::Command("$x".to_owned()),
+                    name: SpawnName::Command(Command::External("x".to_owned())),
                     program: program.to_owned(),
                     args,
                 },
@@ -1435,7 +1436,7 @@ mod tests {
         assert_eq!(
             events.recv_timeout(TIMEOUT).unwrap(),
             IoEvent::Exited {
-                name: SpawnName::Command("$x".to_owned()),
+                name: SpawnName::Command(Command::External("x".to_owned())),
                 code: Some(1),
             }
         );

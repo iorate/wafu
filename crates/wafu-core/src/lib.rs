@@ -34,6 +34,7 @@ pub use app::{
     App, Change, ColorScheme, ConfigSource, Effect, IoEvent, MenuAnchor, MouseInput, Msg, Os,
     PreviewError, PreviewSource, Resolved, Side, SpawnKind, SpawnName, Start,
 };
+pub use command::Command;
 pub use config::{CONFIG_TEMPLATE, Color, ColorSet, Colors, Theme};
 pub use entry::{
     Directory, Entry, EntryKind, LocalDateTime, Permissions, SpecialKind, TargetKind, Timestamp,

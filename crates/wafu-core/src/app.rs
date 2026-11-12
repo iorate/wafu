@@ -120,7 +120,7 @@ pub struct Start {
     pub state: Result<Option<StateFile>, StateError>,
     /// The file `state` was read from: the state file, or the file handed
     /// over by the instance that started this one.
-    pub state_path: PathBuf,
+    pub state_read_from: PathBuf,
     /// Whether another instance started this one and handed over its state.
     pub inherited: bool,
 }
@@ -287,8 +287,8 @@ pub enum SpawnKind {
 pub enum SpawnName {
     /// The configured editor.
     Editor,
-    /// A command, by its id: `$name`, `run_command`, or `run_file`.
-    Command(String),
+    /// The command that started it.
+    Command(Command),
 }
 
 /// The answer to [`Effect::Resolve`]: the directory to open and, when the
@@ -407,7 +407,7 @@ impl fmt::Display for SpawnName {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Editor => f.write_str("editor"),
-            Self::Command(id) => f.write_str(id),
+            Self::Command(command) => write!(f, "{command}"),
         }
     }
 }
@@ -505,31 +505,7 @@ impl App {
         let mut effects = Vec::new();
         match msg {
             Msg::Start(start) => {
-                let Start {
-                    left,
-                    right,
-                    home,
-                    os,
-                    elevated,
-                    config_path,
-                    config,
-                    state,
-                    state_path,
-                    inherited,
-                } = *start;
-                self.home = home;
-                self.os = os;
-                self.elevated = elevated;
-                self.config_path = config_path;
-                self.panes = [
-                    Pane::new(Location::new(PathBuf::new())),
-                    Pane::new(Location::new(PathBuf::new())),
-                ];
-                let state = state.map_err(|source| AppError::StateUnreadable {
-                    path: state_path,
-                    source,
-                });
-                self.start(left, right, config, state, inherited, &mut effects);
+                self.start(*start, &mut effects);
                 return effects;
             }
             Msg::CloseRequested => {

@@ -495,7 +495,7 @@ pub(crate) fn start_msg_with(
         config_path: PathBuf::from(CONFIG_PATH),
         config,
         state,
-        state_path: PathBuf::from(STATE_PATH),
+        state_read_from: PathBuf::from(STATE_PATH),
         inherited: false,
     }))
 }
