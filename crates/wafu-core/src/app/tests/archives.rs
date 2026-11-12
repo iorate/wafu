@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use crate::app::{Change, Effect, IoEvent, Msg, Os, Side, SpawnName};
+use crate::command::Command;
 use crate::entry::{Entry, EntryKind, TargetKind};
 use crate::error::IoError;
 use crate::external::CommandLine;
@@ -1126,7 +1127,7 @@ fn run_command_inside_an_archive_without_paths_starts_at_once_in_the_directory_h
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
-            name: SpawnName::Command("run_command".to_owned()),
+            name: SpawnName::Command(Command::RunCommandLine),
             program: "tool".to_owned(),
             args: vec![PathBuf::from(LEFT).into_os_string()],
             cwd: PathBuf::from(LEFT),
@@ -1154,7 +1155,7 @@ fn run_command_inside_an_archive_with_paths_extracts_them_and_then_starts() {
     assert_eq!(
         harness.take_effects().last(),
         Some(&Effect::Spawn {
-            name: SpawnName::Command("run_command".to_owned()),
+            name: SpawnName::Command(Command::RunCommandLine),
             program: "tool".to_owned(),
             args: vec![path(TEMP, "b.txt").into_os_string()],
             cwd: PathBuf::from(LEFT),
@@ -1219,7 +1220,7 @@ fn an_external_command_on_the_parent_row_of_an_archive_root_passes_the_archive_f
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
-            name: SpawnName::Command("$show".to_owned()),
+            name: SpawnName::Command(Command::External("show".to_owned())),
             program: "show".into(),
             args: vec![
                 archive().into_os_string(),

@@ -109,7 +109,7 @@ impl fmt::Display for Ended<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0 {
             SpawnName::Editor => f.write_str("Editor"),
-            SpawnName::Command(id) => write!(f, "Command {id}"),
+            SpawnName::Command(command) => write!(f, "Command {command}"),
         }
     }
 }

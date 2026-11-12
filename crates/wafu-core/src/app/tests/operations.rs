@@ -2,6 +2,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use crate::app::{Change, Effect, IoEvent, MenuAnchor, Msg, Os, Side, SpawnName};
+use crate::command::Command;
 use crate::entry::SpecialKind;
 use crate::error::IoError;
 use crate::external::{CommandLine, Expansion};
@@ -1402,7 +1403,7 @@ fn run_file_starts_the_cursor_item_in_the_pane_directory() {
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
-            name: SpawnName::Command("run_file".to_owned()),
+            name: SpawnName::Command(Command::RunFile),
             program: path(LEFT, "my tool").to_string_lossy().into_owned(),
             args: Vec::new(),
             cwd: PathBuf::from(LEFT),
@@ -1458,7 +1459,7 @@ fn run_command_starts_the_line_with_its_placeholders_filled_in_the_pane_director
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
-            name: SpawnName::Command("run_command".to_owned()),
+            name: SpawnName::Command(Command::RunCommandLine),
             program: "tool".to_owned(),
             args: vec![path(LEFT, "a").into_os_string()],
             cwd: PathBuf::from(LEFT),

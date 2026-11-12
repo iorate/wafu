@@ -3347,7 +3347,7 @@ fn external_commands_expand_placeholders_and_report_their_start() {
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
-            name: SpawnName::Command("$term".to_owned()),
+            name: SpawnName::Command(Command::External("term".to_owned())),
             program: "wt".to_owned(),
             args: vec![
                 OsString::from("-d"),
@@ -3364,7 +3364,7 @@ fn external_commands_expand_placeholders_and_report_their_start() {
 
     harness.send(Msg::Io(IoEvent::Spawned {
         kind: SpawnKind::External {
-            name: SpawnName::Command("$term".to_owned()),
+            name: SpawnName::Command(Command::External("term".to_owned())),
             program: "wt".to_owned(),
             args: vec![OsString::from("-d"), OsString::from("a b")],
         },
@@ -3372,7 +3372,7 @@ fn external_commands_expand_placeholders_and_report_their_start() {
     }));
     harness.send(Msg::Io(IoEvent::Spawned {
         kind: SpawnKind::External {
-            name: SpawnName::Command("$term".to_owned()),
+            name: SpawnName::Command(Command::External("term".to_owned())),
             program: "wt".to_owned(),
             args: vec![OsString::from("-d"), OsString::from("a b")],
         },
@@ -3482,17 +3482,17 @@ fn an_exit_other_than_success_is_logged() {
     harness.take_effects();
 
     harness.send(Msg::Io(IoEvent::Exited {
-        name: SpawnName::Command("$term".to_owned()),
+        name: SpawnName::Command(Command::External("term".to_owned())),
         code: Some(0),
     }));
     assert_eq!(harness.log(), Vec::<String>::new());
 
     harness.send(Msg::Io(IoEvent::Exited {
-        name: SpawnName::Command("$term".to_owned()),
+        name: SpawnName::Command(Command::External("term".to_owned())),
         code: Some(1),
     }));
     harness.send(Msg::Io(IoEvent::Exited {
-        name: SpawnName::Command("$term".to_owned()),
+        name: SpawnName::Command(Command::External("term".to_owned())),
         code: None,
     }));
     harness.send(Msg::Io(IoEvent::Exited {
@@ -3528,7 +3528,7 @@ fn external_commands_run_from_the_palette() {
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
-            name: SpawnName::Command("$term".to_owned()),
+            name: SpawnName::Command(Command::External("term".to_owned())),
             program: "wt".to_owned(),
             args: vec![path("/home", "user").into_os_string()],
             cwd: PathBuf::from(HOME),
