@@ -17,7 +17,7 @@ use std::thread;
 use wafu_core::{
     ArchivePath, Change, Directory, Effect, IoError, IoEvent, Location, OperationEvent,
     OperationSpec, Outcome, PreviewError, PreviewSource, Reply, RequestId, Side, Sources,
-    SpawnKind,
+    SpawnKind, SpawnName,
 };
 
 use crate::archive::{ArchiveEntry, dir_entry, list_dir, open_archive};
@@ -226,7 +226,7 @@ impl Runtime {
 
     // The start is reported before the child is waited for, so that a child
     // that ends at once is not reported as ended first.
-    fn spawn(&self, name: String, program: String, args: Vec<OsString>, cwd: &Path) {
+    fn spawn(&self, name: SpawnName, program: String, args: Vec<OsString>, cwd: &Path) {
         let child = spawn(&program, &args, Some(cwd), self.shell_env());
         (self.on_event)(IoEvent::Spawned {
             kind: SpawnKind::External {
@@ -295,8 +295,8 @@ impl Runtime {
                     .spawn(move || {
                         let progress = RefCell::new(None);
                         let report = |event: OperationEvent| {
-                            if let OperationEvent::Progress { current, done } = &event {
-                                *progress.borrow_mut() = Some((current.clone(), *done));
+                            if let OperationEvent::Progress { current, .. } = &event {
+                                *progress.borrow_mut() = Some(current.clone());
                             }
                             on_event(IoEvent::Operation(event));
                         };
@@ -305,14 +305,11 @@ impl Runtime {
                             assert_ne!(first_source(&spec), Path::new(PANIC_PATH), "injected");
                             run_operation(&spec, owner_window, &replies, &report);
                         })) {
-                            let (path, done) = progress
-                                .into_inner()
-                                .unwrap_or_else(|| (first_source(&spec), 0));
+                            let path = progress.into_inner().unwrap_or_else(|| first_source(&spec));
                             on_event(IoEvent::Operation(OperationEvent::Finished(
                                 Outcome::Failed {
                                     path,
                                     error: panic_error(&*payload),
-                                    done,
                                 },
                             )));
                         }
@@ -1385,7 +1382,7 @@ mod tests {
         let (runtime, events) = runtime();
 
         runtime.run(Effect::Spawn {
-            name: "$x".to_owned(),
+            name: SpawnName::Command("$x".to_owned()),
             program: "wafu-no-such-program".to_owned(),
             args: Vec::new(),
             cwd: dir.path().to_path_buf(),
@@ -1398,7 +1395,7 @@ mod tests {
         assert_eq!(
             kind,
             SpawnKind::External {
-                name: "$x".to_owned(),
+                name: SpawnName::Command("$x".to_owned()),
                 program: "wafu-no-such-program".to_owned(),
                 args: Vec::new(),
             }
@@ -1418,7 +1415,7 @@ mod tests {
         let args: Vec<OsString> = args.into_iter().map(OsString::from).collect();
 
         runtime.run(Effect::Spawn {
-            name: "$x".to_owned(),
+            name: SpawnName::Command("$x".to_owned()),
             program: program.to_owned(),
             args: args.clone(),
             cwd: dir.path().to_path_buf(),
@@ -1428,7 +1425,7 @@ mod tests {
             events.recv_timeout(TIMEOUT).unwrap(),
             IoEvent::Spawned {
                 kind: SpawnKind::External {
-                    name: "$x".to_owned(),
+                    name: SpawnName::Command("$x".to_owned()),
                     program: program.to_owned(),
                     args,
                 },
@@ -1438,7 +1435,7 @@ mod tests {
         assert_eq!(
             events.recv_timeout(TIMEOUT).unwrap(),
             IoEvent::Exited {
-                name: "$x".to_owned(),
+                name: SpawnName::Command("$x".to_owned()),
                 code: Some(1),
             }
         );
@@ -1470,10 +1467,7 @@ mod tests {
                     runtime.run(Effect::OperationReply(Reply::Overwrite { all: false }));
                 }
                 IoEvent::Operation(wafu_core::OperationEvent::Finished(outcome)) => {
-                    assert!(matches!(
-                        outcome,
-                        wafu_core::Outcome::Completed { done: 1, .. }
-                    ));
+                    assert!(matches!(outcome, wafu_core::Outcome::Completed { .. }));
                     break;
                 }
                 _ => {}
@@ -1550,12 +1544,11 @@ mod tests {
         else {
             panic!("expected Finished");
         };
-        let wafu_core::Outcome::Failed { path, error, done } = outcome else {
+        let wafu_core::Outcome::Failed { path, error } = outcome else {
             panic!("expected Failed, got {outcome:?}");
         };
         assert_eq!(path, Path::new(PANIC_PATH));
         assert!(error.to_string().starts_with("panicked: "), "{error}");
-        assert_eq!(done, 0);
 
         runtime.run(Effect::StartOperation(wafu_core::OperationSpec {
             kind: wafu_core::OperationKind::Delete,
@@ -1567,10 +1560,7 @@ mod tests {
             if let IoEvent::Operation(wafu_core::OperationEvent::Finished(outcome)) =
                 events.recv_timeout(TIMEOUT).unwrap()
             {
-                assert!(matches!(
-                    outcome,
-                    wafu_core::Outcome::Completed { done: 1, .. }
-                ));
+                assert!(matches!(outcome, wafu_core::Outcome::Completed { .. }));
                 break;
             }
         }

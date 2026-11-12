@@ -25,6 +25,13 @@ pub(crate) fn create_file(path: &Path) -> io::Result<()> {
         .create_new(true)
         .open(path)
         .map(drop)
+        .map_err(|error| {
+            if error.kind() == io::ErrorKind::AlreadyExists {
+                already_exists()
+            } else {
+                error
+            }
+        })
 }
 
 pub(crate) fn open_with_os(path: &Path) -> io::Result<()> {
@@ -160,9 +167,8 @@ mod tests {
         create_file(&path).unwrap();
 
         assert_eq!(fs::metadata(&path).unwrap().len(), 0);
-        assert_eq!(
-            create_file(&path).unwrap_err().kind(),
-            io::ErrorKind::AlreadyExists
-        );
+        let error = create_file(&path).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(error.to_string(), "already exists");
     }
 }

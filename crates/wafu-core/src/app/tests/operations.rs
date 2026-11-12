@@ -1,7 +1,7 @@
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use crate::app::{Change, Effect, IoEvent, MenuAnchor, Msg, Os, Side};
+use crate::app::{Change, Effect, IoEvent, MenuAnchor, Msg, Os, Side, SpawnName};
 use crate::entry::SpecialKind;
 use crate::error::IoError;
 use crate::external::{CommandLine, Expansion};
@@ -79,7 +79,7 @@ fn destructive_commands_require_marks_by_default() {
         assert_eq!(harness.view().popup, None);
         assert_eq!(
             harness.log().last().map(String::as_str),
-            Some(format!("no marks for {command}").as_str())
+            Some(format!("Cannot run {command}: no marks").as_str())
         );
     }
 
@@ -102,7 +102,7 @@ fn copy_without_a_location_on_the_other_side_is_logged() {
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(
         harness.log().last().map(String::as_str),
-        Some("cannot copy: the other pane has no location")
+        Some("Cannot copy: the other pane has no location")
     );
 }
 
@@ -176,15 +176,12 @@ fn finished_items_lose_their_marks_and_skipped_ones_keep_them() {
     harness.operation(OperationEvent::ItemDone { index: 0 });
     assert_eq!(harness.marks(Side::Left), ["c"]);
 
-    harness.finish(Outcome::Completed {
-        done: 1,
-        skipped: 1,
-    });
+    harness.finish(Outcome::Completed { skipped: 1 });
 
     assert_eq!(harness.marks(Side::Left), ["c"]);
     assert_eq!(
         harness.log().last().map(String::as_str),
-        Some("copied 1 item (1 skipped)")
+        Some("Copied 2 items (1 skipped)")
     );
     assert_eq!(harness.view().popup, None);
     assert!(matches!(
@@ -477,10 +474,10 @@ fn closing_the_window_during_an_operation_asks_first() {
     );
     assert_eq!(harness.view().popup.unwrap().title, "Cancelling");
 
-    harness.finish(Outcome::Cancelled { done: 1 });
+    harness.finish(Outcome::Cancelled);
     assert_eq!(
         harness.log().last().map(String::as_str),
-        Some("copy cancelled after 1 item")
+        Some("Copy cancelled")
     );
     let effects = harness.take_effects();
     assert!(matches!(
@@ -595,13 +592,10 @@ fn delete_counts_several_targets_and_enter_confirms() {
         })]
     );
 
-    harness.finish(Outcome::Completed {
-        done: 2,
-        skipped: 0,
-    });
+    harness.finish(Outcome::Completed { skipped: 0 });
     assert_eq!(
         harness.log().last().map(String::as_str),
-        Some("deleted 2 items")
+        Some("Deleted 2 items")
     );
     assert!(matches!(
         harness.take_effects().as_slice(),
@@ -654,13 +648,10 @@ fn trash_starts_at_once() {
     );
     assert_eq!(harness.view().popup.unwrap().title, "Moving to trash");
 
-    harness.finish(Outcome::Completed {
-        done: 1,
-        skipped: 0,
-    });
+    harness.finish(Outcome::Completed { skipped: 0 });
     assert_eq!(
         harness.log().last().map(String::as_str),
-        Some("moved 1 item to the trash")
+        Some("Moved a to the trash")
     );
 }
 
@@ -686,13 +677,13 @@ fn calculate_size_starts_at_once_and_logs_the_total_without_reading_again() {
 
     harness.finish(Outcome::Measured {
         files: 1,
-        folders: 0,
+        directories: 0,
         bytes: 1234,
         unreadable: 0,
     });
     assert_eq!(
         harness.log().last().map(String::as_str),
-        Some("1 file and 0 folders: 1,234 bytes")
+        Some("Size of a: 1,234 bytes (1 file, 0 directories)")
     );
     assert_eq!(harness.take_effects(), vec![]);
 }
@@ -722,13 +713,13 @@ fn calculate_size_on_disk_starts_at_once_and_logs_the_total_without_reading_agai
 
     harness.finish(Outcome::Measured {
         files: 1,
-        folders: 0,
+        directories: 0,
         bytes: 4096,
         unreadable: 0,
     });
     assert_eq!(
         harness.log().last().map(String::as_str),
-        Some("1 file and 0 folders: 4,096 bytes on disk")
+        Some("Size on disk of a: 4,096 bytes (1 file, 0 directories)")
     );
     assert_eq!(harness.take_effects(), vec![]);
 }
@@ -942,7 +933,7 @@ fn a_rename_puts_the_cursor_on_the_new_name() {
     assert_eq!(harness.cursor_name(Side::Left), "z");
     assert_eq!(
         harness.log().last().map(String::as_str),
-        Some("renamed a to z")
+        Some("Renamed a to z")
     );
 }
 
@@ -961,7 +952,7 @@ fn a_failed_rename_only_logs() {
 
     assert_eq!(
         harness.log().last().cloned(),
-        Some(format!("cannot rename {}: busy", shown(LEFT, "z")))
+        Some(format!("Cannot rename {}: busy", shown(LEFT, "z")))
     );
     assert_eq!(harness.take_effects(), vec![]);
 }
@@ -1062,10 +1053,7 @@ fn mkdir_without_entering_puts_the_cursor_on_the_first_component() {
     assert_eq!(harness.cursor_name(Side::Left), "a");
     assert_eq!(
         harness.log().last().cloned(),
-        Some(format!(
-            "created {}",
-            PathBuf::from(LEFT).join("a/b").display()
-        ))
+        Some(format!("Created {}", Path::new("a").join("b").display()))
     );
 }
 
@@ -1093,7 +1081,7 @@ fn a_failed_mkdir_is_logged() {
     assert_eq!(
         harness.log().last().cloned(),
         Some(format!(
-            "cannot create {}: already exists",
+            "Cannot create {}: already exists",
             shown(LEFT, "x")
         ))
     );
@@ -1122,7 +1110,32 @@ fn new_file_creates_an_empty_file_and_puts_the_cursor_on_it() {
     assert_eq!(harness.cursor_name(Side::Left), "n.txt");
     assert_eq!(
         harness.log().last().cloned(),
-        Some(format!("created {}", shown(LEFT, "n.txt")))
+        Some("Created n.txt".to_owned())
+    );
+}
+
+#[test]
+fn a_creation_in_the_other_pane_logs_its_name() {
+    let mut harness = three_files();
+
+    harness.changed_result(Change::FileCreated(path(RIGHT, "n.txt")), None);
+
+    assert_eq!(
+        harness.log().last().cloned(),
+        Some("Created n.txt".to_owned())
+    );
+}
+
+#[test]
+fn a_creation_outside_both_panes_logs_its_full_path() {
+    let mut harness = three_files();
+    let created = PathBuf::from("/elsewhere").join("n.txt");
+
+    harness.changed_result(Change::FileCreated(created.clone()), None);
+
+    assert_eq!(
+        harness.log().last().cloned(),
+        Some(format!("Created {}", created.display()))
     );
 }
 
@@ -1164,7 +1177,7 @@ fn new_text_names_and_opens_the_file_in_the_place_the_popup_was_opened_in() {
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
-            name: "editor".to_owned(),
+            name: SpawnName::Editor,
             program: "ed".to_owned(),
             args: vec![
                 OsString::from(LEFT),
@@ -1193,7 +1206,7 @@ fn new_text_without_creating_opens_the_editor_in_the_place_the_popup_was_opened_
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
-            name: "editor".to_owned(),
+            name: SpawnName::Editor,
             program: "ed".to_owned(),
             args: vec![
                 OsString::from(LEFT),
@@ -1252,7 +1265,7 @@ fn new_text_on_an_existing_name_only_logs() {
     assert_eq!(
         harness.log().last().cloned(),
         Some(format!(
-            "cannot create {}: already exists",
+            "Cannot create {}: already exists",
             shown(LEFT, "a")
         ))
     );
@@ -1276,7 +1289,7 @@ fn edit_opens_the_cursor_entry_whatever_is_marked() {
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
-            name: "editor".to_owned(),
+            name: SpawnName::Editor,
             program: "xdg-open".to_owned(),
             args: vec![path(LEFT, "c").into_os_string()],
             cwd: PathBuf::from(LEFT),
@@ -1311,7 +1324,7 @@ fn edit_refuses_a_special_file() {
     assert_eq!(
         harness.log(),
         [format!(
-            "cannot open {}: not a regular file",
+            "Cannot open {}: not a regular file",
             shown(LEFT, "fifo")
         )]
     );
@@ -1338,7 +1351,7 @@ fn open_with_os_opens_the_cursor_entry_only() {
     }));
     assert_eq!(
         harness.log().last().cloned(),
-        Some(format!("cannot open {}: no application", shown(LEFT, "c")))
+        Some(format!("Cannot open {}: no application", shown(LEFT, "c")))
     );
 }
 
@@ -1389,7 +1402,7 @@ fn run_file_starts_the_cursor_item_in_the_pane_directory() {
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
-            name: "run_file".to_owned(),
+            name: SpawnName::Command("run_file".to_owned()),
             program: path(LEFT, "my tool").to_string_lossy().into_owned(),
             args: Vec::new(),
             cwd: PathBuf::from(LEFT),
@@ -1445,7 +1458,7 @@ fn run_command_starts_the_line_with_its_placeholders_filled_in_the_pane_director
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
-            name: "run_command".to_owned(),
+            name: SpawnName::Command("run_command".to_owned()),
             program: "tool".to_owned(),
             args: vec![path(LEFT, "a").into_os_string()],
             cwd: PathBuf::from(LEFT),
@@ -1478,10 +1491,7 @@ fn a_command_line_without_a_program_is_logged() {
     harness.press("Enter");
 
     assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(
-        harness.log(),
-        ["invalid command line for run_command: no program given"]
-    );
+    assert_eq!(harness.log(), ["Cannot run run_command: no program given"]);
 }
 
 #[test]
@@ -1519,7 +1529,7 @@ fn copy_log_copies_every_kept_line_and_nothing_when_empty() {
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Clipboard(
-            "cannot copy to the clipboard: one\ncannot copy to the clipboard: two".to_owned()
+            "Cannot copy to the clipboard: one\nCannot copy to the clipboard: two".to_owned()
         )]
     );
 }
@@ -1546,7 +1556,7 @@ fn shell_menu_is_windows_only() {
     harness.press("\\");
     assert_eq!(
         harness.log().last().map(String::as_str),
-        Some("shell_menu is available only on Windows")
+        Some("Cannot run shell_menu: available only on Windows")
     );
 
     let mut windows = Harness::start_on(Os::Windows, "C:\\", "D:\\");
@@ -1682,7 +1692,7 @@ fn a_failed_shell_menu_is_logged_and_a_closed_one_is_not() {
     harness.send(Msg::Io(IoEvent::ShellMenuClosed {
         error: Some(IoError::new("no handler")),
     }));
-    assert_eq!(harness.log(), ["cannot show the shell menu: no handler"]);
+    assert_eq!(harness.log(), ["Cannot show the shell menu: no handler"]);
 }
 
 #[test]
@@ -1698,7 +1708,7 @@ fn clipboard_copies_are_logged_with_the_text_or_the_line_count() {
         text: "a".to_owned(),
         error: None,
     }));
-    assert_eq!(harness.log().last().unwrap(), "copied to clipboard: a");
+    assert_eq!(harness.log().last().unwrap(), "Copied to clipboard: a");
 
     harness.press("Space");
     harness.press("Space");
@@ -1711,7 +1721,7 @@ fn clipboard_copies_are_logged_with_the_text_or_the_line_count() {
         text: "a\nb".to_owned(),
         error: None,
     }));
-    assert_eq!(harness.log().last().unwrap(), "copied 2 lines to clipboard");
+    assert_eq!(harness.log().last().unwrap(), "Copied 2 lines to clipboard");
 
     harness.send(Msg::Io(IoEvent::ClipboardSet {
         text: String::new(),
@@ -1719,7 +1729,7 @@ fn clipboard_copies_are_logged_with_the_text_or_the_line_count() {
     }));
     assert_eq!(
         harness.log().last().unwrap(),
-        "cannot copy to the clipboard: no clipboard"
+        "Cannot copy to the clipboard: no clipboard"
     );
 }
 

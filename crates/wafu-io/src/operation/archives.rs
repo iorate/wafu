@@ -674,15 +674,11 @@ mod tests {
                 .unwrap();
         });
 
-        let (outcome, events) = run(&copy_entries(&archive, &[], &["d", "top.txt"], &dest), []);
+        let (outcome, done, events) =
+            run(&copy_entries(&archive, &[], &["d", "top.txt"], &dest), []);
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 4,
-                skipped: 0
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(done, 4);
         assert_eq!(fs::read(dest.join("d").join("f.txt")).unwrap(), b"hello");
         assert_eq!(
             fs::read(dest.join("d").join("sub").join("g.txt")).unwrap(),
@@ -728,18 +724,13 @@ mod tests {
             ],
         );
 
-        let (outcome, events) = run(
+        let (outcome, done, events) = run(
             &copy_entries(&archive, &[], &["b.txt", "d", "a.txt"], &dest),
             (0..4).map(|_| Reply::Overwrite { all: false }),
         );
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 4,
-                skipped: 0
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(done, 4);
         let asked: Vec<PathBuf> = events
             .iter()
             .filter_map(|event| match event {
@@ -779,26 +770,27 @@ mod tests {
         );
         let spec = extract(std::slice::from_ref(&archive), &dest);
         let (sender, replies) = mpsc::channel();
-        let outcome = Mutex::new(None);
         // With the archive gone, reading it from the start again would fail.
-        let report = |event: OperationEvent| match event {
-            OperationEvent::Conflict { .. } => {
+        let report = |event: OperationEvent| {
+            if let OperationEvent::Conflict { .. } = event {
                 fs::remove_file(&archive).unwrap();
                 sender.send(Reply::Overwrite { all: false }).unwrap();
             }
-            OperationEvent::Finished(finished) => *outcome.lock().unwrap() = Some(finished),
-            _ => {}
+        };
+        let mut worker = Worker {
+            owner_window: None,
+            replies: &replies,
+            report: &report,
+            policy: None,
+            done: 0,
+            skipped: 0,
+            last_progress: None,
         };
 
-        run_operation(&spec, None, &replies, &report);
+        let outcome = worker.run(&spec);
 
-        assert_eq!(
-            outcome.into_inner().unwrap(),
-            Some(Outcome::Completed {
-                done: 4,
-                skipped: 0
-            })
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(worker.done, 4);
         assert_eq!(fs::read(dest.join("same1")).unwrap(), b"data");
         assert_eq!(fs::read(dest.join("same2")).unwrap(), b"data");
     }
@@ -825,15 +817,10 @@ mod tests {
             builder.finish().unwrap();
         }
 
-        let (outcome, _) = run(&extract(&[archive], &dest), []);
+        let (outcome, done, _) = run(&extract(&[archive], &dest), []);
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 2,
-                skipped: 0
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(done, 2);
         for name in ["orig", "same"] {
             let path = dest.join(name);
             fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
@@ -857,15 +844,10 @@ mod tests {
                 .unwrap();
         });
 
-        let (outcome, _) = run(&extract(&[archive], &dest), []);
+        let (outcome, done, _) = run(&extract(&[archive], &dest), []);
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 2,
-                skipped: 0
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(done, 2);
         let ro = dest.join("ro");
         assert_eq!(fs::read(ro.join("f.txt")).unwrap(), b"f");
         assert_eq!(
@@ -887,15 +869,10 @@ mod tests {
                 .unwrap();
         });
 
-        let (outcome, events) = run(&extract(&[archive], &dest), []);
+        let (outcome, done, events) = run(&extract(&[archive], &dest), []);
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 1,
-                skipped: 0
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(done, 1);
         assert_eq!(
             fs::read(dest.join("x").join("y").join("z.txt")).unwrap(),
             b"z"
@@ -928,15 +905,10 @@ mod tests {
             .collect();
         assert_eq!(listed, [vec!["a.txt"], vec!["d"], vec!["d", "b.txt"]]);
 
-        let (outcome, _) = run(&extract(&[archive], &dest), []);
+        let (outcome, done, _) = run(&extract(&[archive], &dest), []);
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 3,
-                skipped: 0
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(done, 3);
         assert_eq!(fs::read(dest.join("a.txt")).unwrap(), b"a");
         assert_eq!(fs::read(dest.join("d").join("b.txt")).unwrap(), b"b");
     }
@@ -957,15 +929,10 @@ mod tests {
             .collect();
         assert_eq!(listed, [vec!["a.txt"]]);
 
-        let (outcome, events) = run(&extract(&[archive], &dest), []);
+        let (outcome, done, events) = run(&extract(&[archive], &dest), []);
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 1,
-                skipped: 0
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(done, 1);
         assert_eq!(done_indices(&events), [0]);
         assert_eq!(fs::read(dest.join("a.txt")).unwrap(), b"a");
     }
@@ -991,15 +958,10 @@ mod tests {
         assert_eq!(listed, [vec!["b.txt"], vec!["a.txt"]]);
         drop(reader);
 
-        let (outcome, _) = run(&extract(&[archive], &dest), []);
+        let (outcome, done, _) = run(&extract(&[archive], &dest), []);
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 2,
-                skipped: 0
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(done, 2);
         assert_eq!(fs::read(dest.join("a.txt")).unwrap(), b"two");
         assert_eq!(fs::read(dest.join("b.txt")).unwrap(), b"b");
     }
@@ -1018,15 +980,10 @@ mod tests {
             ],
         );
 
-        let (outcome, _) = run(&extract(&[archive], &dest), []);
+        let (outcome, done, _) = run(&extract(&[archive], &dest), []);
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 2,
-                skipped: 0
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(done, 2);
         assert_eq!(fs::read(dest.join("d").join("x")).unwrap(), b"x");
     }
 
@@ -1048,15 +1005,10 @@ mod tests {
                 .unwrap();
         });
 
-        let (outcome, events) = run(&extract_into_dirs(&[a, b], &dest), []);
+        let (outcome, done, events) = run(&extract_into_dirs(&[a, b], &dest), []);
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 2,
-                skipped: 0
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(done, 2);
         assert_eq!(fs::read(dest.join("a").join("x.txt")).unwrap(), b"x");
         assert_eq!(fs::read(dest.join("b").join("y.txt")).unwrap(), b"y");
         assert_eq!(done_indices(&events), [0, 1]);
@@ -1072,15 +1024,10 @@ mod tests {
         fs::create_dir(&dest).unwrap();
         let spec = compress(&[src.join("d")], &dest, "x.tar.gz", None);
 
-        let (outcome, _) = run(&spec, []);
+        let (outcome, done, _) = run(&spec, []);
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 2,
-                skipped: 0
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(done, 2);
         let archive = dest.join("x.tar.gz");
         assert_eq!(
             fs::read(&archive).unwrap()[..2],
@@ -1090,7 +1037,7 @@ mod tests {
 
         let out = dir.path().join("out");
         fs::create_dir(&out).unwrap();
-        let (outcome, _) = run(&extract_into_dirs(std::slice::from_ref(&archive), &out), []);
+        let (outcome, _, _) = run(&extract_into_dirs(std::slice::from_ref(&archive), &out), []);
 
         assert!(matches!(outcome, Outcome::Completed { .. }));
         assert_eq!(
@@ -1107,15 +1054,10 @@ mod tests {
         fs::create_dir(&dest).unwrap();
         write_zip(&archive, None, |_| {});
 
-        let (outcome, _) = run(&extract_into_dirs(&[archive], &dest), []);
+        let (outcome, done, _) = run(&extract_into_dirs(&[archive], &dest), []);
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 0,
-                skipped: 0
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(done, 0);
         assert!(dest.join("a").is_dir());
     }
 
@@ -1136,7 +1078,7 @@ mod tests {
             });
         }
 
-        let (outcome, events) = run(&extract_into_dirs(&[a, b.clone()], &dest), []);
+        let (outcome, _, events) = run(&extract_into_dirs(&[a, b.clone()], &dest), []);
 
         assert!(matches!(outcome, Outcome::Failed { path, .. } if path == b));
         assert_eq!(fs::read(dest.join("a").join("old.txt")).unwrap(), b"old");
@@ -1162,7 +1104,7 @@ mod tests {
             }
         });
 
-        let (outcome, events) = run(
+        let (outcome, done, events) = run(
             &copy_entries(&archive, &[], &["a.txt", "b.txt", "c.txt"], &dest),
             [
                 Reply::Overwrite { all: false },
@@ -1171,13 +1113,8 @@ mod tests {
             ],
         );
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 2,
-                skipped: 1
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 1 });
+        assert_eq!(done, 2);
         assert_eq!(fs::read(dest.join("a.txt")).unwrap(), b"new");
         assert_eq!(fs::read(dest.join("b.txt")).unwrap(), b"old");
         assert_eq!(fs::read(dest.join("c.txt")).unwrap(), b"old");
@@ -1198,16 +1135,10 @@ mod tests {
             )
             .unwrap();
 
-            let (outcome, events) = run(&extract(std::slice::from_ref(&archive), &dest), []);
+            let (outcome, done, events) = run(&extract(std::slice::from_ref(&archive), &dest), []);
 
-            assert_eq!(
-                outcome,
-                Outcome::Completed {
-                    done: 1,
-                    skipped: 1
-                },
-                "{name}"
-            );
+            assert_eq!(outcome, Outcome::Completed { skipped: 1 }, "{name}");
+            assert_eq!(done, 1);
             assert_eq!(
                 skipped_errors(&events),
                 ["the entry name is unsafe"],
@@ -1257,15 +1188,10 @@ mod tests {
             builder.finish().unwrap();
         }
 
-        let (outcome, events) = run(&extract(std::slice::from_ref(&archive), &dest), []);
+        let (outcome, done, events) = run(&extract(std::slice::from_ref(&archive), &dest), []);
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 1,
-                skipped: 3
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 3 });
+        assert_eq!(done, 1);
         let skipped: Vec<(PathBuf, String)> = events
             .iter()
             .filter_map(|event| match event {
@@ -1312,15 +1238,10 @@ mod tests {
         zip[central + 10..central + 12].copy_from_slice(&14u16.to_le_bytes());
         fs::write(&archive, zip).unwrap();
 
-        let (outcome, events) = run(&extract(std::slice::from_ref(&archive), &dest), []);
+        let (outcome, done, events) = run(&extract(std::slice::from_ref(&archive), &dest), []);
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 1,
-                skipped: 1
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 1 });
+        assert_eq!(done, 1);
         assert_eq!(
             skipped_errors(&events),
             ["the compression method is not supported"]
@@ -1342,15 +1263,10 @@ mod tests {
                 .unwrap();
         });
 
-        let (outcome, events) = run(&copy_entries(&archive, &[], &["d", "e.txt"], &dest), []);
+        let (outcome, done, events) = run(&copy_entries(&archive, &[], &["d", "e.txt"], &dest), []);
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 1,
-                skipped: 1
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 1 });
+        assert_eq!(done, 1);
         assert_eq!(
             skipped_errors(&events),
             ["the destination exists and is a directory"]
@@ -1373,15 +1289,10 @@ mod tests {
                 .unwrap();
         });
 
-        let (outcome, _) = run(&extract(&[archive], &dest), []);
+        let (outcome, done, _) = run(&extract(&[archive], &dest), []);
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 2,
-                skipped: 0
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(done, 2);
         assert_eq!(
             fs::read_link(dest.join("link")).unwrap(),
             PathBuf::from("f.txt")
@@ -1433,15 +1344,10 @@ mod tests {
                 .unwrap();
         });
 
-        let (outcome, events) = run(&extract(&[archive], &dest), []);
+        let (outcome, done, events) = run(&extract(&[archive], &dest), []);
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 0,
-                skipped: 1
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 1 });
+        assert_eq!(done, 0);
         assert_eq!(
             skipped_errors(&events),
             ["the destination exists and is not a directory"]
@@ -1466,15 +1372,10 @@ mod tests {
                 .unwrap();
         });
 
-        let (outcome, events) = run(&copy_entries(&archive, &[], &["d"], &dest), []);
+        let (outcome, done, events) = run(&copy_entries(&archive, &[], &["d"], &dest), []);
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 2,
-                skipped: 1
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 1 });
+        assert_eq!(done, 2);
         assert_eq!(skipped_errors(&events).len(), 1);
         assert_eq!(done_indices(&events), Vec::<usize>::new());
         assert_eq!(fs::read(dest.join("d").join("l").join("x")).unwrap(), b"x");
@@ -1499,15 +1400,10 @@ mod tests {
         )
         .unwrap();
 
-        let (outcome, events) = run(&extract(std::slice::from_ref(&archive), &dest), []);
+        let (outcome, done, events) = run(&extract(std::slice::from_ref(&archive), &dest), []);
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 1,
-                skipped: 3
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 3 });
+        assert_eq!(done, 1);
         assert_eq!(
             skipped_errors(&events),
             [
@@ -1540,15 +1436,10 @@ mod tests {
                 .unwrap();
         });
 
-        let (outcome, _) = run(&extract(&[archive], &dest), []);
+        let (outcome, done, _) = run(&extract(&[archive], &dest), []);
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 2,
-                skipped: 0
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(done, 2);
         assert_eq!(
             fs::read_link(dest.join("link")).unwrap(),
             Path::new("d").join("sub")
@@ -1571,7 +1462,7 @@ mod tests {
                 .unwrap();
         });
 
-        let (outcome, events) = run(
+        let (outcome, done, events) = run(
             &copy_entries(&archive, &[], &["a.txt", "b.txt"], &dest),
             [
                 Reply::Password("wrong".to_owned()),
@@ -1579,13 +1470,8 @@ mod tests {
             ],
         );
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 2,
-                skipped: 0
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(done, 2);
         let asked: Vec<bool> = events
             .iter()
             .filter_map(|event| match event {
@@ -1598,11 +1484,12 @@ mod tests {
 
         let known = dir.path().join("known");
         fs::create_dir(&known).unwrap();
-        let (outcome, events) = run(
+        let (outcome, done, events) = run(
             &copy_entries_with_password(&archive, &["a.txt"], &known, "secret"),
             [],
         );
-        assert!(matches!(outcome, Outcome::Completed { done: 1, .. }));
+        assert!(matches!(outcome, Outcome::Completed { .. }));
+        assert_eq!(done, 1);
         assert!(
             !events
                 .iter()
@@ -1611,11 +1498,12 @@ mod tests {
 
         let cancelled = dir.path().join("cancelled");
         fs::create_dir(&cancelled).unwrap();
-        let (outcome, _) = run(
+        let (outcome, done, _) = run(
             &copy_entries(&archive, &[], &["a.txt"], &cancelled),
             [Reply::Cancel],
         );
-        assert_eq!(outcome, Outcome::Cancelled { done: 0 });
+        assert_eq!(outcome, Outcome::Cancelled);
+        assert_eq!(done, 0);
         assert_eq!(fs::read_dir(&cancelled).unwrap().count(), 0);
     }
 
@@ -1649,7 +1537,7 @@ mod tests {
 
         assert!(matches!(
             events.into_inner().unwrap().last(),
-            Some(OperationEvent::Finished(Outcome::Cancelled { done: 0 }))
+            Some(OperationEvent::Finished(Outcome::Cancelled))
         ));
         assert_eq!(fs::read(dest.join("a.txt")).unwrap(), b"old");
     }
@@ -1666,7 +1554,7 @@ mod tests {
                 .unwrap();
         });
 
-        let (outcome, _) = run(&copy_entries(&archive, &[], &["missing"], &dest), []);
+        let (outcome, _, _) = run(&copy_entries(&archive, &[], &["missing"], &dest), []);
 
         assert!(matches!(
             outcome,
@@ -1683,7 +1571,7 @@ mod tests {
         let dest = dir.path().join("out");
         fs::create_dir(&dest).unwrap();
 
-        let (outcome, _) = run(&extract(std::slice::from_ref(&text), &dest), []);
+        let (outcome, _, _) = run(&extract(std::slice::from_ref(&text), &dest), []);
 
         assert!(matches!(
             outcome,
@@ -1707,7 +1595,7 @@ mod tests {
         let dest = dir.path().join("out");
         fs::create_dir(&dest).unwrap();
 
-        let (outcome, _) = run(&extract(&[archive], &dest), []);
+        let (outcome, _, _) = run(&extract(&[archive], &dest), []);
 
         assert!(matches!(outcome, Outcome::Completed { .. }));
         assert_eq!(fs::read(dest.join("d").join("f.txt")).unwrap(), b"hello");
@@ -1726,7 +1614,7 @@ mod tests {
         let dest = dir.path().join("out");
         fs::create_dir(&dest).unwrap();
 
-        let (outcome, _) = run(&extract(std::slice::from_ref(&archive), &dest), []);
+        let (outcome, _, _) = run(&extract(std::slice::from_ref(&archive), &dest), []);
 
         assert!(matches!(
             outcome,
@@ -1746,18 +1634,13 @@ mod tests {
         let dest = dir.path().join("out");
         fs::create_dir(&dest).unwrap();
 
-        let (outcome, events) = run(
+        let (outcome, done, events) = run(
             &compress(&[src.join("d"), src.join("top.txt")], &dest, "x.zip", None),
             [],
         );
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 5,
-                skipped: 0
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(done, 5);
         assert_eq!(done_indices(&events), [0, 1]);
         let mut reader = open_archive(&dest.join("x.zip"), Some(ArchiveFormat::Zip)).unwrap();
         let names: Vec<Vec<String>> = reader
@@ -1800,15 +1683,10 @@ mod tests {
         let dest = dir.path().join("out");
         fs::create_dir(&dest).unwrap();
 
-        let (outcome, _) = run(&compress(&[src.join("link")], &dest, "x.zip", None), []);
+        let (outcome, done, _) = run(&compress(&[src.join("link")], &dest, "x.zip", None), []);
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 1,
-                skipped: 0
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(done, 1);
         let mut reader = open_archive(&dest.join("x.zip"), Some(ArchiveFormat::Zip)).unwrap();
         let mut target = String::new();
         reader
@@ -1834,7 +1712,7 @@ mod tests {
         let dest = dir.path().join("out");
         fs::create_dir(&dest).unwrap();
 
-        let (outcome, _) = run(
+        let (outcome, _, _) = run(
             &compress(std::slice::from_ref(&src), &dest, "x.zip", None),
             [],
         );
@@ -1854,9 +1732,10 @@ mod tests {
         let dest = dir.path().join("out");
         fs::create_dir(&dest).unwrap();
 
-        let (outcome, _) = run(&compress(&[src], &dest, "a.zip", Some("pw")), []);
+        let (outcome, done, _) = run(&compress(&[src], &dest, "a.zip", Some("pw")), []);
 
-        assert!(matches!(outcome, Outcome::Completed { done: 1, .. }));
+        assert!(matches!(outcome, Outcome::Completed { .. }));
+        assert_eq!(done, 1);
         let mut reader = open_archive(&dest.join("a.zip"), Some(ArchiveFormat::Zip)).unwrap();
         assert!(matches!(
             reader.open(0, None),
@@ -1874,27 +1753,23 @@ mod tests {
         fs::create_dir(&dest).unwrap();
         fs::write(dest.join("a.zip"), b"old").unwrap();
 
-        let (outcome, _) = run(
+        let (outcome, done, _) = run(
             &compress(std::slice::from_ref(&src), &dest, "a.zip", None),
             [Reply::Skip { all: false }],
         );
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 0,
-                skipped: 1
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 1 });
+        assert_eq!(done, 0);
         assert_eq!(fs::read(dest.join("a.zip")).unwrap(), b"old");
 
-        let (outcome, _) = run(
+        let (outcome, done, _) = run(
             &compress(std::slice::from_ref(&src), &dest, "a.zip", None),
             [Reply::Overwrite { all: false }],
         );
-        assert!(matches!(outcome, Outcome::Completed { done: 1, .. }));
+        assert!(matches!(outcome, Outcome::Completed { .. }));
+        assert_eq!(done, 1);
         assert!(open_archive(&dest.join("a.zip"), Some(ArchiveFormat::Zip)).is_ok());
 
-        let (outcome, _) = run(
+        let (outcome, _, _) = run(
             &compress(&[dir.path().to_path_buf()], &dest, "a.zip", None),
             [],
         );
@@ -1914,7 +1789,7 @@ mod tests {
         let link = dir.path().join("link");
         std::os::unix::fs::symlink(&src, &link).unwrap();
 
-        let (outcome, _) = run(
+        let (outcome, _, _) = run(
             &compress(std::slice::from_ref(&src), &link, "a.zip", None),
             [],
         );
@@ -1948,7 +1823,7 @@ mod tests {
 
         assert!(matches!(
             events.lock().unwrap().last(),
-            Some(OperationEvent::Finished(Outcome::Cancelled { done: 0 }))
+            Some(OperationEvent::Finished(Outcome::Cancelled))
         ));
         assert!(!dest.join("a.zip").exists());
     }
@@ -1969,9 +1844,10 @@ mod tests {
             output: None,
         };
 
-        let (outcome, events) = run(&spec, []);
+        let (outcome, done, events) = run(&spec, []);
 
-        assert!(matches!(outcome, Outcome::Completed { done: 1, .. }));
+        assert!(matches!(outcome, Outcome::Completed { .. }));
+        assert_eq!(done, 1);
         let Some(OperationEvent::TempDir(temp)) = events.first() else {
             panic!("expected TempDir first, got {events:?}");
         };
@@ -1989,7 +1865,7 @@ mod tests {
     fn run(
         spec: &OperationSpec,
         script: impl IntoIterator<Item = Reply>,
-    ) -> (Outcome, Vec<OperationEvent>) {
+    ) -> (Outcome, usize, Vec<OperationEvent>) {
         let (sender, replies) = mpsc::channel();
         let script: Mutex<VecDeque<Reply>> = Mutex::new(script.into_iter().collect());
         let events = Mutex::new(Vec::new());
@@ -2002,12 +1878,18 @@ mod tests {
             }
             events.lock().unwrap().push(event);
         };
-        run_operation(spec, None, &replies, &report);
-        let mut events = events.into_inner().unwrap();
-        let Some(OperationEvent::Finished(outcome)) = events.pop() else {
-            panic!("the last event should be Finished");
+        let mut worker = Worker {
+            owner_window: None,
+            replies: &replies,
+            report: &report,
+            policy: None,
+            done: 0,
+            skipped: 0,
+            last_progress: None,
         };
-        (outcome, events)
+        let outcome = worker.run(spec);
+        let done = worker.done;
+        (outcome, done, events.into_inner().unwrap())
     }
 
     fn answer(sender: &Sender<Reply>, script: &Mutex<VecDeque<Reply>>) {

@@ -37,9 +37,9 @@ fn main() -> ExitCode {
     // Read before the window exists: its colors and fonts come from them.
     let config = wafu_io::read_or_create(&config_path, CONFIG_TEMPLATE);
     let inherited = cli.inherit.is_some();
-    let state = match &cli.inherit {
-        Some(handoff) => wafu_io::read_handoff(handoff),
-        None => wafu_io::read_state(&state_path),
+    let (state, read_from) = match &cli.inherit {
+        Some(handoff) => (wafu_io::read_handoff(handoff), handoff.clone()),
+        None => (wafu_io::read_state(&state_path), state_path.clone()),
     };
     let window = state
         .as_ref()
@@ -68,6 +68,7 @@ fn main() -> ExitCode {
         config_path,
         config,
         state,
+        state_path: read_from,
         inherited,
     })));
     match ui.window().run() {
