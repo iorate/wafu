@@ -362,6 +362,21 @@ fn commands_that_change_things_are_refused_inside_an_archive() {
 }
 
 #[test]
+fn calculate_size_is_refused_inside_an_archive() {
+    let mut harness = inside();
+    harness.press("Down");
+    harness.press("Down");
+
+    harness.press("Shift+I");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log(),
+        ["calculate_size is not available inside an archive"]
+    );
+}
+
+#[test]
 fn right_click_inside_an_archive_on_windows_is_refused() {
     let mut harness = Harness::start_on(Os::Windows, r"C:\Users\me", r"D:\");
     harness.load(Side::Left, vec![file("a.zip")]);

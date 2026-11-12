@@ -51,6 +51,9 @@ struct Worker<'a> {
 
 impl Worker<'_> {
     fn run(&mut self, spec: &OperationSpec) -> Outcome {
+        if let (Sources::Paths(paths), OperationKind::CalculateSize) = (&spec.sources, spec.kind) {
+            return self.calculate_size(paths);
+        }
         match self.run_all(spec) {
             Ok(()) => Outcome::Completed {
                 done: self.done,
@@ -105,7 +108,8 @@ impl Worker<'_> {
                 OperationKind::Trash => self.trash_item(source)?,
                 OperationKind::Extract { .. }
                 | OperationKind::Compress
-                | OperationKind::ExtractToTemp => {
+                | OperationKind::ExtractToTemp
+                | OperationKind::CalculateSize => {
                     return Err(failure(source, "unsupported operation"));
                 }
             };
@@ -403,6 +407,66 @@ impl Worker<'_> {
         Ok(true)
     }
 
+    fn calculate_size(&mut self, paths: &[PathBuf]) -> Outcome {
+        let mut total = SizeTotal::default();
+        for path in paths {
+            if self
+                .measure(path, fs::symlink_metadata(path), &mut total)
+                .is_err()
+            {
+                return Outcome::Cancelled { done: self.done };
+            }
+        }
+        Outcome::Measured {
+            files: total.files,
+            folders: total.folders,
+            bytes: total.bytes,
+            unreadable: total.unreadable,
+        }
+    }
+
+    // Unlike the other operations, an entry that cannot be read is counted
+    // and passed over, since a total with a few entries left out is still
+    // worth having. Only a cancellation stops the walk.
+    fn measure(
+        &mut self,
+        path: &Path,
+        meta: io::Result<Metadata>,
+        total: &mut SizeTotal,
+    ) -> Result<(), Stop> {
+        self.begin(path)?;
+        let Ok(meta) = meta else {
+            total.unreadable += 1;
+            return Ok(());
+        };
+        if meta.is_symlink() {
+            return Ok(());
+        }
+        if !meta.is_dir() {
+            self.done += 1;
+            total.files += 1;
+            total.bytes = total.bytes.saturating_add(meta.len());
+            return Ok(());
+        }
+        // Collected before going down, so that a deep tree holds one
+        // directory open at a time instead of one per level.
+        let Ok(entries) = fs::read_dir(path).map(Iterator::collect::<Vec<_>>) else {
+            total.unreadable += 1;
+            return Ok(());
+        };
+        self.done += 1;
+        total.folders += 1;
+        for entry in entries {
+            match entry {
+                // The metadata of an entry does not follow a link, and on
+                // Windows it comes with the listing, not from opening the file.
+                Ok(entry) => self.measure(&entry.path(), entry.metadata(), total)?,
+                Err(_) => total.unreadable += 1,
+            }
+        }
+        Ok(())
+    }
+
     // The start of every item: a chance to stop, and a progress report.
     fn begin(&mut self, path: &Path) -> Result<(), Stop> {
         self.check_cancel()?;
@@ -426,6 +490,14 @@ impl Worker<'_> {
             Ok(_) | Err(TryRecvError::Empty) => Ok(()),
         }
     }
+}
+
+#[derive(Default)]
+struct SizeTotal {
+    files: usize,
+    folders: usize,
+    bytes: u64,
+    unreadable: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -627,6 +699,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+    use crate::watch::tests::symlink;
 
     #[test]
     fn copies_files_and_directories_with_their_times() {
@@ -1129,6 +1202,162 @@ mod tests {
         assert_eq!(done, 0);
     }
 
+    #[test]
+    fn calculates_the_size_of_files_and_folders_recursively() {
+        let dir = TempDir::new().unwrap();
+        let d = dir.path().join("d");
+        fs::create_dir_all(d.join("e")).unwrap();
+        fs::write(dir.path().join("a"), b"hello").unwrap();
+        fs::write(d.join("b"), b"x").unwrap();
+        fs::write(d.join("e").join("c"), b"").unwrap();
+
+        let (outcome, events) = run(&calculate(&[dir.path().join("a"), d]), []);
+
+        assert_eq!(
+            outcome,
+            Outcome::Measured {
+                files: 3,
+                folders: 2,
+                bytes: 6,
+                unreadable: 0,
+            }
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, OperationEvent::ItemDone { .. }))
+        );
+    }
+
+    #[test]
+    fn a_missing_target_is_counted_as_unreadable_and_the_rest_measured() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("a"), b"abc").unwrap();
+
+        let (outcome, _) = run(
+            &calculate(&[dir.path().join("missing"), dir.path().join("a")]),
+            [],
+        );
+
+        assert_eq!(
+            outcome,
+            Outcome::Measured {
+                files: 1,
+                folders: 0,
+                bytes: 3,
+                unreadable: 1,
+            }
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_folder_is_counted_and_passed_over() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new().unwrap();
+        let locked = dir.path().join("locked");
+        fs::create_dir(&locked).unwrap();
+        fs::write(locked.join("a"), b"abc").unwrap();
+        fs::write(dir.path().join("b"), b"b").unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        // A user who can read it anyway (root) has nothing to check.
+        let readable = fs::read_dir(&locked).is_ok();
+
+        let (outcome, _) = run(&calculate(&[locked.clone(), dir.path().join("b")]), []);
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+
+        if readable {
+            return;
+        }
+        assert_eq!(
+            outcome,
+            Outcome::Measured {
+                files: 1,
+                folders: 0,
+                bytes: 1,
+                unreadable: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn links_count_as_nothing_when_calculating_the_size() {
+        let dir = TempDir::new().unwrap();
+        let real = dir.path().join("real");
+        let d = dir.path().join("d");
+        fs::create_dir(&real).unwrap();
+        fs::create_dir(&d).unwrap();
+        fs::write(real.join("a"), b"abc").unwrap();
+        let link = dir.path().join("link");
+        if !symlink(&real, &d.join("to_dir"))
+            || !symlink(&real.join("a"), &d.join("to_file"))
+            || !symlink(Path::new("nowhere"), &d.join("broken"))
+            || !symlink(&real, &link)
+        {
+            return;
+        }
+
+        let (outcome, _) = run(&calculate(&[d, link]), []);
+
+        assert_eq!(
+            outcome,
+            Outcome::Measured {
+                files: 0,
+                folders: 1,
+                bytes: 0,
+                unreadable: 0,
+            }
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn junctions_count_as_nothing_when_calculating_the_size() {
+        let dir = TempDir::new().unwrap();
+        let real = dir.path().join("real");
+        let d = dir.path().join("d");
+        fs::create_dir(&real).unwrap();
+        fs::create_dir(&d).unwrap();
+        fs::write(real.join("a"), b"abc").unwrap();
+        let link = dir.path().join("link");
+        assert!(crate::watch::tests::junction(&real, &d.join("inner")));
+        assert!(crate::watch::tests::junction(&real, &link));
+
+        let (outcome, _) = run(&calculate(&[d, link]), []);
+
+        assert_eq!(
+            outcome,
+            Outcome::Measured {
+                files: 0,
+                folders: 1,
+                bytes: 0,
+                unreadable: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn a_cancelled_calculation_reports_no_total() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("a"), b"abc").unwrap();
+        let (sender, replies) = mpsc::channel();
+        sender.send(Reply::Cancel).unwrap();
+        let outcome = Mutex::new(None);
+        let report = |event| {
+            if let OperationEvent::Finished(finished) = event {
+                *outcome.lock().unwrap() = Some(finished);
+            }
+        };
+
+        run_operation(&calculate(&[dir.path().join("a")]), None, &replies, &report);
+
+        assert_eq!(
+            outcome.into_inner().unwrap(),
+            Some(Outcome::Cancelled { done: 0 })
+        );
+    }
+
     // Runs an operation, answering each conflict with the next scripted reply.
     fn run(
         spec: &OperationSpec,
@@ -1204,6 +1433,15 @@ mod tests {
     fn delete(sources: &[PathBuf]) -> OperationSpec {
         OperationSpec {
             kind: OperationKind::Delete,
+            sources: Sources::Paths(sources.to_vec()),
+            dest: None,
+            output: None,
+        }
+    }
+
+    fn calculate(sources: &[PathBuf]) -> OperationSpec {
+        OperationSpec {
+            kind: OperationKind::CalculateSize,
             sources: Sources::Paths(sources.to_vec()),
             dest: None,
             output: None,
