@@ -37,6 +37,10 @@ sudo apt install libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libxkbcom
 cargo install --locked wafu
 ```
 
+## Configuration
+
+Settings, colors, bookmarks, external commands, and key bindings live in a TOML file. See [docs/configuration.md](https://github.com/iorate/wafu/blob/main/docs/configuration.md).
+
 ## License
 
 Licensed under either of
