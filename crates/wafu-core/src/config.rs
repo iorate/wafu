@@ -329,31 +329,35 @@ impl fmt::Display for Diagnostic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let path = &self.path;
         match &self.kind {
-            DiagnosticKind::UnknownItem => write!(f, "config: unknown item {path}"),
+            DiagnosticKind::UnknownItem => write!(f, "Config: unknown item {path}"),
             DiagnosticKind::InvalidValue { expected } => {
-                write!(f, "config: invalid value for {path} (expected {expected})")
+                write!(f, "Config: invalid value for {path} (expected {expected})")
             }
             DiagnosticKind::MissingItem { item } => {
-                write!(f, "config: missing {item} in {path}")
+                write!(f, "Config: missing {item} in {path}")
             }
             DiagnosticKind::InvalidKey { key } => {
-                write!(f, "config: invalid key {key:?} in {path}")
+                write!(f, "Config: invalid key \"{key}\" in {path}")
             }
             DiagnosticKind::DuplicateKey { key, spellings } => {
                 write!(
                     f,
-                    "config: key {key} is written more than once in {path} ({}); all ignored",
-                    spellings.join(", ")
+                    "Config: key {key} is written more than once in {path} ({}); all ignored",
+                    spellings
+                        .iter()
+                        .map(|spelling| format!("\"{spelling}\""))
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 )
             }
             DiagnosticKind::UnknownCommand { command } => {
-                write!(f, "config: unknown command {command:?} for {path}")
+                write!(f, "Config: unknown command \"{command}\" in {path}")
             }
             DiagnosticKind::Unavailable { command } => {
-                write!(f, "config: {command} is not available in {path}")
+                write!(f, "Config: {command} is not available in {path}")
             }
             DiagnosticKind::InvalidCommandLine(error) => {
-                write!(f, "config: invalid command line for {path}: {error}")
+                write!(f, "Config: invalid command line for {path}: {error}")
             }
         }
     }
@@ -463,6 +467,37 @@ mod tests {
         assert_eq!(Color::parse("#1e1e1g"), None);
         assert_eq!(Color::parse("#+1+1+1"), None);
         assert_eq!(Color::parse("#é1"), None);
+    }
+
+    #[test]
+    fn diagnostics_quote_what_was_typed() {
+        let line = |kind| {
+            Diagnostic {
+                path: "keys.filelist".to_owned(),
+                kind,
+            }
+            .to_string()
+        };
+
+        assert_eq!(
+            line(DiagnosticKind::InvalidKey {
+                key: "Ctrl+\\".to_owned()
+            }),
+            r#"Config: invalid key "Ctrl+\" in keys.filelist"#
+        );
+        assert_eq!(
+            line(DiagnosticKind::DuplicateKey {
+                key: "A".to_owned(),
+                spellings: vec!["A".to_owned(), "a".to_owned()],
+            }),
+            r#"Config: key A is written more than once in keys.filelist ("A", "a"); all ignored"#
+        );
+        assert_eq!(
+            line(DiagnosticKind::UnknownCommand {
+                command: "bogus".to_owned()
+            }),
+            r#"Config: unknown command "bogus" in keys.filelist"#
+        );
     }
 
     #[test]

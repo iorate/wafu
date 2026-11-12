@@ -1,7 +1,7 @@
 use std::ffi::{OsStr, OsString};
 use std::path::{Component, Path, PathBuf};
 
-use super::{App, Change, Effect, MenuAnchor, Os, PreviewSource, Side};
+use super::{App, Change, Effect, MenuAnchor, Os, PreviewSource, Side, SpawnName};
 use crate::command::{Command, Context};
 use crate::entry::Entry;
 use crate::error::{AppError, IoError};
@@ -102,7 +102,7 @@ impl App {
         let Some((location, names)) = self.target_names() else {
             return;
         };
-        let Some(dest) = self.other_dest(kind.noun()) else {
+        let Some(dest) = self.other_dest(kind.verb()) else {
             return;
         };
         let source_dir = location.base.clone();
@@ -118,14 +118,14 @@ impl App {
         let Some((location, names)) = self.target_names() else {
             return;
         };
-        let Some(dest) = self.other_dest("extract") else {
+        let kind = OperationKind::Extract {
+            into_dir: self.config.general.extract_creates_dir,
+        };
+        let Some(dest) = self.other_dest(kind.verb()) else {
             return;
         };
         let source_dir = location.base;
         let sources = source_paths(&source_dir, &names);
-        let kind = OperationKind::Extract {
-            into_dir: self.config.general.extract_creates_dir,
-        };
         self.start_operation(kind, source_dir, names, sources, Some(dest), effects);
     }
 
@@ -133,7 +133,7 @@ impl App {
         let Some((location, names)) = self.target_names() else {
             return;
         };
-        let Some(dest) = self.other_dest("compress") else {
+        let Some(dest) = self.other_dest(OperationKind::Compress.verb()) else {
             return;
         };
         let dir = location.base;
@@ -163,13 +163,13 @@ impl App {
             return;
         }
         let Some(format) = ArchiveFormat::from_name(OsStr::new(name)) else {
-            let name = OsString::from(name);
-            self.log.push(AppError::NoFormat { name }.to_string());
+            let path = dest.join(name);
+            self.log.push(AppError::NoFormat { path }.to_string());
             return;
         };
         if !password.is_empty() && !format.takes_password() {
-            let name = OsString::from(name);
-            self.log.push(AppError::NoPassword { name }.to_string());
+            let path = dest.join(name);
+            self.log.push(AppError::NoPassword { path }.to_string());
             return;
         }
         let output = ArchiveOutput {
@@ -308,7 +308,7 @@ impl App {
                     temp.entry_skipped = true;
                 }
                 self.log
-                    .push(format!("skipped {}: {error}", path.display()));
+                    .push(format!("Skipped {}: {error}", path.display()));
             }
             OperationEvent::Conflict { source, dest } => {
                 self.show_operation_popup(Popup::Conflict(ConflictPopup::new(source, dest, false)));
@@ -428,7 +428,7 @@ impl App {
         match (change, error) {
             (Change::Renamed { from, to }, None) => {
                 self.log.push(format!(
-                    "renamed {} to {}",
+                    "Renamed {} to {}",
                     from.file_name().unwrap_or_default().to_string_lossy(),
                     to.file_name().unwrap_or_default().to_string_lossy()
                 ));
@@ -447,7 +447,7 @@ impl App {
                     .push(AppError::RenameFailed { path: from, source }.to_string());
             }
             (Change::DirCreated(path), None) => {
-                self.log.push(format!("created {}", path.display()));
+                self.log.push(self.created_line(&path));
                 if self.config.general.mkdir_then_enter {
                     self.navigate(
                         self.active,
@@ -463,7 +463,7 @@ impl App {
                 }
             }
             (Change::FileCreated(path), None) => {
-                self.log.push(format!("created {}", path.display()));
+                self.log.push(self.created_line(&path));
                 if let Some((edit, dir)) = self.edit_after_create.take()
                     && edit == path
                 {
@@ -571,7 +571,7 @@ impl App {
     // first, from one place in the archive.
     pub(super) fn start_line(
         &mut self,
-        name: String,
+        name: SpawnName,
         line: CommandLine,
         effects: &mut Vec<Effect>,
     ) {
@@ -841,6 +841,7 @@ impl App {
                 OutcomeLine {
                     kind: operation.kind,
                     outcome,
+                    targets: &operation.names,
                     size_format: self.config.appearance.size_format,
                 }
                 .to_string(),
@@ -901,6 +902,17 @@ impl App {
             }
             TempAction::Spawn { name, line } => Self::spawn(name, &line, &expansion, effects),
         }
+    }
+
+    fn created_line(&self, path: &Path) -> String {
+        let relative = [self.active, self.active.other()]
+            .into_iter()
+            .find_map(|side| {
+                let rest = path.strip_prefix(&self.pane(side).location().base).ok()?;
+                (!rest.as_os_str().is_empty()).then(|| rest.components().collect::<PathBuf>())
+            });
+        let shown = relative.unwrap_or_else(|| path.to_path_buf());
+        format!("Created {}", shown.display())
     }
 
     // Puts the cursor on something just made or renamed in the active pane and
@@ -964,7 +976,7 @@ enum TempAction {
     Edit,
     OpenWithOs,
     RunFile { executable: bool },
-    Spawn { name: String, line: CommandLine },
+    Spawn { name: SpawnName, line: CommandLine },
 }
 
 fn source_paths(dir: &Path, names: &[OsString]) -> Sources {

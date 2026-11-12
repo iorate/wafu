@@ -68,14 +68,12 @@ impl Worker<'_> {
         }
         match self.run_all(spec) {
             Ok(()) => Outcome::Completed {
-                done: self.done,
                 skipped: self.skipped,
             },
-            Err(Stop::Cancelled) => Outcome::Cancelled { done: self.done },
+            Err(Stop::Cancelled) => Outcome::Cancelled,
             Err(Stop::Failed { path, error } | Stop::Entry { path, error }) => Outcome::Failed {
                 path,
                 error: IoError::new(error.to_string()),
-                done: self.done,
             },
         }
     }
@@ -427,12 +425,12 @@ impl Worker<'_> {
                 .measure(path, target_size(path, on_disk), on_disk, &mut total)
                 .is_err()
             {
-                return Outcome::Cancelled { done: self.done };
+                return Outcome::Cancelled;
             }
         }
         Outcome::Measured {
             files: total.files,
-            folders: total.folders,
+            directories: total.directories,
             bytes: total.bytes,
             unreadable: total.unreadable,
         }
@@ -479,7 +477,7 @@ impl Worker<'_> {
             return Ok(());
         };
         self.done += 1;
-        total.folders += 1;
+        total.directories += 1;
         for entry in entries {
             match entry {
                 Ok((path, size)) => self.measure(&path, size, on_disk, total)?,
@@ -517,7 +515,7 @@ impl Worker<'_> {
 #[derive(Default)]
 struct SizeTotal {
     files: usize,
-    folders: usize,
+    directories: usize,
     bytes: u64,
     unreadable: usize,
     hard_links: HashSet<(u64, u64)>,
@@ -671,7 +669,7 @@ fn target_size(path: &Path, on_disk: bool) -> io::Result<EntrySize> {
     let allocated = if on_disk && !link && !dir {
         // A file that cannot be opened even for its attributes (one in use
         // by the system, such as the page file) still shows in the listing of
-        // its folder, as it does when the folder is what is measured.
+        // its directory, as it does when the directory is what is measured.
         allocation_size(path).or_else(|error| listed_allocation(path).ok_or(error))?
     } else {
         0
@@ -973,15 +971,10 @@ mod tests {
                 .unwrap();
         }
 
-        let (outcome, events) = run(&copy(&[src.join("a"), src.join("d")], &dst), []);
+        let (outcome, done, events) = run(&copy(&[src.join("a"), src.join("d")], &dst), []);
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 5,
-                skipped: 0
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(done, 5);
         assert_eq!(fs::read(dst.join("a")).unwrap(), b"hello");
         assert_eq!(fs::read(dst.join("d").join("b")).unwrap(), b"x");
         assert!(dst.join("d").join("e").join("c").is_file());
@@ -1022,7 +1015,7 @@ mod tests {
         fs::write(src.join("x"), b"#!/bin/sh").unwrap();
         fs::set_permissions(src.join("x"), fs::Permissions::from_mode(0o755)).unwrap();
 
-        let (outcome, _) = run(&copy(&[src.join("x")], &dst), []);
+        let (outcome, _, _) = run(&copy(&[src.join("x")], &dst), []);
 
         assert!(matches!(outcome, Outcome::Completed { .. }));
         assert_eq!(
@@ -1041,7 +1034,7 @@ mod tests {
         fs::write(src.join("d").join("new"), b"n").unwrap();
         fs::write(dst.join("d").join("old"), b"o").unwrap();
 
-        let (outcome, _) = run(&copy(&[src.join("d")], &dst), []);
+        let (outcome, _, _) = run(&copy(&[src.join("d")], &dst), []);
 
         assert!(matches!(outcome, Outcome::Completed { .. }));
         assert!(dst.join("d").join("new").is_file());
@@ -1053,18 +1046,13 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let (src, dst) = two_dirs(&dir, &["a", "b"], &["a", "b"]);
 
-        let (outcome, events) = run(
+        let (outcome, done, events) = run(
             &copy(&[src.join("a"), src.join("b")], &dst),
             [Reply::Overwrite { all: false }, Reply::Skip { all: false }],
         );
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 1,
-                skipped: 1
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 1 });
+        assert_eq!(done, 1);
         assert_eq!(fs::read(dst.join("a")).unwrap(), b"src a");
         assert_eq!(fs::read(dst.join("b")).unwrap(), b"dst b");
         assert_eq!(
@@ -1088,32 +1076,22 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let (src, dst) = two_dirs(&dir, &["a", "b", "c"], &["a", "b", "c"]);
 
-        let (outcome, events) = run(
+        let (outcome, done, events) = run(
             &copy(&[src.join("a"), src.join("b"), src.join("c")], &dst),
             [Reply::Skip { all: true }],
         );
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 0,
-                skipped: 3
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 3 });
+        assert_eq!(done, 0);
         assert_eq!(conflicts(&events), 1);
         assert_eq!(fs::read(dst.join("c")).unwrap(), b"dst c");
 
-        let (outcome, events) = run(
+        let (outcome, done, events) = run(
             &copy(&[src.join("a"), src.join("b")], &dst),
             [Reply::Overwrite { all: true }],
         );
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 2,
-                skipped: 0
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(done, 2);
         assert_eq!(conflicts(&events), 1);
         assert_eq!(fs::read(dst.join("b")).unwrap(), b"src b");
     }
@@ -1123,7 +1101,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let (src, dst) = two_dirs(&dir, &["a"], &["a", "a2"]);
 
-        let (outcome, events) = run(
+        let (outcome, done, events) = run(
             &copy(&[src.join("a")], &dst),
             [
                 Reply::Rename(OsString::from("a2")),
@@ -1131,7 +1109,8 @@ mod tests {
             ],
         );
 
-        assert!(matches!(outcome, Outcome::Completed { done: 1, .. }));
+        assert!(matches!(outcome, Outcome::Completed { .. }));
+        assert_eq!(done, 1);
         assert_eq!(fs::read(dst.join("a3")).unwrap(), b"src a");
         assert_eq!(fs::read(dst.join("a2")).unwrap(), b"dst a2");
         assert_eq!(
@@ -1148,12 +1127,13 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let (src, dst) = two_dirs(&dir, &["a", "b"], &["a"]);
 
-        let (outcome, _) = run(
+        let (outcome, done, _) = run(
             &copy(&[src.join("a"), src.join("b")], &dst),
             [Reply::Cancel],
         );
 
-        assert_eq!(outcome, Outcome::Cancelled { done: 0 });
+        assert_eq!(outcome, Outcome::Cancelled);
+        assert_eq!(done, 0);
         assert!(!dst.join("b").exists());
     }
 
@@ -1162,7 +1142,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         fs::write(dir.path().join("a"), b"a").unwrap();
 
-        let (outcome, _) = run(
+        let (outcome, _, _) = run(
             &copy(&[dir.path().join("a")], dir.path()),
             [Reply::Overwrite { all: false }],
         );
@@ -1177,7 +1157,7 @@ mod tests {
         let (src, dst) = two_dirs(&dir, &["x"], &[]);
         fs::create_dir(dst.join("x")).unwrap();
 
-        let (outcome, _) = run(&copy(&[src.join("x")], &dst), []);
+        let (outcome, _, _) = run(&copy(&[src.join("x")], &dst), []);
 
         let Outcome::Failed { path, error, .. } = outcome else {
             panic!("expected a failure, got {outcome:?}");
@@ -1195,7 +1175,7 @@ mod tests {
         let d = dir.path().join("d");
         fs::create_dir_all(d.join("sub")).unwrap();
 
-        let (outcome, _) = run(&copy(std::slice::from_ref(&d), &d.join("sub")), []);
+        let (outcome, _, _) = run(&copy(std::slice::from_ref(&d), &d.join("sub")), []);
 
         let Outcome::Failed { error, .. } = outcome else {
             panic!("expected a failure, got {outcome:?}");
@@ -1213,7 +1193,7 @@ mod tests {
         let link = dir.path().join("link");
         std::os::unix::fs::symlink(d.join("sub"), &link).unwrap();
 
-        let (outcome, _) = run(&copy(std::slice::from_ref(&d), &link), []);
+        let (outcome, _, _) = run(&copy(std::slice::from_ref(&d), &link), []);
 
         let Outcome::Failed { error, .. } = outcome else {
             panic!("expected a failure, got {outcome:?}");
@@ -1230,18 +1210,20 @@ mod tests {
         std::os::unix::fs::symlink("real", src.join("link")).unwrap();
         std::os::unix::fs::symlink("nowhere", src.join("broken")).unwrap();
 
-        let (outcome, _) = run(&copy(&[src.join("link"), src.join("broken")], &dst), []);
+        let (outcome, done, _) = run(&copy(&[src.join("link"), src.join("broken")], &dst), []);
 
-        assert!(matches!(outcome, Outcome::Completed { done: 2, .. }));
+        assert!(matches!(outcome, Outcome::Completed { .. }));
+        assert_eq!(done, 2);
         assert_eq!(fs::read_link(dst.join("link")).unwrap(), Path::new("real"));
         assert_eq!(
             fs::read_link(dst.join("broken")).unwrap(),
             Path::new("nowhere")
         );
 
-        let (outcome, _) = run(&delete(&[src.join("link")]), []);
+        let (outcome, done, _) = run(&delete(&[src.join("link")]), []);
 
-        assert!(matches!(outcome, Outcome::Completed { done: 1, .. }));
+        assert!(matches!(outcome, Outcome::Completed { .. }));
+        assert_eq!(done, 1);
         assert!(!src.join("link").exists());
         assert!(src.join("real").is_file());
     }
@@ -1258,9 +1240,10 @@ mod tests {
             return;
         }
 
-        let (outcome, _) = run(&delete(std::slice::from_ref(&link)), []);
+        let (outcome, done, _) = run(&delete(std::slice::from_ref(&link)), []);
 
-        assert!(matches!(outcome, Outcome::Completed { done: 1, .. }));
+        assert!(matches!(outcome, Outcome::Completed { .. }));
+        assert_eq!(done, 1);
         assert!(fs::symlink_metadata(&link).is_err());
         assert!(real.join("a").is_file());
     }
@@ -1275,18 +1258,13 @@ mod tests {
         fs::write(src.join("d").join("y"), b"src y").unwrap();
         fs::write(dst.join("d").join("y"), b"dst y").unwrap();
 
-        let (outcome, events) = run(
+        let (outcome, done, events) = run(
             &mv(&[src.join("a"), src.join("d")], &dst),
             [Reply::Skip { all: false }],
         );
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 3,
-                skipped: 1
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 1 });
+        assert_eq!(done, 3);
         assert!(!src.join("a").exists());
         assert_eq!(fs::read(dst.join("a")).unwrap(), b"src a");
         assert!(dst.join("d").join("x").is_file());
@@ -1308,7 +1286,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let (src, dst) = two_dirs(&dir, &["a", "b"], &["a", "b"]);
 
-        let (outcome, _) = run(
+        let (outcome, done, _) = run(
             &mv(&[src.join("a"), src.join("b")], &dst),
             [
                 Reply::Overwrite { all: false },
@@ -1316,7 +1294,8 @@ mod tests {
             ],
         );
 
-        assert!(matches!(outcome, Outcome::Completed { done: 2, .. }));
+        assert!(matches!(outcome, Outcome::Completed { .. }));
+        assert_eq!(done, 2);
         assert_eq!(fs::read(dst.join("a")).unwrap(), b"src a");
         assert_eq!(fs::read(dst.join("b")).unwrap(), b"dst b");
         assert_eq!(fs::read(dst.join("b2")).unwrap(), b"src b");
@@ -1329,7 +1308,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         fs::write(dir.path().join("a"), b"a").unwrap();
 
-        let (outcome, _) = run(
+        let (outcome, _, _) = run(
             &mv(&[dir.path().join("a")], dir.path()),
             [Reply::Overwrite { all: false }],
         );
@@ -1388,7 +1367,7 @@ mod tests {
                 sender.send(Reply::Cancel).unwrap();
             }
             if let OperationEvent::Finished(outcome) = event {
-                assert_eq!(outcome, Outcome::Cancelled { done: 0 });
+                assert_eq!(outcome, Outcome::Cancelled);
             }
         };
 
@@ -1409,15 +1388,10 @@ mod tests {
         permissions.set_readonly(true);
         fs::set_permissions(d.join("ro"), permissions).unwrap();
 
-        let (outcome, events) = run(&delete(std::slice::from_ref(&d)), []);
+        let (outcome, done, events) = run(&delete(std::slice::from_ref(&d)), []);
 
-        assert_eq!(
-            outcome,
-            Outcome::Completed {
-                done: 4,
-                skipped: 0
-            }
-        );
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(done, 4);
         assert!(!d.exists());
         assert_eq!(events.last(), Some(&OperationEvent::ItemDone { index: 0 }));
     }
@@ -1433,7 +1407,7 @@ mod tests {
             .unwrap();
         assert!(status.success());
 
-        let (outcome, _) = run(&copy(std::slice::from_ref(&src), &dst), []);
+        let (outcome, _, _) = run(&copy(std::slice::from_ref(&src), &dst), []);
 
         let Outcome::Failed { path, error, .. } = outcome else {
             panic!("expected a failure, got {outcome:?}");
@@ -1447,17 +1421,16 @@ mod tests {
     fn a_missing_source_fails_with_its_path() {
         let dir = TempDir::new().unwrap();
 
-        let (outcome, _) = run(&delete(&[dir.path().join("missing")]), []);
+        let (outcome, _, _) = run(&delete(&[dir.path().join("missing")]), []);
 
-        let Outcome::Failed { path, done, .. } = outcome else {
+        let Outcome::Failed { path, .. } = outcome else {
             panic!("expected a failure, got {outcome:?}");
         };
         assert_eq!(path, dir.path().join("missing"));
-        assert_eq!(done, 0);
     }
 
     #[test]
-    fn calculates_the_size_of_files_and_folders_recursively() {
+    fn calculates_the_size_of_files_and_directories_recursively() {
         let dir = TempDir::new().unwrap();
         let d = dir.path().join("d");
         fs::create_dir_all(d.join("e")).unwrap();
@@ -1465,13 +1438,13 @@ mod tests {
         fs::write(d.join("b"), b"x").unwrap();
         fs::write(d.join("e").join("c"), b"").unwrap();
 
-        let (outcome, events) = run(&calculate(&[dir.path().join("a"), d]), []);
+        let (outcome, _, events) = run(&calculate(&[dir.path().join("a"), d]), []);
 
         assert_eq!(
             outcome,
             Outcome::Measured {
                 files: 3,
-                folders: 2,
+                directories: 2,
                 bytes: 6,
                 unreadable: 0,
             }
@@ -1488,7 +1461,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         fs::write(dir.path().join("a"), b"abc").unwrap();
 
-        let (outcome, _) = run(
+        let (outcome, _, _) = run(
             &calculate(&[dir.path().join("missing"), dir.path().join("a")]),
             [],
         );
@@ -1497,7 +1470,7 @@ mod tests {
             outcome,
             Outcome::Measured {
                 files: 1,
-                folders: 0,
+                directories: 0,
                 bytes: 3,
                 unreadable: 1,
             }
@@ -1506,7 +1479,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn an_unreadable_folder_is_counted_and_passed_over() {
+    fn an_unreadable_directory_is_counted_and_passed_over() {
         use std::os::unix::fs::PermissionsExt;
 
         let dir = TempDir::new().unwrap();
@@ -1518,7 +1491,7 @@ mod tests {
         // A user who can read it anyway (root) has nothing to check.
         let readable = fs::read_dir(&locked).is_ok();
 
-        let (outcome, _) = run(&calculate(&[locked.clone(), dir.path().join("b")]), []);
+        let (outcome, _, _) = run(&calculate(&[locked.clone(), dir.path().join("b")]), []);
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
 
         if readable {
@@ -1528,7 +1501,7 @@ mod tests {
             outcome,
             Outcome::Measured {
                 files: 1,
-                folders: 0,
+                directories: 0,
                 bytes: 1,
                 unreadable: 1,
             }
@@ -1552,13 +1525,13 @@ mod tests {
             return;
         }
 
-        let (outcome, _) = run(&calculate(&[d, link]), []);
+        let (outcome, _, _) = run(&calculate(&[d, link]), []);
 
         assert_eq!(
             outcome,
             Outcome::Measured {
                 files: 0,
-                folders: 1,
+                directories: 1,
                 bytes: 0,
                 unreadable: 0,
             }
@@ -1578,13 +1551,13 @@ mod tests {
         assert!(crate::watch::tests::junction(&real, &d.join("inner")));
         assert!(crate::watch::tests::junction(&real, &link));
 
-        let (outcome, _) = run(&calculate(&[d, link]), []);
+        let (outcome, _, _) = run(&calculate(&[d, link]), []);
 
         assert_eq!(
             outcome,
             Outcome::Measured {
                 files: 0,
-                folders: 1,
+                directories: 1,
                 bytes: 0,
                 unreadable: 0,
             }
@@ -1606,15 +1579,12 @@ mod tests {
 
         run_operation(&calculate(&[dir.path().join("a")]), None, &replies, &report);
 
-        assert_eq!(
-            outcome.into_inner().unwrap(),
-            Some(Outcome::Cancelled { done: 0 })
-        );
+        assert_eq!(outcome.into_inner().unwrap(), Some(Outcome::Cancelled));
     }
 
     #[cfg(windows)]
     #[test]
-    fn a_folder_listed_in_several_batches_is_counted_whole() {
+    fn a_directory_listed_in_several_batches_is_counted_whole() {
         let dir = TempDir::new().unwrap();
         for i in 0..2000 {
             fs::write(
@@ -1624,13 +1594,13 @@ mod tests {
             .unwrap();
         }
 
-        let (outcome, _) = run(&calculate(&[dir.path().to_path_buf()]), []);
+        let (outcome, _, _) = run(&calculate(&[dir.path().to_path_buf()]), []);
 
         assert_eq!(
             outcome,
             Outcome::Measured {
                 files: 2000,
-                folders: 1,
+                directories: 1,
                 bytes: 0,
                 unreadable: 0,
             }
@@ -1638,7 +1608,7 @@ mod tests {
     }
 
     #[test]
-    fn the_size_on_disk_is_the_same_through_a_folder_as_of_the_file_itself() {
+    fn the_size_on_disk_is_the_same_through_a_directory_as_of_the_file_itself() {
         let dir = TempDir::new().unwrap();
         let d = dir.path().join("d");
         fs::create_dir_all(d.join("e")).unwrap();
@@ -1646,8 +1616,8 @@ mod tests {
         write_incompressible(&file, 1024 * 1024 + 1);
         fs::write(d.join("e").join("empty"), b"").unwrap();
 
-        let (alone, _) = run(&calculate_on_disk(&[file]), []);
-        let (through, _) = run(&calculate_on_disk(&[d]), []);
+        let (alone, _, _) = run(&calculate_on_disk(&[file]), []);
+        let (through, _, _) = run(&calculate_on_disk(&[d]), []);
 
         let Outcome::Measured { bytes, .. } = alone else {
             panic!("not measured: {alone:?}");
@@ -1659,7 +1629,7 @@ mod tests {
             through,
             Outcome::Measured {
                 files: 2,
-                folders: 2,
+                directories: 2,
                 bytes,
                 unreadable: 0,
             }
@@ -1673,7 +1643,7 @@ mod tests {
         let file = dir.path().join("a");
         write_incompressible(&file, 70_000);
 
-        let (outcome, _) = run(&calculate_on_disk(std::slice::from_ref(&file)), []);
+        let (outcome, _, _) = run(&calculate_on_disk(std::slice::from_ref(&file)), []);
 
         let Outcome::Measured { bytes, .. } = outcome else {
             panic!("not measured: {outcome:?}");
@@ -1693,19 +1663,19 @@ mod tests {
         let file = d.join("a");
         write_incompressible(&file, 70_000);
         fs::hard_link(&file, d.join("b")).unwrap();
-        let (alone, _) = run(&calculate_on_disk(std::slice::from_ref(&file)), []);
+        let (alone, _, _) = run(&calculate_on_disk(std::slice::from_ref(&file)), []);
         let Outcome::Measured { bytes, .. } = alone else {
             panic!("not measured: {alone:?}");
         };
 
-        let (on_disk, _) = run(&calculate_on_disk(&[d.clone(), file]), []);
-        let (logical, _) = run(&calculate(&[d]), []);
+        let (on_disk, _, _) = run(&calculate_on_disk(&[d.clone(), file]), []);
+        let (logical, _, _) = run(&calculate(&[d]), []);
 
         assert_eq!(
             on_disk,
             Outcome::Measured {
                 files: 3,
-                folders: 1,
+                directories: 1,
                 bytes,
                 unreadable: 0,
             }
@@ -1714,7 +1684,7 @@ mod tests {
             logical,
             Outcome::Measured {
                 files: 2,
-                folders: 1,
+                directories: 1,
                 bytes: 140_000,
                 unreadable: 0,
             }
@@ -1725,7 +1695,7 @@ mod tests {
     fn run(
         spec: &OperationSpec,
         script: impl IntoIterator<Item = Reply>,
-    ) -> (Outcome, Vec<OperationEvent>) {
+    ) -> (Outcome, usize, Vec<OperationEvent>) {
         let (sender, replies) = mpsc::channel();
         let script: Mutex<VecDeque<Reply>> = Mutex::new(script.into_iter().collect());
         let events = Mutex::new(Vec::new());
@@ -1735,12 +1705,18 @@ mod tests {
             }
             events.lock().unwrap().push(event);
         };
-        run_operation(spec, None, &replies, &report);
-        let mut events = events.into_inner().unwrap();
-        let Some(OperationEvent::Finished(outcome)) = events.pop() else {
-            panic!("the last event should be Finished");
+        let mut worker = Worker {
+            owner_window: None,
+            replies: &replies,
+            report: &report,
+            policy: None,
+            done: 0,
+            skipped: 0,
+            last_progress: None,
         };
-        (outcome, events)
+        let outcome = worker.run(spec);
+        let done = worker.done;
+        (outcome, done, events.into_inner().unwrap())
     }
 
     fn answer(sender: &Sender<Reply>, script: &Mutex<VecDeque<Reply>>) {

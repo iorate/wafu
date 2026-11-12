@@ -1,4 +1,5 @@
 use std::ffi::OsString;
+use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -117,6 +118,9 @@ pub struct Start {
     pub config: ConfigSource,
     /// `Ok(None)` when there is no state file.
     pub state: Result<Option<StateFile>, StateError>,
+    /// The file `state` was read from: the state file, or the file handed
+    /// over by the instance that started this one.
+    pub state_path: PathBuf,
     /// Whether another instance started this one and handed over its state.
     pub inherited: bool,
 }
@@ -186,10 +190,9 @@ pub enum Effect {
     /// configuration turns it off.
     LoadShellEnv,
     /// Starts a program without a shell and without waiting for it. `name`
-    /// is what the log calls it: `$name` for an external command, `editor`
-    /// for the editor.
+    /// is what the log calls it.
     Spawn {
-        name: String,
+        name: SpawnName,
         program: String,
         args: Vec<OsString>,
         cwd: PathBuf,
@@ -270,13 +273,22 @@ pub enum Change {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SpawnKind {
     External {
-        name: String,
+        name: SpawnName,
         program: String,
         args: Vec<OsString>,
     },
     NewWindow {
         as_admin: bool,
     },
+}
+
+/// What a started program is called in the log.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SpawnName {
+    /// The configured editor.
+    Editor,
+    /// A command, by its id: `$name`, `run_command`, or `run_file`.
+    Command(String),
 }
 
 /// The answer to [`Effect::Resolve`]: the directory to open and, when the
@@ -363,7 +375,7 @@ pub enum IoEvent {
     /// A program started by `Effect::Spawn` ended. `code` is `None` when a
     /// signal ended it.
     Exited {
-        name: String,
+        name: SpawnName,
         code: Option<i32>,
     },
     Operation(OperationEvent),
@@ -389,6 +401,15 @@ pub enum IoEvent {
 pub enum Side {
     Left,
     Right,
+}
+
+impl fmt::Display for SpawnName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Editor => f.write_str("editor"),
+            Self::Command(id) => f.write_str(id),
+        }
+    }
 }
 
 impl Side {
@@ -493,6 +514,7 @@ impl App {
                     config_path,
                     config,
                     state,
+                    state_path,
                     inherited,
                 } = *start;
                 self.home = home;
@@ -503,6 +525,10 @@ impl App {
                     Pane::new(Location::new(PathBuf::new())),
                     Pane::new(Location::new(PathBuf::new())),
                 ];
+                let state = state.map_err(|source| AppError::StateUnreadable {
+                    path: state_path,
+                    source,
+                });
                 self.start(left, right, config, state, inherited, &mut effects);
                 return effects;
             }
@@ -814,9 +840,9 @@ impl App {
                 } else {
                     let lines = text.lines().count();
                     self.log.push(if lines == 1 {
-                        format!("copied to clipboard: {text}")
+                        format!("Copied to clipboard: {text}")
                     } else {
-                        format!("copied {lines} lines to clipboard")
+                        format!("Copied {lines} lines to clipboard")
                     });
                 }
             }

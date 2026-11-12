@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::app::{Effect, IoEvent, MouseInput, Msg, PreviewError, PreviewSource, Side};
+use crate::app::{Effect, IoEvent, MouseInput, Msg, PreviewError, PreviewSource, Side, SpawnName};
 use crate::entry::{Entry, EntryKind, SpecialKind, TargetKind};
 use crate::error::IoError;
 use crate::location::{ArchiveFormat, ArchivePath};
@@ -177,7 +177,7 @@ fn e_closes_the_preview_and_opens_the_shown_file_in_the_editor_whatever_is_marke
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
-            name: "editor".to_owned(),
+            name: SpawnName::Editor,
             program: "xdg-open".to_owned(),
             args: vec![path(LEFT, "zzz.txt").into_os_string()],
             cwd: PathBuf::from(LEFT),
@@ -217,10 +217,7 @@ fn e_on_an_archive_entry_extracts_it_with_the_preview_password_and_then_starts_t
     );
 
     harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
-    harness.finish(Outcome::Completed {
-        done: 1,
-        skipped: 0,
-    });
+    harness.finish(Outcome::Completed { skipped: 0 });
 
     assert!(matches!(
         harness.take_effects().as_slice(),
@@ -276,7 +273,7 @@ fn a_failed_read_is_logged_and_closes_the_preview() {
     assert_eq!(
         harness.log().last().map(String::as_str),
         Some(&*format!(
-            "cannot preview {}: permission denied",
+            "Cannot preview {}: permission denied",
             PathBuf::from(LEFT).join("note.txt").display()
         ))
     );
@@ -570,7 +567,7 @@ fn a_failed_decode_shows_the_message_in_place_of_the_image() {
     harness.fail_image(PreviewError::Failed(IoError::new("bad png")));
 
     let message = format!(
-        "cannot preview {}: bad png",
+        "Cannot preview {}: bad png",
         PathBuf::from(LEFT).join("one.png").display()
     );
     assert_eq!(
@@ -599,7 +596,7 @@ fn a_failed_decode_shows_line_breaks_in_the_name_as_symbols() {
     assert_eq!(
         harness.view().preview.unwrap().content,
         PreviewContent::Message(format!(
-            "cannot preview {}: bad png",
+            "Cannot preview {}: bad png",
             PathBuf::from(LEFT).join("a\u{21B5}.png").display()
         ))
     );
@@ -1112,7 +1109,7 @@ fn v_on_a_broken_link_logs_an_error() {
     assert_eq!(
         harness.log(),
         [format!(
-            "cannot open {}: the symbolic link is broken",
+            "Cannot open {}: the symbolic link is broken",
             shown(LEFT, "dead.png")
         )]
     );
@@ -1132,7 +1129,7 @@ fn v_on_a_special_file_logs_an_error() {
     assert_eq!(
         harness.log(),
         [format!(
-            "cannot open {}: not a regular file",
+            "Cannot open {}: not a regular file",
             shown(LEFT, "pipe")
         )]
     );

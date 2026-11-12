@@ -180,11 +180,11 @@ pub enum Command {
     EnterAsArchive,
     Extract,
     Compress,
-    /// Logs the number of files and folders and the total size of the
-    /// targets, counting what is inside folders.
+    /// Logs the number of files and directories and the total size of the
+    /// targets, counting what is inside directories.
     CalculateSize,
-    /// Logs the number of files and folders and the total space the targets
-    /// take up on disk, counting what is inside folders.
+    /// Logs the number of files and directories and the total space the
+    /// targets take up on disk, counting what is inside directories.
     CalculateSizeOnDisk,
     Palette,
     EditConfig,

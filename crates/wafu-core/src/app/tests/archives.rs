@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::app::{Change, Effect, IoEvent, Msg, Os, Side};
+use crate::app::{Change, Effect, IoEvent, Msg, Os, Side, SpawnName};
 use crate::entry::{Entry, EntryKind, TargetKind};
 use crate::error::IoError;
 use crate::external::CommandLine;
@@ -303,7 +303,7 @@ fn archives_inside_an_archive_cannot_be_entered() {
 
     assert_eq!(harness.take_effects(), vec![]);
     let message = format!(
-        "cannot open {}/inner.zip: nested archives are not supported",
+        "Cannot open {}/inner.zip: nested archives are not supported",
         root()
     );
     assert_eq!(harness.log(), [message.clone(), message]);
@@ -348,15 +348,15 @@ fn commands_that_change_things_are_refused_inside_an_archive() {
     assert_eq!(
         harness.log(),
         [
-            "move is not available inside an archive",
-            "delete is not available inside an archive",
-            "trash is not available inside an archive",
-            "rename is not available inside an archive",
-            "mkdir is not available inside an archive",
-            "new_text is not available inside an archive",
-            "extract is not available inside an archive",
-            "compress is not available inside an archive",
-            "new_file is not available inside an archive",
+            "Cannot run move: not available inside an archive",
+            "Cannot run delete: not available inside an archive",
+            "Cannot run trash: not available inside an archive",
+            "Cannot run rename: not available inside an archive",
+            "Cannot run mkdir: not available inside an archive",
+            "Cannot run new_text: not available inside an archive",
+            "Cannot run extract: not available inside an archive",
+            "Cannot run compress: not available inside an archive",
+            "Cannot run new_file: not available inside an archive",
         ]
     );
 }
@@ -374,8 +374,8 @@ fn size_calculations_are_refused_inside_an_archive() {
     assert_eq!(
         harness.log(),
         [
-            "calculate_size is not available inside an archive",
-            "calculate_size_on_disk is not available inside an archive",
+            "Cannot run calculate_size: not available inside an archive",
+            "Cannot run calculate_size_on_disk: not available inside an archive",
         ]
     );
 }
@@ -394,7 +394,7 @@ fn right_click_inside_an_archive_on_windows_is_refused() {
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(
         harness.log(),
-        ["shell_menu is not available inside an archive"]
+        ["Cannot run shell_menu: not available inside an archive"]
     );
 }
 
@@ -416,10 +416,10 @@ fn nothing_can_be_sent_into_an_archive_on_the_other_side() {
     assert_eq!(
         harness.log(),
         [
-            "cannot copy into an archive",
-            "cannot move into an archive",
-            "cannot extract into an archive",
-            "cannot compress into an archive",
+            "Cannot copy: the other pane is inside an archive",
+            "Cannot move: the other pane is inside an archive",
+            "Cannot extract: the other pane is inside an archive",
+            "Cannot compress: the other pane is inside an archive",
         ]
     );
 }
@@ -449,14 +449,11 @@ fn copy_inside_an_archive_extracts_the_marked_entries_to_the_other_side() {
     harness.operation(OperationEvent::ItemDone { index: 0 });
     assert_eq!(harness.marks(Side::Left), ["inner.zip"]);
 
-    harness.finish(Outcome::Completed {
-        done: 2,
-        skipped: 0,
-    });
+    harness.finish(Outcome::Completed { skipped: 0 });
 
     assert_eq!(
         harness.log().last().map(String::as_str),
-        Some("copied 2 items")
+        Some("Copied 2 items")
     );
     let effects = harness.take_effects();
     assert!(matches!(
@@ -475,17 +472,14 @@ fn a_skipped_entry_is_logged_and_keeps_its_mark() {
         path: entry.clone(),
         error: IoError::new("the entry name is unsafe"),
     });
-    harness.finish(Outcome::Completed {
-        done: 1,
-        skipped: 1,
-    });
+    harness.finish(Outcome::Completed { skipped: 1 });
 
     let log = harness.log();
     assert_eq!(
         log[log.len() - 2..],
         [
-            format!("skipped {}: the entry name is unsafe", entry.display()),
-            "copied 1 item (1 skipped)".to_owned(),
+            format!("Skipped {}: the entry name is unsafe", entry.display()),
+            "Copied b.txt (1 skipped)".to_owned(),
         ]
     );
     assert_eq!(harness.marks(Side::Left), ["b.txt"]);
@@ -509,14 +503,11 @@ fn extract_unpacks_the_targets_into_the_other_side() {
     );
     assert_eq!(harness.view().popup.unwrap().title, "Extracting");
 
-    harness.finish(Outcome::Completed {
-        done: 5,
-        skipped: 0,
-    });
+    harness.finish(Outcome::Completed { skipped: 0 });
 
     assert_eq!(
         harness.log().last().map(String::as_str),
-        Some("extracted 5 items")
+        Some("Extracted a.zip")
     );
 }
 
@@ -620,7 +611,7 @@ fn edit_on_the_parent_row_of_an_archive_root_opens_the_archive_file() {
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
-            name: "editor".to_owned(),
+            name: SpawnName::Editor,
             program: "xdg-open".to_owned(),
             args: vec![archive().into_os_string()],
             cwd: PathBuf::from(LEFT),
@@ -667,14 +658,11 @@ fn compress_asks_for_the_name_and_a_password_in_one_popup() {
     );
     assert_eq!(harness.view().popup.unwrap().title, "Compressing");
 
-    harness.finish(Outcome::Completed {
-        done: 1,
-        skipped: 0,
-    });
+    harness.finish(Outcome::Completed { skipped: 0 });
 
     assert_eq!(
         harness.log().last().map(String::as_str),
-        Some("compressed 1 item")
+        Some("Compressed note.txt")
     );
 }
 
@@ -713,8 +701,11 @@ fn compress_refuses_a_name_whose_extension_names_no_format() {
     assert!(harness.popup().is_none());
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(
-        harness.log().last().map(String::as_str),
-        Some("cannot make backup.bak: the extension does not name an archive format")
+        harness.log().last().cloned(),
+        Some(format!(
+            "Cannot compress to {}: unknown archive format",
+            shown(RIGHT, "backup.bak")
+        ))
     );
 }
 
@@ -753,8 +744,11 @@ fn compress_refuses_a_password_for_a_tar() {
     assert!(harness.popup().is_none());
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(
-        harness.log().last(),
-        Some(&"cannot make backup.tar.gz: only zip takes a password".to_owned())
+        harness.log().last().cloned(),
+        Some(format!(
+            "Cannot compress to {}: only zip takes a password",
+            shown(RIGHT, "backup.tar.gz")
+        ))
     );
 }
 
@@ -850,10 +844,7 @@ fn a_password_is_asked_once_and_remembered_inside_the_archive() {
     );
     assert_eq!(harness.view().popup.unwrap().title, "Copying");
 
-    harness.finish(Outcome::Completed {
-        done: 1,
-        skipped: 0,
-    });
+    harness.finish(Outcome::Completed { skipped: 0 });
     harness.take_effects();
     harness.press("C");
 
@@ -893,10 +884,7 @@ fn a_password_typed_for_a_temporary_extraction_is_remembered_inside_the_archive(
     harness.edit("pw");
     harness.press("Enter");
     harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
-    harness.finish(Outcome::Completed {
-        done: 1,
-        skipped: 0,
-    });
+    harness.finish(Outcome::Completed { skipped: 0 });
     harness.take_effects();
 
     harness.press("E");
@@ -935,7 +923,7 @@ fn a_wrong_password_is_asked_again_and_forgotten() {
     );
     assert_eq!(harness.view().popup.unwrap().title, "Cancelling");
 
-    harness.finish(Outcome::Cancelled { done: 0 });
+    harness.finish(Outcome::Cancelled);
     harness.take_effects();
     harness.press("C");
 
@@ -952,10 +940,7 @@ fn leaving_the_archive_forgets_the_password() {
     });
     harness.edit("pw");
     harness.press("Enter");
-    harness.finish(Outcome::Completed {
-        done: 1,
-        skipped: 0,
-    });
+    harness.finish(Outcome::Completed { skipped: 0 });
     harness.press("BS");
     harness.load(Side::Left, vec![file("a.zip"), file("note.txt"), dir("d")]);
     harness.enter_archive(Side::Left, contents());
@@ -991,10 +976,7 @@ fn edit_inside_an_archive_extracts_to_a_temporary_directory_and_then_starts_the_
     assert_eq!(harness.view().popup.unwrap().title, "Extracting");
 
     harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
-    harness.finish(Outcome::Completed {
-        done: 1,
-        skipped: 0,
-    });
+    harness.finish(Outcome::Completed { skipped: 0 });
 
     let effects = harness.take_effects();
     assert!(matches!(
@@ -1019,10 +1001,7 @@ fn edit_inside_an_archive_keeps_the_marks_of_the_extracted_entries() {
     harness.press("E");
     harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
     harness.operation(OperationEvent::ItemDone { index: 0 });
-    harness.finish(Outcome::Completed {
-        done: 1,
-        skipped: 0,
-    });
+    harness.finish(Outcome::Completed { skipped: 0 });
 
     assert_eq!(harness.marks(Side::Left), ["b.txt"]);
 }
@@ -1045,10 +1024,7 @@ fn open_with_os_inside_an_archive_extracts_the_cursor_entry() {
     );
 
     harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
-    harness.finish(Outcome::Completed {
-        done: 1,
-        skipped: 0,
-    });
+    harness.finish(Outcome::Completed { skipped: 0 });
 
     let effects = harness.take_effects();
     assert!(matches!(
@@ -1087,10 +1063,7 @@ fn open_with_os_on_the_parent_row_inside_an_archive_extracts_the_directory_itsel
     assert_eq!(spec.sources, Sources::Entries(entries(&["docs"], None)));
 
     harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
-    harness.finish(Outcome::Completed {
-        done: 1,
-        skipped: 0,
-    });
+    harness.finish(Outcome::Completed { skipped: 0 });
 
     let effects = harness.take_effects();
     assert!(matches!(
@@ -1132,10 +1105,7 @@ fn run_file_inside_an_archive_extracts_the_cursor_entry_alone_and_then_opens_the
     assert!(harness.popup().is_none());
 
     harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
-    harness.finish(Outcome::Completed {
-        done: 1,
-        skipped: 0,
-    });
+    harness.finish(Outcome::Completed { skipped: 0 });
 
     let field = &harness.view().popup.unwrap().fields[0];
     let line = CommandLine::parse(&field.text, Os::Linux).unwrap();
@@ -1156,7 +1126,7 @@ fn run_command_inside_an_archive_without_paths_starts_at_once_in_the_directory_h
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
-            name: "run_command".to_owned(),
+            name: SpawnName::Command("run_command".to_owned()),
             program: "tool".to_owned(),
             args: vec![PathBuf::from(LEFT).into_os_string()],
             cwd: PathBuf::from(LEFT),
@@ -1179,15 +1149,12 @@ fn run_command_inside_an_archive_with_paths_extracts_them_and_then_starts() {
     assert_eq!(spec.kind, OperationKind::ExtractToTemp);
 
     harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
-    harness.finish(Outcome::Completed {
-        done: 2,
-        skipped: 0,
-    });
+    harness.finish(Outcome::Completed { skipped: 0 });
 
     assert_eq!(
         harness.take_effects().last(),
         Some(&Effect::Spawn {
-            name: "run_command".to_owned(),
+            name: SpawnName::Command("run_command".to_owned()),
             program: "tool".to_owned(),
             args: vec![path(TEMP, "b.txt").into_os_string()],
             cwd: PathBuf::from(LEFT),
@@ -1215,10 +1182,7 @@ fn an_external_command_inside_an_archive_extracts_the_cursor_and_the_marks() {
     );
 
     harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
-    harness.finish(Outcome::Completed {
-        done: 2,
-        skipped: 0,
-    });
+    harness.finish(Outcome::Completed { skipped: 0 });
 
     let effects = harness.take_effects();
     let Some(Effect::Spawn {
@@ -1255,7 +1219,7 @@ fn an_external_command_on_the_parent_row_of_an_archive_root_passes_the_archive_f
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
-            name: "$show".into(),
+            name: SpawnName::Command("$show".to_owned()),
             program: "show".into(),
             args: vec![
                 archive().into_os_string(),
@@ -1286,10 +1250,7 @@ fn an_external_command_on_the_parent_row_inside_a_directory_extracts_the_directo
     let spec = harness.start_operation().unwrap();
     assert_eq!(spec.sources, Sources::Entries(entries(&["docs"], None)));
     harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
-    harness.finish(Outcome::Completed {
-        done: 1,
-        skipped: 0,
-    });
+    harness.finish(Outcome::Completed { skipped: 0 });
 
     let effects = harness.take_effects();
     let Some(Effect::Spawn { args, .. }) = effects.last() else {
@@ -1337,10 +1298,7 @@ fn an_external_command_on_the_parent_row_with_marks_extracts_the_marks_alone() {
         })
     );
     harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
-    harness.finish(Outcome::Completed {
-        done: 1,
-        skipped: 0,
-    });
+    harness.finish(Outcome::Completed { skipped: 0 });
 
     let effects = harness.take_effects();
     let Some(Effect::Spawn { args, .. }) = effects.last() else {
@@ -1366,7 +1324,7 @@ fn a_cancelled_temporary_extraction_starts_nothing() {
     harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
     harness.take_effects();
 
-    harness.finish(Outcome::Cancelled { done: 0 });
+    harness.finish(Outcome::Cancelled);
 
     let effects = harness.take_effects();
     assert!(
@@ -1376,7 +1334,7 @@ fn a_cancelled_temporary_extraction_starts_nothing() {
     );
     assert_eq!(
         harness.log().last().map(String::as_str),
-        Some("extract cancelled after 0 items")
+        Some("Extract cancelled")
     );
 }
 
@@ -1392,7 +1350,6 @@ fn a_failed_temporary_extraction_starts_nothing() {
     harness.finish(Outcome::Failed {
         path: path(TEMP, "b.txt"),
         error: IoError::new("disk full"),
-        done: 0,
     });
 
     let effects = harness.take_effects();
@@ -1404,7 +1361,7 @@ fn a_failed_temporary_extraction_starts_nothing() {
     assert_eq!(
         harness.log().last().cloned(),
         Some(format!(
-            "cannot extract {}: disk full",
+            "Cannot extract {}: disk full",
             shown(TEMP, "b.txt")
         ))
     );
@@ -1423,10 +1380,7 @@ fn a_temporary_extraction_with_skipped_entries_starts_nothing() {
     });
     harness.take_effects();
 
-    harness.finish(Outcome::Completed {
-        done: 0,
-        skipped: 1,
-    });
+    harness.finish(Outcome::Completed { skipped: 1 });
 
     let effects = harness.take_effects();
     assert!(
@@ -1436,7 +1390,7 @@ fn a_temporary_extraction_with_skipped_entries_starts_nothing() {
     );
     assert_eq!(
         harness.log().last().map(String::as_str),
-        Some("extracted 0 items (1 skipped)")
+        Some("Extracted b.txt (1 skipped)")
     );
 }
 
@@ -1458,10 +1412,7 @@ fn a_temporary_extraction_with_a_conflict_skipped_still_starts_the_program() {
         vec![Effect::OperationReply(Reply::Skip { all: false })]
     );
 
-    harness.finish(Outcome::Completed {
-        done: 0,
-        skipped: 1,
-    });
+    harness.finish(Outcome::Completed { skipped: 1 });
 
     let effects = harness.take_effects();
     assert!(
@@ -1583,7 +1534,7 @@ fn a_change_to_the_archive_reloads_it_and_an_unreadable_one_logs_and_stays() {
 
     assert_eq!(
         harness.log().last().map(String::as_str),
-        Some(format!("cannot read {}: broken", shown(LEFT, "a.zip")).as_str())
+        Some(format!("Cannot read {}: broken", shown(LEFT, "a.zip")).as_str())
     );
     assert_eq!(
         harness.take_effects(),
@@ -1609,7 +1560,13 @@ fn a_vanished_archive_falls_back_to_its_directory() {
 
     assert_eq!(
         harness.log().last().map(String::as_str),
-        Some(format!("{} is not available; moved to {LEFT}", shown(LEFT, "a.zip")).as_str())
+        Some(
+            format!(
+                "Cannot open {}: not available; opened {LEFT}",
+                shown(LEFT, "a.zip")
+            )
+            .as_str()
+        )
     );
     assert!(matches!(
         harness.take_effects().as_slice(),

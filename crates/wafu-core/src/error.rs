@@ -1,8 +1,9 @@
-use std::ffi::OsString;
+use std::fmt;
 use std::path::PathBuf;
 
 use thiserror::Error;
 
+use crate::app::SpawnName;
 use crate::command::Command;
 use crate::external::CommandLineError;
 use crate::filter::FilterError;
@@ -26,78 +27,89 @@ impl IoError {
 /// An error shown to the user in the log.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum AppError {
-    #[error("cannot read {}: {source}", path.display())]
+    #[error("Cannot read {}: {source}", path.display())]
     ReadDir { path: PathBuf, source: IoError },
-    #[error("cannot watch {}: {source}", path.display())]
+    #[error("Cannot watch {}: {source}", path.display())]
     Watch { path: PathBuf, source: IoError },
-    #[error("invalid pattern {pattern}: {source}")]
+    #[error("Cannot use pattern \"{pattern}\": {source}")]
     InvalidPattern {
         pattern: String,
         source: FilterError,
     },
-    #[error("cannot open {}: the symbolic link is broken", path.display())]
+    #[error("Cannot open {}: the symbolic link is broken", path.display())]
     BrokenLink { path: PathBuf },
-    #[error("cannot open {}: not a regular file", path.display())]
+    #[error("Cannot open {}: not a regular file", path.display())]
     NotRegularFile { path: PathBuf },
-    #[error("{} is not available; moved to {}", path.display(), fallback.display())]
+    #[error("Cannot open {}: not available; opened {}", path.display(), fallback.display())]
     Fallback { path: PathBuf, fallback: PathBuf },
-    #[error("{} is not available", path.display())]
+    #[error("Cannot open {}: not available", path.display())]
     Unavailable { path: PathBuf },
-    #[error("{} does not exist", path.display())]
+    #[error("Cannot open {}: does not exist", path.display())]
     NotFound { path: PathBuf },
-    #[error("{command} is available only on Windows")]
+    #[error("Cannot run {command}: available only on Windows")]
     WindowsOnly { command: Command },
-    #[error("{command} is not available inside an archive")]
+    #[error("Cannot run {command}: not available inside an archive")]
     InArchive { command: Command },
-    #[error("no marks for {command}")]
+    #[error("Cannot run {command}: no marks")]
     NoMarks { command: Command },
-    #[error("cannot {verb} into an archive")]
+    #[error("Cannot {verb}: the other pane is inside an archive")]
     IntoArchive { verb: &'static str },
-    #[error("cannot open {}: nested archives are not supported", path.display())]
+    #[error("Cannot open {}: nested archives are not supported", path.display())]
     NestedArchive { path: PathBuf },
-    #[error("cannot make {}: only zip takes a password", name.to_string_lossy())]
-    NoPassword { name: OsString },
-    #[error("cannot make {}: the extension does not name an archive format", name.to_string_lossy())]
-    NoFormat { name: OsString },
-    #[error("config: {}:{line}: {message}", path.display())]
+    #[error("Cannot compress to {}: only zip takes a password", path.display())]
+    NoPassword { path: PathBuf },
+    #[error("Cannot compress to {}: unknown archive format", path.display())]
+    NoFormat { path: PathBuf },
+    #[error("Config: {}:{line}: {message}", path.display())]
     ConfigSyntax {
         path: PathBuf,
         line: usize,
         message: String,
     },
-    #[error("cannot read {}: {source}", path.display())]
+    #[error("Cannot read {}: {source}", path.display())]
     ConfigUnreadable { path: PathBuf, source: IoError },
-    #[error("cannot read the state file: {source}")]
-    StateUnreadable { source: StateError },
-    #[error("unknown command {command}")]
+    #[error("Cannot read {}: {source}", path.display())]
+    StateUnreadable { path: PathBuf, source: StateError },
+    #[error("Cannot run {command}: unknown command")]
     UnknownCommand { command: Command },
-    #[error("invalid command line for {command}: {source}")]
+    #[error("Cannot run {command}: {source}")]
     InvalidCommandLine {
         command: Command,
         source: CommandLineError,
     },
-    #[error("cannot start {program}: {source}")]
+    #[error("Cannot start {program}: {source}")]
     SpawnFailed { program: String, source: IoError },
-    #[error("cannot read the login shell's environment: {source}")]
+    #[error("Cannot read the login shell's environment: {source}")]
     ShellEnvFailed { source: IoError },
-    #[error("cannot start a new window{}: {source}", if *as_admin { " as administrator" } else { "" })]
+    #[error("Cannot start a new window{}: {source}", if *as_admin { " as administrator" } else { "" })]
     NewWindowFailed { as_admin: bool, source: IoError },
-    #[error("{name} exited with status {code}")]
-    ExitedWithStatus { name: String, code: i32 },
-    #[error("{name} was terminated by a signal")]
-    TerminatedBySignal { name: String },
-    #[error("cannot {verb}: the other pane has no location")]
+    #[error("{} exited with status {code}", Ended(name))]
+    ExitedWithStatus { name: SpawnName, code: i32 },
+    #[error("{} was terminated by a signal", Ended(name))]
+    TerminatedBySignal { name: SpawnName },
+    #[error("Cannot {verb}: the other pane has no location")]
     NoOtherLocation { verb: &'static str },
-    #[error("cannot rename {}: {source}", path.display())]
+    #[error("Cannot rename {}: {source}", path.display())]
     RenameFailed { path: PathBuf, source: IoError },
-    #[error("cannot create {}: {source}", path.display())]
+    #[error("Cannot create {}: {source}", path.display())]
     CreateFailed { path: PathBuf, source: IoError },
-    #[error("cannot copy to the clipboard: {source}")]
+    #[error("Cannot copy to the clipboard: {source}")]
     ClipboardFailed { source: IoError },
-    #[error("cannot open {}: {source}", path.display())]
+    #[error("Cannot open {}: {source}", path.display())]
     OpenFailed { path: PathBuf, source: IoError },
-    #[error("cannot preview {}: {source}", path.display())]
+    #[error("Cannot preview {}: {source}", path.display())]
     PreviewFailed { path: PathBuf, source: IoError },
-    #[error("cannot show the shell menu: {source}")]
+    #[error("Cannot show the shell menu: {source}")]
     ShellMenuFailed { source: IoError },
+}
+
+struct Ended<'a>(&'a SpawnName);
+
+impl fmt::Display for Ended<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            SpawnName::Editor => f.write_str("Editor"),
+            SpawnName::Command(id) => write!(f, "Command {id}"),
+        }
+    }
 }

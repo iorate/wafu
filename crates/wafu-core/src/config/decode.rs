@@ -996,7 +996,7 @@ path = "/b"
         );
         assert_eq!(
             diagnostics[6].to_string(),
-            "config: invalid value for bookmarks[6].path (expected a non-empty string)"
+            "Config: invalid value for bookmarks[6].path (expected a non-empty string)"
         );
     }
 
@@ -1058,7 +1058,7 @@ run = "wt"
         );
         assert_eq!(
             diagnostics[0].to_string(),
-            "config: missing path in bookmarks[0]"
+            "Config: missing path in bookmarks[0]"
         );
     }
 

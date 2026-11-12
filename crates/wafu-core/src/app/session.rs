@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use super::{App, ColorScheme, ConfigSource, Effect, Os, Side, SpawnKind};
+use super::{App, ColorScheme, ConfigSource, Effect, Os, Side, SpawnKind, SpawnName};
 use crate::command::Command;
 use crate::config::{Config, parse_config};
 use crate::entry::Entry;
@@ -11,7 +11,7 @@ use crate::history::History;
 use crate::listing::{SortKey, SortSpec};
 use crate::location::Location;
 use crate::popup::{InputKind, InputPopup, Popup};
-use crate::state::{PaneState, StateError, StateFile};
+use crate::state::{PaneState, StateFile};
 use crate::view::Style;
 
 impl App {
@@ -20,16 +20,15 @@ impl App {
         left: Option<PathBuf>,
         right: Option<PathBuf>,
         config: ConfigSource,
-        state: Result<Option<StateFile>, StateError>,
+        state: Result<Option<StateFile>, AppError>,
         inherited: bool,
         effects: &mut Vec<Effect>,
     ) {
         self.load_config(config);
         let state = match state {
             Ok(state) => state,
-            Err(source) => {
-                self.log
-                    .push(AppError::StateUnreadable { source }.to_string());
+            Err(error) => {
+                self.log.push(error.to_string());
                 None
             }
         };
@@ -83,7 +82,7 @@ impl App {
         };
         if let Some(config) = self.parse(&text) {
             self.apply_config(config);
-            self.log.push("config reloaded".to_owned());
+            self.log.push("Reloaded config".to_owned());
         }
     }
 
@@ -158,7 +157,7 @@ impl App {
             return;
         };
         let line = line.clone();
-        let name = Command::External(name.to_owned()).to_string();
+        let name = SpawnName::Command(Command::External(name.to_owned()).to_string());
         self.start_line(name, line, effects);
     }
 
@@ -190,7 +189,7 @@ impl App {
                 return;
             }
         };
-        self.start_line(command.to_string(), line, effects);
+        self.start_line(SpawnName::Command(command.to_string()), line, effects);
     }
 
     pub(super) fn edit_config(&mut self, effects: &mut Vec<Effect>) {
@@ -210,7 +209,7 @@ impl App {
                     args,
                 },
                 None,
-            ) => format!("started {name}: {}", format_line(&program, &args, self.os)),
+            ) => format!("Started {name}: {}", format_line(&program, &args, self.os)),
             (SpawnKind::External { program, .. }, Some(source)) => {
                 AppError::SpawnFailed { program, source }.to_string()
             }
@@ -222,7 +221,7 @@ impl App {
         self.log.push(line);
     }
 
-    pub(super) fn exited(&mut self, name: String, code: Option<i32>) {
+    pub(super) fn exited(&mut self, name: SpawnName, code: Option<i32>) {
         let error = match code {
             Some(0) => return,
             Some(code) => AppError::ExitedWithStatus { name, code },
@@ -236,7 +235,7 @@ impl App {
             ConfigSource::Text(text) => self.parse(&text),
             ConfigSource::Created => {
                 self.log
-                    .push(format!("created {}", self.config_path.display()));
+                    .push(format!("Created {}", self.config_path.display()));
                 None
             }
             ConfigSource::Unreadable(source) => {
@@ -347,11 +346,11 @@ impl App {
         expansion: &Expansion,
         effects: &mut Vec<Effect>,
     ) {
-        Self::spawn("editor".to_owned(), line, expansion, effects);
+        Self::spawn(SpawnName::Editor, line, expansion, effects);
     }
 
     pub(super) fn spawn(
-        name: String,
+        name: SpawnName,
         line: &CommandLine,
         expansion: &Expansion,
         effects: &mut Vec<Effect>,

@@ -19,6 +19,7 @@ pub(crate) const HOME: &str = "/home/user";
 pub(crate) const LEFT: &str = HOME;
 pub(crate) const RIGHT: &str = "/tmp";
 pub(crate) const CONFIG_PATH: &str = "/home/user/.config/wafu/config.toml";
+pub(crate) const STATE_PATH: &str = "/home/user/.local/state/wafu/state.toml";
 
 // Drives an `App` with messages and records the effects, so that scenario
 // tests read like a script: press a key, answer an I/O request, look at the view.
@@ -494,6 +495,7 @@ pub(crate) fn start_msg_with(
         config_path: PathBuf::from(CONFIG_PATH),
         config,
         state,
+        state_path: PathBuf::from(STATE_PATH),
         inherited: false,
     }))
 }

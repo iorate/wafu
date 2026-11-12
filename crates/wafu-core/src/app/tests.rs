@@ -9,7 +9,8 @@ use crate::listing::{SortKey, SortSpec};
 use crate::pane::InFlight;
 use crate::state::{PaneState, StateFile};
 use crate::test_support::{
-    CONFIG_PATH, HOME, Harness, dir, file, path, shown, special, start_msg, start_msg_with,
+    CONFIG_PATH, HOME, Harness, STATE_PATH, dir, file, path, shown, special, start_msg,
+    start_msg_with,
 };
 use crate::view::{ItemKind, RowKind};
 
@@ -531,7 +532,7 @@ fn read_error_is_logged_and_the_pane_stays_where_it_was() {
 
     harness.fail_load(Side::Left, "permission denied");
 
-    assert_eq!(harness.log(), ["cannot read /home: permission denied"]);
+    assert_eq!(harness.log(), ["Cannot read /home: permission denied"]);
     assert_eq!(
         harness.take_effects(),
         vec![
@@ -567,7 +568,7 @@ fn log_shows_line_breaks_in_a_path_as_symbols() {
     assert_eq!(
         harness.log(),
         [format!(
-            "cannot read {}: permission denied",
+            "Cannot read {}: permission denied",
             shown("/home/user", "a\u{21B5}b")
         )]
     );
@@ -720,7 +721,7 @@ fn mark_glob_with_an_invalid_pattern_is_logged_and_keeps_the_marks() {
 
     assert_eq!(harness.popup(), None);
     assert_eq!(harness.log().len(), 1);
-    assert!(harness.log()[0].starts_with("invalid pattern [: "));
+    assert!(harness.log()[0].starts_with("Cannot use pattern \"[\": "));
     assert_eq!(harness.marks(Side::Left), ["a.png"]);
 }
 
@@ -1520,7 +1521,7 @@ fn watch_failure_is_logged() {
 
     assert_eq!(
         harness.log(),
-        vec!["cannot watch /home/user: too many watches"]
+        vec!["Cannot watch /home/user: too many watches"]
     );
 }
 
@@ -1797,7 +1798,7 @@ fn start_with_nothing_existing_falls_back_to_home() {
 
     assert_eq!(
         harness.log(),
-        ["/nowhere is not available; moved to /home/user"]
+        ["Cannot open /nowhere: not available; opened /home/user"]
     );
     assert_eq!(
         harness.take_effects(),
@@ -1825,7 +1826,7 @@ fn a_move_to_a_drive_with_nothing_on_it_stays_put() {
 
     harness.fail_resolve(Side::Left);
 
-    assert_eq!(harness.log(), ["D:\\ is not available"]);
+    assert_eq!(harness.log(), ["Cannot open D:\\: not available"]);
     assert_eq!(
         harness.take_effects(),
         vec![
@@ -2228,7 +2229,9 @@ fn go_to_path_to_a_missing_place_logs_an_error_and_stays() {
 
     assert_eq!(
         harness.log(),
-        [format!("{MAIN_SEPARATOR}nowhere does not exist")]
+        [format!(
+            "Cannot open {MAIN_SEPARATOR}nowhere: does not exist"
+        )]
     );
     assert_eq!(harness.view().left.path, "/home/user");
     assert_eq!(
@@ -2398,7 +2401,7 @@ fn a_vanished_place_is_left_for_the_nearest_ancestor() {
 
     assert_eq!(
         harness.log(),
-        ["/home/user is not available; moved to /home"]
+        ["Cannot open /home/user: not available; opened /home"]
     );
     assert_eq!(
         harness.take_effects(),
@@ -2431,7 +2434,7 @@ fn a_vanished_place_without_an_ancestor_is_left_for_home() {
 
     assert_eq!(
         harness.log(),
-        ["/mnt/usb is not available; moved to /home/user"]
+        ["Cannot open /mnt/usb: not available; opened /home/user"]
     );
     assert_eq!(
         harness.take_effects(),
@@ -2459,7 +2462,7 @@ fn a_failed_reload_of_a_place_that_still_exists_only_logs() {
 
     harness.resolve(Side::Left, "/home/user", None);
 
-    assert_eq!(harness.log(), ["cannot read /home/user: permission denied"]);
+    assert_eq!(harness.log(), ["Cannot read /home/user: permission denied"]);
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Watch {
@@ -2490,7 +2493,7 @@ fn opening_a_broken_link_logs_an_error() {
     assert_eq!(
         harness.log(),
         [format!(
-            "cannot open {}: the symbolic link is broken",
+            "Cannot open {}: the symbolic link is broken",
             PathBuf::from("/home/user").join("dead").display()
         )]
     );
@@ -2509,7 +2512,7 @@ fn opening_a_special_file_logs_an_error() {
     assert_eq!(
         harness.log(),
         [format!(
-            "cannot open {}: not a regular file",
+            "Cannot open {}: not a regular file",
             PathBuf::from("/home/user").join("fifo").display()
         )]
     );
@@ -2528,7 +2531,7 @@ fn entering_a_special_file_as_an_archive_logs_an_error() {
     assert_eq!(
         harness.log(),
         [format!(
-            "cannot open {}: not a regular file",
+            "Cannot open {}: not a regular file",
             PathBuf::from("/home/user").join("sock").display()
         )]
     );
@@ -2604,8 +2607,8 @@ fn drive_commands_bound_by_the_configuration_log_on_other_systems() {
     assert_eq!(
         harness.log()[1..],
         [
-            "drives is available only on Windows",
-            "drive_prev is available only on Windows"
+            "Cannot run drives: available only on Windows",
+            "Cannot run drive_prev: available only on Windows"
         ]
     );
     assert_eq!(harness.take_effects(), vec![]);
@@ -3037,7 +3040,7 @@ fn start_logs_a_created_configuration() {
         Ok(None),
     ));
 
-    assert_eq!(harness.log(), [format!("created {CONFIG_PATH}")]);
+    assert_eq!(harness.log(), [format!("Created {CONFIG_PATH}")]);
 }
 
 #[test]
@@ -3054,9 +3057,9 @@ fn start_logs_an_unreadable_configuration_and_state_file() {
     assert_eq!(log.len(), 2);
     assert_eq!(
         log[0],
-        format!("cannot read {CONFIG_PATH}: permission denied")
+        format!("Cannot read {CONFIG_PATH}: permission denied")
     );
-    assert!(log[1].starts_with("cannot read the state file: "));
+    assert!(log[1].starts_with(&format!("Cannot read {STATE_PATH}: ")));
 }
 
 #[test]
@@ -3069,7 +3072,7 @@ fn start_logs_an_unknown_configuration_item() {
         Ok(None),
     ));
 
-    assert_eq!(harness.log(), ["config: unknown item general.foo"]);
+    assert_eq!(harness.log(), ["Config: unknown item general.foo"]);
 }
 
 #[test]
@@ -3086,7 +3089,7 @@ fn reloading_the_configuration_changes_keys_and_style() {
 
     assert_eq!(
         harness.log(),
-        ["config: unknown item appearance.bogus", "config reloaded",]
+        ["Config: unknown item appearance.bogus", "Reloaded config",]
     );
     let style = harness.view().style;
     assert_eq!(style.theme, Theme::Dark);
@@ -3138,14 +3141,14 @@ fn a_syntax_error_on_reload_keeps_the_previous_configuration() {
 
     let log = harness.log();
     assert_eq!(log.len(), 2);
-    assert_eq!(log[0], "config reloaded");
-    assert!(log[1].starts_with(&format!("config: {CONFIG_PATH}:1: ")));
+    assert_eq!(log[0], "Reloaded config");
+    assert!(log[1].starts_with(&format!("Config: {CONFIG_PATH}:1: ")));
     assert_eq!(harness.view().style.theme, Theme::Light);
 
     harness.send(Msg::Io(IoEvent::ConfigLoaded {
         result: Err(IoError::new("gone")),
     }));
-    assert_eq!(harness.log()[2], format!("cannot read {CONFIG_PATH}: gone"));
+    assert_eq!(harness.log()[2], format!("Cannot read {CONFIG_PATH}: gone"));
     assert_eq!(harness.view().style.theme, Theme::Light);
 }
 
@@ -3264,7 +3267,7 @@ fn new_window_hands_over_the_state_and_logs_a_failure() {
         kind: SpawnKind::NewWindow { as_admin: false },
         error: Some(IoError::new("no exe")),
     }));
-    assert_eq!(harness.log(), ["cannot start a new window: no exe"]);
+    assert_eq!(harness.log(), ["Cannot start a new window: no exe"]);
 }
 
 #[test]
@@ -3292,7 +3295,7 @@ fn new_window_as_admin_hands_over_the_state_on_windows_and_logs_a_failure() {
     }));
     assert_eq!(
         harness.log(),
-        ["cannot start a new window as administrator: cancelled"]
+        ["Cannot start a new window as administrator: cancelled"]
     );
 }
 
@@ -3306,7 +3309,7 @@ fn new_window_as_admin_bound_by_the_configuration_logs_on_other_systems() {
 
     assert_eq!(
         harness.log()[1..],
-        ["new_window_as_admin is available only on Windows"]
+        ["Cannot run new_window_as_admin: available only on Windows"]
     );
     assert_eq!(harness.take_effects(), vec![]);
 }
@@ -3344,7 +3347,7 @@ fn external_commands_expand_placeholders_and_report_their_start() {
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
-            name: "$term".to_owned(),
+            name: SpawnName::Command("$term".to_owned()),
             program: "wt".to_owned(),
             args: vec![
                 OsString::from("-d"),
@@ -3361,7 +3364,7 @@ fn external_commands_expand_placeholders_and_report_their_start() {
 
     harness.send(Msg::Io(IoEvent::Spawned {
         kind: SpawnKind::External {
-            name: "$term".to_owned(),
+            name: SpawnName::Command("$term".to_owned()),
             program: "wt".to_owned(),
             args: vec![OsString::from("-d"), OsString::from("a b")],
         },
@@ -3369,7 +3372,7 @@ fn external_commands_expand_placeholders_and_report_their_start() {
     }));
     harness.send(Msg::Io(IoEvent::Spawned {
         kind: SpawnKind::External {
-            name: "$term".to_owned(),
+            name: SpawnName::Command("$term".to_owned()),
             program: "wt".to_owned(),
             args: vec![OsString::from("-d"), OsString::from("a b")],
         },
@@ -3378,8 +3381,8 @@ fn external_commands_expand_placeholders_and_report_their_start() {
     assert_eq!(
         harness.log()[1..],
         [
-            r#"started $term: wt -d "a b""#,
-            "cannot start wt: not found"
+            r#"Started $term: wt -d "a b""#,
+            "Cannot start wt: not found"
         ]
     );
 }
@@ -3430,7 +3433,7 @@ fn failing_to_read_the_login_shell_environment_is_logged_and_releases_the_progra
     ));
     assert_eq!(
         harness.log(),
-        ["cannot read the login shell's environment: timed out"]
+        ["Cannot read the login shell's environment: timed out"]
     );
 }
 
@@ -3479,24 +3482,34 @@ fn an_exit_other_than_success_is_logged() {
     harness.take_effects();
 
     harness.send(Msg::Io(IoEvent::Exited {
-        name: "$term".to_owned(),
+        name: SpawnName::Command("$term".to_owned()),
         code: Some(0),
     }));
     assert_eq!(harness.log(), Vec::<String>::new());
 
     harness.send(Msg::Io(IoEvent::Exited {
-        name: "$term".to_owned(),
+        name: SpawnName::Command("$term".to_owned()),
         code: Some(1),
     }));
     harness.send(Msg::Io(IoEvent::Exited {
-        name: "editor".to_owned(),
+        name: SpawnName::Command("$term".to_owned()),
+        code: None,
+    }));
+    harness.send(Msg::Io(IoEvent::Exited {
+        name: SpawnName::Editor,
+        code: Some(2),
+    }));
+    harness.send(Msg::Io(IoEvent::Exited {
+        name: SpawnName::Editor,
         code: None,
     }));
     assert_eq!(
         harness.log(),
         [
-            "$term exited with status 1",
-            "editor was terminated by a signal"
+            "Command $term exited with status 1",
+            "Command $term was terminated by a signal",
+            "Editor exited with status 2",
+            "Editor was terminated by a signal"
         ]
     );
 }
@@ -3515,7 +3528,7 @@ fn external_commands_run_from_the_palette() {
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
-            name: "$term".to_owned(),
+            name: SpawnName::Command("$term".to_owned()),
             program: "wt".to_owned(),
             args: vec![path("/home", "user").into_os_string()],
             cwd: PathBuf::from(HOME),
@@ -3537,7 +3550,7 @@ fn edit_config_opens_the_configuration_in_the_editor() {
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
-            name: "editor".to_owned(),
+            name: SpawnName::Editor,
             program: "code".to_owned(),
             args: vec![OsString::from("-w"), OsString::from(CONFIG_PATH)],
             cwd: PathBuf::from(HOME),
