@@ -2,8 +2,10 @@ use std::ffi::OsString;
 use std::fmt;
 use std::path::PathBuf;
 
+use crate::config::SizeFormat;
 use crate::error::IoError;
 use crate::location::{ArchiveFormat, ArchivePath};
+use crate::view::size_with_unit;
 
 /// A file operation for the I/O layer to carry out.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,6 +62,8 @@ pub enum OperationKind {
     /// Unpacks archive entries into a fresh temporary directory, to hand to
     /// another program.
     ExtractToTemp,
+    /// Adds up the sizes of the files in the sources, without following links.
+    CalculateSize,
 }
 
 /// What the I/O layer reports while an operation runs.
@@ -105,6 +109,14 @@ pub enum Outcome {
     Cancelled {
         done: usize,
     },
+    /// The end of a `CalculateSize`. Links count as nothing, and `unreadable`
+    /// entries were left out of the counts with what is under them.
+    Measured {
+        files: usize,
+        folders: usize,
+        bytes: u64,
+        unreadable: usize,
+    },
     Failed {
         path: PathBuf,
         error: IoError,
@@ -116,6 +128,7 @@ pub enum Outcome {
 pub struct OutcomeLine<'a> {
     pub kind: OperationKind,
     pub outcome: &'a Outcome,
+    pub size_format: SizeFormat,
 }
 
 /// The answer to a conflict or a password request, or a cancellation at any time.
@@ -143,6 +156,7 @@ impl OperationKind {
             Self::Delete => "deleted",
             Self::Extract { .. } | Self::ExtractToTemp => "extracted",
             Self::Compress => "compressed",
+            Self::CalculateSize => "calculated",
         }
     }
 
@@ -156,6 +170,7 @@ impl OperationKind {
             Self::Trash => "trash",
             Self::Extract { .. } | Self::ExtractToTemp => "extract",
             Self::Compress => "compress",
+            Self::CalculateSize => "calculate size",
         }
     }
 
@@ -169,6 +184,7 @@ impl OperationKind {
             Self::Trash => "Moving to trash",
             Self::Extract { .. } | Self::ExtractToTemp => "Extracting",
             Self::Compress => "Compressing",
+            Self::CalculateSize => "Calculating size",
         }
     }
 }
@@ -190,6 +206,24 @@ impl fmt::Display for OutcomeLine<'_> {
             Outcome::Cancelled { done } => {
                 write!(f, "{} cancelled after {done} {}", kind.noun(), items(*done))
             }
+            Outcome::Measured {
+                files,
+                folders,
+                bytes,
+                unreadable,
+            } => {
+                write!(
+                    f,
+                    "{files} {} and {folders} {}: {}",
+                    plural(*files, "file", "files"),
+                    plural(*folders, "folder", "folders"),
+                    size_with_unit(self.size_format, *bytes)
+                )?;
+                if *unreadable > 0 {
+                    write!(f, " ({unreadable} unreadable)")?;
+                }
+                Ok(())
+            }
             Outcome::Failed { path, error, .. } => {
                 write!(f, "cannot {} {}: {error}", kind.noun(), path.display())
             }
@@ -198,7 +232,11 @@ impl fmt::Display for OutcomeLine<'_> {
 }
 
 fn items(count: usize) -> &'static str {
-    if count == 1 { "item" } else { "items" }
+    plural(count, "item", "items")
+}
+
+fn plural(count: usize, one: &'static str, many: &'static str) -> &'static str {
+    if count == 1 { one } else { many }
 }
 
 #[cfg(test)]
@@ -207,7 +245,14 @@ mod tests {
 
     #[test]
     fn outcome_lines() {
-        let line = |kind, outcome: &Outcome| OutcomeLine { kind, outcome }.to_string();
+        let line = |kind, outcome: &Outcome| {
+            OutcomeLine {
+                kind,
+                outcome,
+                size_format: SizeFormat::Plain,
+            }
+            .to_string()
+        };
 
         assert_eq!(
             line(
@@ -278,6 +323,43 @@ mod tests {
                 }
             ),
             "cannot extract /a/b.zip: bad"
+        );
+    }
+
+    #[test]
+    fn measured_lines() {
+        let line = |outcome: &Outcome, size_format| {
+            OutcomeLine {
+                kind: OperationKind::CalculateSize,
+                outcome,
+                size_format,
+            }
+            .to_string()
+        };
+
+        assert_eq!(
+            line(
+                &Outcome::Measured {
+                    files: 1,
+                    folders: 1,
+                    bytes: 1234,
+                    unreadable: 0,
+                },
+                SizeFormat::Comma
+            ),
+            "1 file and 1 folder: 1,234 bytes"
+        );
+        assert_eq!(
+            line(
+                &Outcome::Measured {
+                    files: 0,
+                    folders: 2,
+                    bytes: 2048,
+                    unreadable: 3,
+                },
+                SizeFormat::Human
+            ),
+            "0 files and 2 folders: 2.0K (3 unreadable)"
         );
     }
 }

@@ -73,6 +73,7 @@ impl App {
             Command::EnterAsArchive => self.enter_as_archive(effects),
             Command::Extract => self.start_extract(effects),
             Command::Compress => self.open_compress(),
+            Command::CalculateSize => self.start_calculation(effects),
             _ => {}
         }
     }
@@ -204,6 +205,13 @@ impl App {
     ) {
         let sources = source_paths(&dir, &names);
         self.start_operation(kind, dir, names, sources, None, effects);
+    }
+
+    fn start_calculation(&mut self, effects: &mut Vec<Effect>) {
+        let Some((location, names)) = self.target_names() else {
+            return;
+        };
+        self.start_removal(OperationKind::CalculateSize, location.base, names, effects);
     }
 
     pub(super) fn confirm_quit(&mut self) {
@@ -830,11 +838,15 @@ impl App {
                 OutcomeLine {
                     kind: operation.kind,
                     outcome,
+                    size_format: self.config.appearance.size_format,
                 }
                 .to_string(),
             );
         }
-        self.refresh_showing(&operation.source_dir, effects);
+        // A size calculation changes nothing to read again.
+        if operation.kind != OperationKind::CalculateSize {
+            self.refresh_showing(&operation.source_dir, effects);
+        }
         if let Some(dest) = &operation.dest
             && *dest != operation.source_dir
         {
@@ -963,6 +975,7 @@ fn requires_marks(command: &Command) -> bool {
 }
 
 // The commands that work on the entries of an archive without changing it.
+// `calculate_size` would not change it either, but it only adds up files on disk.
 fn allowed_in_archive(command: &Command) -> bool {
     matches!(
         command,

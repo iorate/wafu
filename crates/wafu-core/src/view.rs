@@ -415,7 +415,7 @@ fn entry_status(entry: &Entry, mut name: String, size_format: SizeFormat) -> Str
     show_line_breaks(segments.join(" | "))
 }
 
-fn size_with_unit(format: SizeFormat, bytes: u64) -> String {
+pub(crate) fn size_with_unit(format: SizeFormat, bytes: u64) -> String {
     match format {
         SizeFormat::Human => SizeFormat::Human.format(bytes),
         format => format!("{} bytes", format.format(bytes)),

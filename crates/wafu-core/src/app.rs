@@ -698,7 +698,8 @@ impl App {
             | Command::ShellMenu
             | Command::EnterAsArchive
             | Command::Extract
-            | Command::Compress => self.run_file_command(command, effects),
+            | Command::Compress
+            | Command::CalculateSize => self.run_file_command(command, effects),
             Command::Nop => {}
         }
     }
