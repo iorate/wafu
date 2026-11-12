@@ -362,17 +362,21 @@ fn commands_that_change_things_are_refused_inside_an_archive() {
 }
 
 #[test]
-fn calculate_size_is_refused_inside_an_archive() {
+fn size_calculations_are_refused_inside_an_archive() {
     let mut harness = inside();
     harness.press("Down");
     harness.press("Down");
 
     harness.press("Shift+I");
+    harness.press("I");
 
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(
         harness.log(),
-        ["calculate_size is not available inside an archive"]
+        [
+            "calculate_size is not available inside an archive",
+            "calculate_size_on_disk is not available inside an archive",
+        ]
     );
 }
 

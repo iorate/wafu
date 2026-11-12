@@ -698,6 +698,42 @@ fn calculate_size_starts_at_once_and_logs_the_total_without_reading_again() {
 }
 
 #[test]
+fn calculate_size_on_disk_starts_at_once_and_logs_the_total_without_reading_again() {
+    let mut harness = three_files();
+    harness.config("[appearance]\nsize_format = \"comma\"\n");
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("I");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::StartOperation(OperationSpec {
+            kind: OperationKind::CalculateSizeOnDisk,
+            sources: Sources::Paths(vec![path(LEFT, "a")]),
+            dest: None,
+            output: None,
+        })]
+    );
+    assert_eq!(
+        harness.view().popup.unwrap().title,
+        "Calculating size on disk"
+    );
+
+    harness.finish(Outcome::Measured {
+        files: 1,
+        folders: 0,
+        bytes: 4096,
+        unreadable: 0,
+    });
+    assert_eq!(
+        harness.log().last().map(String::as_str),
+        Some("1 file and 0 folders: 4,096 bytes on disk")
+    );
+    assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
 fn rename_opens_with_the_name_and_selects_everything_but_the_extension() {
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.load(Side::Left, vec![file("a.tar.gz"), dir("conf.d")]);

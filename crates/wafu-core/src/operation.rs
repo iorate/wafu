@@ -64,6 +64,9 @@ pub enum OperationKind {
     ExtractToTemp,
     /// Adds up the sizes of the files in the sources, without following links.
     CalculateSize,
+    /// Adds up the space the files in the sources take up on disk, without
+    /// following links.
+    CalculateSizeOnDisk,
 }
 
 /// What the I/O layer reports while an operation runs.
@@ -109,8 +112,9 @@ pub enum Outcome {
     Cancelled {
         done: usize,
     },
-    /// The end of a `CalculateSize`. Links count as nothing, and `unreadable`
-    /// entries were left out of the counts with what is under them.
+    /// The end of a `CalculateSize` or a `CalculateSizeOnDisk`. Links count
+    /// as nothing, and `unreadable` entries were left out of the counts with
+    /// what is under them.
     Measured {
         files: usize,
         folders: usize,
@@ -156,7 +160,7 @@ impl OperationKind {
             Self::Delete => "deleted",
             Self::Extract { .. } | Self::ExtractToTemp => "extracted",
             Self::Compress => "compressed",
-            Self::CalculateSize => "calculated",
+            Self::CalculateSize | Self::CalculateSizeOnDisk => "calculated",
         }
     }
 
@@ -171,6 +175,7 @@ impl OperationKind {
             Self::Extract { .. } | Self::ExtractToTemp => "extract",
             Self::Compress => "compress",
             Self::CalculateSize => "calculate size",
+            Self::CalculateSizeOnDisk => "calculate size on disk",
         }
     }
 
@@ -185,6 +190,7 @@ impl OperationKind {
             Self::Extract { .. } | Self::ExtractToTemp => "Extracting",
             Self::Compress => "Compressing",
             Self::CalculateSize => "Calculating size",
+            Self::CalculateSizeOnDisk => "Calculating size on disk",
         }
     }
 }
@@ -219,6 +225,9 @@ impl fmt::Display for OutcomeLine<'_> {
                     plural(*folders, "folder", "folders"),
                     size_with_unit(self.size_format, *bytes)
                 )?;
+                if kind == OperationKind::CalculateSizeOnDisk {
+                    f.write_str(" on disk")?;
+                }
                 if *unreadable > 0 {
                     write!(f, " ({unreadable} unreadable)")?;
                 }
@@ -328,9 +337,9 @@ mod tests {
 
     #[test]
     fn measured_lines() {
-        let line = |outcome: &Outcome, size_format| {
+        let line = |kind, outcome: &Outcome, size_format| {
             OutcomeLine {
-                kind: OperationKind::CalculateSize,
+                kind,
                 outcome,
                 size_format,
             }
@@ -339,6 +348,7 @@ mod tests {
 
         assert_eq!(
             line(
+                OperationKind::CalculateSize,
                 &Outcome::Measured {
                     files: 1,
                     folders: 1,
@@ -351,6 +361,7 @@ mod tests {
         );
         assert_eq!(
             line(
+                OperationKind::CalculateSize,
                 &Outcome::Measured {
                     files: 0,
                     folders: 2,
@@ -360,6 +371,19 @@ mod tests {
                 SizeFormat::Human
             ),
             "0 files and 2 folders: 2.0K (3 unreadable)"
+        );
+        assert_eq!(
+            line(
+                OperationKind::CalculateSizeOnDisk,
+                &Outcome::Measured {
+                    files: 1,
+                    folders: 0,
+                    bytes: 4096,
+                    unreadable: 2,
+                },
+                SizeFormat::Comma
+            ),
+            "1 file and 0 folders: 4,096 bytes on disk (2 unreadable)"
         );
     }
 }

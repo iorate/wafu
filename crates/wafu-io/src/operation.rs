@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::ffi::OsString;
 use std::fs::{self, File, FileTimes, Metadata};
 use std::io::{self, Read, Write};
@@ -12,6 +13,13 @@ use crate::trash::trash;
 mod archives;
 
 const CHUNK_SIZE: usize = 64 * 1024;
+#[cfg(windows)]
+const LISTING_SIZE: usize = 64 * 1024;
+#[cfg(windows)]
+const NAME_AT: usize = std::mem::offset_of!(
+    windows::Win32::Storage::FileSystem::FILE_ID_BOTH_DIR_INFO,
+    FileName
+);
 // Special files (FIFOs, sockets, devices) are refused here rather than by the
 // core, which does not see the ones inside a directory.
 const NOT_REGULAR: &str = "not a regular file";
@@ -51,8 +59,12 @@ struct Worker<'a> {
 
 impl Worker<'_> {
     fn run(&mut self, spec: &OperationSpec) -> Outcome {
-        if let (Sources::Paths(paths), OperationKind::CalculateSize) = (&spec.sources, spec.kind) {
-            return self.calculate_size(paths);
+        if let Sources::Paths(paths) = &spec.sources {
+            match spec.kind {
+                OperationKind::CalculateSize => return self.calculate_size(paths, false),
+                OperationKind::CalculateSizeOnDisk => return self.calculate_size(paths, true),
+                _ => {}
+            }
         }
         match self.run_all(spec) {
             Ok(()) => Outcome::Completed {
@@ -109,7 +121,8 @@ impl Worker<'_> {
                 OperationKind::Extract { .. }
                 | OperationKind::Compress
                 | OperationKind::ExtractToTemp
-                | OperationKind::CalculateSize => {
+                | OperationKind::CalculateSize
+                | OperationKind::CalculateSizeOnDisk => {
                     return Err(failure(source, "unsupported operation"));
                 }
             };
@@ -407,11 +420,11 @@ impl Worker<'_> {
         Ok(true)
     }
 
-    fn calculate_size(&mut self, paths: &[PathBuf]) -> Outcome {
+    fn calculate_size(&mut self, paths: &[PathBuf], on_disk: bool) -> Outcome {
         let mut total = SizeTotal::default();
         for path in paths {
             if self
-                .measure(path, fs::symlink_metadata(path), &mut total)
+                .measure(path, target_size(path, on_disk), on_disk, &mut total)
                 .is_err()
             {
                 return Outcome::Cancelled { done: self.done };
@@ -431,26 +444,37 @@ impl Worker<'_> {
     fn measure(
         &mut self,
         path: &Path,
-        meta: io::Result<Metadata>,
+        size: io::Result<EntrySize>,
+        on_disk: bool,
         total: &mut SizeTotal,
     ) -> Result<(), Stop> {
         self.begin(path)?;
-        let Ok(meta) = meta else {
+        let Ok(size) = size else {
             total.unreadable += 1;
             return Ok(());
         };
-        if meta.is_symlink() {
+        if size.link {
             return Ok(());
         }
-        if !meta.is_dir() {
+        if !size.dir {
             self.done += 1;
             total.files += 1;
-            total.bytes = total.bytes.saturating_add(meta.len());
+            let bytes = if !on_disk {
+                size.len
+            } else if size
+                .hard_link
+                .is_some_and(|id| !total.hard_links.insert(id))
+            {
+                0
+            } else {
+                size.allocated
+            };
+            total.bytes = total.bytes.saturating_add(bytes);
             return Ok(());
         }
         // Collected before going down, so that a deep tree holds one
         // directory open at a time instead of one per level.
-        let Ok(entries) = fs::read_dir(path).map(Iterator::collect::<Vec<_>>) else {
+        let Ok(entries) = sizes_in(path) else {
             total.unreadable += 1;
             return Ok(());
         };
@@ -458,9 +482,7 @@ impl Worker<'_> {
         total.folders += 1;
         for entry in entries {
             match entry {
-                // The metadata of an entry does not follow a link, and on
-                // Windows it comes with the listing, not from opening the file.
-                Ok(entry) => self.measure(&entry.path(), entry.metadata(), total)?,
+                Ok((path, size)) => self.measure(&path, size, on_disk, total)?,
                 Err(_) => total.unreadable += 1,
             }
         }
@@ -498,7 +520,21 @@ struct SizeTotal {
     folders: usize,
     bytes: u64,
     unreadable: usize,
+    hard_links: HashSet<(u64, u64)>,
 }
+
+// A directory's own sizes are not added.
+struct EntrySize {
+    link: bool,
+    dir: bool,
+    len: u64,
+    allocated: u64,
+    // The device and inode of a file with more than one hard link, so that
+    // the space it takes up is added once however many names it has.
+    hard_link: Option<(u64, u64)>,
+}
+
+type Child = io::Result<(PathBuf, io::Result<EntrySize>)>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Policy {
@@ -591,6 +627,224 @@ fn open_for_times(path: &Path) -> io::Result<File> {
         .write(true)
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
         .open(path)
+}
+
+#[cfg(unix)]
+fn target_size(path: &Path, _on_disk: bool) -> io::Result<EntrySize> {
+    fs::symlink_metadata(path).map(|meta| entry_size(&meta))
+}
+
+// The metadata of an entry does not follow a link.
+#[cfg(unix)]
+fn sizes_in(dir: &Path) -> io::Result<Vec<Child>> {
+    Ok(fs::read_dir(dir)?
+        .map(|entry| {
+            entry.map(|entry| {
+                let size = entry.metadata().map(|meta| entry_size(&meta));
+                (entry.path(), size)
+            })
+        })
+        .collect())
+}
+
+#[cfg(unix)]
+fn entry_size(meta: &Metadata) -> EntrySize {
+    use std::os::unix::fs::MetadataExt;
+
+    // `st_blocks` counts 512-byte units on Linux and macOS alike, whatever
+    // the block size of the file system.
+    const BLOCK: u64 = 512;
+
+    EntrySize {
+        link: meta.is_symlink(),
+        dir: meta.is_dir(),
+        len: meta.len(),
+        allocated: meta.blocks().saturating_mul(BLOCK),
+        hard_link: (meta.is_file() && meta.nlink() > 1).then(|| (meta.dev(), meta.ino())),
+    }
+}
+
+#[cfg(windows)]
+fn target_size(path: &Path, on_disk: bool) -> io::Result<EntrySize> {
+    let meta = fs::symlink_metadata(path)?;
+    let (link, dir) = (meta.is_symlink(), meta.is_dir());
+    let allocated = if on_disk && !link && !dir {
+        // A file that cannot be opened even for its attributes (one in use
+        // by the system, such as the page file) still shows in the listing of
+        // its folder, as it does when the folder is what is measured.
+        allocation_size(path).or_else(|error| listed_allocation(path).ok_or(error))?
+    } else {
+        0
+    };
+    Ok(EntrySize {
+        link,
+        dir,
+        len: meta.len(),
+        allocated,
+        hard_link: None,
+    })
+}
+
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn allocation_size(path: &Path) -> io::Result<u64> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Storage::FileSystem::{
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES,
+        FILE_STANDARD_INFO, FileStandardInfo, GetFileInformationByHandleEx,
+    };
+
+    // Opened for its attributes only and without following a reparse point,
+    // so that the file is not read and a cloud file is not downloaded.
+    let file = fs::OpenOptions::new()
+        .access_mode(FILE_READ_ATTRIBUTES.0)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0 | FILE_FLAG_BACKUP_SEMANTICS.0)
+        .open(path)?;
+    let mut info = FILE_STANDARD_INFO::default();
+    // The struct is a few dozen bytes.
+    #[allow(clippy::cast_possible_truncation)]
+    let length = std::mem::size_of::<FILE_STANDARD_INFO>() as u32;
+    // SAFETY: the handle stays open for the call, and `info` is writable and
+    // as large as the length passed.
+    unsafe {
+        GetFileInformationByHandleEx(
+            HANDLE(file.as_raw_handle()),
+            FileStandardInfo,
+            (&raw mut info).cast(),
+            length,
+        )
+    }?;
+    Ok(u64::try_from(info.AllocationSize).unwrap_or(0))
+}
+
+#[cfg(windows)]
+fn listed_allocation(path: &Path) -> Option<u64> {
+    sizes_in(path.parent()?)
+        .ok()?
+        .into_iter()
+        .flatten()
+        .find(|(listed, _)| listed.file_name() == path.file_name())
+        .and_then(|(_, size)| size.ok())
+        .map(|size| size.allocated)
+}
+
+// The listing gives the type and sizes of every child without opening it,
+// which keeps a large tree fast and leaves cloud files where they are.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn sizes_in(dir: &Path) -> io::Result<Vec<Child>> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+
+    use windows::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_NO_MORE_FILES, HANDLE};
+    use windows::Win32::Storage::FileSystem::{
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_LIST_DIRECTORY, FileIdBothDirectoryInfo,
+        GetFileInformationByHandleEx,
+    };
+
+    let handle = fs::OpenOptions::new()
+        .access_mode(FILE_LIST_DIRECTORY.0)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0)
+        .open(dir)?;
+    // Words, for the 8-byte alignment the entries require. They are copied
+    // out as bytes, so that the fields are read without casting pointers.
+    let mut words = vec![0u64; LISTING_SIZE / 8];
+    let mut bytes = Vec::with_capacity(LISTING_SIZE);
+    // 64 KiB fits in a `u32`.
+    #[allow(clippy::cast_possible_truncation)]
+    let length = LISTING_SIZE as u32;
+    let mut entries = Vec::new();
+    let mut first = true;
+    loop {
+        // SAFETY: the handle stays open for the call, and `words` is writable,
+        // 8-byte aligned, and as large as the length passed.
+        let listed = unsafe {
+            GetFileInformationByHandleEx(
+                HANDLE(handle.as_raw_handle()),
+                FileIdBothDirectoryInfo,
+                words.as_mut_ptr().cast(),
+                length,
+            )
+        };
+        match listed {
+            Err(error) if error.code() == ERROR_NO_MORE_FILES.to_hresult() => break,
+            // The first call fails this way when there is no entry at all,
+            // which happens in an empty drive root, as it has no `.` and `..`.
+            Err(error) if first && error.code() == ERROR_FILE_NOT_FOUND.to_hresult() => break,
+            Err(error) if first => return Err(error.into()),
+            Err(error) => {
+                entries.push(Err(error.into()));
+                break;
+            }
+            Ok(()) => {}
+        }
+        first = false;
+        bytes.clear();
+        bytes.extend(words.iter().flat_map(|word| word.to_ne_bytes()));
+        if read_listing(&bytes, dir, &mut entries).is_none() {
+            entries.push(Err(io::Error::other("malformed directory listing")));
+            break;
+        }
+    }
+    Ok(entries)
+}
+
+// Adds the entries of one batch, or returns `None` when the batch does not
+// hold together.
+#[cfg(windows)]
+fn read_listing(bytes: &[u8], dir: &Path, entries: &mut Vec<Child>) -> Option<()> {
+    use std::mem::offset_of;
+    use std::os::windows::ffi::OsStringExt;
+
+    use windows::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT, FILE_ID_BOTH_DIR_INFO as Info,
+    };
+
+    // With the reparse point attribute set, `EaSize` holds the reparse tag.
+    // As in std's `is_symlink`, only a name surrogate (a symbolic link or a
+    // junction) is a link; a cloud file or a deduplicated file is not.
+    const NAME_SURROGATE: u32 = 0x2000_0000;
+
+    let mut offset: usize = 0;
+    loop {
+        let header = bytes.get(offset..offset.checked_add(NAME_AT)?)?;
+        let u32_at = |at: usize| u32::from_ne_bytes(header[at..at + 4].try_into().unwrap());
+        let u64_at = |at: usize| {
+            u64::try_from(i64::from_ne_bytes(header[at..at + 8].try_into().unwrap())).unwrap_or(0)
+        };
+        let name_length = usize::try_from(u32_at(offset_of!(Info, FileNameLength))).ok()?;
+        let name = bytes.get(offset + NAME_AT..(offset + NAME_AT).checked_add(name_length)?)?;
+        let name: Vec<u16> = name
+            .as_chunks()
+            .0
+            .iter()
+            .map(|&pair| u16::from_ne_bytes(pair))
+            .collect();
+        let name = OsString::from_wide(&name);
+        if name != "." && name != ".." {
+            let attributes = u32_at(offset_of!(Info, FileAttributes));
+            let link = attributes & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0
+                && u32_at(offset_of!(Info, EaSize)) & NAME_SURROGATE != 0;
+            let size = EntrySize {
+                link,
+                dir: !link && attributes & FILE_ATTRIBUTE_DIRECTORY.0 != 0,
+                len: u64_at(offset_of!(Info, EndOfFile)),
+                allocated: u64_at(offset_of!(Info, AllocationSize)),
+                // Hard links are not told apart: a file with several names
+                // adds its space under each, as in Explorer's "Size on disk".
+                hard_link: None,
+            };
+            entries.push(Ok((dir.join(name), Ok(size))));
+        }
+        let next = usize::try_from(u32_at(offset_of!(Info, NextEntryOffset))).ok()?;
+        if next == 0 {
+            return Some(());
+        }
+        offset = offset.checked_add(next)?;
+    }
 }
 
 #[cfg(unix)]
@@ -1358,6 +1612,115 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn a_folder_listed_in_several_batches_is_counted_whole() {
+        let dir = TempDir::new().unwrap();
+        for i in 0..2000 {
+            fs::write(
+                dir.path().join(format!("file-with-a-long-name-{i:04}")),
+                b"",
+            )
+            .unwrap();
+        }
+
+        let (outcome, _) = run(&calculate(&[dir.path().to_path_buf()]), []);
+
+        assert_eq!(
+            outcome,
+            Outcome::Measured {
+                files: 2000,
+                folders: 1,
+                bytes: 0,
+                unreadable: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn the_size_on_disk_is_the_same_through_a_folder_as_of_the_file_itself() {
+        let dir = TempDir::new().unwrap();
+        let d = dir.path().join("d");
+        fs::create_dir_all(d.join("e")).unwrap();
+        let file = d.join("a");
+        write_incompressible(&file, 1024 * 1024 + 1);
+        fs::write(d.join("e").join("empty"), b"").unwrap();
+
+        let (alone, _) = run(&calculate_on_disk(&[file]), []);
+        let (through, _) = run(&calculate_on_disk(&[d]), []);
+
+        let Outcome::Measured { bytes, .. } = alone else {
+            panic!("not measured: {alone:?}");
+        };
+        // Space is allocated in whole sectors or clusters, so the odd length
+        // cannot be the answer.
+        assert!(bytes > 0 && bytes % 512 == 0, "{bytes}");
+        assert_eq!(
+            through,
+            Outcome::Measured {
+                files: 2,
+                folders: 2,
+                bytes,
+                unreadable: 0,
+            }
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_size_on_disk_is_the_length_rounded_up_to_whole_blocks() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("a");
+        write_incompressible(&file, 70_000);
+
+        let (outcome, _) = run(&calculate_on_disk(std::slice::from_ref(&file)), []);
+
+        let Outcome::Measured { bytes, .. } = outcome else {
+            panic!("not measured: {outcome:?}");
+        };
+        // The size of a block depends on the file system, but none is as
+        // large as the file.
+        assert!((70_000..140_000).contains(&bytes), "{bytes}");
+        assert_eq!(bytes % 512, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_with_hard_links_takes_up_its_space_on_disk_once() {
+        let dir = TempDir::new().unwrap();
+        let d = dir.path().join("d");
+        fs::create_dir(&d).unwrap();
+        let file = d.join("a");
+        write_incompressible(&file, 70_000);
+        fs::hard_link(&file, d.join("b")).unwrap();
+        let (alone, _) = run(&calculate_on_disk(std::slice::from_ref(&file)), []);
+        let Outcome::Measured { bytes, .. } = alone else {
+            panic!("not measured: {alone:?}");
+        };
+
+        let (on_disk, _) = run(&calculate_on_disk(&[d.clone(), file]), []);
+        let (logical, _) = run(&calculate(&[d]), []);
+
+        assert_eq!(
+            on_disk,
+            Outcome::Measured {
+                files: 3,
+                folders: 1,
+                bytes,
+                unreadable: 0,
+            }
+        );
+        assert_eq!(
+            logical,
+            Outcome::Measured {
+                files: 2,
+                folders: 1,
+                bytes: 140_000,
+                unreadable: 0,
+            }
+        );
+    }
+
     // Runs an operation, answering each conflict with the next scripted reply.
     fn run(
         spec: &OperationSpec,
@@ -1446,6 +1809,30 @@ mod tests {
             dest: None,
             output: None,
         }
+    }
+
+    fn calculate_on_disk(sources: &[PathBuf]) -> OperationSpec {
+        OperationSpec {
+            kind: OperationKind::CalculateSizeOnDisk,
+            sources: Sources::Paths(sources.to_vec()),
+            dest: None,
+            output: None,
+        }
+    }
+
+    // Data that a compressing file system cannot shrink, so that the space it
+    // takes up follows its length.
+    fn write_incompressible(path: &Path, len: usize) {
+        let mut state: u32 = 0x1234_5678;
+        let bytes: Vec<u8> = (0..len)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                state.to_le_bytes()[0]
+            })
+            .collect();
+        fs::write(path, bytes).unwrap();
     }
 
     fn modified(path: &Path) -> SystemTime {
