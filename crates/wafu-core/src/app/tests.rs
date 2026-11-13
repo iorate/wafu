@@ -1984,7 +1984,7 @@ fn history_popup_lists_newest_first_and_narrows_to_what_is_typed() {
     harness.press("H");
 
     let popup = harness.view().popup.unwrap();
-    assert_eq!(popup.title, "History");
+    assert_eq!(popup.title, "History (left)");
     assert_eq!(harness.popup_labels(), ["/", "/home", "/home/user"]);
     assert_eq!(popup.fields, [InputField::new(String::new())]);
     assert_eq!(popup.cursor, Some(0));
@@ -2008,6 +2008,49 @@ fn history_popup_lists_newest_first_and_narrows_to_what_is_typed() {
     harness.press("H");
     harness.press("Esc");
     assert_eq!(harness.popup(), None);
+}
+
+#[test]
+fn history_popup_switches_to_the_other_pane_with_tab_keeping_the_query() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.press("Tab");
+    harness.press("BS");
+    harness.load(Side::Right, vec![]);
+    harness.press("Ctrl+Shift+Left");
+    harness.load(Side::Right, vec![]);
+    harness.press("Tab");
+    harness.press("H");
+    assert_eq!(harness.popup_labels(), ["/home/user"]);
+
+    harness.press("Tab");
+
+    let popup = harness.view().popup.unwrap();
+    assert_eq!(popup.title, "History (right)");
+    assert_eq!(harness.popup_labels(), ["/", "/tmp"]);
+    assert_eq!(popup.cursor, Some(1));
+
+    harness.edit("tmp");
+    harness.press("Tab");
+    assert_eq!(harness.view().popup.unwrap().title, "History (left)");
+    assert_eq!(harness.popup_labels(), Vec::<String>::new());
+    harness.press("Tab");
+    assert_eq!(harness.popup_labels(), ["/tmp"]);
+}
+
+#[test]
+fn history_popup_visits_a_place_of_the_other_pane_in_the_active_pane() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.press("H");
+    harness.press("Tab");
+
+    harness.press("Enter");
+
+    assert_eq!(harness.popup(), None);
+    harness.load(Side::Left, vec![]);
+    assert_eq!(harness.view().left.path, "/tmp");
+    assert_eq!(harness.view().right.path, "/tmp");
+    assert_eq!(harness.history(Side::Left), ["/home/user", "/tmp"]);
+    assert_eq!(harness.history(Side::Right), ["/tmp"]);
 }
 
 #[test]

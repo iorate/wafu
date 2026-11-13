@@ -1,6 +1,6 @@
 use std::mem::{Discriminant, discriminant};
 
-use super::{App, Effect, MouseInput};
+use super::{App, Effect, MouseInput, Side};
 use crate::command::Command;
 use crate::config::Bookmark;
 use crate::error::AppError;
@@ -65,9 +65,7 @@ impl App {
     }
 
     pub(super) fn open_history(&mut self) {
-        let pane = self.active_pane();
-        let popup = ListPopup::history(pane.history(), pane.location().in_archive());
-        self.popup = Some(Popup::List(popup));
+        self.popup = Some(Popup::List(self.history_list(self.active, String::new())));
     }
 
     pub(super) fn open_bookmarks(&mut self) {
@@ -94,6 +92,17 @@ impl App {
         match self.popup.take() {
             Some(Popup::Input(popup)) => self.input_popup_key(popup, key, effects),
             Some(Popup::Search(popup)) => self.search_popup_key(popup, key),
+            Some(Popup::List(popup)) if key.base == KeyBase::Named(NamedKey::Tab) => {
+                self.popup = Some(Popup::List(match popup.history_side() {
+                    Some(side) => {
+                        // The other history is another list, but the same kind
+                        // of popup, so the follow-up would keep the old top.
+                        self.popup_top = 0;
+                        self.history_list(side.other(), popup.query)
+                    }
+                    None => popup,
+                }));
+            }
             Some(popup) => self.menu(popup, MenuInput::Key(key), effects),
             None => {}
         }
@@ -543,6 +552,20 @@ impl App {
             _ => {}
         }
         self.popup = Some(Popup::Search(popup));
+    }
+
+    fn history_list(&self, side: Side, query: String) -> ListPopup {
+        let pane = self.pane(side);
+        let mut popup = if side == self.active {
+            ListPopup::history(side, pane.history(), pane.location().in_archive())
+        } else {
+            ListPopup::other_history(side, pane.history())
+        };
+        // An empty query keeps the cursor on the place the pane is at.
+        if !query.is_empty() {
+            popup.set_query(query);
+        }
+        popup
     }
 
     fn pick_list_item(&mut self, item: ListItem, effects: &mut Vec<Effect>) {
