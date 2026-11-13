@@ -3,6 +3,7 @@ import { Palette } from "std-widgets.slint";
 export struct ThemeColors {
     fg: color,
     bg: color,
+    line-number: color,
     mark: color,
     cursor: color,
     cursor-inactive: color,
@@ -19,15 +20,16 @@ export struct ThemeColors {
 // font of its own area; the window's default font is never relied on.
 export global Theme {
     in property <ThemeColors> light: {
-        fg: #1e1e1e, bg: #ffffff, mark: #dcdcdc, cursor: #1e1e1e,
-        cursor-inactive: #7d7d7d, dir: #1f5fbf, link: #0e7c86, exec: #2a8c2a,
-        broken: #c0392b, fifo: #b8860b, socket: #b03a9a,
+        fg: #1e1e1e, bg: #ffffff, line-number: #626262, mark: #dcdcdc,
+        cursor: #1e1e1e, cursor-inactive: #7d7d7d, dir: #1f5fbf, link: #0e7c86,
+        exec: #2a8c2a, broken: #c0392b, fifo: #b8860b, socket: #b03a9a,
     };
     in property <ThemeColors> dark: {
-        fg: #d4d4d4, bg: #1e1e1e, mark: #3c3c3c, cursor: #d4d4d4,
-        cursor-inactive: #888888, dir: #6fa8ff, link: #4fd1e0, exec: #5fd75f,
-        broken: #ff6b6b, fifo: #f0c050, socket: #e58ae0,
+        fg: #d4d4d4, bg: #1e1e1e, line-number: #9d9d9d, mark: #3c3c3c,
+        cursor: #d4d4d4, cursor-inactive: #888888, dir: #6fa8ff, link: #4fd1e0,
+        exec: #5fd75f, broken: #ff6b6b, fifo: #f0c050, socket: #e58ae0,
     };
+    in property <float> hidden-opacity: 0.7;
     in property <string> path-font-family;
     in property <length> path-font-size: 12px;
     in property <string> filelist-font-family;
@@ -59,7 +61,7 @@ export global Theme {
     out property <length> status-row-height: round(status-font-size * 5 / 3 / 1px) * 1px;
     out property <length> popup-row-height: round(popup-font-size * 5 / 3 / 1px) * 1px;
     out property <brush> selection-background: Palette.accent-background.with-alpha(0.3);
-    // Hidden entries keep their kind color, which has less contrast against
-    // the background than `fg`; any lower and they get hard to read.
-    out property <float> dim-text-alpha: 0.7;
+    // The palette that popups are drawn with has no weaker foreground, so
+    // their secondary text is its foreground made translucent.
+    out property <float> popup-dim-text-alpha: 0.7;
 }

@@ -709,6 +709,7 @@ impl Ui {
         let theme = self.window.global::<Theme>();
         theme.set_light(theme_colors(&style.colors.light));
         theme.set_dark(theme_colors(&style.colors.dark));
+        theme.set_hidden_opacity(f32::from(style.hidden_opacity) / 100.0);
         let (family, size) = font(&style.fonts.path);
         theme.set_path_font_family(family);
         theme.set_path_font_size(size);
@@ -861,6 +862,7 @@ fn theme_colors(colors: &Colors) -> ThemeColors {
     ThemeColors {
         fg: color(colors.fg),
         bg: color(colors.bg),
+        line_number: color(colors.line_number),
         mark: color(colors.mark),
         cursor: color(colors.cursor),
         cursor_inactive: color(colors.cursor_inactive),

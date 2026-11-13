@@ -37,6 +37,8 @@ pub struct Style {
     pub theme: Theme,
     /// The text the size column is made wide enough for.
     pub size_sample: &'static str,
+    /// How opaque the names of hidden entries are, in percent.
+    pub hidden_opacity: u8,
     pub fonts: Fonts,
     pub colors: ColorSet,
 }
@@ -267,6 +269,7 @@ impl Style {
                 (theme, _) => theme,
             },
             size_sample: config.appearance.size_format.column_sample(),
+            hidden_opacity: config.appearance.hidden_opacity,
             fonts: Fonts {
                 path: resolve(&font.path),
                 filelist: resolve(&font.filelist),

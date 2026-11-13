@@ -57,6 +57,8 @@ pub struct General {
 pub struct Appearance {
     pub theme: Theme,
     pub size_format: SizeFormat,
+    /// How opaque the names of hidden entries are, in percent.
+    pub hidden_opacity: u8,
     pub font: FontSet,
 }
 
@@ -151,6 +153,7 @@ pub struct ColorSet {
 pub struct Colors {
     pub fg: Color,
     pub bg: Color,
+    pub line_number: Color,
     pub mark: Color,
     pub cursor: Color,
     pub cursor_inactive: Color,
@@ -223,6 +226,10 @@ impl Config {
             appearance: Appearance {
                 theme: Theme::Auto,
                 size_format: SizeFormat::Plain,
+                // Hidden entries keep their kind color, which has less contrast
+                // against the background than `fg`; any lower and they get hard
+                // to read.
+                hidden_opacity: 70,
                 font: FontSet {
                     default: Font {
                         family: None,
@@ -235,6 +242,7 @@ impl Config {
                 light: Colors {
                     fg: Color::new(0x1e, 0x1e, 0x1e),
                     bg: Color::new(0xff, 0xff, 0xff),
+                    line_number: Color::new(0x62, 0x62, 0x62),
                     mark: Color::new(0xdc, 0xdc, 0xdc),
                     cursor: Color::new(0x1e, 0x1e, 0x1e),
                     cursor_inactive: Color::new(0x7d, 0x7d, 0x7d),
@@ -248,6 +256,7 @@ impl Config {
                 dark: Colors {
                     fg: Color::new(0xd4, 0xd4, 0xd4),
                     bg: Color::new(0x1e, 0x1e, 0x1e),
+                    line_number: Color::new(0x9d, 0x9d, 0x9d),
                     mark: Color::new(0x3c, 0x3c, 0x3c),
                     cursor: Color::new(0xd4, 0xd4, 0xd4),
                     cursor_inactive: Color::new(0x88, 0x88, 0x88),
