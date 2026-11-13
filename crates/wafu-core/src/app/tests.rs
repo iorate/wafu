@@ -12,7 +12,7 @@ use crate::test_support::{
     CONFIG_PATH, HOME, Harness, STATE_PATH, dir, file, path, shown, special, start_msg,
     start_msg_with,
 };
-use crate::view::{ItemKind, RowKind};
+use crate::view::{InputField, ItemKind, RowKind};
 
 mod archives;
 mod operations;
@@ -1802,6 +1802,39 @@ fn filtering_the_palette_scrolls_back_to_the_top() {
     assert_eq!((popup.scroll_top, popup.cursor), (0, Some(0)));
 }
 
+#[test]
+fn filtering_the_history_scrolls_back_to_the_top() {
+    let state = StateFile {
+        left: PaneState {
+            history: (0..20).map(|i| PathBuf::from(format!("/h{i}"))).collect(),
+            history_pos: None,
+            ..PaneState::default()
+        },
+        ..StateFile::default()
+    };
+    let mut harness = Harness::start_from(start_msg_with(
+        Os::Linux,
+        Some("/h19"),
+        Some("/tmp"),
+        ConfigSource::Text(String::new()),
+        Ok(Some(state)),
+    ));
+    harness.resolve(Side::Left, "/h19", None);
+    harness.resolve(Side::Right, "/tmp", None);
+    harness.load(Side::Left, vec![]);
+    harness.load(Side::Right, vec![]);
+    harness.send(Msg::PopupRows { rows: 5 });
+    harness.press("H");
+    harness.popup_wheel(3);
+    assert_eq!(harness.view().popup.unwrap().scroll_top, 3);
+
+    harness.edit("h");
+
+    let popup = harness.view().popup.unwrap();
+    assert_eq!(popup.items.unwrap().len(), 20);
+    assert_eq!((popup.scroll_top, popup.cursor), (0, Some(0)));
+}
+
 // Navigation
 
 #[test]
@@ -1938,7 +1971,7 @@ fn failed_history_move_keeps_the_position() {
 }
 
 #[test]
-fn history_popup_lists_newest_first_and_picks_by_key() {
+fn history_popup_lists_newest_first_and_narrows_to_what_is_typed() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.press("BS");
     harness.load(Side::Left, vec![]);
@@ -1951,12 +1984,7 @@ fn history_popup_lists_newest_first_and_picks_by_key() {
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "History");
     assert_eq!(harness.popup_labels(), ["/", "/home", "/home/user"]);
-    let keys: Vec<String> = harness
-        .popup_items()
-        .into_iter()
-        .map(|item| item.detail)
-        .collect();
-    assert_eq!(keys, ["0", "1", "2"]);
+    assert_eq!(popup.fields, [InputField::new(String::new())]);
     assert_eq!(popup.cursor, Some(0));
 
     // Picking the current place just closes the popup.
@@ -1965,7 +1993,10 @@ fn history_popup_lists_newest_first_and_picks_by_key() {
     assert_eq!(harness.take_effects(), vec![]);
 
     harness.press("H");
-    harness.press("2");
+    harness.edit("user");
+    assert_eq!(harness.popup_labels(), ["/home/user"]);
+    assert_eq!(harness.view().popup.unwrap().cursor, Some(0));
+    harness.press("Enter");
     assert_eq!(harness.popup(), None);
     harness.load(Side::Left, vec![]);
     assert_eq!(harness.view().left.path, "/home/user");
@@ -1999,7 +2030,8 @@ fn history_popup_visits_a_place_that_left_its_position_while_open() {
     harness.vanish(Side::Left, "/", vec![]);
     assert_eq!(harness.history(Side::Left), ["/a", "/b", "/"]);
 
-    harness.press("0");
+    harness.press("Up");
+    harness.press("Enter");
 
     assert_eq!(harness.popup(), None);
     assert_eq!(
@@ -2027,7 +2059,7 @@ fn history_popup_moves_to_the_row_that_was_current_once_the_history_moved_on() {
     let mut harness = back_to_b_with_the_history_open();
     harness.vanish(Side::Left, "/", vec![]);
 
-    harness.press("1");
+    harness.press("Enter");
 
     assert_eq!(harness.popup(), None);
     harness.load(Side::Left, vec![]);
@@ -2577,6 +2609,7 @@ fn bookmarks_popup_shows_names_and_picks_by_key() {
 
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Bookmarks");
+    assert_eq!(popup.fields, []);
     assert_eq!(popup.note, None);
     assert_eq!(harness.popup_labels(), ["Docs", "Var"]);
     assert_eq!(popup.cursor, Some(0));
@@ -2658,6 +2691,7 @@ fn drives_popup_lists_the_letters_and_picks_by_letter() {
     assert!(harness.app().pane(Side::Left).loading().is_none());
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Drives");
+    assert_eq!(popup.fields, []);
     assert_eq!(harness.popup_labels(), ["C:\\", "D:\\"]);
 
     harness.press("Shift+D");

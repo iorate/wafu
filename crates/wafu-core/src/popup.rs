@@ -8,6 +8,7 @@ use crate::history::History;
 use crate::key::{Key, KeyBase, NamedKey};
 use crate::listing::{SortKey, SortSpec};
 use crate::location::ArchiveFormat;
+use crate::text::nfc;
 use crate::view::{InputField, ItemKind, PopupItem};
 
 const ITEM_KEYS: &str = "0123456789abcdefghijklmnopqrstuvwxyz";
@@ -243,6 +244,10 @@ pub enum ConflictChoice {
 pub struct ListPopup {
     pub kind: ListKind,
     pub items: Vec<ListItem>,
+    pub query: String,
+    /// The items shown, as indices into `items`: those whose label has the query.
+    pub matches: Vec<usize>,
+    /// A row of `matches`.
     pub cursor: usize,
 }
 
@@ -524,7 +529,9 @@ impl ListPopup {
         let cursor = items.iter().position(|item| item.current).unwrap_or(0);
         Self {
             kind,
+            matches: (0..items.len()).collect(),
             items,
+            query: String::new(),
             cursor,
         }
     }
@@ -532,23 +539,21 @@ impl ListPopup {
     /// The history, newest first.
     #[must_use]
     pub fn history(history: &History, in_archive: bool) -> Self {
-        let items = history
+        let items: Vec<ListItem> = history
             .items()
             .iter()
             .enumerate()
             .rev()
-            .zip(item_keys())
-            .map(|((pos, path), key)| ListItem {
-                key,
+            .map(|(pos, path)| ListItem {
+                key: None,
                 label: path.display().to_string(),
                 current: !in_archive && pos == history.pos(),
                 target: ListTarget::HistoryPos(pos, path.clone()),
             })
             .collect();
         Self {
-            kind: ListKind::History,
-            items,
             cursor: history.items().len().saturating_sub(history.pos() + 1),
+            ..Self::new(ListKind::History, items)
         }
     }
 
@@ -583,6 +588,19 @@ impl ListPopup {
         Self::new(ListKind::Drives, items)
     }
 
+    pub fn set_query(&mut self, query: String) {
+        let needle = nfc(&query).to_lowercase();
+        self.matches = self
+            .items
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| nfc(&item.label).to_lowercase().contains(&needle))
+            .map(|(index, _)| index)
+            .collect();
+        self.query = query;
+        self.cursor = 0;
+    }
+
     #[must_use]
     pub fn title(&self) -> &'static str {
         match self.kind {
@@ -602,11 +620,20 @@ impl ListPopup {
         }
     }
 
-    /// The rows to show: the place, with its key at the end like the sort popup.
+    /// Whether the list is narrowed by typing. Bookmarks and drives are picked
+    /// by their keys instead.
+    #[must_use]
+    pub fn filters(&self) -> bool {
+        self.kind == ListKind::History
+    }
+
+    /// The rows to show: the place, with its key, if it has one, at the end like
+    /// the sort popup.
     #[must_use]
     pub fn items(&self) -> Vec<PopupItem> {
-        self.items
+        self.matches
             .iter()
+            .map(|&index| &self.items[index])
             .map(|item| PopupItem {
                 label: item.label.clone(),
                 detail: item
@@ -620,7 +647,9 @@ impl ListPopup {
 
     #[must_use]
     pub fn selected(&self) -> Option<&ListItem> {
-        self.items.get(self.cursor)
+        self.matches
+            .get(self.cursor)
+            .map(|&index| &self.items[index])
     }
 }
 
@@ -860,7 +889,7 @@ impl Menu for ListPopup {
     type Pick = ListItem;
 
     fn rows(&self) -> usize {
-        self.items.len()
+        self.matches.len()
     }
 
     fn kind(&self, _row: usize) -> ItemKind {
@@ -877,12 +906,14 @@ impl Menu for ListPopup {
 
     fn row_for_key(&self, key: char) -> Option<usize> {
         let key = key.to_ascii_lowercase();
-        self.items.iter().position(|item| item.key == Some(key))
+        self.matches
+            .iter()
+            .position(|&index| self.items[index].key == Some(key))
     }
 
     fn run(&mut self, row: usize) -> Response<ListItem> {
-        match self.items.get(row) {
-            Some(item) => Response::Pick(item.clone()),
+        match self.matches.get(row) {
+            Some(&index) => Response::Pick(self.items[index].clone()),
             None => Response::Close,
         }
     }
@@ -1297,16 +1328,13 @@ mod tests {
 
         let popup = ListPopup::history(&history, false);
 
-        let item = |key, pos, path: &str| ListItem {
-            key: Some(key),
+        let item = |pos, path: &str| ListItem {
+            key: None,
             label: PathBuf::from(path).display().to_string(),
             current: pos == 2,
             target: ListTarget::HistoryPos(pos, PathBuf::from(path)),
         };
-        assert_eq!(
-            popup.items,
-            [item('0', 2, "/c"), item('1', 1, "/b"), item('2', 0, "/a")]
-        );
+        assert_eq!(popup.items, [item(2, "/c"), item(1, "/b"), item(0, "/a")]);
         assert_eq!(popup.cursor, 0);
     }
 
@@ -1326,14 +1354,70 @@ mod tests {
 
     #[test]
     fn list_popup_of_drives_uses_the_letters_as_keys() {
-        let popup = ListPopup::drives(&['C', 'D'], Some('D'));
+        let mut popup = ListPopup::drives(&['C', 'D'], Some('D'));
 
         assert_eq!(popup.items[0].key, Some('c'));
         assert_eq!(popup.items[0].target, ListTarget::Drive('C'));
         assert_eq!(popup.items()[1].label, "D:\\");
         assert_eq!(popup.items()[1].detail, "D");
         assert_eq!(popup.cursor, 1);
+        assert!(!popup.filters());
+        assert_eq!(
+            menu_input(&mut popup, key("C")),
+            Response::Pick(popup.items[0].clone())
+        );
         assert_eq!(popup.empty_message(), "No drives");
+    }
+
+    #[test]
+    fn list_popup_of_history_narrows_to_the_labels_with_the_query_ignoring_case() {
+        let mut popup = history_popup(&["/Downloads", "/docs", "/Music"]);
+        popup.cursor = 2;
+
+        popup.set_query("DO".to_owned());
+
+        let labels = |popup: &ListPopup| -> Vec<String> {
+            popup.items().into_iter().map(|item| item.label).collect()
+        };
+        assert_eq!(labels(&popup), [shown("/docs"), shown("/Downloads")]);
+        assert_eq!(popup.cursor, 0);
+        popup.cursor_up();
+        assert_eq!(popup.cursor, 1);
+        assert_eq!(popup.selected().unwrap().label, shown("/Downloads"));
+        assert_eq!(
+            menu_input(&mut popup, key("Enter")),
+            Response::Pick(popup.items[2].clone())
+        );
+
+        popup.set_query("mus".to_owned());
+        assert_eq!(labels(&popup), [shown("/Music")]);
+        assert_eq!(
+            menu_input(&mut popup, MenuInput::DoubleClick { row: 0 }),
+            Response::Pick(popup.items[0].clone())
+        );
+
+        popup.set_query(String::new());
+        assert_eq!(popup.items().len(), 3);
+    }
+
+    #[test]
+    fn list_popup_of_history_matches_a_decomposed_path_with_composed_text() {
+        let mut popup = history_popup(&["/アフ\u{309A}リ", "/other"]);
+
+        popup.set_query("アプリ".to_owned());
+
+        assert_eq!(popup.matches, [1]);
+    }
+
+    #[test]
+    fn list_popup_of_history_without_a_match_has_nothing_to_pick() {
+        let mut popup = history_popup(&["/a"]);
+
+        popup.set_query("b".to_owned());
+        popup.cursor_down();
+
+        assert_eq!(popup.selected(), None);
+        assert_eq!(menu_input(&mut popup, key("Enter")), Response::Close);
     }
 
     #[test]
@@ -1376,6 +1460,18 @@ mod tests {
 
     fn conflict_popup() -> ConflictPopup {
         ConflictPopup::new(PathBuf::from("/a/x"), PathBuf::from("/b/x"), false)
+    }
+
+    fn history_popup(paths: &[&str]) -> ListPopup {
+        let mut history = History::new();
+        for path in paths {
+            history.visit(PathBuf::from(path));
+        }
+        ListPopup::history(&history, false)
+    }
+
+    fn shown(path: &str) -> String {
+        PathBuf::from(path).display().to_string()
     }
 
     fn bookmark(path: &str) -> Bookmark {
