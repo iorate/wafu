@@ -302,12 +302,16 @@ impl App {
         }
     }
 
-    pub(super) fn preview_loading_name(&self) -> Option<String> {
+    pub(super) fn preview_loading(&self) -> Option<(String, RequestId)> {
         match &self.preview {
-            Some(Preview::Document(preview)) if preview.loading.is_some() => {
-                Some(preview.name.clone())
-            }
-            _ => None,
+            Some(Preview::Document(preview)) => preview
+                .loading
+                .map(|request| (preview.name.clone(), request)),
+            Some(Preview::Image(preview)) => preview
+                .loading
+                .zip(preview.shown.as_ref())
+                .map(|(request, name)| (name.to_string_lossy().into_owned(), request)),
+            None => None,
         }
     }
 

@@ -68,6 +68,7 @@ export component AppWindow inherits Window {
     // A progress popup is held back for a moment so that a quick read does not
     // flash an overlay.
     property <bool> progress-shown;
+    property <int> progress-generation;
 
     // Slint takes the focus away from the scope when the window goes inactive,
     // so this doubles as the window's state. An input popup takes it too, and
@@ -131,12 +132,26 @@ export component AppWindow inherits Window {
         if !root.popup.visible {
             root.progress-shown = false;
         }
+        // A progress popup that comes to report another wait is delayed
+        // afresh, even if it is already shown: that wait has only just begun.
+        // The generation of a popup that is not a progress popup is left
+        // alone, so that the progress of an operation comes back at once
+        // after a question asked in the middle of it.
+        if root.popup.visible && root.popup.progress && root.popup.generation != root.progress-generation {
+            root.progress-generation = root.popup.generation;
+            // Only a running timer is restarted; one that is stopped starts
+            // from zero when `progress-shown` is cleared.
+            if !root.progress-shown {
+                progress-delay.restart();
+            }
+            root.progress-shown = false;
+        }
         if !root.popup.has-input {
             scope.focus();
         }
     }
 
-    Timer {
+    progress-delay := Timer {
         interval: 200ms;
         running: root.popup.visible && root.popup.progress && !root.progress-shown;
         triggered => {
