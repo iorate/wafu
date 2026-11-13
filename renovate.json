@@ -47,7 +47,6 @@
     }
   ],
   "lockFileMaintenance": {
-    "description": "Runs after the weekly batch has been merged, so that it refreshes the lock file the batch leaves behind",
     "schedule": ["* 18-23 * * 5"]
   }
 }

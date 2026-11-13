@@ -3,7 +3,6 @@ name: Renovate
 on:
   schedule:
     - cron: "0 18 * * *"
-    # The weekly batch of minor and patch updates; the 18:00 run then maintains the lock file
     - cron: "0 12 * * 5"
   workflow_dispatch:
 
