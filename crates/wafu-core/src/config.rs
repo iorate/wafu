@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
-use crate::app::Os;
+use crate::app::{ConfigContent, ConfigFile, Os};
+use crate::error::IoError;
 use crate::external::{CommandLine, CommandLineError};
 use crate::keymap::KeyMap;
 use crate::path::resolve_input;
@@ -247,16 +248,21 @@ pub fn parse_config<'a>(
     decode::parse_layers(texts, os)
 }
 
-/// The files that the configuration file at `file` names in `extends`, in
-/// the order they merge: `~` is expanded to `home`, and a relative path is
-/// taken from the directory of `file`. Empty when the text is not TOML.
-#[must_use]
-pub fn config_extends(text: &str, file: &Path, home: &Path) -> Vec<PathBuf> {
-    let dir = file.parent().unwrap_or(file);
-    decode::extends(text)
-        .iter()
-        .map(|entry| resolve_input(entry, home, dir))
-        .collect()
+/// Reads the configuration file at `path` and the files it names in
+/// `extends`, in the order they merge: the bases of each file before it, so
+/// that `path` comes last. `~` in `extends` stands for `home`, and any other
+/// relative path is taken from the directory of the file that names it. A
+/// file that cannot be read, or is reached again while its own bases are
+/// being read, is listed without following it further; a file reached
+/// through more than one branch is read for each.
+pub fn read_config_chain(
+    path: &Path,
+    home: &Path,
+    mut read: impl FnMut(&Path) -> Result<String, IoError>,
+) -> Vec<ConfigFile> {
+    let mut files = Vec::new();
+    visit(path, home, &mut read, &mut Vec::new(), &mut files);
+    files
 }
 
 impl Config {
@@ -447,6 +453,50 @@ impl fmt::Display for Diagnostic {
     }
 }
 
+fn visit(
+    path: &Path,
+    home: &Path,
+    read: &mut impl FnMut(&Path) -> Result<String, IoError>,
+    open: &mut Vec<PathBuf>,
+    files: &mut Vec<ConfigFile>,
+) {
+    let path = path.to_path_buf();
+    if open.contains(&path) {
+        files.push(ConfigFile {
+            path,
+            content: ConfigContent::Cycle,
+        });
+        return;
+    }
+    let text = match read(&path) {
+        Ok(text) => text,
+        Err(error) => {
+            files.push(ConfigFile {
+                path,
+                content: ConfigContent::Unreadable(error),
+            });
+            return;
+        }
+    };
+    open.push(path.clone());
+    for base in config_extends(&text, &path, home) {
+        visit(&base, home, read, open, files);
+    }
+    open.pop();
+    files.push(ConfigFile {
+        path,
+        content: ConfigContent::Text(text),
+    });
+}
+
+fn config_extends(text: &str, file: &Path, home: &Path) -> Vec<PathBuf> {
+    let dir = file.parent().unwrap_or(file);
+    decode::extends(text)
+        .iter()
+        .map(|entry| resolve_input(entry, home, dir))
+        .collect()
+}
+
 // Slint resolves only real family names; a generic one like `monospace` does
 // nothing on any OS, so each OS gets a named default.
 pub(crate) fn monospace_family(os: Os) -> &'static str {
@@ -592,21 +642,132 @@ mod tests {
     }
 
     #[test]
-    fn config_extends_resolves_home_and_relative_paths() {
-        let file = Path::new("/etc/wafu/config.toml");
-        let home = Path::new("/home/user");
+    fn bases_come_before_the_file_that_extends_them_in_the_order_written() {
+        let files = chain(&[
+            ("/c/config.toml", "extends = [\"a.toml\", \"b.toml\"]\n"),
+            ("/c/a.toml", "extends = \"d.toml\"\n"),
+            ("/c/b.toml", ""),
+            ("/c/d.toml", ""),
+        ]);
 
         assert_eq!(
-            config_extends(
-                "extends = [\"~/common.toml\", \"local.toml\", \"../shared/x.toml\", \"/abs.toml\"]\n",
-                file,
-                home,
-            ),
+            paths(&files),
             [
-                Path::new("/home/user").join("common.toml"),
-                Path::new("/etc/wafu").join("local.toml"),
-                Path::new("/etc/shared").join("x.toml"),
-                PathBuf::from("/abs.toml"),
+                file_path("/c/d.toml"),
+                file_path("/c/a.toml"),
+                file_path("/c/b.toml"),
+                file_path("/c/config.toml"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_relative_base_is_taken_from_the_directory_of_the_file_naming_it() {
+        let files = chain(&[
+            ("/c/config.toml", "extends = \"shared/a.toml\"\n"),
+            (
+                "/c/shared/a.toml",
+                "extends = [\"b.toml\", \"../up.toml\"]\n",
+            ),
+            ("/c/shared/b.toml", ""),
+            ("/c/up.toml", ""),
+        ]);
+
+        assert_eq!(
+            paths(&files),
+            [
+                file_path("/c/shared/b.toml"),
+                file_path("/c/up.toml"),
+                file_path("/c/shared/a.toml"),
+                file_path("/c/config.toml"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_tilde_in_extends_stands_for_the_home_given() {
+        let files = chain(&[
+            (
+                "/c/config.toml",
+                "extends = [\"~/common.toml\", \"/abs.toml\"]\n",
+            ),
+            ("/home/user/common.toml", ""),
+            ("/abs.toml", ""),
+        ]);
+
+        assert_eq!(
+            paths(&files),
+            [
+                file_path("/home/user/common.toml"),
+                file_path("/abs.toml"),
+                file_path("/c/config.toml"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_missing_base_is_listed_as_unreadable_and_the_rest_still_read() {
+        let files = chain(&[
+            (
+                "/c/config.toml",
+                "extends = [\"missing.toml\", \"b.toml\"]\n",
+            ),
+            ("/c/b.toml", "x = 1\n"),
+        ]);
+
+        assert_eq!(
+            files,
+            [
+                ConfigFile {
+                    path: file_path("/c/missing.toml"),
+                    content: ConfigContent::Unreadable(IoError::new("not found")),
+                },
+                text("/c/b.toml", "x = 1\n"),
+                text(
+                    "/c/config.toml",
+                    "extends = [\"missing.toml\", \"b.toml\"]\n"
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_file_reached_again_while_it_is_being_read_is_a_cycle() {
+        let files = chain(&[
+            ("/c/config.toml", "extends = \"a.toml\"\n"),
+            ("/c/a.toml", "extends = \"./config.toml\"\n"),
+        ]);
+
+        assert_eq!(
+            files,
+            [
+                ConfigFile {
+                    path: file_path("/c/config.toml"),
+                    content: ConfigContent::Cycle,
+                },
+                text("/c/a.toml", "extends = \"./config.toml\"\n"),
+                text("/c/config.toml", "extends = \"a.toml\"\n"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_file_reached_through_two_branches_is_read_for_each() {
+        let files = chain(&[
+            ("/c/config.toml", "extends = [\"a.toml\", \"b.toml\"]\n"),
+            ("/c/a.toml", "extends = \"d.toml\"\n"),
+            ("/c/b.toml", "extends = \"d.toml\"\n"),
+            ("/c/d.toml", ""),
+        ]);
+
+        assert_eq!(
+            paths(&files),
+            [
+                file_path("/c/d.toml"),
+                file_path("/c/a.toml"),
+                file_path("/c/d.toml"),
+                file_path("/c/b.toml"),
+                file_path("/c/config.toml"),
             ]
         );
     }
@@ -617,6 +778,45 @@ mod tests {
             let (config, diagnostics) = parse_config([CONFIG_TEMPLATE], os).unwrap();
             assert_eq!(diagnostics, Vec::new(), "{os:?}");
             assert_eq!(config, Config::default_for(os), "{os:?}");
+        }
+    }
+
+    // Reads the chain from `/c/config.toml` out of the given files, with
+    // `/home/user` as home.
+    fn chain(files: &[(&str, &str)]) -> Vec<ConfigFile> {
+        let files: BTreeMap<PathBuf, &str> = files
+            .iter()
+            .map(|(path, text)| (file_path(path), *text))
+            .collect();
+        read_config_chain(
+            &file_path("/c/config.toml"),
+            Path::new("/home/user"),
+            |path| {
+                files
+                    .get(path)
+                    .map(|text| (*text).to_owned())
+                    .ok_or_else(|| IoError::new("not found"))
+            },
+        )
+    }
+
+    // The path as `extends` resolves it, with the separator of the OS
+    // running the test.
+    fn file_path(text: &str) -> PathBuf {
+        text.split('/').skip(1).fold(
+            PathBuf::from(std::path::MAIN_SEPARATOR_STR),
+            |path, part| path.join(part),
+        )
+    }
+
+    fn paths(files: &[ConfigFile]) -> Vec<PathBuf> {
+        files.iter().map(|file| file.path.clone()).collect()
+    }
+
+    fn text(path: &str, text: &str) -> ConfigFile {
+        ConfigFile {
+            path: file_path(path),
+            content: ConfigContent::Text(text.to_owned()),
         }
     }
 

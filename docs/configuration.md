@@ -30,7 +30,7 @@ editor = "code {paths}"
 
 - The configuration file applies over what it extends, and each file in an array applies over the ones before it.
 - Tables merge item by item, and the key tables (`[keys.filelist]` and the like) key by key. An array, such as `bookmarks`, replaces the one below it as a whole.
-- A path that is `~` or starts with `~/` (on Windows also `~\`) is taken from your home directory; any other relative path is taken from the directory of the file that names it.
+- A path that is `~` or starts with `~/` (on Windows also `~\`) is taken from your home directory; any other relative path is taken from the directory of the file that names it. If that file is a symbolic link, this is the directory the link is in, not the one it points to.
 - A file you extend may have an `extends` of its own. A file that ends up extending itself is an error.
 - If a file you extend is missing, cannot be read, or has a syntax error, the error is reported in the log with that file's path, and the whole configuration is ignored, as for a syntax error in the configuration file. Only the configuration file itself is ever created.
 - wafu watches every file involved, so saving any of them applies the change.

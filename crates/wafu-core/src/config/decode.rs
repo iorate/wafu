@@ -526,8 +526,8 @@ fn read_keys(root: &mut Reader<'_>, config: &mut Config) {
     keys.finish();
 }
 
-// Tables merge item by item and key tables by normalized key, so that an
-// overlay changes only what it writes; arrays and scalars are replaced.
+// Key tables merge by normalized key, so that an overlay's `"a"` replaces a
+// `"A"` below it rather than both being reported as the same key twice.
 fn merge(base: &mut Table, mut overlay: Table) {
     if let Some(Value::Table(overlay_keys)) = overlay.get_mut("keys")
         && let Some(Value::Table(base_keys)) = base.get_mut("keys")

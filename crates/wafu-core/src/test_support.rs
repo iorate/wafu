@@ -481,7 +481,6 @@ pub(crate) fn start_msg(os: Os, left: Option<&str>, right: Option<&str>) -> Msg 
     start_msg_with(os, left, right, config_source(""), Ok(None))
 }
 
-// The configuration file alone, with the given text.
 pub(crate) fn config_source(text: &str) -> ConfigSource {
     ConfigSource::Read(vec![config_text(CONFIG_PATH, text)])
 }

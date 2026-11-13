@@ -1363,6 +1363,34 @@ mod tests {
     }
 
     #[test]
+    fn a_base_whose_directory_appears_later_is_watched_after_the_next_reload() {
+        let dir = TempDir::new().unwrap();
+        let shared = dir.path().join("shared");
+        let base = shared.join("common.toml");
+        let path = dir.path().join("config.toml");
+        fs::write(&path, "extends = \"shared/common.toml\"\n").unwrap();
+        let (runtime, events) = runtime();
+        runtime.run(Effect::WatchConfig(path.clone()));
+        settle(&events);
+
+        fs::create_dir(&shared).unwrap();
+        fs::write(&base, "a = 1\n").unwrap();
+        fs::write(&path, "extends = \"shared/common.toml\"\n").unwrap();
+        events.recv_timeout(TIMEOUT).unwrap();
+        settle(&events);
+        fs::write(&base, "a = 2\n").unwrap();
+
+        let event = events.recv_timeout(TIMEOUT).unwrap();
+        assert_eq!(
+            event,
+            config_loaded(&[
+                (&base, "a = 2\n"),
+                (&path, "extends = \"shared/common.toml\"\n")
+            ])
+        );
+    }
+
+    #[test]
     fn a_base_in_a_missing_directory_is_not_reported_and_the_config_is_still_watched() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("config.toml");

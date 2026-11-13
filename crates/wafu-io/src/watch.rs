@@ -11,9 +11,9 @@ use std::time::{Duration, Instant, SystemTime};
 use icu_normalizer::ComposingNormalizer;
 use notify::event::{AccessKind, AccessMode, ModifyKind};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher as _};
-use wafu_core::{ConfigContent, ConfigFile, IoError, IoEvent, Side};
+use wafu_core::{ConfigContent, ConfigFile, IoError, IoEvent, Side, read_config_chain};
 
-use crate::config::read_chain;
+use crate::config::read_text;
 use crate::runtime::{OnEvent, lock};
 
 const DEBOUNCE: Duration = Duration::from_millis(200);
@@ -88,9 +88,8 @@ impl Watcher {
                 path: path.to_path_buf(),
             });
         };
-        self.sides[side.index()] = Some(Group::start(
-            path, true, watches, receiver, on_burst, on_failure,
-        ));
+        self.sides[side.index()] =
+            Some(Group::start(path, watches, receiver, on_burst, on_failure));
     }
 
     pub(crate) fn unwatch(&mut self, side: Side) {
@@ -108,7 +107,6 @@ struct Group {
 impl Group {
     fn start(
         path: PathBuf,
-        with_contents: bool,
         watches: Watches,
         changes: Receiver<Change>,
         mut on_burst: impl FnMut(&Path) + Send + 'static,
@@ -117,7 +115,7 @@ impl Group {
         let watches = Arc::new(Mutex::new(watches));
         let weak = Arc::downgrade(&watches);
         spawn_debouncer(changes, move |renamed| {
-            if !refollow(&weak, &path, with_contents, renamed, |error| {
+            if !refollow(&weak, &path, renamed, |error| {
                 on_failure(&path, error);
             }) {
                 return false;
@@ -140,7 +138,7 @@ struct Watches {
 struct Followed {
     resolution: Resolution,
     _contents: Option<RecommendedWatcher>,
-    _target: Option<RecommendedWatcher>,
+    target: Option<RecommendedWatcher>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -163,13 +161,22 @@ struct ConfigWatches {
 
 struct FileWatch {
     path: PathBuf,
-    _entry: Option<RecommendedWatcher>,
+    entry: Option<RecommendedWatcher>,
     followed: Followed,
 }
 
 impl FileWatch {
+    // A watch that could not be made, such as one on a directory that did not
+    // exist yet, counts as missing, so that the next burst tries it again.
     fn watches(&self, path: &Path, resolution: &Resolution) -> bool {
-        self.path == path && self.followed.resolution == *resolution
+        let target_watched = match resolution {
+            Resolution::Target(_) => self.followed.target.is_some(),
+            Resolution::NotLink | Resolution::Failed => true,
+        };
+        self.path == path
+            && self.followed.resolution == *resolution
+            && self.entry.is_some()
+            && target_watched
     }
 }
 
@@ -224,14 +231,13 @@ pub(crate) fn watch_config(path: &Path, home: &Path, on_event: &OnEvent) -> Conf
 // made in between is seen as a change on the next burst.
 fn read_config(path: &Path, home: &Path) -> (Vec<ConfigFile>, Vec<(PathBuf, Option<SystemTime>)>) {
     let mut modified_times = Vec::new();
-    let files = read_chain(path, home, &mut |file| {
+    let files = read_config_chain(path, home, |file| {
         modified_times.push((file.to_path_buf(), modified(file)));
-        fs::read_to_string(file)
+        read_text(file)
     });
     (files, modified_times)
 }
 
-// Each file once, with whether any read of it succeeded and where it leads.
 fn wanted(files: &[ConfigFile]) -> Vec<(PathBuf, bool, Resolution)> {
     let mut wanted: Vec<(PathBuf, bool)> = Vec::new();
     for file in files {
@@ -317,7 +323,7 @@ fn watch_files(
         }
         files.push(FileWatch {
             path,
-            _entry: entry,
+            entry,
             followed,
         });
     }
@@ -372,7 +378,7 @@ fn follow(
     let followed = Followed {
         resolution,
         _contents: contents,
-        _target: target,
+        target,
     };
     (followed, failure)
 }
@@ -384,7 +390,6 @@ fn follow(
 fn refollow(
     group: &Weak<Mutex<Watches>>,
     path: &Path,
-    with_contents: bool,
     renamed: bool,
     on_failure: impl FnOnce(notify::Error),
 ) -> bool {
@@ -399,7 +404,7 @@ fn refollow(
         }
         watches.changes.clone()
     };
-    let is_dir = with_contents && fs::metadata(path).is_ok_and(|meta| meta.is_dir());
+    let is_dir = fs::metadata(path).is_ok_and(|meta| meta.is_dir());
     let (followed, failure) = follow(path, resolution, is_dir, &changes);
     let Some(group) = group.upgrade() else {
         return false;
