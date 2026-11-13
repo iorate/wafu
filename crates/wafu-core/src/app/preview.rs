@@ -2,6 +2,8 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use encoding_rs::Encoding;
+
 use super::navigation::is_link_in_archive;
 use super::{App, Effect, MouseInput, PreviewError, PreviewSource, Side};
 use crate::command::{Command, Context};
@@ -10,7 +12,7 @@ use crate::entry::Entry;
 use crate::error::AppError;
 use crate::location::Location;
 use crate::pane::RequestId;
-use crate::popup::{InputPopup, PasswordPurpose, Popup};
+use crate::popup::{InputPopup, ListPopup, PasswordPurpose, Popup};
 use crate::preview::{Document, DocumentMode, ImageData, is_image_name};
 use crate::text::show_line_breaks;
 use crate::view::{PreviewContent, PreviewPlacement, PreviewView, SharedImage};
@@ -71,6 +73,10 @@ impl App {
         match command {
             Command::ClosePreview => {
                 self.close_preview(effects);
+                return;
+            }
+            Command::PreviewEncoding => {
+                self.open_encodings();
                 return;
             }
             Command::PreviewEdit => {
@@ -211,7 +217,7 @@ impl App {
         preview.loading = None;
         match result {
             Ok(document) => {
-                preview.mode = if document.is_text {
+                preview.mode = if document.is_text || preview.source.encoding.is_some() {
                     DocumentMode::Text
                 } else {
                     DocumentMode::Binary
@@ -302,6 +308,20 @@ impl App {
         }
     }
 
+    pub(super) fn set_preview_encoding(
+        &mut self,
+        encoding: Option<&'static Encoding>,
+        effects: &mut Vec<Effect>,
+    ) {
+        let Some(Preview::Document(preview)) = &mut self.preview else {
+            return;
+        };
+        // The file is read and decoded again on the read thread even though
+        // its bytes are at hand: decoding up to 16 MiB here would hold up the UI.
+        preview.source.encoding = encoding;
+        self.request_document(effects);
+    }
+
     pub(super) fn preview_loading(&self) -> Option<(String, RequestId)> {
         match &self.preview {
             Some(Preview::Document(preview)) => preview
@@ -375,6 +395,20 @@ impl App {
         }
     }
 
+    fn open_encodings(&mut self) {
+        // Not while a read is in flight: if it fails the preview closes, and
+        // the list would be left open over the file list.
+        let Some(Preview::Document(DocumentPreview {
+            loading: None,
+            document: Some(document),
+            ..
+        })) = &self.preview
+        else {
+            return;
+        };
+        self.popup = Some(Popup::List(ListPopup::encodings(document.encoding)));
+    }
+
     // The file to open is the one being shown, which the cursor may have
     // left, and never a marked one: the marks are out of sight behind the
     // preview. The preview closes first, so that the file is read again when
@@ -431,11 +465,13 @@ impl App {
                 path: location.base.join(name),
                 entry: None,
                 password: None,
+                encoding: None,
             },
             Some(archive) => PreviewSource {
                 path: location.base.clone(),
                 entry: Some((archive.clone(), name.to_string_lossy().into_owned())),
                 password: self.active_pane().archive_password().map(ToOwned::to_owned),
+                encoding: None,
             },
         }
     }

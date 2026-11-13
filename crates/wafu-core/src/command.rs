@@ -62,6 +62,7 @@ const NAMES: &[(Command, &str)] = &[
     (Command::PreviewTop, "preview_top"),
     (Command::PreviewBottom, "preview_bottom"),
     (Command::PreviewToggleMode, "preview_toggle_mode"),
+    (Command::PreviewEncoding, "preview_encoding"),
     (Command::PreviewEdit, "preview_edit"),
     (Command::ClosePreview, "close_preview"),
     (Command::Copy, "copy"),
@@ -158,6 +159,8 @@ pub enum Command {
     PreviewBottom,
     /// Switches a document preview between text and binary.
     PreviewToggleMode,
+    /// Picks the encoding a document preview is decoded with from a list.
+    PreviewEncoding,
     /// Opens the previewed file in the editor, closing the preview first.
     PreviewEdit,
     ClosePreview,
@@ -290,6 +293,7 @@ impl Command {
             | Self::PreviewTop
             | Self::PreviewBottom
             | Self::PreviewToggleMode
+            | Self::PreviewEncoding
             | Self::PreviewEdit => Target::TextPreview,
             Self::LogShrink
             | Self::LogGrow

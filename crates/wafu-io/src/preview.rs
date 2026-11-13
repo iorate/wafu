@@ -32,7 +32,7 @@ pub(crate) fn load_preview(
     previewed: &mut PreviewedArchive,
 ) -> Result<Document, PreviewError> {
     let (bytes, truncated) = read_source(source, PREVIEW_LIMIT, previewed)?;
-    Ok(Document::decode(bytes, truncated))
+    Ok(Document::decode(bytes, truncated, source.encoding))
 }
 
 pub(crate) fn load_image(
@@ -318,6 +318,7 @@ mod tests {
             path: path.to_path_buf(),
             entry: None,
             password: None,
+            encoding: None,
         }
     }
 
@@ -337,6 +338,7 @@ mod tests {
                 name.to_owned(),
             )),
             password: password.map(ToOwned::to_owned),
+            encoding: None,
         }
     }
 

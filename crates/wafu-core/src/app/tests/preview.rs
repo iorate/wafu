@@ -29,6 +29,7 @@ fn enter_on_a_text_file_opens_an_empty_preview_and_reads_the_file() {
                 path: PathBuf::from(LEFT).join("note.txt"),
                 entry: None,
                 password: None,
+                encoding: None,
             },
             request: harness.latest_preview_request(),
         }]
@@ -159,6 +160,140 @@ fn tab_switches_to_the_hex_dump_and_back_from_the_top() {
 }
 
 #[test]
+fn c_lists_the_encodings_on_the_one_in_use() {
+    let mut harness = document();
+
+    harness.press("C");
+
+    let popup = harness.view().popup.unwrap();
+    assert_eq!(popup.title, "Encoding");
+    assert_eq!(popup.cursor, Some(1));
+    assert_eq!(popup.fields.len(), 1);
+    assert_eq!(
+        harness.popup_labels()[..4],
+        ["Auto-detect", "UTF-8", "UTF-16LE", "UTF-16BE"]
+    );
+}
+
+#[test]
+fn c_does_nothing_until_the_document_is_read() {
+    let mut harness = opening();
+
+    harness.press("C");
+
+    assert_eq!(harness.popup(), None);
+    assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
+fn a_picked_encoding_reads_the_file_again_with_it() {
+    let mut harness = document();
+    harness.press("C");
+
+    harness.edit("shift");
+    harness.press("Enter");
+
+    assert_eq!(harness.popup(), None);
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::LoadPreview {
+            source: PreviewSource {
+                path: PathBuf::from(LEFT).join("note.txt"),
+                entry: None,
+                password: None,
+                encoding: Some(encoding_rs::SHIFT_JIS),
+            },
+            request: harness.latest_preview_request(),
+        }]
+    );
+    assert_eq!(harness.log(), Vec::<String>::new());
+}
+
+#[test]
+fn c_does_nothing_while_the_file_is_read_again() {
+    let mut harness = document();
+    harness.press("C");
+    harness.edit("shift");
+    harness.press("Enter");
+    harness.take_effects();
+
+    harness.press("C");
+
+    assert_eq!(harness.popup(), None);
+    assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
+fn a_picked_encoding_shows_text_from_the_top_even_from_the_hex_dump() {
+    let mut harness = document();
+    harness.press("Tab");
+    harness.press("Down");
+    harness.press("C");
+    harness.edit("shift");
+    harness.press("Enter");
+
+    harness.preview_loaded(Document::decode(
+        b"a\0\nb\n".to_vec(),
+        false,
+        Some(encoding_rs::SHIFT_JIS),
+    ));
+
+    assert_eq!(harness.preview_lines(), ["a\0", "b"]);
+    assert_eq!(harness.view().preview.unwrap().detail, "shift_jis");
+}
+
+#[test]
+fn auto_detect_reads_the_file_again_and_lets_it_show_as_binary() {
+    let mut harness = document();
+    harness.press("C");
+    harness.edit("shift");
+    harness.press("Enter");
+    harness.preview_loaded(Document::decode(
+        b"a\0".to_vec(),
+        false,
+        Some(encoding_rs::SHIFT_JIS),
+    ));
+    harness.take_effects();
+
+    harness.press("C");
+    harness.edit("auto");
+    harness.press("Enter");
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::LoadPreview { source, .. }] if source.encoding.is_none()
+    ));
+    harness.preview_loaded(Document::decode(b"a\0".to_vec(), false, None));
+    assert!(harness.preview_lines()[0].starts_with("61 00"));
+}
+
+#[test]
+fn a_picked_encoding_reads_an_archive_entry_again_with_the_password() {
+    let mut harness = inside_archive();
+    harness.press("Enter");
+    harness.fail_preview(PreviewError::PasswordRequired { retry: false });
+    harness.edit("pw");
+    harness.press("Enter");
+    harness.preview_loaded(Document::decode(b"secret".to_vec(), false, None));
+    harness.take_effects();
+
+    harness.press("C");
+    harness.edit("utf-16le");
+    harness.press("Enter");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::LoadPreview {
+            source: PreviewSource {
+                encoding: Some(encoding_rs::UTF_16LE),
+                ..entry_source("b.txt", Some("pw"))
+            },
+            request: harness.latest_preview_request(),
+        }]
+    );
+}
+
+#[test]
 fn e_closes_the_preview_and_opens_the_shown_file_in_the_editor_whatever_is_marked() {
     let mut harness = listing();
     harness.press("Down");
@@ -166,7 +301,7 @@ fn e_closes_the_preview_and_opens_the_shown_file_in_the_editor_whatever_is_marke
     harness.press("Down");
     harness.press("Down");
     harness.press("Enter");
-    harness.preview_loaded(Document::decode(b"zzz".to_vec(), false));
+    harness.preview_loaded(Document::decode(b"zzz".to_vec(), false, None));
     harness.take_effects();
     assert_eq!(harness.marks(Side::Left), ["note.txt"]);
     assert_eq!(harness.cursor_name(Side::Left), "zzz.txt");
@@ -192,7 +327,7 @@ fn e_on_an_archive_entry_extracts_it_with_the_preview_password_and_then_starts_t
     harness.fail_preview(PreviewError::PasswordRequired { retry: false });
     harness.edit("pw");
     harness.press("Enter");
-    harness.preview_loaded(Document::decode(b"secret".to_vec(), false));
+    harness.preview_loaded(Document::decode(b"secret".to_vec(), false, None));
     harness.take_effects();
 
     harness.press("E");
@@ -233,7 +368,7 @@ fn a_binary_file_opens_as_a_hex_dump_with_the_note() {
     let mut raw = b"ab".to_vec();
     raw.push(0);
 
-    harness.preview_loaded(Document::decode(raw, true));
+    harness.preview_loaded(Document::decode(raw, true, None));
 
     let lines = harness.preview_lines();
     assert_eq!(lines.len(), 2);
@@ -290,7 +425,7 @@ fn a_stale_document_is_discarded() {
 
     harness.send(Msg::Io(IoEvent::PreviewLoaded {
         request: stale,
-        result: Ok(Document::decode(b"x".to_vec(), false)),
+        result: Ok(Document::decode(b"x".to_vec(), false, None)),
     }));
 
     assert_eq!(harness.preview_lines(), Vec::<String>::new());
@@ -361,6 +496,7 @@ fn an_image_opened_from_the_left_pane_uses_the_right_area_and_follows_the_cursor
                 path: PathBuf::from(LEFT).join("one.png"),
                 entry: None,
                 password: None,
+                encoding: None,
             },
             request: harness.latest_preview_request(),
         }]
@@ -916,7 +1052,7 @@ fn a_file_inside_an_archive_is_read_as_an_entry_with_the_known_password() {
         }]
     );
 
-    harness.preview_loaded(Document::decode(b"secret".to_vec(), false));
+    harness.preview_loaded(Document::decode(b"secret".to_vec(), false, None));
     assert_eq!(harness.preview_lines(), ["secret"]);
     harness.press("Esc");
     harness.take_effects();
@@ -934,7 +1070,7 @@ fn a_file_inside_an_archive_is_read_as_an_entry_with_the_known_password() {
 fn closing_a_preview_inside_an_archive_releases_the_archive() {
     let mut harness = inside_archive();
     harness.press("Enter");
-    harness.preview_loaded(Document::decode(b"b".to_vec(), false));
+    harness.preview_loaded(Document::decode(b"b".to_vec(), false, None));
     harness.take_effects();
 
     harness.press("Esc");
@@ -1092,6 +1228,7 @@ fn v_opens_an_image_in_the_text_preview() {
                 path: PathBuf::from(LEFT).join("one.png"),
                 entry: None,
                 password: None,
+                encoding: None,
             },
             request: harness.latest_preview_request(),
         }]
@@ -1153,6 +1290,7 @@ fn v_on_the_parent_row_of_an_archive_root_opens_the_archive_file() {
                 path: PathBuf::from(LEFT).join("a.zip"),
                 entry: None,
                 password: None,
+                encoding: None,
             },
             request: harness.latest_preview_request(),
         }]
@@ -1314,7 +1452,7 @@ fn opening() -> Harness {
 fn document() -> Harness {
     let mut harness = opening();
     let text = (0..10).fold(String::new(), |text, i| format!("{text}l{i}\n"));
-    harness.preview_loaded(Document::decode(text.into_bytes(), false));
+    harness.preview_loaded(Document::decode(text.into_bytes(), false, None));
     harness.preview_rows(3);
     harness.take_effects();
     harness
@@ -1360,5 +1498,6 @@ fn entry_source(name: &str, password: Option<&str>) -> PreviewSource {
             name.to_owned(),
         )),
         password: password.map(ToOwned::to_owned),
+        encoding: None,
     }
 }

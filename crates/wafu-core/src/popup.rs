@@ -1,6 +1,8 @@
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 
+use encoding_rs::Encoding;
+
 use crate::app::{Os, Side};
 use crate::command::{Command, Context};
 use crate::config::Bookmark;
@@ -8,6 +10,7 @@ use crate::history::History;
 use crate::key::{Key, KeyBase, NamedKey};
 use crate::listing::{SortKey, SortSpec};
 use crate::location::ArchiveFormat;
+use crate::preview::ENCODINGS;
 use crate::text::nfc;
 use crate::view::{InputField, ItemKind, PopupItem};
 
@@ -237,7 +240,8 @@ pub enum ConflictChoice {
     Abort,
 }
 
-/// A list of places to pick from: history, bookmarks, or drives.
+/// A list to pick from: places (history, bookmarks, or drives), or the
+/// encodings of a document preview.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListPopup {
     pub kind: ListKind,
@@ -255,6 +259,7 @@ pub enum ListKind {
     History(Side),
     Bookmarks,
     Drives,
+    Encodings,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -262,7 +267,8 @@ pub struct ListItem {
     /// The key that picks the item at once, if it has one.
     pub key: Option<char>,
     pub label: String,
-    /// Where the pane already is; picking it just closes the popup.
+    /// Where the pane already is, or the encoding the preview is decoded
+    /// with; the list opens on it.
     pub current: bool,
     pub target: ListTarget,
 }
@@ -273,6 +279,8 @@ pub enum ListTarget {
     HistoryPos(usize, PathBuf),
     Path(PathBuf),
     Drive(char),
+    /// The encoding to decode the previewed document with; `None` detects it.
+    Encoding(Option<&'static Encoding>),
 }
 
 impl SortPopup {
@@ -589,6 +597,25 @@ impl ListPopup {
         Self::new(ListKind::Drives, items)
     }
 
+    /// Auto-detection first, then every encoding, with the one named `current` marked.
+    #[must_use]
+    pub fn encodings(current: &str) -> Self {
+        let items = std::iter::once(ListItem {
+            key: None,
+            label: "Auto-detect".to_owned(),
+            current: false,
+            target: ListTarget::Encoding(None),
+        })
+        .chain(ENCODINGS.iter().map(|&encoding| ListItem {
+            key: None,
+            label: encoding.name().to_owned(),
+            current: encoding.name() == current,
+            target: ListTarget::Encoding(Some(encoding)),
+        }))
+        .collect();
+        Self::new(ListKind::Encodings, items)
+    }
+
     pub fn set_query(&mut self, query: String) {
         let needle = nfc(&query).to_lowercase();
         self.matches = self
@@ -609,6 +636,7 @@ impl ListPopup {
             ListKind::History(Side::Right) => "History (right)",
             ListKind::Bookmarks => "Bookmarks",
             ListKind::Drives => "Drives",
+            ListKind::Encodings => "Encoding",
         }
     }
 
@@ -619,6 +647,7 @@ impl ListPopup {
             ListKind::History(_) => "No history",
             ListKind::Bookmarks => "No bookmarks",
             ListKind::Drives => "No drives",
+            ListKind::Encodings => "No encodings",
         }
     }
 
@@ -626,7 +655,7 @@ impl ListPopup {
     /// picks an item by its key instead.
     #[must_use]
     pub fn filters(&self) -> bool {
-        self.history_side().is_some()
+        matches!(self.kind, ListKind::History(_) | ListKind::Encodings)
     }
 
     /// The side whose history is listed, if the list is a history.
@@ -634,7 +663,7 @@ impl ListPopup {
     pub fn history_side(&self) -> Option<Side> {
         match self.kind {
             ListKind::History(side) => Some(side),
-            ListKind::Bookmarks | ListKind::Drives => None,
+            ListKind::Bookmarks | ListKind::Drives | ListKind::Encodings => None,
         }
     }
 
@@ -1459,6 +1488,31 @@ mod tests {
 
         assert_eq!(popup.selected(), None);
         assert_eq!(menu_input(&mut popup, key("Enter")), Response::Close);
+    }
+
+    #[test]
+    fn list_popup_of_encodings_opens_on_the_current_one_after_auto_detect() {
+        let popup = ListPopup::encodings("Shift_JIS");
+
+        assert_eq!(popup.items.len(), 1 + ENCODINGS.len());
+        assert_eq!(popup.items[0].label, "Auto-detect");
+        assert_eq!(popup.items[0].target, ListTarget::Encoding(None));
+        assert_eq!(
+            popup.selected().unwrap().target,
+            ListTarget::Encoding(Some(encoding_rs::SHIFT_JIS))
+        );
+        assert_eq!(popup.title(), "Encoding");
+    }
+
+    #[test]
+    fn list_popup_of_encodings_narrows_by_typing() {
+        let mut popup = ListPopup::encodings("UTF-8");
+
+        assert!(popup.filters());
+        popup.set_query("jp".to_owned());
+
+        let labels: Vec<String> = popup.items().into_iter().map(|item| item.label).collect();
+        assert_eq!(labels, ["EUC-JP", "ISO-2022-JP"]);
     }
 
     #[test]
