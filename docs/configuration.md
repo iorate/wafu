@@ -31,6 +31,7 @@ use_login_shell_env = true
 [appearance]
 theme = "auto"
 size_format = "plain"
+hidden_opacity = 0.7
 
 [appearance.font]
 family = ""
@@ -39,6 +40,7 @@ size = 12
 [colors.light]
 fg = "#1e1e1e"
 bg = "#ffffff"
+line-number = "#626262"
 mark = "#dcdcdc"
 cursor = "#1e1e1e"
 cursor-inactive = "#7d7d7d"
@@ -52,6 +54,7 @@ socket = "#b03a9a"
 [colors.dark]
 fg = "#d4d4d4"
 bg = "#1e1e1e"
+line-number = "#9d9d9d"
 mark = "#3c3c3c"
 cursor = "#d4d4d4"
 cursor-inactive = "#888888"
@@ -101,6 +104,7 @@ With `use_login_shell_env`, wafu runs your shell once at startup as an interacti
 |---|---|
 | `theme` | `"auto"` (follow the OS), `"light"`, or `"dark"` |
 | `size_format` | `"plain"` (`1234567`), `"comma"` (`1,234,567`), or `"human"` (`1.2M`) |
+| `hidden_opacity` | How opaque the names of hidden items are, from `0` (invisible) to `1` (like other items) |
 
 ### Fonts
 
@@ -125,6 +129,7 @@ size = 16
 |---|---|
 | `fg` | Text: regular files and the rest of the window's text |
 | `bg` | Background |
+| `line-number` | Line numbers in the text preview, and offsets in its binary mode |
 | `mark` | Background of marked rows |
 | `cursor` | The cursor line |
 | `cursor-inactive` | The cursor line while the window is not focused |

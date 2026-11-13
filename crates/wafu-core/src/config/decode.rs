@@ -167,6 +167,23 @@ impl<'a> Reader<'a> {
         }
     }
 
+    fn opacity(&mut self, key: &str) -> Option<u8> {
+        let fraction = match self.table.remove(key)? {
+            Value::Float(value) => value,
+            Value::Integer(0) => 0.0,
+            Value::Integer(1) => 1.0,
+            _ => f64::NAN,
+        };
+        if (0.0..=1.0).contains(&fraction) {
+            // From 0 to 100, since the fraction is from 0 to 1.
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            Some((fraction * 100.0).round() as u8)
+        } else {
+            self.invalid(key, "a number from 0 to 1");
+            None
+        }
+    }
+
     fn color(&mut self, key: &str) -> Option<Color> {
         self.choice(key, "a color like #rrggbb", Color::parse)
     }
@@ -231,6 +248,9 @@ fn read_appearance(root: &mut Reader<'_>, config: &mut Config) {
     ) {
         config.appearance.size_format = format;
     }
+    if let Some(opacity) = appearance.opacity("hidden_opacity") {
+        config.appearance.hidden_opacity = opacity;
+    }
     if let Some(mut font) = appearance.table("font") {
         let fonts = &mut config.appearance.font;
         for (key, area) in [
@@ -276,6 +296,7 @@ fn read_colors(root: &mut Reader<'_>, config: &mut Config) {
         let Colors {
             fg,
             bg,
+            line_number,
             mark,
             cursor,
             cursor_inactive,
@@ -289,6 +310,7 @@ fn read_colors(root: &mut Reader<'_>, config: &mut Config) {
         for (item, color) in [
             ("fg", fg),
             ("bg", bg),
+            ("line-number", line_number),
             ("mark", mark),
             ("cursor", cursor),
             ("cursor-inactive", cursor_inactive),
@@ -549,6 +571,7 @@ family = "..."
 [colors.light]
 fg = "#000000"
 bg = "#ffffff"
+line-number = "#808080"
 mark = "#ff0000"
 cursor = "#000000"
 dir = "#0000ff"
@@ -597,6 +620,10 @@ editor = "open -t {paths}"
             Some("...".to_owned())
         );
         assert_eq!(config.appearance.font.filelist.size, None);
+        assert_eq!(
+            config.colors.light.line_number,
+            Color::new(0x80, 0x80, 0x80)
+        );
         assert_eq!(config.colors.light.dir, Color::new(0x00, 0x00, 0xff));
         assert_eq!(config.bookmarks, [bookmark("Downloads", "~/Downloads")]);
         assert_eq!(
@@ -690,6 +717,26 @@ editor = "open -t {paths}"
             config.commands["x"].expand(&Expansion::default()),
             ["'a", "b'"].map(OsString::from)
         );
+    }
+
+    #[test]
+    fn hidden_opacity_is_a_fraction_from_zero_to_one() {
+        let read = |value: &str| {
+            let text = format!("[appearance]\nhidden_opacity = {value}\n");
+            let (config, diagnostics) = parse(&text, Os::Linux).unwrap();
+            (config.appearance.hidden_opacity, paths(&diagnostics).len())
+        };
+
+        assert_eq!(read("0.0"), (0, 0));
+        assert_eq!(read("0.255"), (26, 0));
+        assert_eq!(read("1.0"), (100, 0));
+        assert_eq!(read("0"), (0, 0));
+        assert_eq!(read("1"), (100, 0));
+        assert_eq!(read("1.01"), (70, 1));
+        assert_eq!(read("-0.1"), (70, 1));
+        assert_eq!(read("2"), (70, 1));
+        assert_eq!(read("nan"), (70, 1));
+        assert_eq!(read("\"0.5\""), (70, 1));
     }
 
     #[test]
