@@ -38,6 +38,12 @@ component PopupText inherits Text {
     font-size: Theme.popup-font-size;
 }
 
+// The palette that popups are drawn with has no weaker foreground, so their
+// secondary text is its foreground made translucent.
+component PopupDimText inherits PopupText {
+    opacity: 0.7;
+}
+
 component PopupInput {
     in property <PopupField> field;
     in property <bool> labelled;
@@ -308,9 +314,8 @@ export component PopupOverlay {
                 }
             }
 
-            if data.note != "": PopupText {
+            if data.note != "": PopupDimText {
                 text: data.note;
-                opacity: Theme.popup-dim-text-alpha;
                 overflow: elide;
                 height: Theme.popup-row-height;
                 vertical-alignment: center;
@@ -368,9 +373,8 @@ export component PopupOverlay {
                                 horizontal-stretch: 1;
                             }
 
-                            PopupText {
+                            PopupDimText {
                                 text: item.detail;
-                                opacity: Theme.popup-dim-text-alpha;
                                 vertical-alignment: center;
                                 horizontal-alignment: right;
                                 horizontal-stretch: 0;

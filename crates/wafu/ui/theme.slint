@@ -61,7 +61,4 @@ export global Theme {
     out property <length> status-row-height: round(status-font-size * 5 / 3 / 1px) * 1px;
     out property <length> popup-row-height: round(popup-font-size * 5 / 3 / 1px) * 1px;
     out property <brush> selection-background: Palette.accent-background.with-alpha(0.3);
-    // The palette that popups are drawn with has no weaker foreground, so
-    // their secondary text is its foreground made translucent.
-    out property <float> popup-dim-text-alpha: 0.7;
 }
