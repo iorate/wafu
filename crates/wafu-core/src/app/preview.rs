@@ -5,6 +5,7 @@ use std::sync::Arc;
 use super::navigation::is_link_in_archive;
 use super::{App, Effect, MouseInput, PreviewError, PreviewSource, Side};
 use crate::command::{Command, Context};
+use crate::config::ImagePlacement;
 use crate::entry::Entry;
 use crate::error::AppError;
 use crate::location::Location;
@@ -19,8 +20,12 @@ impl App {
         if is_image_name(&entry.name) {
             let image = &self.config.preview.image;
             let placement = match self.active {
-                Side::Left if !image.full_from_left => PreviewPlacement::RightPane,
-                Side::Right if !image.full_from_right => PreviewPlacement::LeftPane,
+                Side::Left if image.from_left == ImagePlacement::OtherPane => {
+                    PreviewPlacement::RightPane
+                }
+                Side::Right if image.from_right == ImagePlacement::OtherPane => {
+                    PreviewPlacement::LeftPane
+                }
                 _ => PreviewPlacement::Full,
             };
             // The follow-up at the end of `update` requests the image.
@@ -364,7 +369,7 @@ impl App {
         match &self.preview {
             Some(Preview::Document(_)) => config.text.hide_log,
             Some(Preview::Image(preview)) => {
-                preview.placement == PreviewPlacement::Full && config.image.full_hides_log
+                preview.placement == PreviewPlacement::Full && config.image.hide_log
             }
             None => false,
         }

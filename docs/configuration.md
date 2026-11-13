@@ -10,7 +10,7 @@ wafu reads its settings from a TOML file:
 
 Pass `--config PATH` to use another file; it is created the same way if missing.
 
-wafu creates the file on first launch with a link to this page and nothing else. The `edit_config` command (`Z` in the file list) opens it in the [editor](#general).
+wafu creates the file on first launch with a link to this page and nothing else. The `edit_config` command (`Z` in the file list) opens it in the [editor](#programs).
 
 - Changes apply as soon as the file is saved, except `use_login_shell_env`, which is read only when wafu starts.
 - An item you leave out takes its default.
@@ -20,38 +20,41 @@ wafu creates the file on first launch with a link to this page and nothing else.
 ## Defaults
 
 ```toml
-[general]
-mkdir_then_enter = true
+[filelist]
+mkdir_enters_dir = true
 new_text_creates_file = true
 extract_creates_dir = true
 require_marks = true
-use_login_shell_env = true
 search_matches_anywhere = true
+size_format = "plain"
 
 [preview.text]
 hide_log = false
 
 [preview.image]
-full_from_left = false
-full_from_right = true
-full_hides_log = false
+from_left = "other_pane"
+from_right = "both_panes"
+hide_log = false
 
-[appearance]
-theme = "auto"
-size_format = "plain"
-hidden_opacity = 0.7
+[programs]
+# editor = "notepad {paths}" on Windows, "open -t {paths}" on macOS, "xdg-open {paths}" on Linux
+use_login_shell_env = true
 
-[appearance.font]
+[font]
 family = ""
 size = 12
+
+[colors]
+theme = "auto"
+hidden_opacity = 0.7
 
 [colors.light]
 fg = "#1e1e1e"
 bg = "#ffffff"
-line-number = "#626262"
+line_number = "#626262"
 mark = "#dcdcdc"
 cursor = "#1e1e1e"
-cursor-inactive = "#7d7d7d"
+cursor_inactive = "#7d7d7d"
 dir = "#1f5fbf"
 link = "#0e7c86"
 exec = "#2a8c2a"
@@ -62,49 +65,30 @@ socket = "#b03a9a"
 [colors.dark]
 fg = "#d4d4d4"
 bg = "#1e1e1e"
-line-number = "#9d9d9d"
+line_number = "#9d9d9d"
 mark = "#3c3c3c"
 cursor = "#d4d4d4"
-cursor-inactive = "#888888"
+cursor_inactive = "#888888"
 dir = "#6fa8ff"
 link = "#4fd1e0"
 exec = "#5fd75f"
 broken = "#ff6b6b"
 fifo = "#f0c050"
 socket = "#e58ae0"
-
-# The default editor depends on the OS.
-[os.windows.general]
-editor = "notepad {paths}"
-
-[os.macos.general]
-editor = "open -t {paths}"
-
-[os.linux.general]
-editor = "xdg-open {paths}"
 ```
 
 There are no default bookmarks or external commands. Without a `[keys]` table, the keys shown in the [command palette](#keys) are the defaults.
 
-If you copy this block, note that an item in an `[os.*]` section overrides the same item written at the top level (see [Per-OS sections](#per-os-sections)): to set one `editor` for every OS, write it under `[general]` and leave out the `[os.*.general]` tables.
-
-## General
+## File list
 
 | Item | Meaning |
 |---|---|
-| `mkdir_then_enter` | Enter the directory that `mkdir` created. |
+| `mkdir_enters_dir` | Enter the directory that `mkdir` created. |
 | `new_text_creates_file` | `new_text` creates the file before opening it in the editor. |
 | `extract_creates_dir` | `extract` puts the contents in a directory named after the archive. |
 | `require_marks` | `copy`, `move`, `delete`, and `trash` act only on marked items, never on the cursor item alone. |
-| `editor` | The command line that opens a file for editing, used by `edit`, `new_text`, `preview_edit`, and `edit_config`. `{paths}` is the file. It follows the rules of [external commands](#commands). |
-| `use_login_shell_env` | macOS and Linux: give the programs wafu starts the environment of your login shell. |
 | `search_matches_anywhere` | `search` finds the text anywhere in a name. When `false`, only at the start of a name. |
-
-With `use_login_shell_env`, wafu runs your shell once at startup as an interactive login shell and takes its environment, so programs started from a desktop launcher still see what your shell startup files set up. While it does this, `WAFU_RESOLVING_ENVIRONMENT` is set to `1`, so startup files can skip things that should not run there:
-
-```sh
-[ -z "$WAFU_RESOLVING_ENVIRONMENT" ] && exec tmux
-```
+| `size_format` | How sizes are written: `"plain"` (`1234567`), `"comma"` (`1,234,567`), or `"human"` (`1.2M`). |
 
 ## Preview
 
@@ -118,34 +102,44 @@ With `use_login_shell_env`, wafu runs your shell once at startup as an interacti
 
 | Item | Meaning |
 |---|---|
-| `full_from_left` | An image opened from the left pane takes the place of both panes. When `false`, it takes the place of the right pane, and the left pane stays. |
-| `full_from_right` | An image opened from the right pane takes the place of both panes. When `false`, it takes the place of the left pane, and the right pane stays. |
-| `full_hides_log` | Hide the log while an image takes the place of both panes. |
+| `from_left` | Where an image opened from the left pane is shown: `"other_pane"` (in place of the right pane, while the left pane stays) or `"both_panes"`. |
+| `from_right` | Where an image opened from the right pane is shown: `"other_pane"` (in place of the left pane, while the right pane stays) or `"both_panes"`. |
+| `hide_log` | Hide the log while an image takes the place of both panes. |
 
-## Appearance
+## Programs
 
-| Item | Values |
+| Item | Meaning |
 |---|---|
-| `theme` | `"auto"` (follow the OS), `"light"`, or `"dark"` |
-| `size_format` | `"plain"` (`1234567`), `"comma"` (`1,234,567`), or `"human"` (`1.2M`) |
-| `hidden_opacity` | How opaque the names of hidden items are, from `0` (invisible) to `1` (like other items) |
+| `editor` | The command line that opens a file for editing, used by `edit`, `new_text`, `preview_edit`, and `edit_config`. `{paths}` is the file. It follows the rules of [external commands](#commands). |
+| `use_login_shell_env` | macOS and Linux: give the programs wafu starts the environment of your login shell. |
 
-### Fonts
+With `use_login_shell_env`, wafu runs your shell once at startup as an interactive login shell and takes its environment, so programs started from a desktop launcher still see what your shell startup files set up. While it does this, `WAFU_RESOLVING_ENVIRONMENT` is set to `1`, so startup files can skip things that should not run there:
 
-`[appearance.font]` sets the font for the whole window:
+```sh
+[ -z "$WAFU_RESOLVING_ENVIRONMENT" ] && exec tmux
+```
+
+## Fonts
+
+`[font]` sets the font for the whole window:
 
 - `family`: a font family name. Empty means the monospaced font of the OS (Consolas on Windows, Menlo on macOS, DejaVu Sans Mono on Linux).
 - `size`: in pixels, from 6 to 72.
 
-Each area can have its own font in a table with the same items: `[appearance.font.path]`, `[appearance.font.filelist]`, `[appearance.font.info]`, `[appearance.font.log]`, `[appearance.font.status]`, `[appearance.font.preview]`, and `[appearance.font.popup]`. An item an area leaves out (or an empty `family`) follows `[appearance.font]`.
+Each area can have its own font in a table with the same items: `[font.path]`, `[font.filelist]`, `[font.info]`, `[font.log]`, `[font.status]`, `[font.preview]`, and `[font.popup]`. An item an area leaves out (or an empty `family`) follows `[font]`.
 
 ```toml
-[appearance.font.path]
+[font.path]
 family = "Consolas"
 size = 16
 ```
 
 ## Colors
+
+| Item | Values |
+|---|---|
+| `theme` | `"auto"` (follow the OS), `"light"`, or `"dark"` |
+| `hidden_opacity` | How opaque the names of hidden items are, from `0` (invisible) to `1` (like other items) |
 
 `[colors.light]` is used with the light theme and `[colors.dark]` with the dark one. Each color is written `"#rrggbb"` or `"#rgb"`.
 
@@ -153,10 +147,10 @@ size = 16
 |---|---|
 | `fg` | Text: regular files and the rest of the window's text |
 | `bg` | Background |
-| `line-number` | Line numbers in the text preview, and offsets in its binary mode |
+| `line_number` | Line numbers in the text preview, and offsets in its binary mode |
 | `mark` | Background of marked rows |
 | `cursor` | The cursor line |
-| `cursor-inactive` | The cursor line while the window is not focused |
+| `cursor_inactive` | The cursor line while the window is not focused |
 | `dir` | Directories |
 | `link` | Symbolic links whose target exists |
 | `broken` | Symbolic links whose target does not exist |
@@ -239,26 +233,3 @@ Keys are written as modifiers and a key joined by `+`, as in `"Ctrl+Shift+Left"`
 - Named keys: `Enter`, `Space`, `Tab`, `BS`, `Esc`, `Up`, `Down`, `Left`, `Right`, `PageUp`, `PageDown`, `Home`, `End`, `Insert`, `Delete`, and `F1` to `F12`.
 
 Modifier and key names are not case-sensitive.
-
-## Per-OS sections
-
-`[os.windows]`, `[os.macos]`, and `[os.linux]` hold items for one OS, written as in the rest of the file. On that OS they are merged over the top-level items; the other sections are ignored.
-
-- Tables merge item by item: `[os.macos.general]` with only `editor` changes only `editor`.
-- Key tables merge key by key.
-- Arrays, such as `bookmarks`, replace the top-level array as a whole.
-
-```toml
-[[bookmarks]]
-name = "Home"
-path = "~"
-
-[os.windows]
-bookmarks = [
-  { name = "Home", path = "~" },
-  { name = "D", path = "D:\\" },
-]
-
-[os.macos.keys.filelist]
-"Ctrl+Space" = "nop"
-```

@@ -21,14 +21,15 @@ const FONT_SIZE_MIN: u16 = 6;
 const FONT_SIZE_MAX: u16 = 72;
 const HUMAN_UNITS: [&str; 6] = ["K", "M", "G", "T", "P", "E"];
 
-/// The configuration after the OS section has been merged in and every
-/// unusable item has been replaced by its default.
+/// The configuration after every unusable item has been replaced by its
+/// default.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
-    pub general: General,
+    pub filelist: FileListConfig,
     pub preview: PreviewConfig,
-    pub appearance: Appearance,
-    pub colors: ColorSet,
+    pub programs: ProgramsConfig,
+    pub font: FontSet,
+    pub colors: ColorsConfig,
     pub bookmarks: Vec<Bookmark>,
     pub commands: BTreeMap<String, CommandLine>,
     pub keys: KeyMap,
@@ -46,46 +47,13 @@ pub struct Bookmark {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
-pub struct General {
-    pub mkdir_then_enter: bool,
+pub struct FileListConfig {
+    pub mkdir_enters_dir: bool,
     pub new_text_creates_file: bool,
     pub extract_creates_dir: bool,
     pub require_marks: bool,
-    pub editor: CommandLine,
-    pub use_login_shell_env: bool,
     pub search_matches_anywhere: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreviewConfig {
-    pub text: TextPreviewConfig,
-    pub image: ImagePreviewConfig,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TextPreviewConfig {
-    pub hide_log: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImagePreviewConfig {
-    /// Whether an image opened from the left pane takes the place of both
-    /// panes rather than of the right one.
-    pub full_from_left: bool,
-    /// Whether an image opened from the right pane takes the place of both
-    /// panes rather than of the left one.
-    pub full_from_right: bool,
-    /// Whether an image in place of both panes hides the log.
-    pub full_hides_log: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Appearance {
-    pub theme: Theme,
     pub size_format: SizeFormat,
-    /// How opaque the names of hidden entries are, in percent.
-    pub hidden_opacity: u8,
-    pub font: FontSet,
 }
 
 /// How a size in bytes is written in the file list and the information line.
@@ -141,11 +109,39 @@ impl SizeFormat {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreviewConfig {
+    pub text: TextPreviewConfig,
+    pub image: ImagePreviewConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextPreviewConfig {
+    pub hide_log: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImagePreviewConfig {
+    /// Where an image opened from the left pane is shown.
+    pub from_left: ImagePlacement,
+    /// Where an image opened from the right pane is shown.
+    pub from_right: ImagePlacement,
+    /// Whether an image in place of both panes hides the log.
+    pub hide_log: bool,
+}
+
+/// What an image preview takes the place of.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Theme {
-    Auto,
-    Light,
-    Dark,
+pub enum ImagePlacement {
+    /// The pane the image was not opened from.
+    OtherPane,
+    BothPanes,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProgramsConfig {
+    pub editor: CommandLine,
+    pub use_login_shell_env: bool,
 }
 
 /// The default font and the fonts of the areas that may differ from it.
@@ -170,9 +166,19 @@ pub struct Font {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ColorSet {
+pub struct ColorsConfig {
+    pub theme: Theme,
+    /// How opaque the names of hidden entries are, in percent.
+    pub hidden_opacity: u8,
     pub light: Colors,
     pub dark: Colors,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Theme {
+    Auto,
+    Light,
+    Dark,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -203,7 +209,7 @@ pub struct Color {
 /// error.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
-    /// The item, such as `appearance.theme`.
+    /// The item, such as `colors.theme`.
     pub path: String,
     pub kind: DiagnosticKind,
 }
@@ -239,41 +245,41 @@ impl Config {
     #[must_use]
     pub fn default_for(os: Os) -> Self {
         Self {
-            general: General {
-                mkdir_then_enter: true,
+            filelist: FileListConfig {
+                mkdir_enters_dir: true,
                 // On by default because the macOS `open -t` does nothing for a
                 // file that does not exist.
                 new_text_creates_file: true,
                 extract_creates_dir: true,
                 require_marks: true,
-                editor: default_editor(os),
-                use_login_shell_env: true,
                 search_matches_anywhere: true,
+                size_format: SizeFormat::Plain,
             },
             preview: PreviewConfig {
                 text: TextPreviewConfig { hide_log: false },
                 image: ImagePreviewConfig {
-                    full_from_left: false,
-                    full_from_right: true,
-                    full_hides_log: false,
+                    from_left: ImagePlacement::OtherPane,
+                    from_right: ImagePlacement::BothPanes,
+                    hide_log: false,
                 },
             },
-            appearance: Appearance {
+            programs: ProgramsConfig {
+                editor: default_editor(os),
+                use_login_shell_env: true,
+            },
+            font: FontSet {
+                default: Font {
+                    family: None,
+                    size: Some(FONT_SIZE_DEFAULT),
+                },
+                ..FontSet::default()
+            },
+            colors: ColorsConfig {
                 theme: Theme::Auto,
-                size_format: SizeFormat::Plain,
                 // Hidden entries keep their kind color, which has less contrast
                 // against the background than `fg`; any lower and they get hard
                 // to read.
                 hidden_opacity: 70,
-                font: FontSet {
-                    default: Font {
-                        family: None,
-                        size: Some(FONT_SIZE_DEFAULT),
-                    },
-                    ..FontSet::default()
-                },
-            },
-            colors: ColorSet {
                 light: Colors {
                     fg: Color::new(0x1e, 0x1e, 0x1e),
                     bg: Color::new(0xff, 0xff, 0xff),
@@ -307,6 +313,16 @@ impl Config {
             commands: BTreeMap::new(),
             keys: KeyMap::default_for(os),
         }
+    }
+}
+
+impl ImagePlacement {
+    fn from_name(name: &str) -> Option<Self> {
+        Some(match name {
+            "other_pane" => Self::OtherPane,
+            "both_panes" => Self::BothPanes,
+            _ => return None,
+        })
     }
 }
 

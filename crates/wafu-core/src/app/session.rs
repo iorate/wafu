@@ -74,7 +74,7 @@ impl App {
         // started it; when that one failed to read it, trying again in every
         // new window would only repeat the error. The setting is read here
         // only, since the shell runs once per process.
-        if self.os != Os::Windows && !inherited && self.config.general.use_login_shell_env {
+        if self.os != Os::Windows && !inherited && self.config.programs.use_login_shell_env {
             effects.push(Effect::LoadShellEnv);
             self.held_spawns = Some(Vec::new());
         }
@@ -216,7 +216,7 @@ impl App {
             paths: vec![self.config_path.clone()],
             ..self.expansion()
         };
-        Self::spawn_editor(&self.config.general.editor, &expansion, effects);
+        Self::spawn_editor(&self.config.programs.editor, &expansion, effects);
     }
 
     pub(super) fn spawned(&mut self, kind: SpawnKind, error: Option<IoError>) {
@@ -293,7 +293,7 @@ impl App {
 
     fn apply_config(&mut self, config: Config) {
         for pane in &mut self.panes {
-            pane.set_size_format(config.appearance.size_format);
+            pane.set_size_format(config.filelist.size_format);
         }
         self.config = config;
         self.restyle();

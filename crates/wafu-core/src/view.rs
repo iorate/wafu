@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::app::{ColorScheme, Os};
-use crate::config::{ColorSet, Config, SizeFormat, Theme, monospace_family};
+use crate::config::{Colors, Config, SizeFormat, Theme, monospace_family};
 use crate::entry::{Entry, EntryKind, SpecialKind, TargetKind};
 use crate::pane::Pane;
 use crate::preview::ImageData;
@@ -61,6 +61,12 @@ pub struct ResolvedFont {
     pub family: String,
     /// In pixels.
     pub size: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ColorSet {
+    pub light: Colors,
+    pub dark: Colors,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -260,20 +266,20 @@ pub enum RowKind {
 
 impl Style {
     pub(crate) fn from_config(config: &Config, os: Os, scheme: Option<ColorScheme>) -> Self {
-        let font = &config.appearance.font;
+        let font = &config.font;
         let monospace = monospace_family(os);
         let resolve = |area: &crate::config::Font| {
             let (family, size) = area.resolve(&font.default, monospace);
             ResolvedFont { family, size }
         };
         Self {
-            theme: match (config.appearance.theme, scheme) {
+            theme: match (config.colors.theme, scheme) {
                 (Theme::Auto, Some(ColorScheme::Light)) => Theme::Light,
                 (Theme::Auto, Some(ColorScheme::Dark)) => Theme::Dark,
                 (theme, _) => theme,
             },
-            size_sample: config.appearance.size_format.column_sample(),
-            hidden_opacity: config.appearance.hidden_opacity,
+            size_sample: config.filelist.size_format.column_sample(),
+            hidden_opacity: config.colors.hidden_opacity,
             fonts: Fonts {
                 path: resolve(&font.path),
                 filelist: resolve(&font.filelist),
@@ -283,7 +289,10 @@ impl Style {
                 preview: resolve(&font.preview),
                 popup: resolve(&font.popup),
             },
-            colors: config.colors.clone(),
+            colors: ColorSet {
+                light: config.colors.light.clone(),
+                dark: config.colors.dark.clone(),
+            },
         }
     }
 }
@@ -460,7 +469,7 @@ mod tests {
     #[test]
     fn each_area_takes_its_own_font_family() {
         let mut config = Config::default_for(Os::Linux);
-        let font = &mut config.appearance.font;
+        let font = &mut config.font;
         for (area, family) in [
             (&mut font.path, "path"),
             (&mut font.filelist, "filelist"),
@@ -764,7 +773,7 @@ mod tests {
 
     fn theme(theme: Theme, scheme: Option<ColorScheme>) -> Theme {
         let mut config = Config::default_for(Os::Linux);
-        config.appearance.theme = theme;
+        config.colors.theme = theme;
         Style::from_config(&config, Os::Linux, scheme).theme
     }
 

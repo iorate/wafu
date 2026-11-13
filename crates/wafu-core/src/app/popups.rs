@@ -153,7 +153,7 @@ impl App {
                 self.popup_top = 0;
             }
             Some(Popup::Search(popup)) if field == 0 => {
-                let anywhere = self.config.general.search_matches_anywhere;
+                let anywhere = self.config.filelist.search_matches_anywhere;
                 let pane = &mut self.panes[self.active.index()];
                 if text.is_empty() {
                     pane.restore_position(popup.origin_cursor, popup.origin_scroll_top);
@@ -526,7 +526,7 @@ impl App {
     }
 
     fn search_popup_key(&mut self, popup: SearchPopup, key: Key) {
-        let anywhere = self.config.general.search_matches_anywhere;
+        let anywhere = self.config.filelist.search_matches_anywhere;
         let pane = &mut self.panes[self.active.index()];
         match key.base {
             KeyBase::Named(NamedKey::Escape) => {

@@ -1086,7 +1086,7 @@ fn search_finds_the_text_inside_a_name() {
 #[test]
 fn search_matches_only_the_start_of_a_name_when_configured() {
     let mut harness = Harness::start("/home/user", "/tmp");
-    harness.config("[general]\nsearch_matches_anywhere = false\n");
+    harness.config("[filelist]\nsearch_matches_anywhere = false\n");
     harness.load(Side::Left, vec![file("xa"), file("ab"), file("ya")]);
 
     harness.press("F");
@@ -2902,7 +2902,7 @@ fn size_format_applies_to_the_rows_and_the_marked_total_on_reload() {
             .contains("1 marked (1234567 bytes)")
     );
 
-    harness.config("[appearance]\nsize_format = \"comma\"\n");
+    harness.config("[filelist]\nsize_format = \"comma\"\n");
     assert_eq!(harness.view().style.size_sample, "000,000,000,000");
     assert_eq!(harness.view().left.rows[1].size, "1,234,567");
     assert_eq!(harness.view().left.rows[2].size, "512");
@@ -3129,11 +3129,11 @@ fn start_logs_an_unknown_configuration_item() {
         Os::Linux,
         Some("/home/user"),
         Some("/tmp"),
-        ConfigSource::Text("[general]\nfoo = 1\n".to_owned()),
+        ConfigSource::Text("[filelist]\nfoo = 1\n".to_owned()),
         Ok(None),
     ));
 
-    assert_eq!(harness.log(), ["Config: unknown item general.foo"]);
+    assert_eq!(harness.log(), ["Config: unknown item filelist.foo"]);
 }
 
 #[test]
@@ -3145,12 +3145,12 @@ fn reloading_the_configuration_changes_keys_and_style() {
     harness.take_effects();
 
     harness.config(
-        "[appearance]\ntheme = \"dark\"\nbogus = 1\n[appearance.font]\nsize = 16\n[keys.filelist]\n\"Q\" = \"nop\"\n\"F2\" = \"go_root\"\n",
+        "[colors]\ntheme = \"dark\"\nbogus = 1\n[font]\nsize = 16\n[keys.filelist]\n\"Q\" = \"nop\"\n\"F2\" = \"go_root\"\n",
     );
 
     assert_eq!(
         harness.log(),
-        ["Config: unknown item appearance.bogus", "Reloaded config",]
+        ["Config: unknown item colors.bogus", "Reloaded config",]
     );
     let style = harness.view().style;
     assert_eq!(style.theme, Theme::Dark);
@@ -3176,7 +3176,7 @@ fn an_automatic_theme_follows_the_os_color_scheme_across_reloads() {
     }));
     assert_eq!(harness.view().style.theme, Theme::Dark);
 
-    harness.config("[appearance.font]\nsize = 16\n");
+    harness.config("[font]\nsize = 16\n");
     assert_eq!(harness.view().style.theme, Theme::Dark);
 
     harness.send(Msg::Io(IoEvent::ColorScheme {
@@ -3195,10 +3195,10 @@ fn default_fonts_are_the_monospace_family_of_the_os() {
 #[test]
 fn a_syntax_error_on_reload_keeps_the_previous_configuration() {
     let mut harness = Harness::start("/home/user", "/tmp");
-    harness.config("[appearance]\ntheme = \"light\"\n");
+    harness.config("[colors]\ntheme = \"light\"\n");
     harness.take_effects();
 
-    harness.config("[appearance\n");
+    harness.config("[colors\n");
 
     let log = harness.log();
     assert_eq!(log.len(), 2);
@@ -3513,7 +3513,11 @@ fn an_inherited_instance_starts_programs_at_once() {
 
 #[test]
 fn turning_off_use_login_shell_env_starts_programs_at_once() {
-    let mut harness = start_with_term(Os::Linux, false, "[general]\nuse_login_shell_env = false\n");
+    let mut harness = start_with_term(
+        Os::Linux,
+        false,
+        "[programs]\nuse_login_shell_env = false\n",
+    );
     assert!(!harness.take_effects().contains(&Effect::LoadShellEnv));
 
     harness.press("F2");
@@ -3602,7 +3606,7 @@ fn edit_config_opens_the_configuration_in_the_editor() {
     let mut harness = Harness::start_with_config(
         "/home/user",
         "/tmp",
-        "[general]\neditor = \"code -w {paths}\"\n[os.macos.general]\neditor = \"open -t {paths}\"\n",
+        "[programs]\neditor = \"code -w {paths}\"\n",
     );
     harness.take_effects();
 
