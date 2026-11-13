@@ -150,11 +150,14 @@ Each `[[bookmarks]]` entry adds one bookmark, in order. `name` is what the bookm
 [[bookmarks]]
 name = "Downloads"
 path = "~/Downloads"
+key = "D"
 
 [[bookmarks]]
 name = "Projects"
 path = "~/projects"
 ```
+
+`key` is optional: a digit or a letter that picks the bookmark at once in the popup.
 
 ## Commands
 

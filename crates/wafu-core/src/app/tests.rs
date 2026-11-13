@@ -2601,7 +2601,7 @@ fn entering_a_special_file_as_an_archive_logs_an_error() {
 fn bookmarks_popup_shows_names_and_picks_by_key() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.config(
-        "[[bookmarks]]\nname = \"Docs\"\npath = \"/usr\"\n[[bookmarks]]\nname = \"Var\"\npath = \"/var\"\n",
+        "[[bookmarks]]\nname = \"Docs\"\npath = \"/usr\"\n[[bookmarks]]\nname = \"Var\"\npath = \"/var\"\nkey = \"V\"\n",
     );
     harness.take_effects();
 
@@ -2617,7 +2617,7 @@ fn bookmarks_popup_shows_names_and_picks_by_key() {
     harness.press("Up");
     assert_eq!(harness.view().popup.unwrap().cursor, Some(1));
 
-    harness.press("1");
+    harness.press("V");
     assert_eq!(harness.popup(), None);
     harness.load(Side::Left, vec![]);
     assert_eq!(harness.view().left.path, "/var");
@@ -2630,7 +2630,7 @@ fn bookmarks_popup_expands_tilde() {
     harness.take_effects();
 
     harness.press("J");
-    harness.press("0");
+    harness.press("Enter");
 
     let docs = PathBuf::from(HOME).join("docs");
     harness.load(Side::Left, vec![]);
