@@ -515,7 +515,7 @@ fn extract_unpacks_the_targets_into_the_other_side() {
 #[test]
 fn extract_unpacks_straight_into_the_other_side_when_configured() {
     let mut harness =
-        Harness::start_with_config(LEFT, RIGHT, "[general]\nextract_creates_dir = false\n");
+        Harness::start_with_config(LEFT, RIGHT, "[filelist]\nextract_creates_dir = false\n");
     harness.load(Side::Left, vec![file("a.zip")]);
     harness.load(Side::Right, Vec::new());
     harness.press("Down");
@@ -549,7 +549,7 @@ fn compress_on_the_parent_row_offers_the_directory_itself() {
 #[test]
 fn copy_on_the_parent_row_of_an_archive_root_copies_the_archive_file() {
     let mut harness = inside();
-    harness.config("[general]\nrequire_marks = false\n");
+    harness.config("[filelist]\nrequire_marks = false\n");
     harness.press("Home");
     harness.take_effects();
     assert_eq!(harness.cursor_name(Side::Left), "..");

@@ -1,7 +1,10 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use super::{App, ColorScheme, ConfigSource, Effect, Os, Side, SpawnKind, SpawnName, Start};
+use super::{
+    App, ColorScheme, ConfigContent, ConfigFile, ConfigSource, Effect, Os, Side, SpawnKind,
+    SpawnName, Start,
+};
 use crate::command::Command;
 use crate::config::{Config, parse_config};
 use crate::entry::Entry;
@@ -74,7 +77,7 @@ impl App {
         // started it; when that one failed to read it, trying again in every
         // new window would only repeat the error. The setting is read here
         // only, since the shell runs once per process.
-        if self.os != Os::Windows && !inherited && self.config.general.use_login_shell_env {
+        if self.os != Os::Windows && !inherited && self.config.programs.use_login_shell_env {
             effects.push(Effect::LoadShellEnv);
             self.held_spawns = Some(Vec::new());
         }
@@ -89,17 +92,8 @@ impl App {
         self.resolve(Side::Right, right, true, None, effects);
     }
 
-    pub(super) fn config_loaded(&mut self, result: Result<String, IoError>) {
-        let text = match result {
-            Ok(text) => text,
-            Err(source) => {
-                let path = self.config_path.clone();
-                self.log
-                    .push(AppError::ConfigUnreadable { path, source }.to_string());
-                return;
-            }
-        };
-        if let Some(config) = self.parse(&text) {
+    pub(super) fn config_loaded(&mut self, files: Vec<ConfigFile>) {
+        if let Some(config) = self.parse(files) {
             self.apply_config(config);
             self.log.push("Reloaded config".to_owned());
         }
@@ -216,7 +210,7 @@ impl App {
             paths: vec![self.config_path.clone()],
             ..self.expansion()
         };
-        Self::spawn_editor(&self.config.general.editor, &expansion, effects);
+        Self::spawn_editor(&self.config.programs.editor, &expansion, effects);
     }
 
     pub(super) fn spawned(&mut self, kind: SpawnKind, error: Option<IoError>) {
@@ -251,36 +245,45 @@ impl App {
 
     fn load_config(&mut self, source: ConfigSource) {
         let config = match source {
-            ConfigSource::Text(text) => self.parse(&text),
+            ConfigSource::Read(files) => self.parse(files),
             ConfigSource::Created => {
                 self.log
                     .push(format!("Created {}", self.config_path.display()));
-                None
-            }
-            ConfigSource::Unreadable(source) => {
-                let path = self.config_path.clone();
-                self.log
-                    .push(AppError::ConfigUnreadable { path, source }.to_string());
                 None
             }
         };
         self.apply_config(config.unwrap_or_else(|| Config::default_for(self.os)));
     }
 
-    // Logs every warning; a syntax error is logged and yields nothing, so that
-    // the caller keeps what it had.
-    fn parse(&mut self, text: &str) -> Option<Config> {
-        match parse_config(text, self.os) {
+    // Logs every warning; a file that cannot be read or has a syntax error
+    // is logged and yields nothing, so that the caller keeps what it had.
+    fn parse(&mut self, files: Vec<ConfigFile>) -> Option<Config> {
+        let mut texts = Vec::with_capacity(files.len());
+        let mut paths = Vec::with_capacity(files.len());
+        for ConfigFile { path, content } in files {
+            let error = match content {
+                ConfigContent::Text(text) => {
+                    texts.push(text);
+                    paths.push(path);
+                    continue;
+                }
+                ConfigContent::Unreadable(source) => AppError::ConfigUnreadable { path, source },
+                ConfigContent::Cycle => AppError::ConfigCycle { path },
+            };
+            self.log.push(error.to_string());
+            return None;
+        }
+        match parse_config(texts.iter().map(String::as_str), self.os) {
             Ok((config, diagnostics)) => {
                 for diagnostic in diagnostics {
                     self.log.push(diagnostic.to_string());
                 }
                 Some(config)
             }
-            Err(error) => {
+            Err((index, error)) => {
                 self.log.push(
                     AppError::ConfigSyntax {
-                        path: self.config_path.clone(),
+                        path: paths.swap_remove(index),
                         line: error.line,
                         message: error.message,
                     }
@@ -293,7 +296,7 @@ impl App {
 
     fn apply_config(&mut self, config: Config) {
         for pane in &mut self.panes {
-            pane.set_size_format(config.appearance.size_format);
+            pane.set_size_format(config.filelist.size_format);
         }
         self.config = config;
         self.restyle();

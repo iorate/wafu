@@ -6,7 +6,7 @@ use toml::{Table, Value};
 
 use super::{
     Bookmark, Color, Colors, Config, Diagnostic, DiagnosticKind, FONT_SIZE_MAX, FONT_SIZE_MIN,
-    Font, SizeFormat, SyntaxError, Theme,
+    Font, ImagePlacement, SizeFormat, SyntaxError, Theme,
 };
 use crate::app::Os;
 use crate::command::{Command, Context};
@@ -21,26 +21,40 @@ const CONTEXTS: [(&str, Context); 3] = [
 
 // The table is walked by hand rather than with serde, which cannot skip one
 // item of the wrong type and keep the rest (serde_ignored only finds unknown
-// items). A syntax error rejects the whole file and keeps the previous
+// items). A syntax error rejects every file and keeps the previous
 // configuration; any other error drops just that item with a warning.
-pub(super) fn parse(text: &str, os: Os) -> Result<(Config, Vec<Diagnostic>), SyntaxError> {
-    let mut table: Table = toml::from_str(text).map_err(|error| SyntaxError {
-        line: line_of(text, error.span()),
-        message: error.message().to_owned(),
-    })?;
+pub(super) fn parse_layers<'a>(
+    texts: impl IntoIterator<Item = &'a str>,
+    os: Os,
+) -> Result<(Config, Vec<Diagnostic>), (usize, SyntaxError)> {
+    let mut merged = Table::new();
     let mut diagnostics = Vec::new();
-    merge_os_section(&mut table, os, &mut diagnostics);
+    for (index, text) in texts.into_iter().enumerate() {
+        let mut table = parse_table(text).map_err(|error| (index, error))?;
+        take_extends(&mut table, &mut diagnostics);
+        merge(&mut merged, table);
+    }
     let mut config = Config::default_for(os);
-    let mut root = Reader::new(table, String::new(), &mut diagnostics);
-    read_general(&mut root, &mut config, os);
+    let mut root = Reader::new(merged, String::new(), &mut diagnostics);
+    read_filelist(&mut root, &mut config);
     read_preview(&mut root, &mut config);
-    read_appearance(&mut root, &mut config);
+    read_programs(&mut root, &mut config, os);
+    read_font(&mut root, &mut config);
     read_colors(&mut root, &mut config);
     read_bookmarks(&mut root, &mut config);
     read_commands(&mut root, &mut config, os);
     read_keys(&mut root, &mut config);
     root.finish();
     Ok((config, diagnostics))
+}
+
+// A file whose text is not TOML names no bases; its syntax error is reported
+// when the files are parsed.
+pub(super) fn extends(text: &str) -> Vec<String> {
+    parse_table(text).map_or_else(
+        |_| Vec::new(),
+        |mut table| take_extends(&mut table, &mut Vec::new()),
+    )
 }
 
 // Walks a table, taking each item out as it is read so that whatever is left
@@ -201,38 +215,33 @@ impl<'a> Reader<'a> {
     }
 }
 
-fn read_general(root: &mut Reader<'_>, config: &mut Config, os: Os) {
-    let Some(mut general) = root.table("general") else {
+fn read_filelist(root: &mut Reader<'_>, config: &mut Config) {
+    let Some(mut filelist) = root.table("filelist") else {
         return;
     };
-    if let Some(value) = general.bool("mkdir_then_enter") {
-        config.general.mkdir_then_enter = value;
-    }
-    if let Some(value) = general.bool("new_text_creates_file") {
-        config.general.new_text_creates_file = value;
-    }
-    if let Some(value) = general.bool("extract_creates_dir") {
-        config.general.extract_creates_dir = value;
-    }
-    if let Some(value) = general.bool("require_marks") {
-        config.general.require_marks = value;
-    }
-    if let Some(value) = general.bool("use_login_shell_env") {
-        config.general.use_login_shell_env = value;
-    }
-    if let Some(value) = general.bool("search_matches_anywhere") {
-        config.general.search_matches_anywhere = value;
-    }
-    if let Some(text) = general.string("editor") {
-        match CommandLine::parse(&text, os) {
-            Ok(editor) => config.general.editor = editor,
-            Err(error) => {
-                let path = general.path_of("editor");
-                general.report(path, DiagnosticKind::InvalidCommandLine(error));
-            }
+    let settings = &mut config.filelist;
+    for (key, setting) in [
+        ("mkdir_enters_dir", &mut settings.mkdir_enters_dir),
+        ("new_text_creates_file", &mut settings.new_text_creates_file),
+        ("extract_creates_dir", &mut settings.extract_creates_dir),
+        ("require_marks", &mut settings.require_marks),
+        (
+            "search_matches_anywhere",
+            &mut settings.search_matches_anywhere,
+        ),
+    ] {
+        if let Some(value) = filelist.bool(key) {
+            *setting = value;
         }
     }
-    general.finish();
+    if let Some(format) = filelist.choice(
+        "size_format",
+        "plain, comma, or human",
+        SizeFormat::from_name,
+    ) {
+        settings.size_format = format;
+    }
+    filelist.finish();
 }
 
 fn read_preview(root: &mut Reader<'_>, config: &mut Config) {
@@ -246,60 +255,68 @@ fn read_preview(root: &mut Reader<'_>, config: &mut Config) {
         text.finish();
     }
     if let Some(mut image) = preview.table("image") {
-        if let Some(value) = image.bool("full_from_left") {
-            config.preview.image.full_from_left = value;
+        let settings = &mut config.preview.image;
+        for (key, setting) in [
+            ("from_left", &mut settings.from_left),
+            ("from_right", &mut settings.from_right),
+        ] {
+            if let Some(placement) =
+                image.choice(key, "other_pane or both_panes", ImagePlacement::from_name)
+            {
+                *setting = placement;
+            }
         }
-        if let Some(value) = image.bool("full_from_right") {
-            config.preview.image.full_from_right = value;
-        }
-        if let Some(value) = image.bool("full_hides_log") {
-            config.preview.image.full_hides_log = value;
+        if let Some(value) = image.bool("hide_log") {
+            settings.hide_log = value;
         }
         image.finish();
     }
     preview.finish();
 }
 
-fn read_appearance(root: &mut Reader<'_>, config: &mut Config) {
-    let Some(mut appearance) = root.table("appearance") else {
+fn read_programs(root: &mut Reader<'_>, config: &mut Config, os: Os) {
+    let Some(mut programs) = root.table("programs") else {
         return;
     };
-    if let Some(theme) = appearance.choice("theme", "auto, light, or dark", Theme::from_name) {
-        config.appearance.theme = theme;
-    }
-    if let Some(format) = appearance.choice(
-        "size_format",
-        "plain, comma, or human",
-        SizeFormat::from_name,
-    ) {
-        config.appearance.size_format = format;
-    }
-    if let Some(opacity) = appearance.opacity("hidden_opacity") {
-        config.appearance.hidden_opacity = opacity;
-    }
-    if let Some(mut font) = appearance.table("font") {
-        let fonts = &mut config.appearance.font;
-        for (key, area) in [
-            ("path", &mut fonts.path),
-            ("filelist", &mut fonts.filelist),
-            ("info", &mut fonts.info),
-            ("log", &mut fonts.log),
-            ("status", &mut fonts.status),
-            ("preview", &mut fonts.preview),
-            ("popup", &mut fonts.popup),
-        ] {
-            if let Some(mut reader) = font.table(key) {
-                read_font(&mut reader, area);
-                reader.finish();
+    if let Some(text) = programs.string("editor") {
+        match CommandLine::parse(&text, os) {
+            Ok(editor) => config.programs.editor = editor,
+            Err(error) => {
+                let path = programs.path_of("editor");
+                programs.report(path, DiagnosticKind::InvalidCommandLine(error));
             }
         }
-        read_font(&mut font, &mut fonts.default);
-        font.finish();
     }
-    appearance.finish();
+    if let Some(value) = programs.bool("use_login_shell_env") {
+        config.programs.use_login_shell_env = value;
+    }
+    programs.finish();
 }
 
-fn read_font(reader: &mut Reader<'_>, font: &mut Font) {
+fn read_font(root: &mut Reader<'_>, config: &mut Config) {
+    let Some(mut font) = root.table("font") else {
+        return;
+    };
+    let fonts = &mut config.font;
+    for (key, area) in [
+        ("path", &mut fonts.path),
+        ("filelist", &mut fonts.filelist),
+        ("info", &mut fonts.info),
+        ("log", &mut fonts.log),
+        ("status", &mut fonts.status),
+        ("preview", &mut fonts.preview),
+        ("popup", &mut fonts.popup),
+    ] {
+        if let Some(mut reader) = font.table(key) {
+            read_font_items(&mut reader, area);
+            reader.finish();
+        }
+    }
+    read_font_items(&mut font, &mut fonts.default);
+    font.finish();
+}
+
+fn read_font_items(reader: &mut Reader<'_>, font: &mut Font) {
     if let Some(family) = reader.string("family") {
         font.family = (!family.is_empty()).then_some(family);
     }
@@ -312,6 +329,12 @@ fn read_colors(root: &mut Reader<'_>, config: &mut Config) {
     let Some(mut colors) = root.table("colors") else {
         return;
     };
+    if let Some(theme) = colors.choice("theme", "auto, light, or dark", Theme::from_name) {
+        config.colors.theme = theme;
+    }
+    if let Some(opacity) = colors.opacity("hidden_opacity") {
+        config.colors.hidden_opacity = opacity;
+    }
     for (key, set) in [
         ("light", &mut config.colors.light),
         ("dark", &mut config.colors.dark),
@@ -336,10 +359,10 @@ fn read_colors(root: &mut Reader<'_>, config: &mut Config) {
         for (item, color) in [
             ("fg", fg),
             ("bg", bg),
-            ("line-number", line_number),
+            ("line_number", line_number),
             ("mark", mark),
             ("cursor", cursor),
-            ("cursor-inactive", cursor_inactive),
+            ("cursor_inactive", cursor_inactive),
             ("dir", dir),
             ("link", link),
             ("exec", exec),
@@ -503,47 +526,9 @@ fn read_keys(root: &mut Reader<'_>, config: &mut Config) {
     keys.finish();
 }
 
-// The section of the running OS overrides the common items; the sections of
-// the other systems are dropped unread, since their values are not for here.
-fn merge_os_section(table: &mut Table, os: Os, diagnostics: &mut Vec<Diagnostic>) {
-    let Some(value) = table.remove("os") else {
-        return;
-    };
-    let Value::Table(mut sections) = value else {
-        diagnostics.push(Diagnostic {
-            path: "os".to_owned(),
-            kind: DiagnosticKind::InvalidValue {
-                expected: "a table".to_owned(),
-            },
-        });
-        return;
-    };
-    for name in ["windows", "macos", "linux"] {
-        let Some(section) = sections.remove(name) else {
-            continue;
-        };
-        if name != os_name(os) {
-            continue;
-        }
-        match section {
-            Value::Table(section) => merge_os_items(table, section),
-            _ => diagnostics.push(Diagnostic {
-                path: format!("os.{name}"),
-                kind: DiagnosticKind::InvalidValue {
-                    expected: "a table".to_owned(),
-                },
-            }),
-        }
-    }
-    for key in sections.keys() {
-        diagnostics.push(Diagnostic {
-            path: format!("os.{key}"),
-            kind: DiagnosticKind::UnknownItem,
-        });
-    }
-}
-
-fn merge_os_items(base: &mut Table, mut overlay: Table) {
+// Key tables merge by normalized key, so that an overlay's `"a"` replaces a
+// `"A"` below it rather than both being reported as the same key twice.
+fn merge(base: &mut Table, mut overlay: Table) {
     if let Some(Value::Table(overlay_keys)) = overlay.get_mut("keys")
         && let Some(Value::Table(base_keys)) = base.get_mut("keys")
     {
@@ -556,7 +541,7 @@ fn merge_os_items(base: &mut Table, mut overlay: Table) {
             }
         }
     }
-    merge_into(base, overlay);
+    merge_tables(base, overlay);
 }
 
 fn merge_key_table(base: &mut Table, overlay: Table) {
@@ -573,10 +558,10 @@ fn merge_key_table(base: &mut Table, overlay: Table) {
     base.extend(overlay);
 }
 
-fn merge_into(base: &mut Table, overlay: Table) {
+fn merge_tables(base: &mut Table, overlay: Table) {
     for (key, value) in overlay {
         match (base.get_mut(&key), value) {
-            (Some(Value::Table(below)), Value::Table(above)) => merge_into(below, above),
+            (Some(Value::Table(below)), Value::Table(above)) => merge_tables(below, above),
             (_, value) => {
                 base.insert(key, value);
             }
@@ -584,11 +569,43 @@ fn merge_into(base: &mut Table, overlay: Table) {
     }
 }
 
-fn os_name(os: Os) -> &'static str {
-    match os {
-        Os::Windows => "windows",
-        Os::MacOs => "macos",
-        Os::Linux => "linux",
+fn parse_table(text: &str) -> Result<Table, SyntaxError> {
+    toml::from_str(text).map_err(|error| SyntaxError {
+        line: line_of(text, error.span()),
+        message: error.message().to_owned(),
+    })
+}
+
+// Taken out of every file before the files merge: each file names its own
+// bases, so the key never carries over to the file that extends it.
+fn take_extends(table: &mut Table, diagnostics: &mut Vec<Diagnostic>) -> Vec<String> {
+    let mut invalid = |path: String, expected: &str| {
+        diagnostics.push(Diagnostic {
+            path,
+            kind: DiagnosticKind::InvalidValue {
+                expected: expected.to_owned(),
+            },
+        });
+    };
+    match table.remove("extends") {
+        None => Vec::new(),
+        Some(Value::String(path)) => vec![path],
+        Some(Value::Array(items)) => items
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, item)| {
+                if let Value::String(path) = item {
+                    Some(path)
+                } else {
+                    invalid(format!("extends[{index}]"), "a string");
+                    None
+                }
+            })
+            .collect(),
+        Some(_) => {
+            invalid("extends".to_owned(), "a string or an array of strings");
+            Vec::new()
+        }
     }
 }
 
@@ -606,36 +623,38 @@ mod tests {
     use crate::external::{CommandLineError, Expansion};
 
     const EXAMPLE: &str = r##"
-[general]
-mkdir_then_enter = true
+[filelist]
+mkdir_enters_dir = true
 new_text_creates_file = false
 extract_creates_dir = false
 require_marks = false
-editor = "notepad {paths}"
+size_format = "human"          # plain / comma / human
 
 [preview.text]
 hide_log = true
 
 [preview.image]
-full_from_left = true
-full_from_right = false
-full_hides_log = true
+from_left = "both_panes"
+from_right = "other_pane"
+hide_log = true
 
-[appearance]
-theme = "auto"                 # auto / light / dark
-size_format = "human"          # plain / comma / human
+[programs]
+editor = "notepad {paths}"
 
-[appearance.font]              # the default
+[font]                         # the default
 family = "..."
 size = 12
 
-[appearance.font.filelist]     # per area (path, info, log, status, preview, and popup too)
+[font.filelist]                # per area (path, info, log, status, preview, and popup too)
 family = "..."
+
+[colors]
+theme = "auto"                 # auto / light / dark
 
 [colors.light]
 fg = "#000000"
 bg = "#ffffff"
-line-number = "#808080"
+line_number = "#808080"
 mark = "#ff0000"
 cursor = "#000000"
 dir = "#0000ff"
@@ -662,12 +681,6 @@ run = "wt -d {dir}"
 
 [keys.image]
 [keys.text]
-
-[os.macos.general]
-editor = "open -t {paths}"
-
-[os.macos.keys.filelist]
-"Ctrl+Space" = "nop"
 "##;
 
     #[test]
@@ -675,8 +688,10 @@ editor = "open -t {paths}"
         let (config, diagnostics) = parse(EXAMPLE, Os::Linux).unwrap();
 
         assert_eq!(diagnostics, Vec::new());
+        assert!(!config.filelist.new_text_creates_file);
+        assert_eq!(config.filelist.size_format, SizeFormat::Human);
         assert_eq!(
-            config.general.editor,
+            config.programs.editor,
             CommandLine::parse("notepad {paths}", Os::Linux).unwrap()
         );
         assert_eq!(
@@ -684,17 +699,14 @@ editor = "open -t {paths}"
             PreviewConfig {
                 text: TextPreviewConfig { hide_log: true },
                 image: ImagePreviewConfig {
-                    full_from_left: true,
-                    full_from_right: false,
-                    full_hides_log: true,
+                    from_left: ImagePlacement::BothPanes,
+                    from_right: ImagePlacement::OtherPane,
+                    hide_log: true,
                 },
             }
         );
-        assert_eq!(
-            config.appearance.font.default.family,
-            Some("...".to_owned())
-        );
-        assert_eq!(config.appearance.font.filelist.size, None);
+        assert_eq!(config.font.default.family, Some("...".to_owned()));
+        assert_eq!(config.font.filelist.size, None);
         assert_eq!(
             config.colors.light.line_number,
             Color::new(0x80, 0x80, 0x80)
@@ -724,49 +736,22 @@ editor = "open -t {paths}"
     }
 
     #[test]
-    fn the_os_section_of_the_running_system_overrides_the_common_items() {
-        let (config, diagnostics) = parse(EXAMPLE, Os::MacOs).unwrap();
-
-        assert_eq!(diagnostics, Vec::new());
-        assert_eq!(
-            config.general.editor,
-            CommandLine::parse("open -t {paths}", Os::MacOs).unwrap()
-        );
-        assert!(config.general.mkdir_then_enter);
-        assert!(!config.general.new_text_creates_file);
-        assert!(!config.general.extract_creates_dir);
-        assert!(!config.general.require_marks);
-        assert_eq!(
-            config
-                .keys
-                .lookup(Context::FileList, &"Ctrl+Space".parse().unwrap()),
-            None
-        );
-        assert_eq!(
-            config
-                .keys
-                .lookup(Context::FileList, &"F2".parse().unwrap()),
-            Some(Command::External("open_terminal".to_owned()))
-        );
-    }
-
-    #[test]
     fn syntax_errors_carry_the_line_number() {
-        let error = parse("[general]\nmkdir_then_enter = \n", Os::Linux).unwrap_err();
+        let error = parse("[filelist]\nmkdir_enters_dir = \n", Os::Linux).unwrap_err();
 
         assert_eq!(error.line, 2);
     }
 
     #[test]
     fn unknown_items_are_reported_and_the_rest_is_read() {
-        let text = "[general]\nfoo = 1\nmkdir_then_enter = false\n[nothing]\nx = 1\n[os.bsd]\n[os.linux.appearance]\nbar = 2\n";
+        let text = "[filelist]\nfoo = 1\nmkdir_enters_dir = false\n[colors.light]\nbar = 2\n[nothing]\nx = 1\n";
 
         let (config, diagnostics) = parse(text, Os::Linux).unwrap();
 
-        assert!(!config.general.mkdir_then_enter);
+        assert!(!config.filelist.mkdir_enters_dir);
         assert_eq!(
             paths(&diagnostics),
-            ["os.bsd", "general.foo", "appearance.bar", "nothing"]
+            ["filelist.foo", "colors.light.bar", "nothing"]
         );
         assert!(
             diagnostics
@@ -778,14 +763,14 @@ editor = "open -t {paths}"
     #[test]
     fn command_lines_are_split_by_the_rules_of_the_given_os() {
         let (config, diagnostics) = parse(
-            "[general]\neditor = \"x 'a b'\"\n[commands.x]\nrun = \"x 'a b'\"\n",
+            "[programs]\neditor = \"x 'a b'\"\n[commands.x]\nrun = \"x 'a b'\"\n",
             Os::Windows,
         )
         .unwrap();
 
         assert_eq!(diagnostics, Vec::new());
         assert_eq!(
-            config.general.editor.expand(&Expansion::default()),
+            config.programs.editor.expand(&Expansion::default()),
             ["'a", "b'"].map(OsString::from)
         );
         assert_eq!(
@@ -797,9 +782,9 @@ editor = "open -t {paths}"
     #[test]
     fn hidden_opacity_is_a_fraction_from_zero_to_one() {
         let read = |value: &str| {
-            let text = format!("[appearance]\nhidden_opacity = {value}\n");
+            let text = format!("[colors]\nhidden_opacity = {value}\n");
             let (config, diagnostics) = parse(&text, Os::Linux).unwrap();
-            (config.appearance.hidden_opacity, paths(&diagnostics).len())
+            (config.colors.hidden_opacity, paths(&diagnostics).len())
         };
 
         assert_eq!(read("0.0"), (0, 0));
@@ -817,44 +802,60 @@ editor = "open -t {paths}"
     #[test]
     fn invalid_values_fall_back_item_by_item() {
         let text = r##"
-[appearance]
-theme = 1
+[filelist]
 size_format = "bogus"
-[appearance.font]
+[preview.image]
+from_left = "full"
+from_right = true
+[programs]
+editor = "\"unterminated"
+[font]
 size = "big"
-[appearance.font.log]
+[font.log]
 size = 200
+[colors]
+theme = 1
 [colors.light]
 fg = "red"
 mark = "#123"
-[general]
-editor = "\"unterminated"
 "##;
 
         let (config, diagnostics) = parse(text, Os::Linux).unwrap();
 
         let default = Config::default_for(Os::Linux);
-        assert_eq!(config.appearance, default.appearance);
+        assert_eq!(config.filelist, default.filelist);
+        assert_eq!(config.preview, default.preview);
+        assert_eq!(config.programs, default.programs);
+        assert_eq!(config.font, default.font);
+        assert_eq!(config.colors.theme, default.colors.theme);
         assert_eq!(config.colors.light.fg, default.colors.light.fg);
         assert_eq!(config.colors.light.mark, Color::new(0x11, 0x22, 0x33));
-        assert_eq!(config.general.editor, default.general.editor);
         assert_eq!(
             paths(&diagnostics),
             [
-                "general.editor",
-                "appearance.theme",
-                "appearance.size_format",
-                "appearance.font.log.size",
-                "appearance.font.size",
+                "filelist.size_format",
+                "preview.image.from_left",
+                "preview.image.from_right",
+                "programs.editor",
+                "font.log.size",
+                "font.size",
+                "colors.theme",
                 "colors.light.fg",
             ]
         );
         assert_eq!(
-            diagnostics[0].kind,
+            diagnostics[1].kind,
+            DiagnosticKind::InvalidValue {
+                expected: "other_pane or both_panes".to_owned()
+            }
+        );
+        assert_eq!(diagnostics[2].kind, diagnostics[1].kind);
+        assert_eq!(
+            diagnostics[3].kind,
             DiagnosticKind::InvalidCommandLine(CommandLineError::UnterminatedQuoteOrBackslash)
         );
         assert_eq!(
-            diagnostics[1].kind,
+            diagnostics[6].kind,
             DiagnosticKind::InvalidValue {
                 expected: "auto, light, or dark".to_owned()
             }
@@ -867,13 +868,13 @@ editor = "\"unterminated"
             "path", "filelist", "info", "log", "status", "preview", "popup",
         ];
         let text = areas
-            .map(|area| format!("[appearance.font.{area}]\nfamily = \"{area}\"\n"))
+            .map(|area| format!("[font.{area}]\nfamily = \"{area}\"\n"))
             .concat();
 
         let (config, diagnostics) = parse(&text, Os::Linux).unwrap();
 
         assert_eq!(diagnostics, Vec::new());
-        let fonts = &config.appearance.font;
+        let fonts = &config.font;
         assert_eq!(
             [
                 &fonts.path,
@@ -1001,31 +1002,6 @@ run = "x 'unterminated"
     }
 
     #[test]
-    fn os_sections_overlay_keys_by_normalized_key() {
-        let text = r#"
-[keys.filelist]
-"a" = "copy"
-[os.linux.keys.filelist]
-"A" = "move"
-"#;
-        let key: Key = "a".parse().unwrap();
-
-        let (linux, diagnostics) = parse(text, Os::Linux).unwrap();
-        assert_eq!(diagnostics, Vec::new());
-        assert_eq!(
-            linux.keys.lookup(Context::FileList, &key),
-            Some(Command::Move)
-        );
-
-        let (macos, diagnostics) = parse(text, Os::MacOs).unwrap();
-        assert_eq!(diagnostics, Vec::new());
-        assert_eq!(
-            macos.keys.lookup(Context::FileList, &key),
-            Some(Command::Copy)
-        );
-    }
-
-    #[test]
     fn spellings_of_one_key_in_different_tables_do_not_collide() {
         let text = r#"
 [keys.filelist]
@@ -1043,40 +1019,6 @@ run = "x 'unterminated"
             Some(Command::Copy)
         );
         assert_eq!(config.keys.lookup(Context::Image, &key), None);
-    }
-
-    #[test]
-    fn merging_recurses_into_tables_and_replaces_everything_else() {
-        let text = r#"
-[[bookmarks]]
-name = "a"
-path = "/a"
-[keys.filelist]
-"F1" = "copy"
-"F2" = "move"
-[os.linux.keys.filelist]
-"F2" = "delete"
-[[os.linux.bookmarks]]
-name = "b"
-path = "/b"
-"#;
-
-        let (config, diagnostics) = parse(text, Os::Linux).unwrap();
-
-        assert_eq!(diagnostics, Vec::new());
-        assert_eq!(config.bookmarks, [bookmark("b", "/b")]);
-        assert_eq!(
-            config
-                .keys
-                .lookup(Context::FileList, &"F1".parse().unwrap()),
-            Some(Command::Copy)
-        );
-        assert_eq!(
-            config
-                .keys
-                .lookup(Context::FileList, &"F2".parse().unwrap()),
-            Some(Command::Delete)
-        );
     }
 
     #[test]
@@ -1281,8 +1223,108 @@ run = "wt"
         );
     }
 
+    #[test]
+    fn merging_overlays_key_tables_by_normalized_key() {
+        let mut base = table("[keys.filelist]\n\"a\" = \"copy\"\n\"F1\" = \"copy\"\n");
+
+        merge(&mut base, table("[keys.filelist]\n\"A\" = \"move\"\n"));
+
+        assert_eq!(
+            base,
+            table("[keys.filelist]\n\"A\" = \"move\"\n\"F1\" = \"copy\"\n")
+        );
+    }
+
+    #[test]
+    fn merging_recurses_into_tables_and_replaces_everything_else() {
+        let mut base = table(
+            "[[bookmarks]]\nname = \"a\"\npath = \"/a\"\n[filelist]\nrequire_marks = false\nsize_format = \"comma\"\n[font.log]\nsize = 10\n",
+        );
+
+        merge(
+            &mut base,
+            table(
+                "[[bookmarks]]\nname = \"b\"\npath = \"/b\"\n[filelist]\nsize_format = \"human\"\n[font]\nlog = 1\n",
+            ),
+        );
+
+        assert_eq!(
+            base,
+            table(
+                "[[bookmarks]]\nname = \"b\"\npath = \"/b\"\n[filelist]\nrequire_marks = false\nsize_format = \"human\"\n[font]\nlog = 1\n",
+            )
+        );
+    }
+
+    #[test]
+    fn later_files_merge_over_earlier_ones() {
+        let (config, diagnostics) = parse_layers(
+            [
+                "[filelist]\nrequire_marks = false\nsize_format = \"comma\"\n",
+                "extends = \"a.toml\"\n[filelist]\nsize_format = \"human\"\nmkdir_enters_dir = false\n",
+                "extends = [\"b.toml\"]\n[filelist]\nmkdir_enters_dir = true\n",
+            ],
+            Os::Linux,
+        )
+        .unwrap();
+
+        assert_eq!(diagnostics, Vec::new());
+        assert!(!config.filelist.require_marks);
+        assert_eq!(config.filelist.size_format, SizeFormat::Human);
+        assert!(config.filelist.mkdir_enters_dir);
+    }
+
+    #[test]
+    fn a_syntax_error_in_any_file_names_that_file() {
+        let error = parse_layers(["", "[filelist\n", ""], Os::Linux).unwrap_err();
+
+        assert_eq!(error.0, 1);
+    }
+
+    #[test]
+    fn extends_names_one_file_or_a_list_of_them() {
+        assert_eq!(extends("extends = \"a.toml\"\n"), ["a.toml"]);
+        assert_eq!(
+            extends("extends = [\"a.toml\", \"b.toml\"]\n"),
+            ["a.toml", "b.toml"]
+        );
+        assert_eq!(extends("[filelist]\n"), Vec::<String>::new());
+        assert_eq!(
+            extends("extends = \"a.toml\"\n[filelist\n"),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn an_extends_of_the_wrong_type_is_reported_and_skipped() {
+        let (_, diagnostics) = parse("extends = 1\n", Os::Linux).unwrap();
+        assert_eq!(
+            diagnostics[0].to_string(),
+            "Config: invalid value for extends (expected a string or an array of strings)"
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(extends("extends = 1\n"), Vec::<String>::new());
+
+        let text = "extends = [\"a.toml\", 1]\n";
+        let (_, diagnostics) = parse(text, Os::Linux).unwrap();
+        assert_eq!(
+            diagnostics[0].to_string(),
+            "Config: invalid value for extends[1] (expected a string)"
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(extends(text), ["a.toml"]);
+    }
+
     fn paths(diagnostics: &[Diagnostic]) -> Vec<&str> {
         diagnostics.iter().map(|d| d.path.as_str()).collect()
+    }
+
+    fn parse(text: &str, os: Os) -> Result<(Config, Vec<Diagnostic>), SyntaxError> {
+        parse_layers([text], os).map_err(|(_, error)| error)
+    }
+
+    fn table(text: &str) -> Table {
+        toml::from_str(text).unwrap()
     }
 
     fn bookmark(name: &str, path: &str) -> Bookmark {

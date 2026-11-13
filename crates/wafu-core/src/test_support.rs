@@ -2,8 +2,8 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 use crate::app::{
-    App, Change, ConfigSource, Effect, IoEvent, MouseInput, Msg, Os, PreviewError, Resolved, Side,
-    Start,
+    App, Change, ConfigContent, ConfigFile, ConfigSource, Effect, IoEvent, MouseInput, Msg, Os,
+    PreviewError, Resolved, Side, Start,
 };
 use crate::entry::{Directory, Entry, EntryKind, SpecialKind};
 use crate::error::IoError;
@@ -50,7 +50,7 @@ impl Harness {
             Os::Linux,
             Some(left),
             Some(right),
-            ConfigSource::Text(config.to_owned()),
+            config_source(config),
             Ok(None),
         ));
         harness.resolve(Side::Left, left, None);
@@ -121,9 +121,11 @@ impl Harness {
 
     // Reloads the configuration from text, as the watch does after an edit.
     pub(crate) fn config(&mut self, text: &str) {
-        self.send(Msg::Io(IoEvent::ConfigLoaded {
-            result: Ok(text.to_owned()),
-        }));
+        self.config_files(vec![config_text(CONFIG_PATH, text)]);
+    }
+
+    pub(crate) fn config_files(&mut self, files: Vec<ConfigFile>) {
+        self.send(Msg::Io(IoEvent::ConfigLoaded { files }));
     }
 
     // Presses a key written as in the configuration, simulating what the UI would deliver.
@@ -476,7 +478,22 @@ impl Harness {
 
 // A `Start` on the given OS with an empty configuration and no state file.
 pub(crate) fn start_msg(os: Os, left: Option<&str>, right: Option<&str>) -> Msg {
-    start_msg_with(os, left, right, ConfigSource::Text(String::new()), Ok(None))
+    start_msg_with(os, left, right, config_source(""), Ok(None))
+}
+
+pub(crate) fn config_source(text: &str) -> ConfigSource {
+    ConfigSource::Read(vec![config_text(CONFIG_PATH, text)])
+}
+
+pub(crate) fn config_text(path: &str, text: &str) -> ConfigFile {
+    config_file(path, ConfigContent::Text(text.to_owned()))
+}
+
+pub(crate) fn config_file(path: &str, content: ConfigContent) -> ConfigFile {
+    ConfigFile {
+        path: PathBuf::from(path),
+        content,
+    }
 }
 
 pub(crate) fn start_msg_with(

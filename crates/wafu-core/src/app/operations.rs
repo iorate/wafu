@@ -26,7 +26,7 @@ impl App {
             self.log.push(AppError::InArchive { command }.to_string());
             return;
         }
-        if self.config.general.require_marks
+        if self.config.filelist.require_marks
             && requires_marks(&command)
             && self.active_pane().marked_entries().next().is_none()
         {
@@ -119,7 +119,7 @@ impl App {
             return;
         };
         let kind = OperationKind::Extract {
-            into_dir: self.config.general.extract_creates_dir,
+            into_dir: self.config.filelist.extract_creates_dir,
         };
         let Some(dest) = self.other_dest(kind.verb()) else {
             return;
@@ -396,7 +396,7 @@ impl App {
             InputKind::NewFile { .. } => effects.push(Effect::CreateFile(path)),
             // Some editors do nothing when given a path that does not exist
             // yet (`open -t` on macOS), so the file is made first by default.
-            InputKind::NewText { .. } if self.config.general.new_text_creates_file => {
+            InputKind::NewText { .. } if self.config.filelist.new_text_creates_file => {
                 self.edit_after_create = Some((path.clone(), base));
                 effects.push(Effect::CreateFile(path));
             }
@@ -406,7 +406,7 @@ impl App {
                     dir: base,
                     ..self.expansion()
                 };
-                Self::spawn_editor(&self.config.general.editor, &expansion, effects);
+                Self::spawn_editor(&self.config.programs.editor, &expansion, effects);
             }
             InputKind::ConflictRename { .. }
             | InputKind::Filter
@@ -448,7 +448,7 @@ impl App {
             }
             (Change::DirCreated(path), None) => {
                 self.log.push(self.created_line(&path));
-                if self.config.general.mkdir_then_enter {
+                if self.config.filelist.mkdir_enters_dir {
                     self.navigate(
                         self.active,
                         Location::new(path),
@@ -472,7 +472,7 @@ impl App {
                         dir,
                         ..self.expansion()
                     };
-                    Self::spawn_editor(&self.config.general.editor, &expansion, effects);
+                    Self::spawn_editor(&self.config.programs.editor, &expansion, effects);
                 }
                 if let Some(dir) = path.parent() {
                     self.show_created(dir, path.file_name().map(OsString::from), effects);
@@ -682,7 +682,7 @@ impl App {
             paths: vec![path],
             ..self.expansion()
         };
-        Self::spawn_editor(&self.config.general.editor, &expansion, effects);
+        Self::spawn_editor(&self.config.programs.editor, &expansion, effects);
     }
 
     // A pane showing what was renamed follows it to its new name.
@@ -842,7 +842,7 @@ impl App {
                     kind: operation.kind,
                     outcome,
                     targets: &operation.names,
-                    size_format: self.config.appearance.size_format,
+                    size_format: self.config.filelist.size_format,
                 }
                 .to_string(),
             );
@@ -888,7 +888,7 @@ impl App {
         };
         match temp.action {
             TempAction::Edit => {
-                Self::spawn_editor(&self.config.general.editor, &expansion, effects);
+                Self::spawn_editor(&self.config.programs.editor, &expansion, effects);
             }
             TempAction::OpenWithOs => {
                 if let Some(path) = expansion.paths.first() {

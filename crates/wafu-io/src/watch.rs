@@ -11,8 +11,9 @@ use std::time::{Duration, Instant, SystemTime};
 use icu_normalizer::ComposingNormalizer;
 use notify::event::{AccessKind, AccessMode, ModifyKind};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher as _};
-use wafu_core::{IoError, IoEvent, Side};
+use wafu_core::{ConfigContent, ConfigFile, IoError, IoEvent, Side, read_config_chain};
 
+use crate::config::read_text;
 use crate::runtime::{OnEvent, lock};
 
 const DEBOUNCE: Duration = Duration::from_millis(200);
@@ -87,9 +88,8 @@ impl Watcher {
                 path: path.to_path_buf(),
             });
         };
-        self.sides[side.index()] = Some(Group::start(
-            path, true, watches, receiver, on_burst, on_failure,
-        ));
+        self.sides[side.index()] =
+            Some(Group::start(path, watches, receiver, on_burst, on_failure));
     }
 
     pub(crate) fn unwatch(&mut self, side: Side) {
@@ -100,14 +100,13 @@ impl Watcher {
 // The watches for one path and the debounce thread that reports for them.
 // The thread holds the watches only weakly and every sender lives inside
 // them, so dropping the group ends the thread.
-pub(crate) struct Group {
+struct Group {
     _watches: Arc<Mutex<Watches>>,
 }
 
 impl Group {
     fn start(
         path: PathBuf,
-        with_contents: bool,
         watches: Watches,
         changes: Receiver<Change>,
         mut on_burst: impl FnMut(&Path) + Send + 'static,
@@ -116,7 +115,7 @@ impl Group {
         let watches = Arc::new(Mutex::new(watches));
         let weak = Arc::downgrade(&watches);
         spawn_debouncer(changes, move |renamed| {
-            if !refollow(&weak, &path, with_contents, renamed, |error| {
+            if !refollow(&weak, &path, renamed, |error| {
                 on_failure(&path, error);
             }) {
                 return false;
@@ -139,7 +138,7 @@ struct Watches {
 struct Followed {
     resolution: Resolution,
     _contents: Option<RecommendedWatcher>,
-    _target: Option<RecommendedWatcher>,
+    target: Option<RecommendedWatcher>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -149,57 +148,186 @@ enum Resolution {
     Failed,
 }
 
+// The watches for the configuration file and the files it extends. As with
+// a `Group`, the debounce thread holds them only weakly.
+pub(crate) struct ConfigWatch {
+    _watches: Arc<Mutex<ConfigWatches>>,
+}
+
+struct ConfigWatches {
+    files: Vec<FileWatch>,
+    changes: Sender<Change>,
+}
+
+struct FileWatch {
+    path: PathBuf,
+    entry: Option<RecommendedWatcher>,
+    followed: Followed,
+}
+
+impl FileWatch {
+    // A watch that could not be made, such as one on a directory that did not
+    // exist yet, counts as missing, so that the next burst tries it again.
+    fn watches(&self, path: &Path, resolution: &Resolution) -> bool {
+        let target_watched = match resolution {
+            Resolution::Target(_) => self.followed.target.is_some(),
+            Resolution::NotLink | Resolution::Failed => true,
+        };
+        self.path == path
+            && self.followed.resolution == *resolution
+            && self.entry.is_some()
+            && target_watched
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Change {
     Contents,
     Name,
 }
 
-// Editors often replace the file rather than write into it, so its directory
-// is watched and the file is read again after each burst of changes.
-pub(crate) fn watch_config(path: &Path, on_event: &OnEvent) -> notify::Result<Group> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| notify::Error::generic("the configuration file has no parent directory"))?;
+// Editors often replace a file rather than write into it, so the directory
+// of each file is watched, and all the files are read again after each burst
+// of changes. The files share one debouncer, so that saving several at once
+// reads them once. The files to watch are known only from reading them, so
+// the watches follow each read.
+pub(crate) fn watch_config(path: &Path, home: &Path, on_event: &OnEvent) -> ConfigWatch {
     let (changes, receiver) = mpsc::channel::<Change>();
-    let entry = watch_entry(parent, path, false, changes.clone())?;
     let report = Arc::clone(on_event);
-    let on_failure = move |_: &Path, error: notify::Error| {
+    let on_failure = move |path: &Path, error: notify::Error| {
         report(IoEvent::ConfigWatchFailed {
+            path: path.to_path_buf(),
             error: IoError::new(error.to_string()),
         });
     };
-    let (followed, failure) = follow(path, resolve_link(path), false, &changes);
-    if let Some(error) = failure {
-        on_failure(path, error);
-    }
-    let watches = Watches {
-        _entry: Some(entry),
-        followed,
-        changes,
-    };
+    let (files, mut last_modified) = read_config(path, home);
+    let files = watch_files(path, wanted(&files), Vec::new(), &changes, &on_failure);
+    let watches = Arc::new(Mutex::new(ConfigWatches { files, changes }));
+    let weak = Arc::downgrade(&watches);
+    let main = path.to_path_buf();
+    let home = home.to_path_buf();
     let report = Arc::clone(on_event);
-    // Opening the file with `open` on macOS adds an extended attribute, which
-    // FSEvents reports as a change, so the file is only read again when its
-    // modification time moved.
-    let mut last_modified = modified(path);
-    let on_burst = move |path: &Path| {
-        let now_modified = modified(path);
-        if now_modified.is_some() && now_modified == last_modified {
-            return;
+    spawn_debouncer(receiver, move |_| {
+        let (files, now_modified) = read_config(&main, &home);
+        if !rewatch(&weak, &main, wanted(&files), &on_failure) {
+            return false;
+        }
+        // Opening a file with `open` on macOS adds an extended attribute,
+        // which FSEvents reports as a change, so the files are only reported
+        // again when a modification time moved.
+        if now_modified.iter().all(|(_, modified)| modified.is_some())
+            && now_modified == last_modified
+        {
+            return true;
         }
         last_modified = now_modified;
-        let result = fs::read_to_string(path).map_err(|error| IoError::new(error.to_string()));
-        report(IoEvent::ConfigLoaded { result });
+        report(IoEvent::ConfigLoaded { files });
+        true
+    });
+    ConfigWatch { _watches: watches }
+}
+
+// Each file's modification time is taken before it is read, so that a change
+// made in between is seen as a change on the next burst.
+fn read_config(path: &Path, home: &Path) -> (Vec<ConfigFile>, Vec<(PathBuf, Option<SystemTime>)>) {
+    let mut modified_times = Vec::new();
+    let files = read_config_chain(path, home, |file| {
+        modified_times.push((file.to_path_buf(), modified(file)));
+        read_text(file)
+    });
+    (files, modified_times)
+}
+
+fn wanted(files: &[ConfigFile]) -> Vec<(PathBuf, bool, Resolution)> {
+    let mut wanted: Vec<(PathBuf, bool)> = Vec::new();
+    for file in files {
+        let read = matches!(file.content, ConfigContent::Text(_));
+        match wanted.iter_mut().find(|(path, _)| *path == file.path) {
+            Some((_, was_read)) => *was_read |= read,
+            None => wanted.push((file.path.clone(), read)),
+        }
+    }
+    wanted
+        .into_iter()
+        .map(|(path, read)| {
+            let resolution = resolve_link(&path);
+            (path, read, resolution)
+        })
+        .collect()
+}
+
+// Watching may block, so it does not happen under the lock.
+fn rewatch(
+    group: &Weak<Mutex<ConfigWatches>>,
+    main: &Path,
+    wanted: Vec<(PathBuf, bool, Resolution)>,
+    on_failure: &impl Fn(&Path, notify::Error),
+) -> bool {
+    let (old, changes) = {
+        let Some(group) = group.upgrade() else {
+            return false;
+        };
+        let mut watches = lock(&group);
+        if watches.files.len() == wanted.len()
+            && watches
+                .files
+                .iter()
+                .zip(&wanted)
+                .all(|(file, (path, _, resolution))| file.watches(path, resolution))
+        {
+            return true;
+        }
+        (mem::take(&mut watches.files), watches.changes.clone())
     };
-    Ok(Group::start(
-        path.to_path_buf(),
-        false,
-        watches,
-        receiver,
-        on_burst,
-        on_failure,
-    ))
+    let files = watch_files(main, wanted, old, &changes, on_failure);
+    let Some(group) = group.upgrade() else {
+        return false;
+    };
+    lock(&group).files = files;
+    true
+}
+
+// A file that could not be read already has its error in the log, and its
+// directory may well not exist, so failing to watch it is not reported; the
+// configuration file itself is reported either way, as nothing else would
+// tell that its changes go unseen.
+fn watch_files(
+    main: &Path,
+    wanted: impl IntoIterator<Item = (PathBuf, bool, Resolution)>,
+    mut old: Vec<FileWatch>,
+    changes: &Sender<Change>,
+    on_failure: &impl Fn(&Path, notify::Error),
+) -> Vec<FileWatch> {
+    let mut files = Vec::new();
+    for (path, read, resolution) in wanted {
+        if let Some(index) = old.iter().position(|file| file.watches(&path, &resolution)) {
+            files.push(old.swap_remove(index));
+            continue;
+        }
+        let entry = path
+            .parent()
+            .ok_or_else(|| notify::Error::generic("the file has no parent directory"))
+            .and_then(|parent| watch_entry(parent, &path, false, changes.clone()));
+        let (entry, mut failure) = match entry {
+            Ok(watcher) => (Some(watcher), None),
+            Err(error) => (None, Some(error)),
+        };
+        let (followed, follow_failure) = follow(&path, resolution, false, changes);
+        if let Some(error) = follow_failure {
+            failure.get_or_insert(error);
+        }
+        if let Some(error) = failure
+            && (read || path == main)
+        {
+            on_failure(&path, error);
+        }
+        files.push(FileWatch {
+            path,
+            entry,
+            followed,
+        });
+    }
+    files
 }
 
 fn modified(path: &Path) -> Option<SystemTime> {
@@ -250,7 +378,7 @@ fn follow(
     let followed = Followed {
         resolution,
         _contents: contents,
-        _target: target,
+        target,
     };
     (followed, failure)
 }
@@ -262,7 +390,6 @@ fn follow(
 fn refollow(
     group: &Weak<Mutex<Watches>>,
     path: &Path,
-    with_contents: bool,
     renamed: bool,
     on_failure: impl FnOnce(notify::Error),
 ) -> bool {
@@ -277,7 +404,7 @@ fn refollow(
         }
         watches.changes.clone()
     };
-    let is_dir = with_contents && fs::metadata(path).is_ok_and(|meta| meta.is_dir());
+    let is_dir = fs::metadata(path).is_ok_and(|meta| meta.is_dir());
     let (followed, failure) = follow(path, resolution, is_dir, &changes);
     let Some(group) = group.upgrade() else {
         return false;

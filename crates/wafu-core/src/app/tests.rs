@@ -9,14 +9,16 @@ use crate::listing::{SortKey, SortSpec};
 use crate::pane::InFlight;
 use crate::state::{PaneState, StateFile};
 use crate::test_support::{
-    CONFIG_PATH, HOME, Harness, STATE_PATH, dir, file, path, shown, special, start_msg,
-    start_msg_with,
+    CONFIG_PATH, HOME, Harness, STATE_PATH, config_file, config_source, config_text, dir, file,
+    path, shown, special, start_msg, start_msg_with,
 };
 use crate::view::{InputField, ItemKind, RowKind};
 
 mod archives;
 mod operations;
 mod preview;
+
+const BASE_PATH: &str = "/home/user/.config/wafu/common.toml";
 
 #[test]
 fn start_resolves_both_panes_then_watches_and_reads_them() {
@@ -1086,7 +1088,7 @@ fn search_finds_the_text_inside_a_name() {
 #[test]
 fn search_matches_only_the_start_of_a_name_when_configured() {
     let mut harness = Harness::start("/home/user", "/tmp");
-    harness.config("[general]\nsearch_matches_anywhere = false\n");
+    harness.config("[filelist]\nsearch_matches_anywhere = false\n");
     harness.load(Side::Left, vec![file("xa"), file("ab"), file("ya")]);
 
     harness.press("F");
@@ -1816,7 +1818,7 @@ fn filtering_the_history_scrolls_back_to_the_top() {
         Os::Linux,
         Some("/h19"),
         Some("/tmp"),
-        ConfigSource::Text(String::new()),
+        config_source(""),
         Ok(Some(state)),
     ));
     harness.resolve(Side::Left, "/h19", None);
@@ -2902,7 +2904,7 @@ fn size_format_applies_to_the_rows_and_the_marked_total_on_reload() {
             .contains("1 marked (1234567 bytes)")
     );
 
-    harness.config("[appearance]\nsize_format = \"comma\"\n");
+    harness.config("[filelist]\nsize_format = \"comma\"\n");
     assert_eq!(harness.view().style.size_sample, "000,000,000,000");
     assert_eq!(harness.view().left.rows[1].size, "1,234,567");
     assert_eq!(harness.view().left.rows[2].size, "512");
@@ -2979,7 +2981,7 @@ fn start_takes_paths_from_the_arguments_then_the_state_then_home() {
         Os::Linux,
         Some("/arg"),
         None,
-        ConfigSource::Text(String::new()),
+        config_source(""),
         Ok(Some(state.clone())),
     ));
 
@@ -3000,7 +3002,7 @@ fn start_takes_paths_from_the_arguments_then_the_state_then_home() {
         Os::Linux,
         None,
         None,
-        ConfigSource::Text(String::new()),
+        config_source(""),
         Ok(Some(state)),
     ));
     assert!(matches!(
@@ -3037,7 +3039,7 @@ fn start_prefers_the_saved_display_state_and_falls_back_to_the_defaults() {
         Os::Linux,
         Some("/home/user"),
         Some("/tmp"),
-        ConfigSource::Text(String::new()),
+        config_source(""),
         Ok(Some(state)),
     ));
     harness.resolve(Side::Left, "/home/user", None);
@@ -3081,7 +3083,7 @@ fn start_without_a_saved_history_position_continues_from_the_newest_place() {
         Os::Linux,
         Some("/home/user"),
         Some("/tmp"),
-        ConfigSource::Text(String::new()),
+        config_source(""),
         Ok(Some(state)),
     ));
     harness.resolve(Side::Left, "/home/user", None);
@@ -3110,7 +3112,10 @@ fn start_logs_an_unreadable_configuration_and_state_file() {
         Os::Linux,
         Some("/home/user"),
         Some("/tmp"),
-        ConfigSource::Unreadable(IoError::new("permission denied")),
+        ConfigSource::Read(vec![config_file(
+            CONFIG_PATH,
+            ConfigContent::Unreadable(IoError::new("permission denied")),
+        )]),
         Err(StateFile::from_toml("[left\n").unwrap_err()),
     ));
 
@@ -3129,11 +3134,11 @@ fn start_logs_an_unknown_configuration_item() {
         Os::Linux,
         Some("/home/user"),
         Some("/tmp"),
-        ConfigSource::Text("[general]\nfoo = 1\n".to_owned()),
+        config_source("[filelist]\nfoo = 1\n"),
         Ok(None),
     ));
 
-    assert_eq!(harness.log(), ["Config: unknown item general.foo"]);
+    assert_eq!(harness.log(), ["Config: unknown item filelist.foo"]);
 }
 
 #[test]
@@ -3145,12 +3150,12 @@ fn reloading_the_configuration_changes_keys_and_style() {
     harness.take_effects();
 
     harness.config(
-        "[appearance]\ntheme = \"dark\"\nbogus = 1\n[appearance.font]\nsize = 16\n[keys.filelist]\n\"Q\" = \"nop\"\n\"F2\" = \"go_root\"\n",
+        "[colors]\ntheme = \"dark\"\nbogus = 1\n[font]\nsize = 16\n[keys.filelist]\n\"Q\" = \"nop\"\n\"F2\" = \"go_root\"\n",
     );
 
     assert_eq!(
         harness.log(),
-        ["Config: unknown item appearance.bogus", "Reloaded config",]
+        ["Config: unknown item colors.bogus", "Reloaded config",]
     );
     let style = harness.view().style;
     assert_eq!(style.theme, Theme::Dark);
@@ -3176,7 +3181,7 @@ fn an_automatic_theme_follows_the_os_color_scheme_across_reloads() {
     }));
     assert_eq!(harness.view().style.theme, Theme::Dark);
 
-    harness.config("[appearance.font]\nsize = 16\n");
+    harness.config("[font]\nsize = 16\n");
     assert_eq!(harness.view().style.theme, Theme::Dark);
 
     harness.send(Msg::Io(IoEvent::ColorScheme {
@@ -3195,10 +3200,10 @@ fn default_fonts_are_the_monospace_family_of_the_os() {
 #[test]
 fn a_syntax_error_on_reload_keeps_the_previous_configuration() {
     let mut harness = Harness::start("/home/user", "/tmp");
-    harness.config("[appearance]\ntheme = \"light\"\n");
+    harness.config("[colors]\ntheme = \"light\"\n");
     harness.take_effects();
 
-    harness.config("[appearance\n");
+    harness.config("[colors\n");
 
     let log = harness.log();
     assert_eq!(log.len(), 2);
@@ -3206,11 +3211,102 @@ fn a_syntax_error_on_reload_keeps_the_previous_configuration() {
     assert!(log[1].starts_with(&format!("Config: {CONFIG_PATH}:1: ")));
     assert_eq!(harness.view().style.theme, Theme::Light);
 
-    harness.send(Msg::Io(IoEvent::ConfigLoaded {
-        result: Err(IoError::new("gone")),
-    }));
+    harness.config_files(vec![config_file(
+        CONFIG_PATH,
+        ConfigContent::Unreadable(IoError::new("gone")),
+    )]);
     assert_eq!(harness.log()[2], format!("Cannot read {CONFIG_PATH}: gone"));
     assert_eq!(harness.view().style.theme, Theme::Light);
+}
+
+#[test]
+fn a_reload_merges_the_configuration_file_over_its_bases() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+
+    harness.config_files(vec![
+        config_text(
+            BASE_PATH,
+            "[colors]\ntheme = \"light\"\n[font]\nsize = 16\n",
+        ),
+        config_text(
+            CONFIG_PATH,
+            "extends = \"common.toml\"\n[colors]\ntheme = \"dark\"\n",
+        ),
+    ]);
+
+    assert_eq!(harness.log(), ["Reloaded config"]);
+    let style = harness.view().style;
+    assert_eq!(style.theme, Theme::Dark);
+    assert_eq!(style.fonts.filelist.size, 16);
+}
+
+#[test]
+fn a_base_that_cannot_be_read_keeps_the_previous_configuration() {
+    let mut harness = theme_light_loaded();
+
+    harness.config_files(vec![
+        config_file(
+            BASE_PATH,
+            ConfigContent::Unreadable(IoError::new("not found")),
+        ),
+        config_text(CONFIG_PATH, "[colors]\ntheme = \"dark\"\n"),
+    ]);
+
+    assert_eq!(
+        harness.log()[1..],
+        [format!("Cannot read {BASE_PATH}: not found")]
+    );
+    assert_eq!(harness.view().style.theme, Theme::Light);
+}
+
+#[test]
+fn a_base_with_a_syntax_error_keeps_the_previous_configuration() {
+    let mut harness = theme_light_loaded();
+
+    harness.config_files(vec![
+        config_text(BASE_PATH, "\n[colors\n"),
+        config_text(CONFIG_PATH, "[colors]\ntheme = \"dark\"\n"),
+    ]);
+
+    let log = harness.log();
+    assert_eq!(log.len(), 2);
+    assert!(log[1].starts_with(&format!("Config: {BASE_PATH}:2: ")));
+    assert_eq!(harness.view().style.theme, Theme::Light);
+}
+
+#[test]
+fn a_cycle_of_extends_keeps_the_previous_configuration() {
+    let mut harness = theme_light_loaded();
+
+    harness.config_files(vec![
+        config_file(CONFIG_PATH, ConfigContent::Cycle),
+        config_text(BASE_PATH, "extends = \"config.toml\"\n"),
+        config_text(
+            CONFIG_PATH,
+            "extends = \"common.toml\"\n[colors]\ntheme = \"dark\"\n",
+        ),
+    ]);
+
+    assert_eq!(
+        harness.log()[1..],
+        [format!("Cannot read {CONFIG_PATH}: circular extends")]
+    );
+    assert_eq!(harness.view().style.theme, Theme::Light);
+}
+
+#[test]
+fn a_failed_watch_of_a_configuration_file_names_that_file() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+
+    harness.send(Msg::Io(IoEvent::ConfigWatchFailed {
+        path: PathBuf::from(BASE_PATH),
+        error: IoError::new("too many watches"),
+    }));
+
+    assert_eq!(
+        harness.log(),
+        [format!("Cannot watch {BASE_PATH}: too many watches")]
+    );
 }
 
 #[test]
@@ -3513,7 +3609,11 @@ fn an_inherited_instance_starts_programs_at_once() {
 
 #[test]
 fn turning_off_use_login_shell_env_starts_programs_at_once() {
-    let mut harness = start_with_term(Os::Linux, false, "[general]\nuse_login_shell_env = false\n");
+    let mut harness = start_with_term(
+        Os::Linux,
+        false,
+        "[programs]\nuse_login_shell_env = false\n",
+    );
     assert!(!harness.take_effects().contains(&Effect::LoadShellEnv));
 
     harness.press("F2");
@@ -3602,7 +3702,7 @@ fn edit_config_opens_the_configuration_in_the_editor() {
     let mut harness = Harness::start_with_config(
         "/home/user",
         "/tmp",
-        "[general]\neditor = \"code -w {paths}\"\n[os.macos.general]\neditor = \"open -t {paths}\"\n",
+        "[programs]\neditor = \"code -w {paths}\"\n",
     );
     harness.take_effects();
 
@@ -3652,7 +3752,7 @@ fn start_with_term(os: Os, inherited: bool, config: &str) -> Harness {
         os,
         Some(HOME),
         Some("/tmp"),
-        ConfigSource::Text(config),
+        config_source(&config),
         Ok(None),
     ) else {
         unreachable!()
@@ -3689,7 +3789,7 @@ fn back_to_b_with_the_history_open() -> Harness {
         Os::Linux,
         Some("/c"),
         Some("/tmp"),
-        ConfigSource::Text(String::new()),
+        config_source(""),
         Ok(Some(state)),
     ));
     harness.resolve(Side::Left, "/c", None);
@@ -3702,5 +3802,11 @@ fn back_to_b_with_the_history_open() -> Harness {
     assert_eq!(harness.popup_labels(), ["/c", "/b", "/a"]);
     assert_eq!(harness.view().popup.unwrap().cursor, Some(1));
     harness.take_effects();
+    harness
+}
+
+fn theme_light_loaded() -> Harness {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.config("[colors]\ntheme = \"light\"\n");
     harness
 }

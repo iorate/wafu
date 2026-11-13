@@ -31,11 +31,11 @@ mod text;
 mod view;
 
 pub use app::{
-    App, Change, ColorScheme, ConfigSource, Effect, IoEvent, MenuAnchor, MouseInput, Msg, Os,
-    PreviewError, PreviewSource, Resolved, Side, SpawnKind, SpawnName, Start,
+    App, Change, ColorScheme, ConfigContent, ConfigFile, ConfigSource, Effect, IoEvent, MenuAnchor,
+    MouseInput, Msg, Os, PreviewError, PreviewSource, Resolved, Side, SpawnKind, SpawnName, Start,
 };
 pub use command::Command;
-pub use config::{CONFIG_TEMPLATE, Color, ColorSet, Colors, Theme};
+pub use config::{CONFIG_TEMPLATE, Color, Colors, Theme, read_config_chain};
 pub use entry::{
     Directory, Entry, EntryKind, LocalDateTime, Permissions, SpecialKind, TargetKind, Timestamp,
 };
@@ -50,7 +50,7 @@ pub use pane::{DrivePurpose, RequestId};
 pub use preview::{Document, DocumentMode, ImageData, Line, PREVIEW_LIMIT};
 pub use state::{PaneState, StateError, StateFile, WindowState};
 pub use view::{
-    Fonts, InputField, ItemKind, LogView, PaneView, PopupItem, PopupView, PreviewContent,
+    ColorSet, Fonts, InputField, ItemKind, LogView, PaneView, PopupItem, PopupView, PreviewContent,
     PreviewLine, PreviewPlacement, PreviewView, ResolvedFont, RowKind, RowView, SharedImage, Style,
     View,
 };

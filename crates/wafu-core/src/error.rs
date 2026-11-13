@@ -68,6 +68,8 @@ pub enum AppError {
     },
     #[error("Cannot read {}: {source}", path.display())]
     ConfigUnreadable { path: PathBuf, source: IoError },
+    #[error("Cannot read {}: circular extends", path.display())]
+    ConfigCycle { path: PathBuf },
     #[error("Cannot read {}: {source}", path.display())]
     StateUnreadable { path: PathBuf, source: StateError },
     #[error("Cannot run {command}: unknown command")]

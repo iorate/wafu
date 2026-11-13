@@ -1,12 +1,14 @@
 use std::collections::BTreeMap;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
-use crate::app::Os;
+use crate::app::{ConfigContent, ConfigFile, Os};
+use crate::error::IoError;
 use crate::external::{CommandLine, CommandLineError};
 use crate::keymap::KeyMap;
+use crate::path::resolve_input;
 
 mod decode;
 
@@ -21,14 +23,15 @@ const FONT_SIZE_MIN: u16 = 6;
 const FONT_SIZE_MAX: u16 = 72;
 const HUMAN_UNITS: [&str; 6] = ["K", "M", "G", "T", "P", "E"];
 
-/// The configuration after the OS section has been merged in and every
-/// unusable item has been replaced by its default.
+/// The configuration after every unusable item has been replaced by its
+/// default.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
-    pub general: General,
+    pub filelist: FileListConfig,
     pub preview: PreviewConfig,
-    pub appearance: Appearance,
-    pub colors: ColorSet,
+    pub programs: ProgramsConfig,
+    pub font: FontSet,
+    pub colors: ColorsConfig,
     pub bookmarks: Vec<Bookmark>,
     pub commands: BTreeMap<String, CommandLine>,
     pub keys: KeyMap,
@@ -46,46 +49,13 @@ pub struct Bookmark {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
-pub struct General {
-    pub mkdir_then_enter: bool,
+pub struct FileListConfig {
+    pub mkdir_enters_dir: bool,
     pub new_text_creates_file: bool,
     pub extract_creates_dir: bool,
     pub require_marks: bool,
-    pub editor: CommandLine,
-    pub use_login_shell_env: bool,
     pub search_matches_anywhere: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreviewConfig {
-    pub text: TextPreviewConfig,
-    pub image: ImagePreviewConfig,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TextPreviewConfig {
-    pub hide_log: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImagePreviewConfig {
-    /// Whether an image opened from the left pane takes the place of both
-    /// panes rather than of the right one.
-    pub full_from_left: bool,
-    /// Whether an image opened from the right pane takes the place of both
-    /// panes rather than of the left one.
-    pub full_from_right: bool,
-    /// Whether an image in place of both panes hides the log.
-    pub full_hides_log: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Appearance {
-    pub theme: Theme,
     pub size_format: SizeFormat,
-    /// How opaque the names of hidden entries are, in percent.
-    pub hidden_opacity: u8,
-    pub font: FontSet,
 }
 
 /// How a size in bytes is written in the file list and the information line.
@@ -141,11 +111,39 @@ impl SizeFormat {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreviewConfig {
+    pub text: TextPreviewConfig,
+    pub image: ImagePreviewConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextPreviewConfig {
+    pub hide_log: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImagePreviewConfig {
+    /// Where an image opened from the left pane is shown.
+    pub from_left: ImagePlacement,
+    /// Where an image opened from the right pane is shown.
+    pub from_right: ImagePlacement,
+    /// Whether an image in place of both panes hides the log.
+    pub hide_log: bool,
+}
+
+/// What an image preview takes the place of.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Theme {
-    Auto,
-    Light,
-    Dark,
+pub enum ImagePlacement {
+    /// The pane the image was not opened from.
+    OtherPane,
+    BothPanes,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProgramsConfig {
+    pub editor: CommandLine,
+    pub use_login_shell_env: bool,
 }
 
 /// The default font and the fonts of the areas that may differ from it.
@@ -170,9 +168,19 @@ pub struct Font {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ColorSet {
+pub struct ColorsConfig {
+    pub theme: Theme,
+    /// How opaque the names of hidden entries are, in percent.
+    pub hidden_opacity: u8,
     pub light: Colors,
     pub dark: Colors,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Theme {
+    Auto,
+    Light,
+    Dark,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -203,7 +211,7 @@ pub struct Color {
 /// error.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diagnostic {
-    /// The item, such as `appearance.theme`.
+    /// The item, such as `colors.theme`.
     pub path: String,
     pub kind: DiagnosticKind,
 }
@@ -229,51 +237,73 @@ pub struct SyntaxError {
     pub message: String,
 }
 
-/// Reads a configuration file leniently: a syntax error rejects the whole
-/// file, while an unknown or unusable item is reported and ignored.
-pub fn parse_config(text: &str, os: Os) -> Result<(Config, Vec<Diagnostic>), SyntaxError> {
-    decode::parse(text, os)
+/// Reads the files of a configuration leniently, each merged over the ones
+/// before it, so that the bases come first and the file that extends them
+/// last. A syntax error in any file rejects them all and gives the index of
+/// that file, while an unknown or unusable item is reported and ignored.
+pub fn parse_config<'a>(
+    texts: impl IntoIterator<Item = &'a str>,
+    os: Os,
+) -> Result<(Config, Vec<Diagnostic>), (usize, SyntaxError)> {
+    decode::parse_layers(texts, os)
+}
+
+/// Reads the configuration file at `path` and the files it names in
+/// `extends`, in the order they merge: the bases of each file before it, so
+/// that `path` comes last. `~` in `extends` stands for `home`, and any other
+/// relative path is taken from the directory of the file that names it. A
+/// file that cannot be read, or is reached again while its own bases are
+/// being read, is listed without following it further; a file reached
+/// through more than one branch is read for each.
+pub fn read_config_chain(
+    path: &Path,
+    home: &Path,
+    mut read: impl FnMut(&Path) -> Result<String, IoError>,
+) -> Vec<ConfigFile> {
+    let mut files = Vec::new();
+    visit(path, home, &mut read, &mut Vec::new(), &mut files);
+    files
 }
 
 impl Config {
     #[must_use]
     pub fn default_for(os: Os) -> Self {
         Self {
-            general: General {
-                mkdir_then_enter: true,
+            filelist: FileListConfig {
+                mkdir_enters_dir: true,
                 // On by default because the macOS `open -t` does nothing for a
                 // file that does not exist.
                 new_text_creates_file: true,
                 extract_creates_dir: true,
                 require_marks: true,
-                editor: default_editor(os),
-                use_login_shell_env: true,
                 search_matches_anywhere: true,
+                size_format: SizeFormat::Plain,
             },
             preview: PreviewConfig {
                 text: TextPreviewConfig { hide_log: false },
                 image: ImagePreviewConfig {
-                    full_from_left: false,
-                    full_from_right: true,
-                    full_hides_log: false,
+                    from_left: ImagePlacement::OtherPane,
+                    from_right: ImagePlacement::BothPanes,
+                    hide_log: false,
                 },
             },
-            appearance: Appearance {
+            programs: ProgramsConfig {
+                editor: default_editor(os),
+                use_login_shell_env: true,
+            },
+            font: FontSet {
+                default: Font {
+                    family: None,
+                    size: Some(FONT_SIZE_DEFAULT),
+                },
+                ..FontSet::default()
+            },
+            colors: ColorsConfig {
                 theme: Theme::Auto,
-                size_format: SizeFormat::Plain,
                 // Hidden entries keep their kind color, which has less contrast
                 // against the background than `fg`; any lower and they get hard
                 // to read.
                 hidden_opacity: 70,
-                font: FontSet {
-                    default: Font {
-                        family: None,
-                        size: Some(FONT_SIZE_DEFAULT),
-                    },
-                    ..FontSet::default()
-                },
-            },
-            colors: ColorSet {
                 light: Colors {
                     fg: Color::new(0x1e, 0x1e, 0x1e),
                     bg: Color::new(0xff, 0xff, 0xff),
@@ -307,6 +337,16 @@ impl Config {
             commands: BTreeMap::new(),
             keys: KeyMap::default_for(os),
         }
+    }
+}
+
+impl ImagePlacement {
+    fn from_name(name: &str) -> Option<Self> {
+        Some(match name {
+            "other_pane" => Self::OtherPane,
+            "both_panes" => Self::BothPanes,
+            _ => return None,
+        })
     }
 }
 
@@ -411,6 +451,50 @@ impl fmt::Display for Diagnostic {
             }
         }
     }
+}
+
+fn visit(
+    path: &Path,
+    home: &Path,
+    read: &mut impl FnMut(&Path) -> Result<String, IoError>,
+    open: &mut Vec<PathBuf>,
+    files: &mut Vec<ConfigFile>,
+) {
+    let path = path.to_path_buf();
+    if open.contains(&path) {
+        files.push(ConfigFile {
+            path,
+            content: ConfigContent::Cycle,
+        });
+        return;
+    }
+    let text = match read(&path) {
+        Ok(text) => text,
+        Err(error) => {
+            files.push(ConfigFile {
+                path,
+                content: ConfigContent::Unreadable(error),
+            });
+            return;
+        }
+    };
+    open.push(path.clone());
+    for base in config_extends(&text, &path, home) {
+        visit(&base, home, read, open, files);
+    }
+    open.pop();
+    files.push(ConfigFile {
+        path,
+        content: ConfigContent::Text(text),
+    });
+}
+
+fn config_extends(text: &str, file: &Path, home: &Path) -> Vec<PathBuf> {
+    let dir = file.parent().unwrap_or(file);
+    decode::extends(text)
+        .iter()
+        .map(|entry| resolve_input(entry, home, dir))
+        .collect()
 }
 
 // Slint resolves only real family names; a generic one like `monospace` does
@@ -558,11 +642,181 @@ mod tests {
     }
 
     #[test]
+    fn bases_come_before_the_file_that_extends_them_in_the_order_written() {
+        let files = chain(&[
+            ("/c/config.toml", "extends = [\"a.toml\", \"b.toml\"]\n"),
+            ("/c/a.toml", "extends = \"d.toml\"\n"),
+            ("/c/b.toml", ""),
+            ("/c/d.toml", ""),
+        ]);
+
+        assert_eq!(
+            paths(&files),
+            [
+                file_path("/c/d.toml"),
+                file_path("/c/a.toml"),
+                file_path("/c/b.toml"),
+                file_path("/c/config.toml"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_relative_base_is_taken_from_the_directory_of_the_file_naming_it() {
+        let files = chain(&[
+            ("/c/config.toml", "extends = \"shared/a.toml\"\n"),
+            (
+                "/c/shared/a.toml",
+                "extends = [\"b.toml\", \"../up.toml\"]\n",
+            ),
+            ("/c/shared/b.toml", ""),
+            ("/c/up.toml", ""),
+        ]);
+
+        assert_eq!(
+            paths(&files),
+            [
+                file_path("/c/shared/b.toml"),
+                file_path("/c/up.toml"),
+                file_path("/c/shared/a.toml"),
+                file_path("/c/config.toml"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_tilde_in_extends_stands_for_the_home_given() {
+        let files = chain(&[
+            (
+                "/c/config.toml",
+                "extends = [\"~/common.toml\", \"/abs.toml\"]\n",
+            ),
+            ("/home/user/common.toml", ""),
+            ("/abs.toml", ""),
+        ]);
+
+        assert_eq!(
+            paths(&files),
+            [
+                file_path("/home/user/common.toml"),
+                file_path("/abs.toml"),
+                file_path("/c/config.toml"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_missing_base_is_listed_as_unreadable_and_the_rest_still_read() {
+        let files = chain(&[
+            (
+                "/c/config.toml",
+                "extends = [\"missing.toml\", \"b.toml\"]\n",
+            ),
+            ("/c/b.toml", "x = 1\n"),
+        ]);
+
+        assert_eq!(
+            files,
+            [
+                ConfigFile {
+                    path: file_path("/c/missing.toml"),
+                    content: ConfigContent::Unreadable(IoError::new("not found")),
+                },
+                text("/c/b.toml", "x = 1\n"),
+                text(
+                    "/c/config.toml",
+                    "extends = [\"missing.toml\", \"b.toml\"]\n"
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_file_reached_again_while_it_is_being_read_is_a_cycle() {
+        let files = chain(&[
+            ("/c/config.toml", "extends = \"a.toml\"\n"),
+            ("/c/a.toml", "extends = \"./config.toml\"\n"),
+        ]);
+
+        assert_eq!(
+            files,
+            [
+                ConfigFile {
+                    path: file_path("/c/config.toml"),
+                    content: ConfigContent::Cycle,
+                },
+                text("/c/a.toml", "extends = \"./config.toml\"\n"),
+                text("/c/config.toml", "extends = \"a.toml\"\n"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_file_reached_through_two_branches_is_read_for_each() {
+        let files = chain(&[
+            ("/c/config.toml", "extends = [\"a.toml\", \"b.toml\"]\n"),
+            ("/c/a.toml", "extends = \"d.toml\"\n"),
+            ("/c/b.toml", "extends = \"d.toml\"\n"),
+            ("/c/d.toml", ""),
+        ]);
+
+        assert_eq!(
+            paths(&files),
+            [
+                file_path("/c/d.toml"),
+                file_path("/c/a.toml"),
+                file_path("/c/d.toml"),
+                file_path("/c/b.toml"),
+                file_path("/c/config.toml"),
+            ]
+        );
+    }
+
+    #[test]
     fn template_as_written_is_the_default() {
         for os in [Os::Windows, Os::MacOs, Os::Linux] {
-            let (config, diagnostics) = parse_config(CONFIG_TEMPLATE, os).unwrap();
+            let (config, diagnostics) = parse_config([CONFIG_TEMPLATE], os).unwrap();
             assert_eq!(diagnostics, Vec::new(), "{os:?}");
             assert_eq!(config, Config::default_for(os), "{os:?}");
+        }
+    }
+
+    // Reads the chain from `/c/config.toml` out of the given files, with
+    // `/home/user` as home.
+    fn chain(files: &[(&str, &str)]) -> Vec<ConfigFile> {
+        let files: BTreeMap<PathBuf, &str> = files
+            .iter()
+            .map(|(path, text)| (file_path(path), *text))
+            .collect();
+        read_config_chain(
+            &file_path("/c/config.toml"),
+            Path::new("/home/user"),
+            |path| {
+                files
+                    .get(path)
+                    .map(|text| (*text).to_owned())
+                    .ok_or_else(|| IoError::new("not found"))
+            },
+        )
+    }
+
+    // The path as `extends` resolves it, with the separator of the OS
+    // running the test.
+    fn file_path(text: &str) -> PathBuf {
+        text.split('/').skip(1).fold(
+            PathBuf::from(std::path::MAIN_SEPARATOR_STR),
+            |path, part| path.join(part),
+        )
+    }
+
+    fn paths(files: &[ConfigFile]) -> Vec<PathBuf> {
+        files.iter().map(|file| file.path.clone()).collect()
+    }
+
+    fn text(path: &str, text: &str) -> ConfigFile {
+        ConfigFile {
+            path: file_path(path),
+            content: ConfigContent::Text(text.to_owned()),
         }
     }
 

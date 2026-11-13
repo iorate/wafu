@@ -321,7 +321,7 @@ fn a_text_preview_hides_the_log_by_its_own_setting() {
 #[test]
 fn only_an_image_filling_the_window_hides_the_log_by_its_own_setting() {
     let mut harness = listing();
-    harness.config("[preview.image]\nfull_hides_log = true\n");
+    harness.config("[preview.image]\nhide_log = true\n");
     harness.press("Down");
     harness.press("Enter");
 
@@ -552,7 +552,7 @@ fn an_image_opened_from_the_right_pane_fills_the_window() {
 #[test]
 fn an_image_opened_from_the_left_pane_fills_the_window_when_set_to() {
     let mut harness = listing();
-    harness.config("[preview.image]\nfull_from_left = true\n");
+    harness.config("[preview.image]\nfrom_left = \"both_panes\"\n");
     harness.press("Down");
     harness.press("Down");
 
@@ -565,7 +565,7 @@ fn an_image_opened_from_the_left_pane_fills_the_window_when_set_to() {
 #[test]
 fn an_image_opened_from_the_right_pane_uses_the_left_area_when_set_to() {
     let mut harness = listing();
-    harness.config("[preview.image]\nfull_from_right = false\n");
+    harness.config("[preview.image]\nfrom_right = \"other_pane\"\n");
     harness.press("Tab");
     harness.press("Down");
 
@@ -796,7 +796,7 @@ fn the_right_pane_and_right_clicks_are_ignored_beside_a_right_pane_image() {
 #[test]
 fn the_right_pane_takes_the_mouse_beside_a_left_pane_image() {
     let mut harness = listing();
-    harness.config("[preview.image]\nfull_from_right = false\n");
+    harness.config("[preview.image]\nfrom_right = \"other_pane\"\n");
     harness.press("Tab");
     harness.press("Down");
     harness.press("Enter");
@@ -819,7 +819,7 @@ fn the_right_pane_takes_the_mouse_beside_a_left_pane_image() {
 #[test]
 fn dividers_and_the_log_take_the_mouse_under_a_preview() {
     let mut harness = image();
-    harness.config("[general]\na = 1\nb = 2\n");
+    harness.config("[filelist]\na = 1\nb = 2\n");
 
     harness.send(Msg::Mouse(MouseInput::SplitTo { percent: 70 }));
     harness.send(Msg::Mouse(MouseInput::LogRowsTo { rows: 1 }));
@@ -848,7 +848,7 @@ fn layout_keys_work_during_an_image_preview_whatever_its_placement() {
     harness.press("Tab");
     harness.press("Down");
     harness.press("Enter");
-    harness.config("[preview.image]\nfull_hides_log = true\n");
+    harness.config("[preview.image]\nhide_log = true\n");
     assert_eq!(
         harness.view().preview.unwrap().placement,
         PreviewPlacement::Full

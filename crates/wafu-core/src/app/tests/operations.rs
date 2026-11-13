@@ -659,7 +659,7 @@ fn trash_starts_at_once() {
 #[test]
 fn calculate_size_starts_at_once_and_logs_the_total_without_reading_again() {
     let mut harness = three_files();
-    harness.config("[appearance]\nsize_format = \"comma\"\n");
+    harness.config("[filelist]\nsize_format = \"comma\"\n");
     harness.press("Down");
     harness.take_effects();
 
@@ -692,7 +692,7 @@ fn calculate_size_starts_at_once_and_logs_the_total_without_reading_again() {
 #[test]
 fn calculate_size_on_disk_starts_at_once_and_logs_the_total_without_reading_again() {
     let mut harness = three_files();
-    harness.config("[appearance]\nsize_format = \"comma\"\n");
+    harness.config("[filelist]\nsize_format = \"comma\"\n");
     harness.press("Down");
     harness.take_effects();
 
@@ -1038,7 +1038,7 @@ fn mkdir_creates_nested_directories_and_enters_the_new_one() {
 #[test]
 fn mkdir_without_entering_puts_the_cursor_on_the_first_component() {
     let mut harness =
-        Harness::start_with_config(LEFT, RIGHT, "[general]\nmkdir_then_enter = false\n");
+        Harness::start_with_config(LEFT, RIGHT, "[filelist]\nmkdir_enters_dir = false\n");
     harness.load(Side::Left, vec![file("x")]);
     harness.take_effects();
 
@@ -1161,7 +1161,7 @@ fn new_file_creates_the_file_in_the_place_the_popup_was_opened_in() {
 #[test]
 fn new_text_names_and_opens_the_file_in_the_place_the_popup_was_opened_in() {
     let mut harness =
-        Harness::start_with_config(LEFT, RIGHT, "[general]\neditor = \"ed {dir} {paths}\"\n");
+        Harness::start_with_config(LEFT, RIGHT, "[programs]\neditor = \"ed {dir} {paths}\"\n");
     harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
     harness.press("Shift+E");
     harness.vanish(Side::Left, "/home", vec![file("a")]);
@@ -1194,7 +1194,7 @@ fn new_text_without_creating_opens_the_editor_in_the_place_the_popup_was_opened_
     let mut harness = Harness::start_with_config(
         LEFT,
         RIGHT,
-        "[general]\nnew_text_creates_file = false\neditor = \"ed {dir} {other_dir} {paths}\"\n",
+        "[filelist]\nnew_text_creates_file = false\n[programs]\neditor = \"ed {dir} {other_dir} {paths}\"\n",
     );
     harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
     harness.press("Shift+E");
@@ -1736,7 +1736,7 @@ fn clipboard_copies_are_logged_with_the_text_or_the_line_count() {
 
 // Lets copy, move, delete, and trash act on the cursor row without marks.
 fn cursor_only(harness: &mut Harness) {
-    harness.config("[general]\nrequire_marks = false\n");
+    harness.config("[filelist]\nrequire_marks = false\n");
 }
 
 fn three_files() -> Harness {
