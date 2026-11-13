@@ -518,21 +518,22 @@ impl Pane {
         }
     }
 
-    /// Moves to the first row whose name starts with the prefix. Returns whether one exists.
-    pub fn search_first(&mut self, prefix: &str) -> bool {
-        self.search_from(0, prefix, true)
+    /// Moves to the first row whose name contains the query if `anywhere`, or
+    /// starts with it otherwise. Returns whether one exists.
+    pub fn search_first(&mut self, query: &str, anywhere: bool) -> bool {
+        self.search_from(0, query, anywhere, true)
     }
 
-    pub fn search_next(&mut self, prefix: &str) -> bool {
-        self.search_from(self.cursor + 1, prefix, true)
+    pub fn search_next(&mut self, query: &str, anywhere: bool) -> bool {
+        self.search_from(self.cursor + 1, query, anywhere, true)
     }
 
-    pub fn search_prev(&mut self, prefix: &str) -> bool {
+    pub fn search_prev(&mut self, query: &str, anywhere: bool) -> bool {
         let start = self
             .cursor
             .checked_sub(1)
             .unwrap_or(self.row_count().saturating_sub(1));
-        self.search_from(start, prefix, false)
+        self.search_from(start, query, anywhere, false)
     }
 
     #[must_use]
@@ -602,12 +603,19 @@ impl Pane {
         self.reload_pending = pending;
     }
 
-    fn search_from(&mut self, start: usize, prefix: &str, forward: bool) -> bool {
-        let prefix = nfc(prefix).to_lowercase();
+    fn search_from(&mut self, start: usize, query: &str, anywhere: bool, forward: bool) -> bool {
+        let query = nfc(query).to_lowercase();
+        let matches = |pane: &Self, row| {
+            if anywhere {
+                pane.row_contains(row, &query)
+            } else {
+                pane.row_starts_with(row, &query)
+            }
+        };
         let found = if forward {
-            self.find_row_from(start, |pane, row| pane.row_starts_with(row, &prefix))
+            self.find_row_from(start, matches)
         } else {
-            self.find_row_backward_from(start, |pane, row| pane.row_starts_with(row, &prefix))
+            self.find_row_backward_from(start, matches)
         };
         if let Some(row) = found {
             self.cursor = row;
@@ -674,6 +682,11 @@ impl Pane {
     fn row_starts_with(&self, row: usize, lower_prefix: &str) -> bool {
         self.entry_at(row)
             .is_some_and(|entry| name_starts_with(&entry.name, lower_prefix))
+    }
+
+    fn row_contains(&self, row: usize, lower_text: &str) -> bool {
+        self.entry_at(row)
+            .is_some_and(|entry| name_contains(&entry.name, lower_text))
     }
 
     fn toggle_mark_at(&mut self, row: usize) {
@@ -768,6 +781,12 @@ fn name_starts_with(name: &OsStr, lower_prefix: &str) -> bool {
     nfc(&name.to_string_lossy())
         .to_lowercase()
         .starts_with(lower_prefix)
+}
+
+fn name_contains(name: &OsStr, lower_text: &str) -> bool {
+    nfc(&name.to_string_lossy())
+        .to_lowercase()
+        .contains(lower_text)
 }
 
 #[cfg(test)]
@@ -1327,18 +1346,34 @@ mod tests {
     fn search_moves_between_matches() {
         let mut pane = pane_with("/home", &["ab", "ac", "b", "AD"]);
 
-        assert!(pane.search_first("A"));
+        assert!(pane.search_first("A", false));
         assert_eq!(cursor_name(&pane), "ab");
-        assert!(pane.search_next("a"));
+        assert!(pane.search_next("a", false));
         assert_eq!(cursor_name(&pane), "ac");
-        assert!(pane.search_next("a"));
+        assert!(pane.search_next("a", false));
         assert_eq!(cursor_name(&pane), "AD");
-        assert!(pane.search_next("a"));
+        assert!(pane.search_next("a", false));
         assert_eq!(cursor_name(&pane), "ab");
-        assert!(pane.search_prev("a"));
+        assert!(pane.search_prev("a", false));
         assert_eq!(cursor_name(&pane), "AD");
-        assert!(!pane.search_first("x"));
+        assert!(!pane.search_first("x", false));
         assert_eq!(cursor_name(&pane), "AD");
+    }
+
+    #[test]
+    fn search_anywhere_matches_inside_names_in_any_case() {
+        let mut pane = pane_with("/home", &["ab", "c", "XBY", "zb"]);
+
+        assert!(pane.search_first("B", true));
+        assert_eq!(cursor_name(&pane), "ab");
+        assert!(pane.search_next("b", true));
+        assert_eq!(cursor_name(&pane), "XBY");
+        assert!(pane.search_next("b", true));
+        assert_eq!(cursor_name(&pane), "zb");
+        assert!(pane.search_prev("b", true));
+        assert_eq!(cursor_name(&pane), "XBY");
+        assert!(!pane.search_first("ba", true));
+        assert_eq!(cursor_name(&pane), "XBY");
     }
 
     #[test]
@@ -1346,7 +1381,7 @@ mod tests {
         let decomposed = "\u{30a2}\u{30d5}\u{309a}\u{30ea}";
         let mut pane = pane_with("/home", &["a", decomposed]);
 
-        assert!(pane.search_first("\u{30a2}\u{30d7}"));
+        assert!(pane.search_first("\u{30a2}\u{30d7}", true));
         assert_eq!(pane.cursor(), 2);
         pane.set_cursor(0);
         pane.jump_to('\u{30a2}');
