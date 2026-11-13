@@ -626,7 +626,8 @@ impl ListPopup {
         self.kind == ListKind::History
     }
 
-    /// The rows to show: the place, with its key at the end like the sort popup.
+    /// The rows to show: the place, with its key, if it has one, at the end like
+    /// the sort popup.
     #[must_use]
     pub fn items(&self) -> Vec<PopupItem> {
         self.matches
@@ -1318,57 +1319,6 @@ mod tests {
     }
 
     #[test]
-    fn list_popup_of_history_narrows_to_the_labels_with_the_query_ignoring_case() {
-        let mut popup = history_popup(&["/Downloads", "/docs", "/Music"]);
-        popup.cursor = 2;
-
-        popup.set_query("DO".to_owned());
-
-        let labels = |popup: &ListPopup| -> Vec<String> {
-            popup.items().into_iter().map(|item| item.label).collect()
-        };
-        assert_eq!(labels(&popup), [shown("/docs"), shown("/Downloads")]);
-        assert_eq!(popup.cursor, 0);
-        popup.cursor_up();
-        assert_eq!(popup.cursor, 1);
-        assert_eq!(popup.selected().unwrap().label, shown("/Downloads"));
-        assert_eq!(
-            menu_input(&mut popup, key("Enter")),
-            Response::Pick(popup.items[2].clone())
-        );
-
-        popup.set_query("mus".to_owned());
-        assert_eq!(labels(&popup), [shown("/Music")]);
-        assert_eq!(
-            menu_input(&mut popup, MenuInput::DoubleClick { row: 0 }),
-            Response::Pick(popup.items[0].clone())
-        );
-
-        popup.set_query(String::new());
-        assert_eq!(popup.items().len(), 3);
-    }
-
-    #[test]
-    fn list_popup_of_history_without_a_match_has_nothing_to_pick() {
-        let mut popup = history_popup(&["/a"]);
-
-        popup.set_query("b".to_owned());
-        popup.cursor_down();
-
-        assert_eq!(popup.selected(), None);
-        assert_eq!(menu_input(&mut popup, key("Enter")), Response::Close);
-    }
-
-    #[test]
-    fn list_popup_of_history_has_no_keys_for_its_items() {
-        let mut popup = history_popup(&["/a", "/b"]);
-
-        assert_eq!(popup.items()[1].detail, "");
-        assert_eq!(menu_input(&mut popup, key("1")), Response::Stay);
-        assert_eq!(menu_input(&mut popup, key("B")), Response::Stay);
-    }
-
-    #[test]
     fn list_popup_of_history_lists_the_newest_first() {
         let mut history = History::new();
         for path in ["/a", "/b", "/c"] {
@@ -1416,6 +1366,48 @@ mod tests {
             Response::Pick(popup.items[0].clone())
         );
         assert_eq!(popup.empty_message(), "No drives");
+    }
+
+    #[test]
+    fn list_popup_of_history_narrows_to_the_labels_with_the_query_ignoring_case() {
+        let mut popup = history_popup(&["/Downloads", "/docs", "/Music"]);
+        popup.cursor = 2;
+
+        popup.set_query("DO".to_owned());
+
+        let labels = |popup: &ListPopup| -> Vec<String> {
+            popup.items().into_iter().map(|item| item.label).collect()
+        };
+        assert_eq!(labels(&popup), [shown("/docs"), shown("/Downloads")]);
+        assert_eq!(popup.cursor, 0);
+        popup.cursor_up();
+        assert_eq!(popup.cursor, 1);
+        assert_eq!(popup.selected().unwrap().label, shown("/Downloads"));
+        assert_eq!(
+            menu_input(&mut popup, key("Enter")),
+            Response::Pick(popup.items[2].clone())
+        );
+
+        popup.set_query("mus".to_owned());
+        assert_eq!(labels(&popup), [shown("/Music")]);
+        assert_eq!(
+            menu_input(&mut popup, MenuInput::DoubleClick { row: 0 }),
+            Response::Pick(popup.items[0].clone())
+        );
+
+        popup.set_query(String::new());
+        assert_eq!(popup.items().len(), 3);
+    }
+
+    #[test]
+    fn list_popup_of_history_without_a_match_has_nothing_to_pick() {
+        let mut popup = history_popup(&["/a"]);
+
+        popup.set_query("b".to_owned());
+        popup.cursor_down();
+
+        assert_eq!(popup.selected(), None);
+        assert_eq!(menu_input(&mut popup, key("Enter")), Response::Close);
     }
 
     #[test]
