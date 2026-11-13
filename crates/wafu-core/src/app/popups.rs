@@ -147,6 +147,10 @@ impl App {
                 // query, so the follow-up would not bring the top back.
                 self.popup_top = 0;
             }
+            Some(Popup::List(popup)) if field == 0 && popup.filters() => {
+                popup.set_query(text);
+                self.popup_top = 0;
+            }
             Some(Popup::Search(popup)) if field == 0 => {
                 let anywhere = self.config.general.search_matches_anywhere;
                 let pane = &mut self.panes[self.active.index()];
@@ -242,6 +246,11 @@ impl App {
                     .items
                     .is_empty()
                     .then(|| popup.empty_message().to_owned()),
+                fields: if popup.filters() && !popup.items.is_empty() {
+                    vec![InputField::new(popup.query.clone())]
+                } else {
+                    Vec::new()
+                },
                 items: (!popup.items.is_empty()).then(|| popup.items()),
                 cursor: popup.selected().map(|_| popup.cursor),
                 ..PopupView::default()
