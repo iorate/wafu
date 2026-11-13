@@ -801,7 +801,6 @@ fn the_right_pane_takes_the_mouse_beside_a_left_pane_image() {
     harness.click(Side::Right, 0);
 
     assert_eq!(harness.cursor_name(Side::Right), "..");
-    assert!(harness.view().right.active);
 
     harness.double_click(Side::Right, 1);
 

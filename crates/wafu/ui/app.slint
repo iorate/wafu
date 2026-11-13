@@ -266,7 +266,7 @@ export component AppWindow inherits Window {
 
                 if root.preview.visible: PreviewWidget {
                     x: root.preview.covers-left ? 0 : panes.left-width + Theme.line-width;
-                    width: !root.preview.covers-right ? panes.left-width : root.preview.covers-left ? parent.width : parent.width - panes.left-width - Theme.line-width;
+                    width: root.preview.covers-right ? parent.width - self.x : panes.left-width;
                     height: parent.height;
                     data: root.preview;
                     lines: root.preview-lines;
