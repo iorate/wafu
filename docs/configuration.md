@@ -26,6 +26,8 @@ new_text_creates_file = true
 extract_creates_dir = true
 require_marks = true
 hide_log_in_preview = false
+image_preview_from_left = "other_pane"
+image_preview_from_right = "full"
 use_login_shell_env = true
 search_matches_anywhere = true
 
@@ -91,6 +93,7 @@ If you copy this block, note that an item in an `[os.*]` section overrides the s
 | `require_marks` | `copy`, `move`, `delete`, and `trash` act only on marked items, never on the cursor item alone. |
 | `editor` | The command line that opens a file for editing, used by `edit`, `new_text`, `preview_edit`, and `edit_config`. `{paths}` is the file. It follows the rules of [external commands](#commands). |
 | `hide_log_in_preview` | Hide the log while a preview covers both panes. |
+| `image_preview_from_left`, `image_preview_from_right` | Where an image opened from the left or the right pane is previewed: `"other_pane"` (in place of the other pane, with the pane it was opened from still shown) or `"full"` (in place of both panes). |
 | `use_login_shell_env` | macOS and Linux: give the programs wafu starts the environment of your login shell. |
 | `search_matches_anywhere` | `search` finds the text anywhere in a name. When `false`, only at the start of a name. |
 

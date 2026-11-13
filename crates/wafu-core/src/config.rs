@@ -52,8 +52,19 @@ pub struct General {
     pub require_marks: bool,
     pub editor: CommandLine,
     pub hide_log_in_preview: bool,
+    pub image_preview_from_left: ImagePlacement,
+    pub image_preview_from_right: ImagePlacement,
     pub use_login_shell_env: bool,
     pub search_matches_anywhere: bool,
+}
+
+/// Where an image opened from a pane is previewed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImagePlacement {
+    /// In place of the pane it was not opened from.
+    OtherPane,
+    /// In place of both panes.
+    Full,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -225,6 +236,8 @@ impl Config {
                 require_marks: true,
                 editor: default_editor(os),
                 hide_log_in_preview: false,
+                image_preview_from_left: ImagePlacement::OtherPane,
+                image_preview_from_right: ImagePlacement::Full,
                 use_login_shell_env: true,
                 search_matches_anywhere: true,
             },
@@ -292,6 +305,16 @@ impl Font {
                 .unwrap_or_else(|| family.to_owned()),
             self.size.or(default.size).unwrap_or(FONT_SIZE_DEFAULT),
         )
+    }
+}
+
+impl ImagePlacement {
+    fn from_name(name: &str) -> Option<Self> {
+        Some(match name {
+            "other_pane" => Self::OtherPane,
+            "full" => Self::Full,
+            _ => return None,
+        })
     }
 }
 

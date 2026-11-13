@@ -3,8 +3,9 @@ import { Theme } from "theme.slint";
 
 export struct PreviewData {
     visible: bool,
-    // In place of both panes; otherwise in place of the right pane.
-    full: bool,
+    // Which panes it takes the place of: one of them or both.
+    covers-left: bool,
+    covers-right: bool,
     // 0: lines of text, 1: an image (or nothing), 2: a message
     kind: int,
     hex-dump: bool,
@@ -130,7 +131,7 @@ export component PreviewWidget inherits Rectangle {
         color: Theme.colors.fg;
     }
 
-    if root.data.full && root.data.detail != "": Rectangle {
+    if root.data.covers-left && root.data.covers-right && root.data.detail != "": Rectangle {
         width: overlay.preferred-width + 16px;
         height: overlay.preferred-height + 8px;
         x: root.width - self.width - 8px;

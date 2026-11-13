@@ -5,6 +5,7 @@ use std::sync::Arc;
 use super::navigation::is_link_in_archive;
 use super::{App, Effect, MouseInput, PreviewError, PreviewSource, Side};
 use crate::command::{Command, Context};
+use crate::config::ImagePlacement;
 use crate::entry::Entry;
 use crate::error::AppError;
 use crate::location::Location;
@@ -17,9 +18,16 @@ use crate::view::{PreviewContent, PreviewPlacement, PreviewView, SharedImage};
 impl App {
     pub(super) fn open_preview(&mut self, entry: &Entry, effects: &mut Vec<Effect>) {
         if is_image_name(&entry.name) {
+            let general = &self.config.general;
             let placement = match self.active {
-                Side::Left => PreviewPlacement::RightPane,
-                Side::Right => PreviewPlacement::Full,
+                Side::Left => match general.image_preview_from_left {
+                    ImagePlacement::OtherPane => PreviewPlacement::RightPane,
+                    ImagePlacement::Full => PreviewPlacement::Full,
+                },
+                Side::Right => match general.image_preview_from_right {
+                    ImagePlacement::OtherPane => PreviewPlacement::LeftPane,
+                    ImagePlacement::Full => PreviewPlacement::Full,
+                },
             };
             // The follow-up at the end of `update` requests the image.
             self.preview = Some(Preview::Image(ImagePreview {
@@ -113,32 +121,25 @@ impl App {
                     preview.scroll_by(i64::from(rows));
                 }
             }
-            Some(Preview::Image(preview)) if preview.placement == PreviewPlacement::RightPane => {
-                let pane = &mut self.panes[Side::Left.index()];
+            Some(Preview::Image(preview)) => {
+                let shown = match preview.placement {
+                    PreviewPlacement::Full => return,
+                    PreviewPlacement::LeftPane => Side::Right,
+                    PreviewPlacement::RightPane => Side::Left,
+                };
+                let pane = &mut self.panes[shown.index()];
                 match input {
-                    MouseInput::Click {
-                        side: Side::Left,
-                        row,
-                    } => pane.set_cursor(row),
-                    MouseInput::Wheel {
-                        side: Side::Left,
-                        rows,
-                    } => pane.scroll_by(rows),
-                    MouseInput::ScrollTo {
-                        side: Side::Left,
-                        top,
-                    } => pane.scroll_to(top),
-                    MouseInput::DoubleClick {
-                        side: Side::Left,
-                        row,
-                    } => {
+                    MouseInput::Click { side, row } if side == shown => pane.set_cursor(row),
+                    MouseInput::Wheel { side, rows } if side == shown => pane.scroll_by(rows),
+                    MouseInput::ScrollTo { side, top } if side == shown => pane.scroll_to(top),
+                    MouseInput::DoubleClick { side, row } if side == shown => {
                         pane.set_cursor(row);
                         self.close_preview(effects);
                     }
                     _ => {}
                 }
             }
-            _ => {}
+            None => {}
         }
     }
 

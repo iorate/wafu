@@ -542,6 +542,32 @@ fn an_image_opened_from_the_right_pane_fills_the_window() {
 }
 
 #[test]
+fn an_image_opened_from_the_left_pane_fills_the_window_when_set_to() {
+    let mut harness = listing();
+    harness.config("[general]\nimage_preview_from_left = \"full\"\n");
+    harness.press("Down");
+    harness.press("Down");
+
+    harness.press("Enter");
+
+    let preview = harness.view().preview.unwrap();
+    assert_eq!(preview.placement, PreviewPlacement::Full);
+}
+
+#[test]
+fn an_image_opened_from_the_right_pane_uses_the_left_area_when_set_to() {
+    let mut harness = listing();
+    harness.config("[general]\nimage_preview_from_right = \"other_pane\"\n");
+    harness.press("Tab");
+    harness.press("Down");
+
+    harness.press("Enter");
+
+    let preview = harness.view().preview.unwrap();
+    assert_eq!(preview.placement, PreviewPlacement::LeftPane);
+}
+
+#[test]
 fn image_keys_are_the_cursor_and_mark_keys_of_the_image_context() {
     let mut harness = image();
     harness.image_loaded(1, 1);
@@ -757,6 +783,30 @@ fn the_right_pane_and_right_clicks_are_ignored_beside_a_right_pane_image() {
     assert_eq!(harness.cursor_name(Side::Left), "one.png");
     assert_eq!(harness.cursor_name(Side::Right), "..");
     assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
+fn the_right_pane_takes_the_mouse_beside_a_left_pane_image() {
+    let mut harness = listing();
+    harness.config("[general]\nimage_preview_from_right = \"other_pane\"\n");
+    harness.press("Tab");
+    harness.press("Down");
+    harness.press("Enter");
+
+    harness.click(Side::Left, 1);
+
+    assert_eq!(harness.cursor_name(Side::Left), "..");
+    assert!(harness.view().preview.is_some());
+
+    harness.click(Side::Right, 0);
+
+    assert_eq!(harness.cursor_name(Side::Right), "..");
+    assert!(harness.view().right.active);
+
+    harness.double_click(Side::Right, 1);
+
+    assert_eq!(harness.cursor_name(Side::Right), "r.gif");
+    assert!(harness.view().preview.is_none());
 }
 
 #[test]

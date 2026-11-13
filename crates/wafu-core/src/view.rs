@@ -195,6 +195,8 @@ pub struct PreviewView {
 pub enum PreviewPlacement {
     /// In place of both panes.
     Full,
+    /// In place of the left pane, with the right pane still shown.
+    LeftPane,
     /// In place of the right pane, with the left pane still shown.
     RightPane,
 }

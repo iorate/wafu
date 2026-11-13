@@ -671,7 +671,8 @@ impl Ui {
                 };
                 let data = PreviewData {
                     visible: true,
-                    full: preview.placement == PreviewPlacement::Full,
+                    covers_left: preview.placement != PreviewPlacement::RightPane,
+                    covers_right: preview.placement != PreviewPlacement::LeftPane,
                     kind,
                     hex_dump,
                     message: message.into(),

@@ -6,7 +6,7 @@ use toml::{Table, Value};
 
 use super::{
     Bookmark, Color, Colors, Config, Diagnostic, DiagnosticKind, FONT_SIZE_MAX, FONT_SIZE_MIN,
-    Font, SizeFormat, SyntaxError, Theme,
+    Font, ImagePlacement, SizeFormat, SyntaxError, Theme,
 };
 use crate::app::Os;
 use crate::command::{Command, Context};
@@ -218,6 +218,22 @@ fn read_general(root: &mut Reader<'_>, config: &mut Config, os: Os) {
     }
     if let Some(value) = general.bool("hide_log_in_preview") {
         config.general.hide_log_in_preview = value;
+    }
+    for (key, item) in [
+        (
+            "image_preview_from_left",
+            &mut config.general.image_preview_from_left,
+        ),
+        (
+            "image_preview_from_right",
+            &mut config.general.image_preview_from_right,
+        ),
+    ] {
+        if let Some(placement) =
+            general.choice(key, "other_pane or full", ImagePlacement::from_name)
+        {
+            *item = placement;
+        }
     }
     if let Some(value) = general.bool("use_login_shell_env") {
         config.general.use_login_shell_env = value;
@@ -589,6 +605,8 @@ extract_creates_dir = false
 require_marks = false
 editor = "notepad {paths}"
 hide_log_in_preview = false
+image_preview_from_left = "full"
+image_preview_from_right = "other_pane"
 
 [appearance]
 theme = "auto"                 # auto / light / dark
@@ -647,6 +665,11 @@ editor = "open -t {paths}"
         assert_eq!(
             config.general.editor,
             CommandLine::parse("notepad {paths}", Os::Linux).unwrap()
+        );
+        assert_eq!(config.general.image_preview_from_left, ImagePlacement::Full);
+        assert_eq!(
+            config.general.image_preview_from_right,
+            ImagePlacement::OtherPane
         );
         assert_eq!(
             config.appearance.font.default.family,
