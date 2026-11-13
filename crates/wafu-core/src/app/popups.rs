@@ -294,10 +294,11 @@ impl App {
     }
 
     fn loading_view(&self) -> Option<PopupView> {
+        let (preview, request) = self.preview_loading().unzip();
         let targets: Vec<String> = self
             .navigation_target()
             .into_iter()
-            .chain(self.preview_loading_name())
+            .chain(preview)
             .collect();
         let parts: Vec<String> = self
             .listing_drives()
@@ -309,6 +310,12 @@ impl App {
             title: "Loading".to_owned(),
             message: Some(parts.join(", ")),
             progress: true,
+            // Each request for a preview waits out the delay on its own, so
+            // that moving through images faster than they load does not bring
+            // the popup up.
+            generation: request.map_or(0, |request| {
+                usize::try_from(request.0).unwrap_or(usize::MAX)
+            }),
             ..PopupView::default()
         })
     }

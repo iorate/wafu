@@ -502,6 +502,29 @@ fn the_last_image_stays_until_the_next_one_arrives() {
 }
 
 #[test]
+fn a_loading_image_shows_progress_until_it_arrives() {
+    let mut harness = image();
+
+    let popup = harness.view().popup.unwrap();
+    assert!(popup.progress);
+    assert_eq!(popup.message.as_deref(), Some("Reading one.png"));
+
+    harness.image_loaded(1, 1);
+
+    assert!(harness.view().popup.is_none());
+}
+
+#[test]
+fn the_progress_of_each_image_request_has_its_own_generation() {
+    let mut harness = image();
+    let first = harness.view().popup.unwrap().generation;
+
+    harness.press("Down");
+
+    assert_ne!(harness.view().popup.unwrap().generation, first);
+}
+
+#[test]
 fn an_image_opened_from_the_right_pane_fills_the_window() {
     let mut harness = listing();
     harness.press("Tab");

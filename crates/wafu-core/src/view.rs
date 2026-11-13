@@ -115,7 +115,9 @@ pub struct PopupView {
     /// Reports work going on in the background; the UI may delay showing it.
     pub progress: bool,
     /// Changes each time a popup opens or another takes its place, so that the
-    /// UI can tell a new popup from one that has only changed.
+    /// UI can tell a new popup from one that has only changed. For a progress
+    /// popup it changes when the popup comes to report another wait, which
+    /// the UI delays afresh.
     pub generation: usize,
 }
 
