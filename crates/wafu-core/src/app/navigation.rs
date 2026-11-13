@@ -359,7 +359,7 @@ impl App {
             return;
         }
         // The `..` row at an archive root is the archive the pane is in;
-        // entering it would only reload it, dropping the marks and the filter.
+        // entering it would only reload it, dropping the marks.
         if !location.in_archive() && self.active_pane().location().in_archive() {
             return;
         }

@@ -938,7 +938,7 @@ fn empty_filter_text_clears_the_filter() {
 }
 
 #[test]
-fn filter_is_dropped_on_navigation() {
+fn filter_is_kept_on_navigation() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![dir("docs"), file("a.png")]);
     harness.press(":");
@@ -947,9 +947,9 @@ fn filter_is_dropped_on_navigation() {
 
     harness.press("Down");
     harness.press("Enter");
-    harness.load(Side::Left, vec![]);
+    harness.load(Side::Left, vec![file("b.png"), file("c.txt")]);
 
-    assert_eq!(harness.app().pane(Side::Left).filter(), None);
+    assert_eq!(harness.names(Side::Left), ["..", "b.png"]);
 }
 
 #[test]
