@@ -1,12 +1,13 @@
 use std::collections::BTreeMap;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
 use crate::app::Os;
 use crate::external::{CommandLine, CommandLineError};
 use crate::keymap::KeyMap;
+use crate::path::resolve_input;
 
 mod decode;
 
@@ -235,10 +236,27 @@ pub struct SyntaxError {
     pub message: String,
 }
 
-/// Reads a configuration file leniently: a syntax error rejects the whole
-/// file, while an unknown or unusable item is reported and ignored.
-pub fn parse_config(text: &str, os: Os) -> Result<(Config, Vec<Diagnostic>), SyntaxError> {
-    decode::parse(text, os)
+/// Reads the files of a configuration leniently, each merged over the ones
+/// before it, so that the bases come first and the file that extends them
+/// last. A syntax error in any file rejects them all and gives the index of
+/// that file, while an unknown or unusable item is reported and ignored.
+pub fn parse_config<'a>(
+    texts: impl IntoIterator<Item = &'a str>,
+    os: Os,
+) -> Result<(Config, Vec<Diagnostic>), (usize, SyntaxError)> {
+    decode::parse_layers(texts, os)
+}
+
+/// The files that the configuration file at `file` names in `extends`, in
+/// the order they merge: `~` is expanded to `home`, and a relative path is
+/// taken from the directory of `file`. Empty when the text is not TOML.
+#[must_use]
+pub fn config_extends(text: &str, file: &Path, home: &Path) -> Vec<PathBuf> {
+    let dir = file.parent().unwrap_or(file);
+    decode::extends(text)
+        .iter()
+        .map(|entry| resolve_input(entry, home, dir))
+        .collect()
 }
 
 impl Config {
@@ -574,9 +592,29 @@ mod tests {
     }
 
     #[test]
+    fn config_extends_resolves_home_and_relative_paths() {
+        let file = Path::new("/etc/wafu/config.toml");
+        let home = Path::new("/home/user");
+
+        assert_eq!(
+            config_extends(
+                "extends = [\"~/common.toml\", \"local.toml\", \"../shared/x.toml\", \"/abs.toml\"]\n",
+                file,
+                home,
+            ),
+            [
+                Path::new("/home/user").join("common.toml"),
+                Path::new("/etc/wafu").join("local.toml"),
+                Path::new("/etc/shared").join("x.toml"),
+                PathBuf::from("/abs.toml"),
+            ]
+        );
+    }
+
+    #[test]
     fn template_as_written_is_the_default() {
         for os in [Os::Windows, Os::MacOs, Os::Linux] {
-            let (config, diagnostics) = parse_config(CONFIG_TEMPLATE, os).unwrap();
+            let (config, diagnostics) = parse_config([CONFIG_TEMPLATE], os).unwrap();
             assert_eq!(diagnostics, Vec::new(), "{os:?}");
             assert_eq!(config, Config::default_for(os), "{os:?}");
         }

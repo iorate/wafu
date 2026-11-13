@@ -33,16 +33,18 @@ use crate::resolve::resolve;
 use crate::shell_env::load_shell_env;
 use crate::spawn::{spawn, spawn_new_window, wait_in_background};
 use crate::state::{write_handoff, write_state};
-use crate::watch::{Group, Watcher, watch_config};
+use crate::watch::{ConfigWatch, Watcher, watch_config};
 
 const MAX_ABANDONED_PREVIEW_READERS: usize = 2;
 
-/// Where the runtime writes the state, and the configuration path to pass on
-/// to a new instance when it was given on the command line.
+/// Where the runtime writes the state, the configuration path to pass on to
+/// a new instance when it was given on the command line, and the home
+/// directory that `~` stands for in the configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Paths {
     pub state: PathBuf,
     pub config_override: Option<PathBuf>,
+    pub home: PathBuf,
 }
 
 /// Executes effects on behalf of the application and reports the results
@@ -55,7 +57,7 @@ pub struct Runtime {
     preview: Lane,
     pending: Arc<Mutex<HashSet<RequestId>>>,
     watcher: Mutex<Watcher>,
-    config_watcher: Mutex<Option<Group>>,
+    config_watcher: Mutex<Option<ConfigWatch>>,
     #[cfg(windows)]
     color_scheme_watch: Mutex<Option<ColorSchemeWatch>>,
     // The running operation takes its replies from here.
@@ -158,16 +160,8 @@ impl Runtime {
             }
             Effect::ListDrives { request } => self.list_drives(request),
             Effect::WatchConfig(path) => {
-                let watcher = match watch_config(&path, &self.on_event) {
-                    Ok(watcher) => Some(watcher),
-                    Err(error) => {
-                        (self.on_event)(IoEvent::ConfigWatchFailed {
-                            error: IoError::new(error.to_string()),
-                        });
-                        None
-                    }
-                };
-                *lock(&self.config_watcher) = watcher;
+                let watcher = watch_config(&path, &self.paths.home, &self.on_event);
+                *lock(&self.config_watcher) = Some(watcher);
             }
             #[cfg(windows)]
             Effect::WatchColorScheme => {
@@ -671,7 +665,7 @@ mod tests {
     use std::time::Duration;
 
     use tempfile::TempDir;
-    use wafu_core::Command;
+    use wafu_core::{Command, ConfigContent, ConfigFile};
 
     use super::*;
     use crate::watch::tests::symlink;
@@ -1260,12 +1254,7 @@ mod tests {
         fs::rename(&temp, &path).unwrap();
 
         let event = events.recv_timeout(TIMEOUT).unwrap();
-        assert_eq!(
-            event,
-            IoEvent::ConfigLoaded {
-                result: Ok("a = 2\n".to_owned()),
-            }
-        );
+        assert_eq!(event, config_loaded(&[(&path, "a = 2\n")]));
         assert!(events.recv_timeout(QUIET).is_err());
 
         fs::write(dir.path().join("other"), "x").unwrap();
@@ -1293,12 +1282,7 @@ mod tests {
         fs::write(&temp, "a = 1\n").unwrap();
         fs::rename(&temp, &path).unwrap();
         let event = events.recv_timeout(TIMEOUT).unwrap();
-        assert_eq!(
-            event,
-            IoEvent::ConfigLoaded {
-                result: Ok("a = 1\n".to_owned()),
-            }
-        );
+        assert_eq!(event, config_loaded(&[(&path, "a = 1\n")]));
     }
 
     #[test]
@@ -1313,7 +1297,7 @@ mod tests {
             return;
         }
         let (runtime, events) = runtime();
-        runtime.run(Effect::WatchConfig(link));
+        runtime.run(Effect::WatchConfig(link.clone()));
         settle(&events);
 
         let temp = dotfiles.join("config.toml.tmp");
@@ -1321,12 +1305,81 @@ mod tests {
         fs::rename(&temp, &real).unwrap();
 
         let event = events.recv_timeout(TIMEOUT).unwrap();
+        assert_eq!(event, config_loaded(&[(&link, "a = 2\n")]));
+    }
+
+    #[test]
+    fn editing_a_base_of_the_config_reports_the_whole_chain() {
+        let dir = TempDir::new().unwrap();
+        let shared = dir.path().join("shared");
+        fs::create_dir(&shared).unwrap();
+        let base = shared.join("common.toml");
+        fs::write(&base, "a = 1\n").unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(&path, "extends = \"shared/common.toml\"\n").unwrap();
+        let (runtime, events) = runtime();
+        runtime.run(Effect::WatchConfig(path.clone()));
+        settle(&events);
+
+        let temp = shared.join("common.toml.tmp");
+        fs::write(&temp, "a = 2\n").unwrap();
+        fs::rename(&temp, &base).unwrap();
+
+        let event = events.recv_timeout(TIMEOUT).unwrap();
         assert_eq!(
             event,
-            IoEvent::ConfigLoaded {
-                result: Ok("a = 2\n".to_owned()),
-            }
+            config_loaded(&[
+                (&base, "a = 2\n"),
+                (&path, "extends = \"shared/common.toml\"\n")
+            ])
         );
+    }
+
+    #[test]
+    fn a_base_named_on_a_reload_is_watched_from_then_on() {
+        let dir = TempDir::new().unwrap();
+        let shared = dir.path().join("shared");
+        fs::create_dir(&shared).unwrap();
+        let base = shared.join("common.toml");
+        let path = dir.path().join("config.toml");
+        fs::write(&path, "a = 1\n").unwrap();
+        let (runtime, events) = runtime();
+        runtime.run(Effect::WatchConfig(path.clone()));
+        settle(&events);
+
+        fs::write(&path, "extends = \"shared/common.toml\"\n").unwrap();
+        events.recv_timeout(TIMEOUT).unwrap();
+        settle(&events);
+        fs::write(&base, "a = 2\n").unwrap();
+
+        let event = events.recv_timeout(TIMEOUT).unwrap();
+        assert_eq!(
+            event,
+            config_loaded(&[
+                (&base, "a = 2\n"),
+                (&path, "extends = \"shared/common.toml\"\n")
+            ])
+        );
+    }
+
+    #[test]
+    fn a_base_in_a_missing_directory_is_not_reported_and_the_config_is_still_watched() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+        fs::write(&path, "extends = \"missing/common.toml\"\n").unwrap();
+        let (runtime, events) = runtime();
+        runtime.run(Effect::WatchConfig(path.clone()));
+        let failures: Vec<IoEvent> = events
+            .try_iter()
+            .filter(|event| matches!(event, IoEvent::ConfigWatchFailed { .. }))
+            .collect();
+        assert_eq!(failures, []);
+        settle(&events);
+
+        fs::write(&path, "a = 1\n").unwrap();
+
+        let event = events.recv_timeout(TIMEOUT).unwrap();
+        assert_eq!(event, config_loaded(&[(&path, "a = 1\n")]));
     }
 
     #[cfg(target_os = "linux")]
@@ -1362,6 +1415,7 @@ mod tests {
             Paths {
                 state: state_path.clone(),
                 config_override: None,
+                home: dir.path().to_path_buf(),
             },
             move |event| {
                 let _ = lock(&sender).send(event);
@@ -1615,12 +1669,25 @@ mod tests {
         while events.recv_timeout(QUIET).is_ok() {}
     }
 
+    fn config_loaded(files: &[(&Path, &str)]) -> IoEvent {
+        IoEvent::ConfigLoaded {
+            files: files
+                .iter()
+                .map(|(path, text)| ConfigFile {
+                    path: path.to_path_buf(),
+                    content: ConfigContent::Text((*text).to_owned()),
+                })
+                .collect(),
+        }
+    }
+
     fn runtime() -> (Runtime, Receiver<IoEvent>) {
         let (sender, receiver) = mpsc::channel();
         let sender = Mutex::new(sender);
         let paths = Paths {
             state: std::env::temp_dir().join("wafu-test-state.toml"),
             config_override: None,
+            home: std::env::temp_dir(),
         };
         let runtime = Runtime::new(paths, move |event| {
             let _ = lock(&sender).send(event);

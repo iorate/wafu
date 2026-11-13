@@ -128,10 +128,27 @@ pub struct Start {
 /// How the configuration file was found at start-up.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfigSource {
-    Text(String),
+    /// The file and the files it extends, as for `IoEvent::ConfigLoaded`.
+    Read(Vec<ConfigFile>),
     /// There was none, so the template was written.
     Created,
+}
+
+/// One file of the configuration as read. A file reached through `extends`
+/// more than once appears once for each time.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigFile {
+    pub path: PathBuf,
+    pub content: ConfigContent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConfigContent {
+    Text(String),
     Unreadable(IoError),
+    /// The file was reached again through `extends` while the files it
+    /// extends were still being read, so it was not read again.
+    Cycle,
 }
 
 /// A request from the application to the outside world.
@@ -177,7 +194,8 @@ pub enum Effect {
     ListDrives {
         request: RequestId,
     },
-    /// Watches the configuration file and reports its new text on every change.
+    /// Watches the configuration file and the files it extends, and reads
+    /// them all again on every change to any of them.
     WatchConfig(PathBuf),
     /// Watches the color scheme of the OS and reports it, now and on every
     /// change. Only Windows reports anything; elsewhere the window follows
@@ -352,11 +370,14 @@ pub enum IoEvent {
         path: PathBuf,
         error: IoError,
     },
-    /// The configuration file changed and was read again.
+    /// A file of the configuration changed, and they were all read again.
+    /// The files are in the order they merge: the bases of each file before
+    /// it, so that the configuration file itself comes last.
     ConfigLoaded {
-        result: Result<String, IoError>,
+        files: Vec<ConfigFile>,
     },
     ConfigWatchFailed {
+        path: PathBuf,
         error: IoError,
     },
     /// The color scheme of the OS, when first read and on every change.
@@ -782,7 +803,8 @@ impl App {
                 self.location_changed(side, &path, effects);
             }
             IoEvent::Drives { request, letters } => self.drives(request, letters, effects),
-            IoEvent::WatchFailed { path, error, .. } => {
+            IoEvent::WatchFailed { path, error, .. }
+            | IoEvent::ConfigWatchFailed { path, error } => {
                 self.log.push(
                     AppError::Watch {
                         path,
@@ -791,18 +813,9 @@ impl App {
                     .to_string(),
                 );
             }
-            IoEvent::ConfigLoaded { result } => self.config_loaded(result),
+            IoEvent::ConfigLoaded { files } => self.config_loaded(files),
             IoEvent::ColorScheme { scheme } => self.color_scheme_changed(scheme),
             IoEvent::ShellEnvLoaded { error } => self.shell_env_loaded(error, effects),
-            IoEvent::ConfigWatchFailed { error } => {
-                self.log.push(
-                    AppError::Watch {
-                        path: self.config_path.clone(),
-                        source: error,
-                    }
-                    .to_string(),
-                );
-            }
             IoEvent::Spawned { kind, error } => self.spawned(kind, error),
             IoEvent::Exited { name, code } => self.exited(name, code),
             IoEvent::Operation(event) => self.operation_event(event, effects),

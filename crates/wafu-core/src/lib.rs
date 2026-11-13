@@ -31,11 +31,11 @@ mod text;
 mod view;
 
 pub use app::{
-    App, Change, ColorScheme, ConfigSource, Effect, IoEvent, MenuAnchor, MouseInput, Msg, Os,
-    PreviewError, PreviewSource, Resolved, Side, SpawnKind, SpawnName, Start,
+    App, Change, ColorScheme, ConfigContent, ConfigFile, ConfigSource, Effect, IoEvent, MenuAnchor,
+    MouseInput, Msg, Os, PreviewError, PreviewSource, Resolved, Side, SpawnKind, SpawnName, Start,
 };
 pub use command::Command;
-pub use config::{CONFIG_TEMPLATE, Color, Colors, Theme};
+pub use config::{CONFIG_TEMPLATE, Color, Colors, Theme, config_extends};
 pub use entry::{
     Directory, Entry, EntryKind, LocalDateTime, Permissions, SpecialKind, TargetKind, Timestamp,
 };

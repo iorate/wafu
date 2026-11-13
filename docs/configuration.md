@@ -12,10 +12,38 @@ Pass `--config PATH` to use another file; it is created the same way if missing.
 
 wafu creates the file on first launch with a link to this page and nothing else. The `edit_config` command (`Z` in the file list) opens it in the [editor](#programs).
 
-- Changes apply as soon as the file is saved, except `use_login_shell_env`, which is read only when wafu starts.
+- Changes apply as soon as the file, or any file it [extends](#sharing-settings-between-machines), is saved, except `use_login_shell_env`, which is read only when wafu starts.
 - An item you leave out takes its default.
-- An unknown item or an unusable value is reported in the log and ignored; the rest of the file still applies.
-- A TOML syntax error is reported in the log with its line number, and the whole file is ignored: wafu keeps the configuration it had (the defaults, at startup).
+- An unknown item or an unusable value is reported in the log and ignored; the rest of the configuration still applies.
+- A TOML syntax error is reported in the log with the file and line number, and the whole configuration is ignored: wafu keeps the configuration it had (the defaults, at startup).
+
+## Sharing settings between machines
+
+To keep shared settings in one file, such as one in your dotfiles, and only what differs on each machine in the configuration file, name the shared file in `extends` at the top of the configuration file:
+
+```toml
+extends = "~/dotfiles/wafu/common.toml"      # or an array: extends = ["a.toml", "b.toml"]
+
+[programs]
+editor = "code {paths}"
+```
+
+- The configuration file applies over what it extends, and each file in an array applies over the ones before it.
+- Tables merge item by item, and the key tables (`[keys.filelist]` and the like) key by key. An array, such as `bookmarks`, replaces the one below it as a whole.
+- A path that is `~` or starts with `~/` (on Windows also `~\`) is taken from your home directory; any other relative path is taken from the directory of the file that names it.
+- A file you extend may have an `extends` of its own. A file that ends up extending itself is an error.
+- If a file you extend is missing, cannot be read, or has a syntax error, the error is reported in the log with that file's path, and the whole configuration is ignored, as for a syntax error in the configuration file. Only the configuration file itself is ever created.
+- wafu watches every file involved, so saving any of them applies the change.
+
+For example, to use other bookmarks on one machine, write them all in its configuration file; they replace the shared bookmarks rather than adding to them:
+
+```toml
+extends = "~/dotfiles/wafu/common.toml"
+
+[[bookmarks]]
+name = "Work"
+path = "~/work"
+```
 
 ## Defaults
 

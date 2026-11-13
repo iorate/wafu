@@ -21,16 +21,21 @@ const CONTEXTS: [(&str, Context); 3] = [
 
 // The table is walked by hand rather than with serde, which cannot skip one
 // item of the wrong type and keep the rest (serde_ignored only finds unknown
-// items). A syntax error rejects the whole file and keeps the previous
+// items). A syntax error rejects every file and keeps the previous
 // configuration; any other error drops just that item with a warning.
-pub(super) fn parse(text: &str, os: Os) -> Result<(Config, Vec<Diagnostic>), SyntaxError> {
-    let table: Table = toml::from_str(text).map_err(|error| SyntaxError {
-        line: line_of(text, error.span()),
-        message: error.message().to_owned(),
-    })?;
+pub(super) fn parse_layers<'a>(
+    texts: impl IntoIterator<Item = &'a str>,
+    os: Os,
+) -> Result<(Config, Vec<Diagnostic>), (usize, SyntaxError)> {
+    let mut merged = Table::new();
     let mut diagnostics = Vec::new();
+    for (index, text) in texts.into_iter().enumerate() {
+        let mut table = parse_table(text).map_err(|error| (index, error))?;
+        take_extends(&mut table, &mut diagnostics);
+        merge(&mut merged, table);
+    }
     let mut config = Config::default_for(os);
-    let mut root = Reader::new(table, String::new(), &mut diagnostics);
+    let mut root = Reader::new(merged, String::new(), &mut diagnostics);
     read_filelist(&mut root, &mut config);
     read_preview(&mut root, &mut config);
     read_programs(&mut root, &mut config, os);
@@ -41,6 +46,15 @@ pub(super) fn parse(text: &str, os: Os) -> Result<(Config, Vec<Diagnostic>), Syn
     read_keys(&mut root, &mut config);
     root.finish();
     Ok((config, diagnostics))
+}
+
+// A file whose text is not TOML names no bases; its syntax error is reported
+// when the files are parsed.
+pub(super) fn extends(text: &str) -> Vec<String> {
+    parse_table(text).map_or_else(
+        |_| Vec::new(),
+        |mut table| take_extends(&mut table, &mut Vec::new()),
+    )
 }
 
 // Walks a table, taking each item out as it is read so that whatever is left
@@ -514,10 +528,7 @@ fn read_keys(root: &mut Reader<'_>, config: &mut Config) {
 
 // Tables merge item by item and key tables by normalized key, so that an
 // overlay changes only what it writes; arrays and scalars are replaced.
-// Built only for the tests while no configuration is read in layers, since
-// unused code fails the build.
-#[cfg(test)]
-pub(crate) fn merge(base: &mut Table, mut overlay: Table) {
+fn merge(base: &mut Table, mut overlay: Table) {
     if let Some(Value::Table(overlay_keys)) = overlay.get_mut("keys")
         && let Some(Value::Table(base_keys)) = base.get_mut("keys")
     {
@@ -533,7 +544,6 @@ pub(crate) fn merge(base: &mut Table, mut overlay: Table) {
     merge_tables(base, overlay);
 }
 
-#[cfg(test)]
 fn merge_key_table(base: &mut Table, overlay: Table) {
     let overlaid: Vec<Key> = overlay
         .keys()
@@ -548,7 +558,6 @@ fn merge_key_table(base: &mut Table, overlay: Table) {
     base.extend(overlay);
 }
 
-#[cfg(test)]
 fn merge_tables(base: &mut Table, overlay: Table) {
     for (key, value) in overlay {
         match (base.get_mut(&key), value) {
@@ -556,6 +565,46 @@ fn merge_tables(base: &mut Table, overlay: Table) {
             (_, value) => {
                 base.insert(key, value);
             }
+        }
+    }
+}
+
+fn parse_table(text: &str) -> Result<Table, SyntaxError> {
+    toml::from_str(text).map_err(|error| SyntaxError {
+        line: line_of(text, error.span()),
+        message: error.message().to_owned(),
+    })
+}
+
+// Taken out of every file before the files merge: each file names its own
+// bases, so the key never carries over to the file that extends it.
+fn take_extends(table: &mut Table, diagnostics: &mut Vec<Diagnostic>) -> Vec<String> {
+    let mut invalid = |path: String, expected: &str| {
+        diagnostics.push(Diagnostic {
+            path,
+            kind: DiagnosticKind::InvalidValue {
+                expected: expected.to_owned(),
+            },
+        });
+    };
+    match table.remove("extends") {
+        None => Vec::new(),
+        Some(Value::String(path)) => vec![path],
+        Some(Value::Array(items)) => items
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, item)| {
+                if let Value::String(path) = item {
+                    Some(path)
+                } else {
+                    invalid(format!("extends[{index}]"), "a string");
+                    None
+                }
+            })
+            .collect(),
+        Some(_) => {
+            invalid("extends".to_owned(), "a string or an array of strings");
+            Vec::new()
         }
     }
 }
@@ -1207,8 +1256,71 @@ run = "wt"
         );
     }
 
+    #[test]
+    fn later_files_merge_over_earlier_ones() {
+        let (config, diagnostics) = parse_layers(
+            [
+                "[filelist]\nrequire_marks = false\nsize_format = \"comma\"\n",
+                "extends = \"a.toml\"\n[filelist]\nsize_format = \"human\"\nmkdir_enters_dir = false\n",
+                "extends = [\"b.toml\"]\n[filelist]\nmkdir_enters_dir = true\n",
+            ],
+            Os::Linux,
+        )
+        .unwrap();
+
+        assert_eq!(diagnostics, Vec::new());
+        assert!(!config.filelist.require_marks);
+        assert_eq!(config.filelist.size_format, SizeFormat::Human);
+        assert!(config.filelist.mkdir_enters_dir);
+    }
+
+    #[test]
+    fn a_syntax_error_in_any_file_names_that_file() {
+        let error = parse_layers(["", "[filelist\n", ""], Os::Linux).unwrap_err();
+
+        assert_eq!(error.0, 1);
+    }
+
+    #[test]
+    fn extends_names_one_file_or_a_list_of_them() {
+        assert_eq!(extends("extends = \"a.toml\"\n"), ["a.toml"]);
+        assert_eq!(
+            extends("extends = [\"a.toml\", \"b.toml\"]\n"),
+            ["a.toml", "b.toml"]
+        );
+        assert_eq!(extends("[filelist]\n"), Vec::<String>::new());
+        assert_eq!(
+            extends("extends = \"a.toml\"\n[filelist\n"),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn an_extends_of_the_wrong_type_is_reported_and_skipped() {
+        let (_, diagnostics) = parse("extends = 1\n", Os::Linux).unwrap();
+        assert_eq!(
+            diagnostics[0].to_string(),
+            "Config: invalid value for extends (expected a string or an array of strings)"
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(extends("extends = 1\n"), Vec::<String>::new());
+
+        let text = "extends = [\"a.toml\", 1]\n";
+        let (_, diagnostics) = parse(text, Os::Linux).unwrap();
+        assert_eq!(
+            diagnostics[0].to_string(),
+            "Config: invalid value for extends[1] (expected a string)"
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(extends(text), ["a.toml"]);
+    }
+
     fn paths(diagnostics: &[Diagnostic]) -> Vec<&str> {
         diagnostics.iter().map(|d| d.path.as_str()).collect()
+    }
+
+    fn parse(text: &str, os: Os) -> Result<(Config, Vec<Diagnostic>), SyntaxError> {
+        parse_layers([text], os).map_err(|(_, error)| error)
     }
 
     fn table(text: &str) -> Table {
