@@ -159,9 +159,9 @@ component PopupInput {
                         root.accepted();
                     }
 
-                    // Esc goes to the core. With one field the arrows do too;
-                    // with more they and Tab move between the fields, which is
-                    // the UI's business alone.
+                    // Esc goes to the core. With one field the arrows and Tab do
+                    // too; with more they move between the fields, which is the
+                    // UI's business alone.
                     key-pressed(event) => {
                         if event.text == Key.Escape {
                             root.key-input(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt, event.modifiers.meta);
@@ -169,9 +169,7 @@ component PopupInput {
                         }
                         if event.text == Key.UpArrow || event.text == Key.DownArrow || event.text == Key.Tab || event.text == Key.Backtab {
                             if root.single {
-                                if event.text != Key.Tab && event.text != Key.Backtab {
-                                    root.key-input(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt, event.modifiers.meta);
-                                }
+                                root.key-input(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt, event.modifiers.meta);
                             } else {
                                 root.move-focus();
                             }

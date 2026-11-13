@@ -1,7 +1,7 @@
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 
-use crate::app::Os;
+use crate::app::{Os, Side};
 use crate::command::{Command, Context};
 use crate::config::Bookmark;
 use crate::history::History;
@@ -251,7 +251,8 @@ pub struct ListPopup {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ListKind {
-    History,
+    /// The history of the pane on that side.
+    History(Side),
     Bookmarks,
     Drives,
 }
@@ -534,25 +535,28 @@ impl ListPopup {
         }
     }
 
-    /// The history, newest first.
+    /// The history of the pane that picks from it, newest first.
     #[must_use]
-    pub fn history(history: &History, in_archive: bool) -> Self {
-        let items: Vec<ListItem> = history
-            .items()
-            .iter()
-            .enumerate()
-            .rev()
-            .map(|(pos, path)| ListItem {
-                key: None,
-                label: path.display().to_string(),
-                current: !in_archive && pos == history.pos(),
-                target: ListTarget::HistoryPos(pos, path.clone()),
-            })
-            .collect();
-        Self {
-            cursor: history.items().len().saturating_sub(history.pos() + 1),
-            ..Self::new(ListKind::History, items)
-        }
+    pub fn history(side: Side, history: &History, in_archive: bool) -> Self {
+        Self::history_with(side, history, |pos, path| ListItem {
+            key: None,
+            label: path.display().to_string(),
+            current: !in_archive && pos == history.pos(),
+            target: ListTarget::HistoryPos(pos, path.clone()),
+        })
+    }
+
+    /// The history of the pane on `side` for the other pane to pick from, newest
+    /// first. A pick is a place to visit, not a position in the picking pane's
+    /// own history.
+    #[must_use]
+    pub fn other_history(side: Side, history: &History) -> Self {
+        Self::history_with(side, history, |_, path| ListItem {
+            key: None,
+            label: path.display().to_string(),
+            current: false,
+            target: ListTarget::Path(path.clone()),
+        })
     }
 
     /// Bookmarks in the configured order, their paths already expanded.
@@ -601,7 +605,8 @@ impl ListPopup {
     #[must_use]
     pub fn title(&self) -> &'static str {
         match self.kind {
-            ListKind::History => "History",
+            ListKind::History(Side::Left) => "History (left)",
+            ListKind::History(Side::Right) => "History (right)",
             ListKind::Bookmarks => "Bookmarks",
             ListKind::Drives => "Drives",
         }
@@ -611,7 +616,7 @@ impl ListPopup {
     #[must_use]
     pub fn empty_message(&self) -> &'static str {
         match self.kind {
-            ListKind::History => "No history",
+            ListKind::History(_) => "No history",
             ListKind::Bookmarks => "No bookmarks",
             ListKind::Drives => "No drives",
         }
@@ -621,7 +626,16 @@ impl ListPopup {
     /// picks an item by its key instead.
     #[must_use]
     pub fn filters(&self) -> bool {
-        self.kind == ListKind::History
+        self.history_side().is_some()
+    }
+
+    /// The side whose history is listed, if the list is a history.
+    #[must_use]
+    pub fn history_side(&self) -> Option<Side> {
+        match self.kind {
+            ListKind::History(side) => Some(side),
+            ListKind::Bookmarks | ListKind::Drives => None,
+        }
     }
 
     /// The rows to show: the place, with its key, if it has one, at the end like
@@ -647,6 +661,24 @@ impl ListPopup {
         self.matches
             .get(self.cursor)
             .map(|&index| &self.items[index])
+    }
+
+    fn history_with(
+        side: Side,
+        history: &History,
+        item: impl Fn(usize, &PathBuf) -> ListItem,
+    ) -> Self {
+        let items: Vec<ListItem> = history
+            .items()
+            .iter()
+            .enumerate()
+            .rev()
+            .map(|(pos, path)| item(pos, path))
+            .collect();
+        Self {
+            cursor: history.items().len().saturating_sub(history.pos() + 1),
+            ..Self::new(ListKind::History(side), items)
+        }
     }
 }
 
@@ -1314,7 +1346,7 @@ mod tests {
             history.visit(PathBuf::from(path));
         }
 
-        let popup = ListPopup::history(&history, false);
+        let popup = ListPopup::history(Side::Left, &history, false);
 
         let item = |pos, path: &str| ListItem {
             key: None,
@@ -1334,10 +1366,31 @@ mod tests {
         history.visit(PathBuf::from("/c"));
         history.set_pos(1);
 
-        let popup = ListPopup::history(&history, true);
+        let popup = ListPopup::history(Side::Left, &history, true);
 
         assert!(popup.items.iter().all(|item| !item.current));
         assert_eq!(popup.cursor, 1);
+    }
+
+    #[test]
+    fn list_popup_of_the_other_history_lists_places_to_visit() {
+        let mut history = History::new();
+        for path in ["/a", "/b", "/c"] {
+            history.visit(PathBuf::from(path));
+        }
+        history.set_pos(1);
+
+        let popup = ListPopup::other_history(Side::Right, &history);
+
+        let item = |path: &str| ListItem {
+            key: None,
+            label: PathBuf::from(path).display().to_string(),
+            current: false,
+            target: ListTarget::Path(PathBuf::from(path)),
+        };
+        assert_eq!(popup.items, [item("/c"), item("/b"), item("/a")]);
+        assert_eq!(popup.cursor, 1);
+        assert_eq!(popup.title(), "History (right)");
     }
 
     #[test]
@@ -1455,7 +1508,7 @@ mod tests {
         for path in paths {
             history.visit(PathBuf::from(path));
         }
-        ListPopup::history(&history, false)
+        ListPopup::history(Side::Left, &history, false)
     }
 
     fn shown(path: &str) -> String {
