@@ -51,6 +51,7 @@ pub struct General {
     pub editor: CommandLine,
     pub hide_log_in_preview: bool,
     pub use_login_shell_env: bool,
+    pub search_matches_anywhere: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -222,6 +223,7 @@ impl Config {
                 editor: default_editor(os),
                 hide_log_in_preview: false,
                 use_login_shell_env: true,
+                search_matches_anywhere: true,
             },
             appearance: Appearance {
                 theme: Theme::Auto,

@@ -27,6 +27,7 @@ extract_creates_dir = true
 require_marks = true
 hide_log_in_preview = false
 use_login_shell_env = true
+search_matches_anywhere = true
 
 [appearance]
 theme = "auto"
@@ -91,6 +92,7 @@ If you copy this block, note that an item in an `[os.*]` section overrides the s
 | `editor` | The command line that opens a file for editing, used by `edit`, `new_text`, `preview_edit`, and `edit_config`. `{paths}` is the file. It follows the rules of [external commands](#commands). |
 | `hide_log_in_preview` | Hide the log while a preview covers both panes. |
 | `use_login_shell_env` | macOS and Linux: give the programs wafu starts the environment of your login shell. |
+| `search_matches_anywhere` | `search` finds the text anywhere in a name. When `false`, only at the start of a name. |
 
 With `use_login_shell_env`, wafu runs your shell once at startup as an interactive login shell and takes its environment, so programs started from a desktop launcher still see what your shell startup files set up. While it does this, `WAFU_RESOLVING_ENVIRONMENT` is set to `1`, so startup files can skip things that should not run there:
 

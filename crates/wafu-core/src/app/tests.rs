@@ -1073,6 +1073,33 @@ fn search_moves_the_cursor_as_the_text_grows_and_refuses_misses() {
 }
 
 #[test]
+fn search_finds_the_text_inside_a_name() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("apple"), file("banana")]);
+
+    harness.press("F");
+    harness.edit("nan");
+
+    assert_eq!(harness.cursor_name(Side::Left), "banana");
+}
+
+#[test]
+fn search_matches_only_the_start_of_a_name_when_configured() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.config("[general]\nsearch_matches_anywhere = false\n");
+    harness.load(Side::Left, vec![file("xa"), file("ab"), file("ya")]);
+
+    harness.press("F");
+    harness.edit("a");
+    assert_eq!(harness.cursor_name(Side::Left), "ab");
+    harness.press("Down");
+    assert_eq!(harness.cursor_name(Side::Left), "ab");
+    harness.press("Up");
+
+    assert_eq!(harness.cursor_name(Side::Left), "ab");
+}
+
+#[test]
 fn search_arrows_move_between_matches_and_enter_keeps_the_cursor() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a1"), file("a2"), file("b")]);

@@ -222,6 +222,9 @@ fn read_general(root: &mut Reader<'_>, config: &mut Config, os: Os) {
     if let Some(value) = general.bool("use_login_shell_env") {
         config.general.use_login_shell_env = value;
     }
+    if let Some(value) = general.bool("search_matches_anywhere") {
+        config.general.search_matches_anywhere = value;
+    }
     if let Some(text) = general.string("editor") {
         match CommandLine::parse(&text, os) {
             Ok(editor) => config.general.editor = editor,
