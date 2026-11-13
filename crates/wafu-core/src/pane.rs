@@ -272,7 +272,7 @@ impl Pane {
     }
 
     /// Replaces the location and empties the listing until the new one arrives.
-    /// Marks and the filter belong to the old location and are dropped.
+    /// Marks belong to the old location and are dropped; the filter stays.
     pub fn set_location(&mut self, location: Location, pending_cursor: Option<OsString>) {
         let same_archive = location.in_archive()
             && self.location.in_archive()
@@ -286,7 +286,6 @@ impl Pane {
         self.cursor = 0;
         self.scroll_top = 0;
         self.marks.clear();
-        self.filter = None;
         self.rebuild_rows();
     }
 
@@ -959,7 +958,7 @@ mod tests {
     }
 
     #[test]
-    fn set_location_drops_the_marks_and_the_filter() {
+    fn set_location_drops_the_marks_and_keeps_the_filter() {
         let mut pane = pane_with("/", &["a", "b"]);
         pane.set_filter(Filter::parse("a*").unwrap());
         pane.mark_down();
@@ -968,7 +967,7 @@ mod tests {
         pane.set_directory(entries(&["a", "b"]));
 
         assert_eq!(marked(&pane), Vec::<String>::new());
-        assert_eq!(pane.filter(), None);
+        assert_eq!(pane.row_count(), 2);
     }
 
     #[test]
