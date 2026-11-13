@@ -5,7 +5,6 @@ use std::sync::Arc;
 use super::navigation::is_link_in_archive;
 use super::{App, Effect, MouseInput, PreviewError, PreviewSource, Side};
 use crate::command::{Command, Context};
-use crate::config::ImagePlacement;
 use crate::entry::Entry;
 use crate::error::AppError;
 use crate::location::Location;
@@ -18,16 +17,11 @@ use crate::view::{PreviewContent, PreviewPlacement, PreviewView, SharedImage};
 impl App {
     pub(super) fn open_preview(&mut self, entry: &Entry, effects: &mut Vec<Effect>) {
         if is_image_name(&entry.name) {
-            let general = &self.config.general;
+            let image = &self.config.preview.image;
             let placement = match self.active {
-                Side::Left => match general.image_preview_from_left {
-                    ImagePlacement::OtherPane => PreviewPlacement::RightPane,
-                    ImagePlacement::Full => PreviewPlacement::Full,
-                },
-                Side::Right => match general.image_preview_from_right {
-                    ImagePlacement::OtherPane => PreviewPlacement::LeftPane,
-                    ImagePlacement::Full => PreviewPlacement::Full,
-                },
+                Side::Left if !image.full_from_left => PreviewPlacement::RightPane,
+                Side::Right if !image.full_from_right => PreviewPlacement::LeftPane,
+                _ => PreviewPlacement::Full,
             };
             // The follow-up at the end of `update` requests the image.
             self.preview = Some(Preview::Image(ImagePreview {
@@ -366,17 +360,14 @@ impl App {
     }
 
     pub(super) fn hide_log(&self) -> bool {
-        self.config.general.hide_log_in_preview
-            && matches!(
-                &self.preview,
-                Some(
-                    Preview::Document(_)
-                        | Preview::Image(ImagePreview {
-                            placement: PreviewPlacement::Full,
-                            ..
-                        })
-                )
-            )
+        let config = &self.config.preview;
+        match &self.preview {
+            Some(Preview::Document(_)) => config.text.hide_log,
+            Some(Preview::Image(preview)) => {
+                preview.placement == PreviewPlacement::Full && config.image.full_hides_log
+            }
+            None => false,
+        }
     }
 
     // The file to open is the one being shown, which the cursor may have
