@@ -11,8 +11,6 @@ use crate::location::ArchiveFormat;
 use crate::text::nfc;
 use crate::view::{InputField, ItemKind, PopupItem};
 
-const ITEM_KEYS: &str = "0123456789abcdefghijklmnopqrstuvwxyz";
-
 const SORT_ROWS: [(SortRow, &str, Option<char>); 10] = [
     (SortRow::Key(SortKey::None), "None", Some('N')),
     (SortRow::Key(SortKey::Name), "Name", Some('F')),
@@ -562,9 +560,8 @@ impl ListPopup {
     pub fn bookmarks(bookmarks: Vec<Bookmark>) -> Self {
         let items = bookmarks
             .into_iter()
-            .zip(item_keys())
-            .map(|(bookmark, key)| ListItem {
-                key,
+            .map(|bookmark| ListItem {
+                key: bookmark.key,
                 label: bookmark.name,
                 current: false,
                 target: ListTarget::Path(bookmark.path),
@@ -620,8 +617,8 @@ impl ListPopup {
         }
     }
 
-    /// Whether the list is narrowed by typing. Bookmarks and drives are picked
-    /// by their keys instead.
+    /// Whether the list is narrowed by typing. In bookmarks and drives, typing
+    /// picks an item by its key instead.
     #[must_use]
     pub fn filters(&self) -> bool {
         self.kind == ListKind::History
@@ -995,10 +992,6 @@ fn selectable<M: Menu>(menu: &M, row: usize) -> bool {
     row < menu.rows() && menu.kind(row) != ItemKind::Separator
 }
 
-fn item_keys() -> impl Iterator<Item = Option<char>> {
-    ITEM_KEYS.chars().map(Some).chain(std::iter::repeat(None))
-}
-
 fn matches(context: Context, os: Os, externals: &[String], query: &str) -> Vec<Command> {
     let query = query.to_lowercase();
     let mut built_in: Vec<(String, Command)> = Command::all()
@@ -1303,20 +1296,15 @@ mod tests {
     }
 
     #[test]
-    fn list_popup_gives_keys_to_the_first_36_items_only() {
-        let bookmarks = (0..40).map(|i| bookmark(&format!("/{i}"))).collect();
+    fn list_popup_of_bookmarks_uses_their_own_keys() {
+        let bookmarks = vec![bookmark("/a", None), bookmark("/b", Some('z'))];
 
         let popup = ListPopup::bookmarks(bookmarks);
 
-        assert_eq!(popup.items[0].key, Some('0'));
-        assert_eq!(popup.items[9].key, Some('9'));
-        assert_eq!(popup.items[10].key, Some('a'));
-        assert_eq!(popup.items[35].key, Some('z'));
-        assert_eq!(popup.items[36].key, None);
-        assert_eq!(popup.items()[35].detail, "Z");
-        assert_eq!(popup.items()[36].detail, "");
-        assert_eq!(popup.row_for_key('Z'), Some(35));
-        assert_eq!(popup.row_for_key('!'), None);
+        assert_eq!(popup.items()[0].detail, "");
+        assert_eq!(popup.items()[1].detail, "Z");
+        assert_eq!(popup.row_for_key('Z'), Some(1));
+        assert_eq!(popup.row_for_key('0'), None);
     }
 
     #[test]
@@ -1474,10 +1462,11 @@ mod tests {
         PathBuf::from(path).display().to_string()
     }
 
-    fn bookmark(path: &str) -> Bookmark {
+    fn bookmark(path: &str, key: Option<char>) -> Bookmark {
         Bookmark {
             name: path.to_owned(),
             path: PathBuf::from(path),
+            key,
         }
     }
 }

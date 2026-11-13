@@ -39,6 +39,8 @@ pub struct Bookmark {
     pub name: String,
     /// As written, before `~` is expanded.
     pub path: PathBuf,
+    /// The key that picks the bookmark at once: a digit or a lowercase letter.
+    pub key: Option<char>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -190,6 +192,7 @@ pub enum DiagnosticKind {
     MissingItem { item: String },
     InvalidKey { key: String },
     DuplicateKey { key: String, spellings: Vec<String> },
+    DuplicateBookmarkKey { key: char, bookmarks: Vec<String> },
     UnknownCommand { command: String },
     Unavailable { command: String },
     InvalidCommandLine(CommandLineError),
@@ -359,6 +362,14 @@ impl fmt::Display for Diagnostic {
                         .join(", ")
                 )
             }
+            DiagnosticKind::DuplicateBookmarkKey { key, bookmarks } => {
+                write!(
+                    f,
+                    "Config: key {} is used by more than one bookmark ({}); all ignored",
+                    key.to_ascii_uppercase(),
+                    bookmarks.join(", ")
+                )
+            }
             DiagnosticKind::UnknownCommand { command } => {
                 write!(f, "Config: unknown command \"{command}\" in {path}")
             }
@@ -500,6 +511,13 @@ mod tests {
                 spellings: vec!["A".to_owned(), "a".to_owned()],
             }),
             r#"Config: key A is written more than once in keys.filelist ("A", "a"); all ignored"#
+        );
+        assert_eq!(
+            line(DiagnosticKind::DuplicateBookmarkKey {
+                key: 'd',
+                bookmarks: vec!["bookmarks[0]".to_owned(), "bookmarks[3]".to_owned()],
+            }),
+            "Config: key D is used by more than one bookmark (bookmarks[0], bookmarks[3]); all ignored"
         );
         assert_eq!(
             line(DiagnosticKind::UnknownCommand {

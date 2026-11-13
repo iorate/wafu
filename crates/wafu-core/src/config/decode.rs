@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ops::Range;
 use std::path::PathBuf;
 
@@ -341,23 +341,53 @@ fn read_bookmarks(root: &mut Reader<'_>, config: &mut Config) {
         root.invalid("bookmarks", "an array of tables");
         return;
     };
+    let mut users: BTreeMap<char, Vec<String>> = BTreeMap::new();
     for (index, item) in items.into_iter().enumerate() {
-        let key = format!("bookmarks[{index}]");
+        let item_key = format!("bookmarks[{index}]");
         let Value::Table(table) = item else {
-            root.invalid(&key, "a table");
+            root.invalid(&item_key, "a table");
             continue;
         };
-        let path = root.path_of(&key);
-        let mut reader = Reader::new(table, path, root.diagnostics);
+        let item_path = root.path_of(&item_key);
+        let mut reader = Reader::new(table, item_path.clone(), root.diagnostics);
         let name = reader.required_string("name");
         let path = reader.required_string("path");
+        let key = reader.choice("key", "a digit or a letter", bookmark_key);
         if let (Some(name), Some(path)) = (name, path) {
+            if let Some(key) = key {
+                users.entry(key).or_default().push(item_path);
+            }
             config.bookmarks.push(Bookmark {
                 name,
                 path: PathBuf::from(path),
+                key,
             });
         }
         reader.finish();
+    }
+    for (key, bookmarks) in users {
+        if bookmarks.len() > 1 {
+            for bookmark in &mut config.bookmarks {
+                if bookmark.key == Some(key) {
+                    bookmark.key = None;
+                }
+            }
+            let path = root.path_of("bookmarks");
+            root.report(
+                path,
+                DiagnosticKind::DuplicateBookmarkKey { key, bookmarks },
+            );
+        }
+    }
+}
+
+// Only what the popup's own keys (the arrows, Enter, Esc) can never be, and
+// what reads the same on every keyboard layout.
+fn bookmark_key(text: &str) -> Option<char> {
+    let mut chars = text.chars();
+    match (chars.next(), chars.next()) {
+        (Some(c), None) if c.is_ascii_alphanumeric() => Some(c.to_ascii_lowercase()),
+        _ => None,
     }
 }
 
@@ -1051,6 +1081,103 @@ path = "/b"
     }
 
     #[test]
+    fn bookmark_keys_are_single_digits_or_letters_in_either_case() {
+        let text = r#"
+bookmarks = [
+    { name = "a", path = "/a", key = "D" },
+    { name = "b", path = "/b", key = "7" },
+    { name = "c", path = "/c" },
+    { name = "d", path = "/d", key = "ab" },
+    { name = "e", path = "/e", key = "" },
+    { name = "f", path = "/f", key = "@" },
+    { name = "g", path = "/g", key = 1 },
+    { name = "h", path = "/h", key = "\u00e9" },
+]
+"#;
+
+        let (config, diagnostics) = parse(text, Os::Linux).unwrap();
+
+        assert_eq!(
+            config
+                .bookmarks
+                .iter()
+                .map(|bookmark| bookmark.key)
+                .collect::<Vec<_>>(),
+            [Some('d'), Some('7'), None, None, None, None, None, None]
+        );
+        assert_eq!(
+            paths(&diagnostics),
+            [
+                "bookmarks[3].key",
+                "bookmarks[4].key",
+                "bookmarks[5].key",
+                "bookmarks[6].key",
+                "bookmarks[7].key"
+            ]
+        );
+        assert_eq!(
+            diagnostics[0].to_string(),
+            "Config: invalid value for bookmarks[3].key (expected a digit or a letter)"
+        );
+    }
+
+    #[test]
+    fn a_key_shared_by_bookmarks_is_taken_from_all_of_them() {
+        let text = r#"
+bookmarks = [
+    { name = "a", path = "/a", key = "d" },
+    { name = "b", path = "/b", key = "x" },
+    { name = "c", key = "x" },
+    { name = "d", path = "/d", key = "D" },
+    { name = "e", path = "/e", key = "1" },
+    { name = "f", path = "/f", key = "1" },
+    { name = "g", path = "/g", key = "d" },
+]
+"#;
+
+        let (config, diagnostics) = parse(text, Os::Linux).unwrap();
+
+        assert_eq!(
+            config
+                .bookmarks
+                .iter()
+                .map(|bookmark| (bookmark.name.as_str(), bookmark.key))
+                .collect::<Vec<_>>(),
+            [
+                ("a", None),
+                ("b", Some('x')),
+                ("d", None),
+                ("e", None),
+                ("f", None),
+                ("g", None)
+            ]
+        );
+        assert_eq!(
+            diagnostics[1..],
+            [
+                Diagnostic {
+                    path: "bookmarks".to_owned(),
+                    kind: DiagnosticKind::DuplicateBookmarkKey {
+                        key: '1',
+                        bookmarks: vec!["bookmarks[4]".to_owned(), "bookmarks[5]".to_owned()],
+                    },
+                },
+                Diagnostic {
+                    path: "bookmarks".to_owned(),
+                    kind: DiagnosticKind::DuplicateBookmarkKey {
+                        key: 'd',
+                        bookmarks: vec![
+                            "bookmarks[0]".to_owned(),
+                            "bookmarks[3]".to_owned(),
+                            "bookmarks[6]".to_owned()
+                        ],
+                    },
+                }
+            ]
+        );
+    }
+
+    #[test]
     fn definitions_without_a_required_item_are_dropped_alone() {
         let text = r#"
 [[bookmarks]]
@@ -1120,6 +1247,7 @@ run = "wt"
         Bookmark {
             name: name.to_owned(),
             path: PathBuf::from(path),
+            key: None,
         }
     }
 }

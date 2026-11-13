@@ -78,6 +78,7 @@ impl App {
             .map(|bookmark| Bookmark {
                 name: bookmark.name.clone(),
                 path: expand_tilde(&bookmark.path.to_string_lossy(), &self.home),
+                key: bookmark.key,
             })
             .collect();
         self.popup = Some(Popup::List(ListPopup::bookmarks(bookmarks)));
