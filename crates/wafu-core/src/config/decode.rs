@@ -33,6 +33,7 @@ pub(super) fn parse(text: &str, os: Os) -> Result<(Config, Vec<Diagnostic>), Syn
     let mut config = Config::default_for(os);
     let mut root = Reader::new(table, String::new(), &mut diagnostics);
     read_general(&mut root, &mut config, os);
+    read_preview(&mut root, &mut config);
     read_appearance(&mut root, &mut config);
     read_colors(&mut root, &mut config);
     read_bookmarks(&mut root, &mut config);
@@ -216,9 +217,6 @@ fn read_general(root: &mut Reader<'_>, config: &mut Config, os: Os) {
     if let Some(value) = general.bool("require_marks") {
         config.general.require_marks = value;
     }
-    if let Some(value) = general.bool("hide_log_in_preview") {
-        config.general.hide_log_in_preview = value;
-    }
     if let Some(value) = general.bool("use_login_shell_env") {
         config.general.use_login_shell_env = value;
     }
@@ -235,6 +233,31 @@ fn read_general(root: &mut Reader<'_>, config: &mut Config, os: Os) {
         }
     }
     general.finish();
+}
+
+fn read_preview(root: &mut Reader<'_>, config: &mut Config) {
+    let Some(mut preview) = root.table("preview") else {
+        return;
+    };
+    if let Some(mut text) = preview.table("text") {
+        if let Some(value) = text.bool("hide_log") {
+            config.preview.text.hide_log = value;
+        }
+        text.finish();
+    }
+    if let Some(mut image) = preview.table("image") {
+        if let Some(value) = image.bool("full_from_left") {
+            config.preview.image.full_from_left = value;
+        }
+        if let Some(value) = image.bool("full_from_right") {
+            config.preview.image.full_from_right = value;
+        }
+        if let Some(value) = image.bool("full_hides_log") {
+            config.preview.image.full_hides_log = value;
+        }
+        image.finish();
+    }
+    preview.finish();
 }
 
 fn read_appearance(root: &mut Reader<'_>, config: &mut Config) {
@@ -579,6 +602,7 @@ mod tests {
     use std::ffi::OsString;
 
     use super::*;
+    use crate::config::{ImagePreviewConfig, PreviewConfig, TextPreviewConfig};
     use crate::external::{CommandLineError, Expansion};
 
     const EXAMPLE: &str = r##"
@@ -588,7 +612,14 @@ new_text_creates_file = false
 extract_creates_dir = false
 require_marks = false
 editor = "notepad {paths}"
-hide_log_in_preview = false
+
+[preview.text]
+hide_log = true
+
+[preview.image]
+full_from_left = true
+full_from_right = false
+full_hides_log = true
 
 [appearance]
 theme = "auto"                 # auto / light / dark
@@ -647,6 +678,17 @@ editor = "open -t {paths}"
         assert_eq!(
             config.general.editor,
             CommandLine::parse("notepad {paths}", Os::Linux).unwrap()
+        );
+        assert_eq!(
+            config.preview,
+            PreviewConfig {
+                text: TextPreviewConfig { hide_log: true },
+                image: ImagePreviewConfig {
+                    full_from_left: true,
+                    full_from_right: false,
+                    full_hides_log: true,
+                },
+            }
         );
         assert_eq!(
             config.appearance.font.default.family,

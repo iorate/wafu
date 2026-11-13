@@ -190,8 +190,8 @@ export component AppWindow inherits Window {
                 property <length> left-width: (self.width - Theme.line-width) * root.split-percent / 100;
                 // A pane under a preview is hidden rather than removed, so
                 // that its list keeps its scroll position.
-                property <bool> left-covered: root.preview.visible && root.preview.full;
-                property <bool> right-covered: root.preview.visible;
+                property <bool> left-covered: root.preview.visible && root.preview.covers-left;
+                property <bool> right-covered: root.preview.visible && root.preview.covers-right;
 
                 left-pane := PaneWidget {
                     // Without `x`, an element narrower than its parent is
@@ -265,8 +265,8 @@ export component AppWindow inherits Window {
                 }
 
                 if root.preview.visible: PreviewWidget {
-                    x: root.preview.full ? 0 : panes.left-width + Theme.line-width;
-                    width: root.preview.full ? parent.width : parent.width - panes.left-width - Theme.line-width;
+                    x: root.preview.covers-left ? 0 : panes.left-width + Theme.line-width;
+                    width: root.preview.covers-right ? parent.width - self.x : panes.left-width;
                     height: parent.height;
                     data: root.preview;
                     lines: root.preview-lines;
@@ -291,7 +291,7 @@ export component AppWindow inherits Window {
                     x: panes.left-width - Theme.grip-margin;
                     width: Theme.line-width + Theme.grip-margin * 2;
                     height: parent.height;
-                    enabled: !panes.left-covered;
+                    enabled: !(panes.left-covered && panes.right-covered);
                     mouse-cursor: col-resize;
                     moved => {
                         root.split-dragged(round((self.x + self.mouse-x) / (panes.width - Theme.line-width) * 100));

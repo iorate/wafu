@@ -17,9 +17,11 @@ use crate::view::{PreviewContent, PreviewPlacement, PreviewView, SharedImage};
 impl App {
     pub(super) fn open_preview(&mut self, entry: &Entry, effects: &mut Vec<Effect>) {
         if is_image_name(&entry.name) {
+            let image = &self.config.preview.image;
             let placement = match self.active {
-                Side::Left => PreviewPlacement::RightPane,
-                Side::Right => PreviewPlacement::Full,
+                Side::Left if !image.full_from_left => PreviewPlacement::RightPane,
+                Side::Right if !image.full_from_right => PreviewPlacement::LeftPane,
+                _ => PreviewPlacement::Full,
             };
             // The follow-up at the end of `update` requests the image.
             self.preview = Some(Preview::Image(ImagePreview {
@@ -113,32 +115,25 @@ impl App {
                     preview.scroll_by(i64::from(rows));
                 }
             }
-            Some(Preview::Image(preview)) if preview.placement == PreviewPlacement::RightPane => {
-                let pane = &mut self.panes[Side::Left.index()];
+            Some(Preview::Image(preview)) => {
+                let shown = match preview.placement {
+                    PreviewPlacement::Full => return,
+                    PreviewPlacement::LeftPane => Side::Right,
+                    PreviewPlacement::RightPane => Side::Left,
+                };
+                let pane = &mut self.panes[shown.index()];
                 match input {
-                    MouseInput::Click {
-                        side: Side::Left,
-                        row,
-                    } => pane.set_cursor(row),
-                    MouseInput::Wheel {
-                        side: Side::Left,
-                        rows,
-                    } => pane.scroll_by(rows),
-                    MouseInput::ScrollTo {
-                        side: Side::Left,
-                        top,
-                    } => pane.scroll_to(top),
-                    MouseInput::DoubleClick {
-                        side: Side::Left,
-                        row,
-                    } => {
+                    MouseInput::Click { side, row } if side == shown => pane.set_cursor(row),
+                    MouseInput::Wheel { side, rows } if side == shown => pane.scroll_by(rows),
+                    MouseInput::ScrollTo { side, top } if side == shown => pane.scroll_to(top),
+                    MouseInput::DoubleClick { side, row } if side == shown => {
                         pane.set_cursor(row);
                         self.close_preview(effects);
                     }
                     _ => {}
                 }
             }
-            _ => {}
+            None => {}
         }
     }
 
@@ -365,17 +360,14 @@ impl App {
     }
 
     pub(super) fn hide_log(&self) -> bool {
-        self.config.general.hide_log_in_preview
-            && matches!(
-                &self.preview,
-                Some(
-                    Preview::Document(_)
-                        | Preview::Image(ImagePreview {
-                            placement: PreviewPlacement::Full,
-                            ..
-                        })
-                )
-            )
+        let config = &self.config.preview;
+        match &self.preview {
+            Some(Preview::Document(_)) => config.text.hide_log,
+            Some(Preview::Image(preview)) => {
+                preview.placement == PreviewPlacement::Full && config.image.full_hides_log
+            }
+            None => false,
+        }
     }
 
     // The file to open is the one being shown, which the cursor may have

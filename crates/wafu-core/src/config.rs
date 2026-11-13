@@ -26,6 +26,7 @@ const HUMAN_UNITS: [&str; 6] = ["K", "M", "G", "T", "P", "E"];
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     pub general: General,
+    pub preview: PreviewConfig,
     pub appearance: Appearance,
     pub colors: ColorSet,
     pub bookmarks: Vec<Bookmark>,
@@ -51,9 +52,31 @@ pub struct General {
     pub extract_creates_dir: bool,
     pub require_marks: bool,
     pub editor: CommandLine,
-    pub hide_log_in_preview: bool,
     pub use_login_shell_env: bool,
     pub search_matches_anywhere: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreviewConfig {
+    pub text: TextPreviewConfig,
+    pub image: ImagePreviewConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextPreviewConfig {
+    pub hide_log: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImagePreviewConfig {
+    /// Whether an image opened from the left pane takes the place of both
+    /// panes rather than of the right one.
+    pub full_from_left: bool,
+    /// Whether an image opened from the right pane takes the place of both
+    /// panes rather than of the left one.
+    pub full_from_right: bool,
+    /// Whether an image in place of both panes hides the log.
+    pub full_hides_log: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -224,9 +247,16 @@ impl Config {
                 extract_creates_dir: true,
                 require_marks: true,
                 editor: default_editor(os),
-                hide_log_in_preview: false,
                 use_login_shell_env: true,
                 search_matches_anywhere: true,
+            },
+            preview: PreviewConfig {
+                text: TextPreviewConfig { hide_log: false },
+                image: ImagePreviewConfig {
+                    full_from_left: false,
+                    full_from_right: true,
+                    full_hides_log: false,
+                },
             },
             appearance: Appearance {
                 theme: Theme::Auto,

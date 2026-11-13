@@ -669,9 +669,15 @@ impl Ui {
                         (2, [].as_slice(), 0, false, None, message.as_str())
                     }
                 };
+                let (covers_left, covers_right) = match preview.placement {
+                    PreviewPlacement::Full => (true, true),
+                    PreviewPlacement::LeftPane => (true, false),
+                    PreviewPlacement::RightPane => (false, true),
+                };
                 let data = PreviewData {
                     visible: true,
-                    full: preview.placement == PreviewPlacement::Full,
+                    covers_left,
+                    covers_right,
                     kind,
                     hex_dump,
                     message: message.into(),
