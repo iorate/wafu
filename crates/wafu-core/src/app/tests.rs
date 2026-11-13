@@ -1803,11 +1803,32 @@ fn filtering_the_palette_scrolls_back_to_the_top() {
 }
 
 #[test]
-fn filtering_a_list_scrolls_back_to_the_top() {
-    let mut harness = many_bookmarks();
+fn filtering_the_history_scrolls_back_to_the_top() {
+    let state = StateFile {
+        left: PaneState {
+            history: (0..20).map(|i| PathBuf::from(format!("/h{i}"))).collect(),
+            history_pos: None,
+            ..PaneState::default()
+        },
+        ..StateFile::default()
+    };
+    let mut harness = Harness::start_from(start_msg_with(
+        Os::Linux,
+        Some("/h19"),
+        Some("/tmp"),
+        ConfigSource::Text(String::new()),
+        Ok(Some(state)),
+    ));
+    harness.resolve(Side::Left, "/h19", None);
+    harness.resolve(Side::Right, "/tmp", None);
+    harness.load(Side::Left, vec![]);
+    harness.load(Side::Right, vec![]);
+    harness.send(Msg::PopupRows { rows: 5 });
+    harness.press("H");
     harness.popup_wheel(3);
+    assert_eq!(harness.view().popup.unwrap().scroll_top, 3);
 
-    harness.edit("b");
+    harness.edit("h");
 
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.items.unwrap().len(), 20);
@@ -2577,7 +2598,7 @@ fn entering_a_special_file_as_an_archive_logs_an_error() {
 }
 
 #[test]
-fn bookmarks_popup_shows_names_and_goes_to_the_picked_one() {
+fn bookmarks_popup_shows_names_and_picks_by_key() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.config(
         "[[bookmarks]]\nname = \"Docs\"\npath = \"/usr\"\n[[bookmarks]]\nname = \"Var\"\npath = \"/var\"\n",
@@ -2588,6 +2609,7 @@ fn bookmarks_popup_shows_names_and_goes_to_the_picked_one() {
 
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Bookmarks");
+    assert_eq!(popup.fields, []);
     assert_eq!(popup.note, None);
     assert_eq!(harness.popup_labels(), ["Docs", "Var"]);
     assert_eq!(popup.cursor, Some(0));
@@ -2595,7 +2617,7 @@ fn bookmarks_popup_shows_names_and_goes_to_the_picked_one() {
     harness.press("Up");
     assert_eq!(harness.view().popup.unwrap().cursor, Some(1));
 
-    harness.press("Enter");
+    harness.press("1");
     assert_eq!(harness.popup(), None);
     harness.load(Side::Left, vec![]);
     assert_eq!(harness.view().left.path, "/var");
@@ -2608,7 +2630,7 @@ fn bookmarks_popup_expands_tilde() {
     harness.take_effects();
 
     harness.press("J");
-    harness.press("Enter");
+    harness.press("0");
 
     let docs = PathBuf::from(HOME).join("docs");
     harness.load(Side::Left, vec![]);
@@ -2625,7 +2647,6 @@ fn empty_bookmarks_popup_says_so_and_enter_closes_it() {
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.message, None);
     assert_eq!(popup.note, Some("No bookmarks".to_owned()));
-    assert_eq!(popup.fields, []);
     assert_eq!(popup.items, None);
     assert_eq!(popup.cursor, None);
 

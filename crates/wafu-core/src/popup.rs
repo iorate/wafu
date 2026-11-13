@@ -10,6 +10,8 @@ use crate::listing::{SortKey, SortSpec};
 use crate::location::ArchiveFormat;
 use crate::view::{InputField, ItemKind, PopupItem};
 
+const ITEM_KEYS: &str = "0123456789abcdefghijklmnopqrstuvwxyz";
+
 const SORT_ROWS: [(SortRow, &str, Option<char>); 10] = [
     (SortRow::Key(SortKey::None), "None", Some('N')),
     (SortRow::Key(SortKey::Name), "Name", Some('F')),
@@ -559,8 +561,9 @@ impl ListPopup {
     pub fn bookmarks(bookmarks: Vec<Bookmark>) -> Self {
         let items = bookmarks
             .into_iter()
-            .map(|bookmark| ListItem {
-                key: None,
+            .zip(item_keys())
+            .map(|(bookmark, key)| ListItem {
+                key,
                 label: bookmark.name,
                 current: false,
                 target: ListTarget::Path(bookmark.path),
@@ -616,15 +619,14 @@ impl ListPopup {
         }
     }
 
-    /// Whether the list is narrowed by typing. Drives are picked by their
-    /// letters instead.
+    /// Whether the list is narrowed by typing. Bookmarks and drives are picked
+    /// by their keys instead.
     #[must_use]
     pub fn filters(&self) -> bool {
-        self.kind != ListKind::Drives
+        self.kind == ListKind::History
     }
 
-    /// The rows to show: the place, and for a drive its letter at the end like
-    /// the sort popup.
+    /// The rows to show: the place, with its key at the end like the sort popup.
     #[must_use]
     pub fn items(&self) -> Vec<PopupItem> {
         self.matches
@@ -991,6 +993,10 @@ fn selectable<M: Menu>(menu: &M, row: usize) -> bool {
     row < menu.rows() && menu.kind(row) != ItemKind::Separator
 }
 
+fn item_keys() -> impl Iterator<Item = Option<char>> {
+    ITEM_KEYS.chars().map(Some).chain(std::iter::repeat(None))
+}
+
 fn matches(context: Context, os: Os, externals: &[String], query: &str) -> Vec<Command> {
     let query = query.to_lowercase();
     let mut built_in: Vec<(String, Command)> = Command::all()
@@ -1295,12 +1301,25 @@ mod tests {
     }
 
     #[test]
-    fn list_popup_narrows_to_the_labels_with_the_query_ignoring_case() {
-        let mut popup = ListPopup::bookmarks(vec![
-            bookmark("1. Downloads"),
-            bookmark("2. docs"),
-            bookmark("3. Music"),
-        ]);
+    fn list_popup_gives_keys_to_the_first_36_items_only() {
+        let bookmarks = (0..40).map(|i| bookmark(&format!("/{i}"))).collect();
+
+        let popup = ListPopup::bookmarks(bookmarks);
+
+        assert_eq!(popup.items[0].key, Some('0'));
+        assert_eq!(popup.items[9].key, Some('9'));
+        assert_eq!(popup.items[10].key, Some('a'));
+        assert_eq!(popup.items[35].key, Some('z'));
+        assert_eq!(popup.items[36].key, None);
+        assert_eq!(popup.items()[35].detail, "Z");
+        assert_eq!(popup.items()[36].detail, "");
+        assert_eq!(popup.row_for_key('Z'), Some(35));
+        assert_eq!(popup.row_for_key('!'), None);
+    }
+
+    #[test]
+    fn list_popup_of_history_narrows_to_the_labels_with_the_query_ignoring_case() {
+        let mut popup = history_popup(&["/Downloads", "/docs", "/Music"]);
         popup.cursor = 2;
 
         popup.set_query("DO".to_owned());
@@ -1308,21 +1327,21 @@ mod tests {
         let labels = |popup: &ListPopup| -> Vec<String> {
             popup.items().into_iter().map(|item| item.label).collect()
         };
-        assert_eq!(labels(&popup), ["1. Downloads", "2. docs"]);
+        assert_eq!(labels(&popup), [shown("/docs"), shown("/Downloads")]);
         assert_eq!(popup.cursor, 0);
         popup.cursor_up();
         assert_eq!(popup.cursor, 1);
-        assert_eq!(popup.selected().unwrap().label, "2. docs");
+        assert_eq!(popup.selected().unwrap().label, shown("/Downloads"));
         assert_eq!(
             menu_input(&mut popup, key("Enter")),
-            Response::Pick(popup.items[1].clone())
+            Response::Pick(popup.items[2].clone())
         );
 
-        popup.set_query("3".to_owned());
-        assert_eq!(labels(&popup), ["3. Music"]);
+        popup.set_query("mus".to_owned());
+        assert_eq!(labels(&popup), [shown("/Music")]);
         assert_eq!(
             menu_input(&mut popup, MenuInput::DoubleClick { row: 0 }),
-            Response::Pick(popup.items[2].clone())
+            Response::Pick(popup.items[0].clone())
         );
 
         popup.set_query(String::new());
@@ -1330,8 +1349,8 @@ mod tests {
     }
 
     #[test]
-    fn list_popup_without_a_match_has_nothing_to_pick() {
-        let mut popup = ListPopup::bookmarks(vec![bookmark("a")]);
+    fn list_popup_of_history_without_a_match_has_nothing_to_pick() {
+        let mut popup = history_popup(&["/a"]);
 
         popup.set_query("b".to_owned());
         popup.cursor_down();
@@ -1341,9 +1360,10 @@ mod tests {
     }
 
     #[test]
-    fn list_popup_of_places_has_no_keys_for_its_items() {
-        let mut popup = ListPopup::bookmarks(vec![bookmark("a"), bookmark("b")]);
+    fn list_popup_of_history_has_no_keys_for_its_items() {
+        let mut popup = history_popup(&["/a", "/b"]);
 
+        assert_eq!(popup.items()[1].detail, "");
         assert_eq!(menu_input(&mut popup, key("1")), Response::Stay);
         assert_eq!(menu_input(&mut popup, key("B")), Response::Stay);
     }
@@ -1438,6 +1458,18 @@ mod tests {
 
     fn conflict_popup() -> ConflictPopup {
         ConflictPopup::new(PathBuf::from("/a/x"), PathBuf::from("/b/x"), false)
+    }
+
+    fn history_popup(paths: &[&str]) -> ListPopup {
+        let mut history = History::new();
+        for path in paths {
+            history.visit(PathBuf::from(path));
+        }
+        ListPopup::history(&history, false)
+    }
+
+    fn shown(path: &str) -> String {
+        PathBuf::from(path).display().to_string()
     }
 
     fn bookmark(path: &str) -> Bookmark {
