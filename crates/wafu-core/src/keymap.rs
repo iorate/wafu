@@ -118,6 +118,7 @@ const DEFAULT_TEXT: &[(&str, &str)] = &[
     ("Home", "preview_top"),
     ("End", "preview_bottom"),
     ("Tab", "preview_toggle_mode"),
+    ("C", "preview_encoding"),
     ("E", "preview_edit"),
     ("Enter", "close_preview"),
     ("Esc", "close_preview"),

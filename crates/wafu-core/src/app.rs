@@ -3,6 +3,8 @@ use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use encoding_rs::Encoding;
+
 use crate::command::Command;
 use crate::config::Config;
 use crate::entry::Directory;
@@ -267,6 +269,8 @@ pub struct PreviewSource {
     pub entry: Option<(ArchivePath, String)>,
     /// The password the pane knows, for an encrypted entry.
     pub password: Option<String>,
+    /// The encoding the user chose for the text; `None` detects it.
+    pub encoding: Option<&'static Encoding>,
 }
 
 /// Why a preview could not be read.
@@ -625,6 +629,8 @@ impl App {
         &mut self.panes[self.active.index()]
     }
 
+    // One arm for each command, so the length follows the number of commands.
+    #[allow(clippy::too_many_lines)]
     fn run_command(&mut self, command: Command, effects: &mut Vec<Effect>) {
         let side = self.active;
         let pane = &mut self.panes[side.index()];
@@ -687,6 +693,7 @@ impl App {
             | Command::PreviewTop
             | Command::PreviewBottom
             | Command::PreviewToggleMode
+            | Command::PreviewEncoding
             | Command::PreviewEdit
             | Command::ClosePreview => self.run_preview_command(&command, effects),
             Command::Palette => self.open_palette(),

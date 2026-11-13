@@ -597,6 +597,7 @@ impl App {
                 );
             }
             ListTarget::Drive(letter) => self.switch_drive(letter, effects),
+            ListTarget::Encoding(encoding) => self.set_preview_encoding(encoding, effects),
         }
     }
 }

@@ -827,6 +827,7 @@ mod tests {
                 path,
                 entry: None,
                 password: None,
+                encoding: None,
             },
             request: RequestId(1),
         });
@@ -868,6 +869,7 @@ mod tests {
                     name.to_owned(),
                 )),
                 password: None,
+                encoding: None,
             },
             request: RequestId(request),
         };
@@ -1769,6 +1771,7 @@ mod tests {
                 path: path.to_path_buf(),
                 entry: None,
                 password: None,
+                encoding: None,
             },
             request,
         }
