@@ -8,6 +8,7 @@ use crate::history::History;
 use crate::key::{Key, KeyBase, NamedKey};
 use crate::listing::{SortKey, SortSpec};
 use crate::location::ArchiveFormat;
+use crate::text::nfc;
 use crate::view::{InputField, ItemKind, PopupItem};
 
 const ITEM_KEYS: &str = "0123456789abcdefghijklmnopqrstuvwxyz";
@@ -588,12 +589,12 @@ impl ListPopup {
     }
 
     pub fn set_query(&mut self, query: String) {
-        let needle = query.to_lowercase();
+        let needle = nfc(&query).to_lowercase();
         self.matches = self
             .items
             .iter()
             .enumerate()
-            .filter(|(_, item)| item.label.to_lowercase().contains(&needle))
+            .filter(|(_, item)| nfc(&item.label).to_lowercase().contains(&needle))
             .map(|(index, _)| index)
             .collect();
         self.query = query;
@@ -1397,6 +1398,15 @@ mod tests {
 
         popup.set_query(String::new());
         assert_eq!(popup.items().len(), 3);
+    }
+
+    #[test]
+    fn list_popup_of_history_matches_a_decomposed_path_with_composed_text() {
+        let mut popup = history_popup(&["/アフ\u{309A}リ", "/other"]);
+
+        popup.set_query("アプリ".to_owned());
+
+        assert_eq!(popup.matches, [1]);
     }
 
     #[test]
