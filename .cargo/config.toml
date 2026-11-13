@@ -1,0 +1,5 @@
+[registry]
+# Keep in step with `minimumReleaseAge` in renovate.json. Renovate cannot check the age of the
+# versions that lock file maintenance resolves, so it raises that update only because cargo
+# enforces the age here.
+global-min-publish-age = "3 days"
