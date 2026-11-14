@@ -200,7 +200,8 @@ pub enum ItemKind {
 pub struct PreviewView {
     pub placement: PreviewPlacement,
     pub content: PreviewContent,
-    /// Whether the entry of the image is marked. Never set for a document.
+    /// Whether the entry whose image or message is on screen is marked.
+    /// Never set for a document.
     pub marked: bool,
 }
 

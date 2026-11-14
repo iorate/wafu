@@ -666,6 +666,34 @@ fn the_mark_shown_is_that_of_the_image_on_screen() {
 }
 
 #[test]
+fn a_preview_showing_nothing_is_not_marked() {
+    let mut harness = image();
+    harness.image_loaded(1, 1);
+    harness.press("Space");
+    harness.press("Down");
+
+    assert_eq!(harness.cursor_name(Side::Left), "zzz.txt");
+    let preview = harness.view().preview.unwrap();
+    assert_eq!(preview.content, PreviewContent::Image(None));
+    assert!(!preview.marked);
+}
+
+#[test]
+fn the_message_of_a_marked_image_is_marked() {
+    let mut harness = image();
+    harness.image_loaded(1, 1);
+    harness.press("Space");
+    harness.image_loaded(1, 1);
+    harness.press("Up");
+
+    harness.fail_image(ReadError::Failed(IoError::new("bad png")));
+
+    let preview = harness.view().preview.unwrap();
+    assert!(matches!(preview.content, PreviewContent::Message(_)));
+    assert!(preview.marked);
+}
+
+#[test]
 fn a_loading_image_shows_progress_until_it_arrives() {
     let mut harness = image();
 
