@@ -12,11 +12,30 @@ pub struct Location {
 /// A directory inside an archive. An empty `inner` means the archive root.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ArchivePath {
+    /// The archives this one is an entry of, outermost first. `base` is the
+    /// file of the first of them, or of this archive when there are none.
+    pub outer: Vec<OuterArchive>,
     /// `None` when the name did not tell; the I/O layer then reads the
     /// format off the content.
     pub format: Option<ArchiveFormat>,
     pub inner: Vec<String>,
 }
+
+/// An archive that holds the next one in an [`ArchivePath`].
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct OuterArchive {
+    /// As [`ArchivePath::format`].
+    pub format: Option<ArchiveFormat>,
+    /// The path inside this archive of the archive it holds; never empty.
+    pub entry: Vec<String>,
+}
+
+/// The passwords of the archives a place inside an archive is in, by level.
+/// Level `k` below `outer.len()` is the archive `outer[k]`, whose password
+/// reads the next archive out of it; the last level is the innermost
+/// archive. Levels past the end have none.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Passwords(Vec<Option<String>>);
 
 /// An archive format the I/O layer can read and write. Adding one means
 /// adding a variant here, its extension below, and an implementation in the
@@ -92,6 +111,36 @@ impl ArchiveFormat {
     }
 }
 
+impl Passwords {
+    #[must_use]
+    pub fn get(&self, level: usize) -> Option<&str> {
+        self.0.get(level)?.as_deref()
+    }
+
+    pub fn set(&mut self, level: usize, password: Option<String>) {
+        if self.0.len() <= level {
+            self.0.resize(level + 1, None);
+        }
+        self.0[level] = password;
+        self.trim();
+    }
+
+    /// Keeps the passwords of the first `levels` levels only.
+    #[must_use]
+    pub fn truncated(&self, levels: usize) -> Self {
+        let mut passwords = Self(self.0.iter().take(levels).cloned().collect());
+        passwords.trim();
+        passwords
+    }
+
+    // Without trailing `None`s, so that equal passwords compare equal.
+    fn trim(&mut self) {
+        while self.0.last() == Some(&None) {
+            self.0.pop();
+        }
+    }
+}
+
 impl Location {
     #[must_use]
     pub fn new(base: PathBuf) -> Self {
@@ -107,10 +156,92 @@ impl Location {
         Self {
             base,
             archive: Some(ArchivePath {
+                outer: Vec::new(),
                 format,
                 inner: Vec::new(),
             }),
         }
+    }
+
+    /// The root of the archive that is the entry `name` in this place inside
+    /// an archive.
+    #[must_use]
+    pub fn nested_root(&self, name: &str, format: Option<ArchiveFormat>) -> Self {
+        let archive = self
+            .archive
+            .as_ref()
+            .expect("nested_root is only used inside an archive");
+        let mut entry = archive.inner.clone();
+        entry.push(name.to_owned());
+        let mut outer = archive.outer.clone();
+        outer.push(OuterArchive {
+            format: archive.format,
+            entry,
+        });
+        Self {
+            base: self.base.clone(),
+            archive: Some(ArchivePath {
+                outer,
+                format,
+                inner: Vec::new(),
+            }),
+        }
+    }
+
+    /// The root of the innermost archive this place is in, or `None` outside
+    /// an archive.
+    #[must_use]
+    pub fn innermost_root(&self) -> Option<Self> {
+        let archive = self.archive.as_ref()?;
+        Some(Self {
+            base: self.base.clone(),
+            archive: Some(ArchivePath {
+                outer: archive.outer.clone(),
+                format: archive.format,
+                inner: Vec::new(),
+            }),
+        })
+    }
+
+    /// The root of the archive at `level`, or `None` past the innermost.
+    #[must_use]
+    pub fn level_root(&self, level: usize) -> Option<Self> {
+        let archive = self.archive.as_ref()?;
+        let format = match archive.outer.get(level) {
+            Some(outer) => outer.format,
+            None if level == archive.outer.len() => archive.format,
+            None => return None,
+        };
+        Some(Self {
+            base: self.base.clone(),
+            archive: Some(ArchivePath {
+                outer: archive.outer[..level].to_vec(),
+                format,
+                inner: Vec::new(),
+            }),
+        })
+    }
+
+    /// The number of archive levels: none outside an archive, else one for
+    /// each outer archive and one for the innermost.
+    #[must_use]
+    pub fn levels(&self) -> usize {
+        self.archive
+            .as_ref()
+            .map_or(0, |archive| archive.outer.len() + 1)
+    }
+
+    /// The number of leading levels the two places have in common: the same
+    /// archive, reached through the same entries, at each of them. Where
+    /// inside an archive each place is does not matter.
+    #[must_use]
+    pub fn shared_levels(&self, other: &Self) -> usize {
+        if self.base != other.base {
+            return 0;
+        }
+        (0..self.levels().min(other.levels()))
+            .take_while(|&level| self.level_root(level) == other.level_root(level))
+            .count()
     }
 
     #[must_use]
@@ -122,7 +253,7 @@ impl Location {
     #[must_use]
     pub fn has_parent(&self) -> bool {
         match &self.archive {
-            Some(archive) if !archive.inner.is_empty() => true,
+            Some(archive) if !archive.inner.is_empty() || !archive.outer.is_empty() => true,
             _ => self.base.parent().is_some(),
         }
     }
@@ -138,7 +269,22 @@ impl Location {
                 Some(Self {
                     base: self.base.clone(),
                     archive: Some(ArchivePath {
+                        outer: archive.outer.clone(),
                         format: archive.format,
+                        inner,
+                    }),
+                })
+            }
+            Some(archive) if !archive.outer.is_empty() => {
+                let mut outer = archive.outer.clone();
+                let holder = outer.pop()?;
+                let mut inner = holder.entry;
+                inner.pop();
+                Some(Self {
+                    base: self.base.clone(),
+                    archive: Some(ArchivePath {
+                        outer,
+                        format: holder.format,
                         inner,
                     }),
                 })
@@ -156,6 +302,11 @@ impl Location {
     pub fn leaf_name(&self) -> Option<OsString> {
         match &self.archive {
             Some(archive) if !archive.inner.is_empty() => archive.inner.last().map(OsString::from),
+            Some(archive) if !archive.outer.is_empty() => archive
+                .outer
+                .last()
+                .and_then(|holder| holder.entry.last())
+                .map(OsString::from),
             _ => self.base.file_name().map(OsString::from),
         }
     }
@@ -198,7 +349,8 @@ impl fmt::Display for Location {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.base.display())?;
         if let Some(archive) = &self.archive {
-            for segment in &archive.inner {
+            let entries = archive.outer.iter().flat_map(|holder| &holder.entry);
+            for segment in entries.chain(&archive.inner) {
                 write!(f, "/{segment}")?;
             }
         }
@@ -226,6 +378,82 @@ mod tests {
         assert_eq!(root.parent(), Some(Location::new(PathBuf::from("/a/b"))));
         assert!(root.has_parent());
         assert_eq!(root.leaf_name(), Some(OsString::from("c.zip")));
+    }
+
+    #[test]
+    fn parent_of_a_nested_root_is_the_directory_holding_it_in_the_outer_archive() {
+        let root = nested(&[]);
+
+        assert_eq!(root.parent(), Some(inside(&["d"])));
+        assert!(root.has_parent());
+        assert_eq!(root.leaf_name(), Some(OsString::from("n.tar.gz")));
+    }
+
+    #[test]
+    fn parent_inside_a_nested_archive_stays_in_it() {
+        assert_eq!(nested(&["x", "y"]).parent(), Some(nested(&["x"])));
+    }
+
+    #[test]
+    fn nested_root_records_the_outer_archive_and_its_entry() {
+        let root = nested(&[]).nested_root("m.tar", Some(ArchiveFormat::Tar));
+
+        let archive = root.archive.unwrap();
+        assert_eq!(
+            archive.outer,
+            [
+                OuterArchive {
+                    format: Some(ArchiveFormat::Zip),
+                    entry: vec!["d".to_owned(), "n.tar.gz".to_owned()],
+                },
+                OuterArchive {
+                    format: Some(ArchiveFormat::TarGz),
+                    entry: vec!["m.tar".to_owned()],
+                },
+            ]
+        );
+        assert_eq!(archive.format, Some(ArchiveFormat::Tar));
+        assert_eq!(archive.inner, Vec::<String>::new());
+    }
+
+    #[test]
+    fn innermost_root_keeps_the_outer_archives() {
+        assert_eq!(nested(&["x", "y"]).innermost_root(), Some(nested(&[])));
+        assert_eq!(inside(&["d"]).innermost_root(), Some(inside(&[])));
+        assert_eq!(Location::new(PathBuf::from("/a")).innermost_root(), None);
+    }
+
+    #[test]
+    fn level_root_is_the_root_of_each_archive_on_the_way_in() {
+        let place = nested(&["x"]);
+
+        assert_eq!(place.levels(), 2);
+        assert_eq!(place.level_root(0), Some(inside(&[])));
+        assert_eq!(place.level_root(1), Some(nested(&[])));
+        assert_eq!(place.level_root(2), None);
+        assert_eq!(Location::new(PathBuf::from("/a")).levels(), 0);
+    }
+
+    #[test]
+    fn an_archive_read_as_another_format_shares_no_level() {
+        let unknown = Location::archive_root(PathBuf::from("/a/b/c.zip"), None);
+
+        assert_eq!(unknown.shared_levels(&nested(&[])), 0);
+        assert_eq!(inside(&["d"]).shared_levels(&nested(&[])), 1);
+    }
+
+    #[test]
+    fn passwords_without_the_trailing_levels_are_equal() {
+        let mut passwords = Passwords::default();
+        passwords.set(0, Some("a".to_owned()));
+        passwords.set(2, Some("c".to_owned()));
+        assert_eq!(passwords.get(2), Some("c"));
+
+        let mut first = Passwords::default();
+        first.set(0, Some("a".to_owned()));
+        assert_eq!(passwords.truncated(2), first);
+        passwords.set(2, None);
+        assert_eq!(passwords, first);
     }
 
     #[test]
@@ -260,6 +488,11 @@ mod tests {
             Location::new(PathBuf::from("/a/b")).child_display(OsStr::new("f.txt")),
             PathBuf::from("/a/b").join("f.txt").to_string_lossy()
         );
+    }
+
+    #[test]
+    fn display_of_a_nested_archive_goes_through_the_outer_entries() {
+        assert_eq!(nested(&["x"]).to_string(), "/a/b/c.zip/d/n.tar.gz/x");
     }
 
     #[test]
@@ -306,9 +539,23 @@ mod tests {
         Location {
             base: PathBuf::from("/a/b/c.zip"),
             archive: Some(ArchivePath {
+                outer: Vec::new(),
                 format: Some(ArchiveFormat::Zip),
-                inner: segments.iter().map(|s| (*s).to_owned()).collect(),
+                inner: strings(segments),
             }),
         }
+    }
+
+    // `/a/b/c.zip/d/n.tar.gz`, then `segments` inside it.
+    fn nested(segments: &[&str]) -> Location {
+        let mut location = inside(&["d"]).nested_root("n.tar.gz", Some(ArchiveFormat::TarGz));
+        if let Some(archive) = &mut location.archive {
+            archive.inner = strings(segments);
+        }
+        location
+    }
+
+    fn strings(segments: &[&str]) -> Vec<String> {
+        segments.iter().map(|s| (*s).to_owned()).collect()
     }
 }

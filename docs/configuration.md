@@ -245,7 +245,7 @@ These placeholders are replaced when the command runs:
 | `{dir}` | The directory of the active pane |
 | `{other_dir}` | The directory of the other pane |
 
-A placeholder must be a whole argument: `{dir}` is replaced, but `--dir={dir}` is passed as written, as is any other text in braces. Paths are full paths. Inside an archive, a line that uses `{cursor_path}`, `{marked_paths}`, or `{paths}` first extracts the items to a temporary directory, and those placeholders name the extracted files. `{dir}` is then the directory that holds the archive.
+A placeholder must be a whole argument: `{dir}` is replaced, but `--dir={dir}` is passed as written, as is any other text in braces. Paths are full paths. Inside an archive, a line that uses `{cursor_path}`, `{marked_paths}`, or `{paths}` first extracts the items to a temporary directory, and those placeholders name the extracted files. `{dir}` is then the directory that holds the archive file, the outermost one for an archive inside an archive.
 
 The same rules apply to `editor`.
 

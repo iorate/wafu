@@ -32,7 +32,7 @@ mod view;
 
 pub use app::{
     App, Change, ColorScheme, ConfigContent, ConfigFile, ConfigSource, Effect, IoEvent, MenuAnchor,
-    MouseInput, Msg, Os, PreviewError, PreviewSource, Resolved, Side, SpawnKind, SpawnName, Start,
+    MouseInput, Msg, Os, PreviewSource, ReadError, Resolved, Side, SpawnKind, SpawnName, Start,
 };
 pub use command::Command;
 pub use config::{CONFIG_TEMPLATE, Color, Colors, Theme, read_config_chain};
@@ -41,7 +41,7 @@ pub use entry::{
 };
 pub use error::IoError;
 pub use key::KeyInput;
-pub use location::{ArchiveFormat, ArchivePath, Location};
+pub use location::{ArchiveFormat, ArchivePath, Location, OuterArchive, Passwords};
 pub use operation::{
     ArchiveEntries, ArchiveOutput, OperationEvent, OperationKind, OperationSpec, Outcome, Reply,
     Sources,

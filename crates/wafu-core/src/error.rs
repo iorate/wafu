@@ -54,8 +54,6 @@ pub enum AppError {
     NoMarks { command: Command },
     #[error("Cannot {verb}: the other pane is inside an archive")]
     IntoArchive { verb: &'static str },
-    #[error("Cannot open {}: nested archives are not supported", path.display())]
-    NestedArchive { path: PathBuf },
     #[error("Cannot compress to {}: only zip takes a password", path.display())]
     NoPassword { path: PathBuf },
     #[error("Cannot compress to {}: unknown archive format", path.display())]

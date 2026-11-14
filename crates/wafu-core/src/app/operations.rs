@@ -7,7 +7,7 @@ use crate::entry::Entry;
 use crate::error::{AppError, IoError};
 use crate::external::{CommandLine, Expansion};
 use crate::key::{Key, KeyBase, NamedKey};
-use crate::location::{ArchiveFormat, Location};
+use crate::location::{ArchiveFormat, Location, Passwords};
 use crate::operation::{
     ArchiveEntries, ArchiveOutput, OperationEvent, OperationKind, OperationSpec, Outcome,
     OutcomeLine, Reply, Sources,
@@ -124,8 +124,12 @@ impl App {
         let Some(dest) = self.other_dest(kind.verb()) else {
             return;
         };
-        let source_dir = location.base;
-        let sources = source_paths(&source_dir, &names);
+        let source_dir = location.base.clone();
+        let sources = if location.in_archive() {
+            Sources::Entries(self.archive_entries(&location, &names))
+        } else {
+            source_paths(&source_dir, &names)
+        };
         self.start_operation(kind, source_dir, names, sources, Some(dest), effects);
     }
 
@@ -279,10 +283,11 @@ impl App {
             self.popup = Some(Popup::Input(popup));
             return;
         }
-        if let Some(operation) = &self.operation
-            && operation.remember_password
+        if let InputKind::ArchivePassword { level, .. } = popup.kind
+            && let Some(operation) = &self.operation
+            && level < operation.remembered_levels
         {
-            self.panes[operation.side.index()].set_archive_password(Some(password.clone()));
+            self.panes[operation.side.index()].set_archive_password(level, Some(password.clone()));
         }
         self.reply(Reply::Password(password), effects);
     }
@@ -313,12 +318,17 @@ impl App {
             OperationEvent::Conflict { source, dest } => {
                 self.show_operation_popup(Popup::Conflict(ConflictPopup::new(source, dest, false)));
             }
-            OperationEvent::NeedPassword { archive, retry } => {
-                if retry && operation.remember_password {
-                    self.panes[operation.side.index()].set_archive_password(None);
+            OperationEvent::NeedPassword {
+                archive,
+                level,
+                retry,
+            } => {
+                if retry && level < operation.remembered_levels {
+                    self.panes[operation.side.index()].set_archive_password(level, None);
                 }
                 self.show_operation_popup(Popup::Input(InputPopup::password(
                     archive,
+                    level,
                     retry,
                     PasswordPurpose::Operation,
                 )));
@@ -526,7 +536,7 @@ impl App {
                 archive: source.path,
                 path,
                 names: vec![name],
-                password: source.password,
+                passwords: source.passwords,
             };
             self.start_temp(temp, entries, effects);
         } else {
@@ -599,9 +609,12 @@ impl App {
                 let path = at.base.join(&entry.name);
                 (location, Some(TempPath::Real(path)), marked.clone())
             }
-            // The `..` row inside the archive is the directory the marks are
-            // in, and extracting it would extract everything in it. With
-            // marks, they are extracted alone and the cursor path is left out.
+            // The `..` row elsewhere in an archive is an entry of the place
+            // above: the directory the marks are in, which would extract
+            // everything in it, or at the root of an archive inside an
+            // archive, that archive. With marks, they are extracted alone and
+            // the cursor path is left out, since entries of two places cannot
+            // go in one extraction.
             Some((at, entry)) if marked.is_empty() => {
                 let cursor = TempPath::Extracted(entry.name.clone());
                 (at, Some(cursor), vec![entry.name])
@@ -674,6 +687,14 @@ impl App {
             })
             .collect();
         effects.push(Effect::Clipboard(lines.join("\n")));
+    }
+
+    // The passwords the pane knows for the archive levels `location` shares
+    // with the pane's.
+    pub(super) fn passwords_for(&self, location: &Location) -> Passwords {
+        let pane = self.active_pane();
+        pane.archive_passwords()
+            .truncated(location.shared_levels(pane.location()))
     }
 
     // The location a command works in: that of what it acts on, or the pane's
@@ -757,17 +778,18 @@ impl App {
     }
 
     fn archive_entries(&self, location: &Location, names: &[OsString]) -> ArchiveEntries {
+        let path = location
+            .archive
+            .clone()
+            .expect("archive entries are only made inside an archive");
         ArchiveEntries {
             archive: location.base.clone(),
-            path: location
-                .archive
-                .clone()
-                .expect("archive entries are only made inside an archive"),
+            path,
             names: names
                 .iter()
                 .map(|name| name.to_string_lossy().into_owned())
                 .collect(),
-            password: self.active_pane().archive_password().map(ToOwned::to_owned),
+            passwords: self.passwords_for(location),
         }
     }
 
@@ -816,7 +838,14 @@ impl App {
         if source_dir.as_os_str().is_empty() {
             return;
         }
-        let remember_password = matches!(sources, Sources::Entries(_));
+        let remembered_levels = match &sources {
+            Sources::Entries(entries) => Location {
+                base: entries.archive.clone(),
+                archive: Some(entries.path.clone()),
+            }
+            .shared_levels(self.active_pane().location()),
+            Sources::Paths(_) => 0,
+        };
         effects.push(Effect::StartOperation(OperationSpec {
             kind,
             sources,
@@ -835,7 +864,7 @@ impl App {
             quit_after: false,
             temp,
             temp_dir: None,
-            remember_password,
+            remembered_levels,
         });
     }
 
@@ -977,9 +1006,10 @@ pub(crate) struct Operation {
     quit_after: bool,
     temp: Option<Temp>,
     temp_dir: Option<PathBuf>,
-    // A password typed for this operation is kept by the pane, which is
-    // inside the archive.
-    remember_password: bool,
+    // A password typed for one of the first this many archive levels of the
+    // sources is kept by the pane, whose location has them too. An archive
+    // unpacked by an extract is past them.
+    remembered_levels: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1022,7 +1052,8 @@ fn requires_marks(command: &Command) -> bool {
     )
 }
 
-// The commands that work on the entries of an archive without changing it.
+// The commands that work on the entries of an archive without changing it;
+// `extract` unpacks the entries that are archives into the other pane.
 // `calculate_size` and `calculate_size_on_disk` would not change it either,
 // but they only add up files on disk.
 fn allowed_in_archive(command: &Command) -> bool {
@@ -1034,6 +1065,7 @@ fn allowed_in_archive(command: &Command) -> bool {
             | Command::CopyPath
             | Command::CopyName
             | Command::EnterAsArchive
+            | Command::Extract
     )
 }
 

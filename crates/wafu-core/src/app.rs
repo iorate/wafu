@@ -10,7 +10,7 @@ use crate::config::Config;
 use crate::entry::Directory;
 use crate::error::{AppError, IoError};
 use crate::key::{Key, KeyBase, KeyInput, NamedKey};
-use crate::location::{ArchivePath, Location};
+use crate::location::{ArchivePath, Location, Passwords};
 use crate::log::Log;
 use crate::operation::{OperationEvent, OperationSpec, Reply};
 use crate::pane::{DrivePurpose, Pane, RequestId};
@@ -156,9 +156,11 @@ pub enum ConfigContent {
 /// A request from the application to the outside world.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
+    /// Lists a location, reading its archive levels with `passwords`.
     ReadDir {
         side: Side,
         location: Location,
+        passwords: Passwords,
         request: RequestId,
     },
     /// Finds an existing directory at the path, or, when `climb` is set, at
@@ -267,17 +269,19 @@ pub struct PreviewSource {
     pub path: PathBuf,
     /// The directory inside the archive and the entry's name in it.
     pub entry: Option<(ArchivePath, String)>,
-    /// The password the pane knows, for an encrypted entry.
-    pub password: Option<String>,
+    /// The passwords the pane knows for the archive levels.
+    pub passwords: Passwords,
     /// The encoding the user chose for the text; `None` detects it.
     pub encoding: Option<&'static Encoding>,
 }
 
-/// Why a preview could not be read.
+/// Why a listing or a preview could not be read.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PreviewError {
-    /// The entry is encrypted. `retry` means the password given was wrong.
+pub enum ReadError {
+    /// What is read is encrypted in the archive at `level` (see
+    /// [`Passwords`]). `retry` means the password given for it was wrong.
     PasswordRequired {
+        level: usize,
         retry: bool,
     },
     Failed(IoError),
@@ -343,7 +347,7 @@ pub enum IoEvent {
     DirLoaded {
         side: Side,
         request: RequestId,
-        result: Result<Directory, IoError>,
+        result: Result<Directory, ReadError>,
     },
     /// `None` when nothing exists at the path, nor, when climbing, above it.
     Resolved {
@@ -353,11 +357,11 @@ pub enum IoEvent {
     },
     PreviewLoaded {
         request: RequestId,
-        result: Result<Document, PreviewError>,
+        result: Result<Document, ReadError>,
     },
     ImageLoaded {
         request: RequestId,
-        result: Result<ImageData, PreviewError>,
+        result: Result<ImageData, ReadError>,
     },
     /// Something changed in the watched directory.
     LocationChanged {
@@ -580,7 +584,7 @@ impl App {
         }
         // Whatever moved the cursor, the image preview follows it.
         self.sync_image_preview(&mut effects);
-        self.release_preview(archive_before.as_deref(), &mut effects);
+        self.release_preview(archive_before.as_ref(), &mut effects);
         self.follow_popup(popup_before);
         self.hold_spawns(&mut effects);
         effects

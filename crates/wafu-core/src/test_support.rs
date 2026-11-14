@@ -3,11 +3,12 @@ use std::path::PathBuf;
 
 use crate::app::{
     App, Change, ConfigContent, ConfigFile, ConfigSource, Effect, IoEvent, MouseInput, Msg, Os,
-    PreviewError, Resolved, Side, Start,
+    ReadError, Resolved, Side, Start,
 };
 use crate::entry::{Directory, Entry, EntryKind, SpecialKind};
 use crate::error::IoError;
 use crate::key::{Key, KeyBase, KeyInput};
+use crate::location::Passwords;
 use crate::operation::{OperationEvent, OperationSpec, Outcome};
 use crate::pane::RequestId;
 use crate::popup::Popup;
@@ -212,7 +213,7 @@ impl Harness {
         }));
     }
 
-    pub(crate) fn fail_preview(&mut self, error: PreviewError) {
+    pub(crate) fn fail_preview(&mut self, error: ReadError) {
         let request = self.latest_preview_request();
         self.send(Msg::Io(IoEvent::PreviewLoaded {
             request,
@@ -234,7 +235,7 @@ impl Harness {
         }));
     }
 
-    pub(crate) fn fail_image(&mut self, error: PreviewError) {
+    pub(crate) fn fail_image(&mut self, error: ReadError) {
         let request = self.latest_preview_request();
         self.send(Msg::Io(IoEvent::ImageLoaded {
             request,
@@ -287,12 +288,21 @@ impl Harness {
         }));
     }
 
+    pub(crate) fn need_password(&mut self, side: Side, level: usize, retry: bool) {
+        let request = self.latest_request(side);
+        self.send(Msg::Io(IoEvent::DirLoaded {
+            side,
+            request,
+            result: Err(ReadError::PasswordRequired { level, retry }),
+        }));
+    }
+
     pub(crate) fn fail_load(&mut self, side: Side, message: &str) {
         let request = self.latest_request(side);
         self.send(Msg::Io(IoEvent::DirLoaded {
             side,
             request,
-            result: Err(IoError::new(message)),
+            result: Err(ReadError::Failed(IoError::new(message))),
         }));
     }
 
@@ -444,6 +454,10 @@ impl Harness {
             .collect()
     }
 
+    pub(crate) fn archive_passwords(&self, side: Side) -> Passwords {
+        self.app.pane(side).archive_passwords().clone()
+    }
+
     pub(crate) fn history(&self, side: Side) -> Vec<String> {
         self.app
             .pane(side)
@@ -557,4 +571,13 @@ pub(crate) fn special(name: &str, kind: SpecialKind) -> Entry {
         kind: EntryKind::Special(kind),
         ..file(name)
     }
+}
+
+// The passwords of the first levels, in order.
+pub(crate) fn passwords(levels: &[Option<&str>]) -> Passwords {
+    let mut passwords = Passwords::default();
+    for (level, password) in levels.iter().enumerate() {
+        passwords.set(level, password.map(ToOwned::to_owned));
+    }
+    passwords
 }

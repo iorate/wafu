@@ -303,6 +303,7 @@ fn input_popups_ignore_the_popup_mouse() {
     let mut asking_for_a_password = copying();
     asking_for_a_password.operation(OperationEvent::NeedPassword {
         archive: path(LEFT, "a.zip"),
+        level: 0,
         retry: false,
     });
 

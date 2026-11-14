@@ -5,12 +5,12 @@ use crate::command::Command;
 use crate::entry::{Entry, EntryKind, TargetKind};
 use crate::error::IoError;
 use crate::external::CommandLine;
-use crate::location::{ArchiveFormat, ArchivePath, Location};
+use crate::location::{ArchiveFormat, ArchivePath, Location, Passwords};
 use crate::operation::{
     ArchiveEntries, ArchiveOutput, OperationEvent, OperationKind, OperationSpec, Outcome, Reply,
     Sources,
 };
-use crate::test_support::{Harness, LEFT, RIGHT, dir, executable, file, path, shown};
+use crate::test_support::{Harness, LEFT, RIGHT, dir, executable, file, passwords, path, shown};
 
 const TEMP: &str = "/tmp/wafu/x1";
 
@@ -31,6 +31,7 @@ fn enter_on_a_zip_watches_the_archive_and_shows_its_path() {
             Effect::ReadDir {
                 side: Side::Left,
                 location: root(),
+                passwords: Passwords::default(),
                 request: harness.latest_request(Side::Left),
             },
         ]
@@ -73,6 +74,7 @@ fn enter_on_a_link_named_like_an_archive_opens_its_target_as_an_archive() {
             Effect::ReadDir {
                 side: Side::Left,
                 location: Location::archive_root(path(LEFT, "link.zip"), Some(ArchiveFormat::Zip)),
+                passwords: Passwords::default(),
                 request: harness.latest_request(Side::Left),
             },
         ]
@@ -281,6 +283,7 @@ fn backspace_at_the_archive_root_leaves_with_the_cursor_on_the_archive() {
             Effect::ReadDir {
                 side: Side::Left,
                 location: Location::new(PathBuf::from(LEFT)),
+                passwords: Passwords::default(),
                 request: harness.latest_request(Side::Left),
             },
         ]
@@ -292,7 +295,7 @@ fn backspace_at_the_archive_root_leaves_with_the_cursor_on_the_archive() {
 }
 
 #[test]
-fn archives_inside_an_archive_cannot_be_entered() {
+fn enter_on_an_archive_inside_an_archive_enters_it_and_backspace_returns_to_it() {
     let mut harness = inside();
     harness.press("Down");
     harness.press("Down");
@@ -300,14 +303,381 @@ fn archives_inside_an_archive_cannot_be_entered() {
     assert_eq!(harness.cursor_name(Side::Left), "inner.zip");
 
     harness.press("Enter");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![
+            Effect::Watch {
+                side: Side::Left,
+                path: archive(),
+            },
+            Effect::ReadDir {
+                side: Side::Left,
+                location: nested_root(),
+                passwords: Passwords::default(),
+                request: harness.latest_request(Side::Left),
+            },
+        ]
+    );
+    harness.load(Side::Left, nested_contents());
+    assert_eq!(harness.view().left.path, format!("{}/inner.zip", root()));
+
+    harness.press("BS");
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::Watch { .. }, Effect::ReadDir { location, .. }] if *location == root()
+    ));
+    harness.load(Side::Left, contents());
+    assert_eq!(harness.cursor_name(Side::Left), "inner.zip");
+}
+
+#[test]
+fn a_nested_archive_behind_an_encrypted_entry_asks_for_the_outer_archive_password() {
+    let mut harness = inside();
+    harness.press("Down");
+    harness.press("Down");
+    harness.press("Down");
+    harness.press("Enter");
+
+    harness.need_password(Side::Left, 0, false);
+
+    let popup = harness.view().popup.unwrap();
+    assert_eq!(popup.title, "Password");
+    assert_eq!(popup.message.as_deref(), Some("a.zip"));
+    assert_eq!(harness.view().left.path, root().to_string());
+}
+
+#[test]
+fn the_password_for_a_move_is_sent_with_it_and_kept_once_the_listing_arrives() {
+    let mut harness = inside();
+    harness.press("Down");
+    harness.press("Down");
+    harness.press("Down");
+    harness.press("Enter");
+    harness.need_password(Side::Left, 0, false);
+    harness.take_effects();
+    harness.edit("pw");
+
+    harness.press("Enter");
+
+    assert!(harness.take_effects().iter().any(|effect| matches!(
+        effect,
+        Effect::ReadDir { location, passwords: sent, .. }
+            if *location == nested_root() && *sent == passwords(&[Some("pw")])
+    )));
+    assert_eq!(harness.archive_passwords(Side::Left), Passwords::default());
+    harness.load(Side::Left, nested_contents());
+    assert_eq!(
+        harness.archive_passwords(Side::Left),
+        passwords(&[Some("pw")])
+    );
+}
+
+#[test]
+fn esc_on_the_password_of_a_listing_leaves_the_pane_where_it_was() {
+    let mut harness = inside();
+    harness.press("Down");
+    harness.press("Down");
+    harness.press("Down");
+    harness.press("Enter");
+    harness.need_password(Side::Left, 0, false);
+    harness.take_effects();
+
+    harness.press("Esc");
+
+    assert!(harness.popup().is_none());
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.log(), Vec::<String>::new());
+    assert_eq!(harness.view().left.path, root().to_string());
+}
+
+#[test]
+fn a_wrong_password_for_a_listing_is_asked_again_and_forgotten() {
+    let mut harness = nested_with_password();
+    harness.press("Down");
+    harness.press("Enter");
+
+    harness.need_password(Side::Left, 0, true);
+
+    let popup = harness.view().popup.unwrap();
+    assert_eq!(popup.message.as_deref(), Some("Wrong password for a.zip"));
+    assert_eq!(harness.archive_passwords(Side::Left), Passwords::default());
+}
+
+#[test]
+fn the_password_for_a_reload_is_kept_once_the_listing_arrives() {
+    let mut harness = nested_with_password();
+    harness.press("F5");
+    harness.need_password(Side::Left, 1, false);
+    assert_eq!(
+        harness.view().popup.unwrap().message.as_deref(),
+        Some("inner.zip")
+    );
+    harness.take_effects();
+    harness.edit("inner");
+
+    harness.press("Enter");
+
+    let both = passwords(&[Some("pw"), Some("inner")]);
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::ReadDir { location, passwords: sent, .. }]
+            if *location == nested_root() && *sent == both
+    ));
+    assert_eq!(
+        harness.archive_passwords(Side::Left),
+        passwords(&[Some("pw")])
+    );
+    harness.load(Side::Left, nested_contents());
+    assert_eq!(harness.archive_passwords(Side::Left), both);
+}
+
+#[test]
+fn moving_up_out_of_a_nested_archive_keeps_the_passwords_of_the_archives_above() {
+    let mut harness = nested_with_password();
+    harness.press("F5");
+    harness.need_password(Side::Left, 1, false);
+    harness.edit("inner");
+    harness.press("Enter");
+    harness.load(Side::Left, nested_contents());
+    harness.take_effects();
+
+    harness.press("BS");
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::Watch { .. }, Effect::ReadDir { location, passwords: sent, .. }]
+            if *location == root() && *sent == passwords(&[Some("pw")])
+    ));
+}
+
+#[test]
+fn entering_another_archive_in_the_same_archive_keeps_its_password() {
+    let mut harness = nested_with_password();
+    harness.press("BS");
+    harness.load(Side::Left, contents());
+    harness.press("Up");
+    assert_eq!(harness.cursor_name(Side::Left), "b.txt");
+    harness.take_effects();
+
+    harness.press("Shift+U");
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::Watch { .. }, Effect::ReadDir { location, passwords: sent, .. }]
+            if *location == root().nested_root("b.txt", None)
+                && *sent == passwords(&[Some("pw")])
+    ));
+}
+
+#[test]
+fn leaving_the_archive_drops_the_passwords_from_the_listing() {
+    let mut harness = nested_with_password();
+    harness.press("BS");
+    harness.load(Side::Left, contents());
+    harness.take_effects();
+
+    harness.press("BS");
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::Watch { .. }, Effect::ReadDir { location, passwords: sent, .. }]
+            if *location == Location::new(PathBuf::from(LEFT)) && *sent == Passwords::default()
+    ));
+}
+
+#[test]
+fn sync_carries_the_passwords_with_the_location() {
+    let mut harness = nested_with_password();
+
+    harness.press("Shift+O");
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [.., Effect::ReadDir { side: Side::Right, location, passwords: sent, .. }]
+            if *location == nested_root() && *sent == passwords(&[Some("pw")])
+    ));
+}
+
+#[test]
+fn swap_carries_the_passwords_with_the_locations() {
+    let mut harness = nested_with_password();
+
+    harness.press("F1");
+    harness.edit("swap_panes");
+    harness.press("Enter");
+
+    assert!(harness.take_effects().iter().any(|effect| matches!(
+        effect,
+        Effect::ReadDir { side: Side::Right, location, passwords: sent, .. }
+            if *location == nested_root() && *sent == passwords(&[Some("pw")])
+    )));
+}
+
+#[test]
+fn a_move_that_needs_a_password_watches_and_reads_where_the_pane_is_again() {
+    let mut harness = syncing_from_another_archive();
+
+    harness.need_password(Side::Left, 0, true);
+
+    let effects = harness.take_effects();
+    assert!(effects.contains(&Effect::Watch {
+        side: Side::Left,
+        path: path(LEFT, "c.zip"),
+    }));
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        Effect::ReadDir { side: Side::Left, location, .. } if *location == c_root()
+    )));
+}
+
+#[test]
+fn a_wrong_password_for_another_file_keeps_the_password_of_where_the_pane_is() {
+    let mut harness = syncing_from_another_archive();
+
+    harness.need_password(Side::Left, 0, true);
+
+    assert_eq!(
+        harness.archive_passwords(Side::Left),
+        passwords(&[Some("c")])
+    );
+}
+
+#[test]
+fn a_listing_that_needs_a_password_during_an_operation_fails_without_asking() {
+    let mut harness = copying_inside();
+    harness.changed(Side::Left);
+
+    harness.need_password(Side::Left, 0, false);
+
+    assert_eq!(harness.view().popup.unwrap().title, "Copying");
+    assert_eq!(
+        harness.log().last().map(String::as_str),
+        Some(
+            format!(
+                "Cannot read {}: a password is required",
+                archive().display()
+            )
+            .as_str()
+        )
+    );
+    harness.take_effects();
+    harness.press("Esc");
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::OperationReply(Reply::Cancel)]
+    );
+}
+
+#[test]
+fn a_listing_that_needs_a_password_behind_a_popup_fails_and_forgets_a_wrong_one() {
+    let mut harness = nested_with_password();
+    harness.press("F1");
+    harness.changed(Side::Left);
+
+    harness.need_password(Side::Left, 0, true);
+
+    assert_eq!(harness.view().popup.unwrap().title, "Palette");
+    assert_eq!(
+        harness.log().last().map(String::as_str),
+        Some(format!("Cannot read {}: wrong password", archive().display()).as_str())
+    );
+    assert_eq!(harness.archive_passwords(Side::Left), Passwords::default());
+}
+
+#[test]
+fn enter_as_archive_inside_an_archive_enters_the_file_as_an_archive() {
+    let mut harness = inside();
+    harness.press("Down");
+    harness.press("Down");
+    assert_eq!(harness.cursor_name(Side::Left), "b.txt");
+
+    harness.press("Shift+U");
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::Watch { .. }, Effect::ReadDir { location, .. }]
+            if *location == root().nested_root("b.txt", None)
+    ));
+}
+
+#[test]
+fn a_nested_archive_that_cannot_be_read_is_logged_by_its_own_path() {
+    let mut harness = inside();
+    harness.press("Down");
+    harness.press("Down");
+    harness.press("Shift+U");
+
+    harness.fail_load(Side::Left, "unknown archive format");
+
+    assert_eq!(
+        harness.log(),
+        [format!(
+            "Cannot read {}/b.txt: unknown archive format",
+            root()
+        )]
+    );
+}
+
+#[test]
+fn enter_as_archive_on_a_link_inside_an_archive_does_nothing() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("a.zip")]);
+    harness.press("Down");
+    let link = Entry {
+        kind: EntryKind::Symlink {
+            target: Some(TargetKind::File { executable: false }),
+        },
+        ..file("link.zip")
+    };
+    harness.enter_archive(Side::Left, vec![link]);
+    harness.press("Down");
+    harness.take_effects();
+
     harness.press("Shift+U");
 
     assert_eq!(harness.take_effects(), vec![]);
-    let message = format!(
-        "Cannot open {}/inner.zip: nested archives are not supported",
-        root()
+    assert_eq!(harness.log(), Vec::<String>::new());
+}
+
+#[test]
+fn enter_as_archive_on_the_parent_row_of_a_nested_archive_root_does_nothing() {
+    let mut harness = nested();
+
+    harness.press("Shift+U");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.log(), Vec::<String>::new());
+}
+
+#[test]
+fn go_root_inside_a_nested_archive_goes_to_its_own_root() {
+    let mut harness = nested();
+    harness.press("Down");
+    harness.press("Enter");
+    harness.load(Side::Left, vec![file("x")]);
+    harness.take_effects();
+
+    harness.press("/");
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::Watch { .. }, Effect::ReadDir { location, .. }] if *location == nested_root()
+    ));
+}
+
+#[test]
+fn commands_that_change_things_are_refused_on_the_parent_row_of_a_nested_archive_root() {
+    let mut harness = nested();
+
+    harness.press("R");
+
+    assert!(harness.popup().is_none());
+    assert_eq!(
+        harness.log(),
+        ["Cannot run rename: not available inside an archive"]
     );
-    assert_eq!(harness.log(), [message.clone(), message]);
 }
 
 #[test]
@@ -337,7 +707,7 @@ fn commands_that_change_things_are_refused_inside_an_archive() {
     harness.press("Down");
     harness.press("Down");
 
-    for key in ["M", "D", "Shift+D", "R", "K", "Shift+E", "U", "P"] {
+    for key in ["M", "D", "Shift+D", "R", "K", "Shift+E", "P"] {
         harness.press(key);
     }
     harness.press("F1");
@@ -355,7 +725,6 @@ fn commands_that_change_things_are_refused_inside_an_archive() {
             "Cannot run rename: not available inside an archive",
             "Cannot run mkdir: not available inside an archive",
             "Cannot run new_text: not available inside an archive",
-            "Cannot run extract: not available inside an archive",
             "Cannot run compress: not available inside an archive",
             "Cannot run new_file: not available inside an archive",
         ]
@@ -509,6 +878,26 @@ fn extract_unpacks_the_targets_into_the_other_side() {
     assert_eq!(
         harness.log().last().map(String::as_str),
         Some("Extracted a.zip")
+    );
+}
+
+#[test]
+fn extract_inside_an_archive_unpacks_the_archive_entries_into_the_other_side() {
+    let mut harness = inside();
+    harness.press("Down");
+    harness.press("Down");
+    harness.press("Down");
+
+    harness.press("U");
+
+    assert_eq!(
+        harness.start_operation(),
+        Some(OperationSpec {
+            kind: OperationKind::Extract { into_dir: true },
+            sources: Sources::Entries(entries(&["inner.zip"], None)),
+            dest: Some(PathBuf::from(RIGHT)),
+            output: None,
+        })
     );
 }
 
@@ -824,6 +1213,7 @@ fn a_password_is_asked_once_and_remembered_inside_the_archive() {
 
     harness.operation(OperationEvent::NeedPassword {
         archive: archive(),
+        level: 0,
         retry: false,
     });
 
@@ -857,12 +1247,60 @@ fn a_password_is_asked_once_and_remembered_inside_the_archive() {
 }
 
 #[test]
+fn a_password_typed_for_an_archive_being_extracted_is_not_remembered() {
+    let mut harness = inside();
+    harness.press("Down");
+    harness.press("Down");
+    harness.press("Down");
+    harness.press("U");
+    harness.operation(OperationEvent::NeedPassword {
+        archive: root().nested_root("inner.zip", None).to_string().into(),
+        level: 1,
+        retry: false,
+    });
+    harness.edit("pw");
+
+    harness.press("Enter");
+
+    assert_eq!(harness.archive_passwords(Side::Left), Passwords::default());
+}
+
+#[test]
+fn the_parent_row_of_a_nested_archive_root_is_extracted_without_the_nested_archive_password() {
+    let mut harness = nested();
+    harness.press("Down");
+    harness.press("Down");
+    harness.press("Space");
+    harness.press("C");
+    harness.operation(OperationEvent::NeedPassword {
+        archive: nested_root().to_string().into(),
+        level: 1,
+        retry: false,
+    });
+    harness.edit("pw");
+    harness.press("Enter");
+    harness.operation(OperationEvent::ItemDone { index: 0 });
+    harness.finish(Outcome::Completed { skipped: 0 });
+    harness.press("Home");
+    harness.take_effects();
+
+    harness.press("U");
+
+    let spec = harness.start_operation().unwrap();
+    assert_eq!(
+        spec.sources,
+        Sources::Entries(entries(&["inner.zip"], None))
+    );
+}
+
+#[test]
 fn a_password_request_during_the_quit_confirmation_waits_behind_it() {
     let mut harness = copying_inside();
     harness.send(Msg::CloseRequested);
 
     harness.operation(OperationEvent::NeedPassword {
         archive: archive(),
+        level: 0,
         retry: false,
     });
 
@@ -880,6 +1318,7 @@ fn a_password_typed_for_a_temporary_extraction_is_remembered_inside_the_archive(
     harness.press("E");
     harness.operation(OperationEvent::NeedPassword {
         archive: archive(),
+        level: 0,
         retry: false,
     });
     harness.edit("pw");
@@ -902,6 +1341,7 @@ fn a_wrong_password_is_asked_again_and_forgotten() {
     let mut harness = copying_inside();
     harness.operation(OperationEvent::NeedPassword {
         archive: archive(),
+        level: 0,
         retry: false,
     });
     harness.edit("bad");
@@ -910,6 +1350,7 @@ fn a_wrong_password_is_asked_again_and_forgotten() {
 
     harness.operation(OperationEvent::NeedPassword {
         archive: archive(),
+        level: 0,
         retry: true,
     });
 
@@ -937,6 +1378,7 @@ fn leaving_the_archive_forgets_the_password() {
     let mut harness = copying_inside();
     harness.operation(OperationEvent::NeedPassword {
         archive: archive(),
+        level: 0,
         retry: false,
     });
     harness.edit("pw");
@@ -1389,11 +1831,12 @@ fn an_external_command_on_the_parent_row_with_marks_extracts_the_marks_alone() {
         Sources::Entries(ArchiveEntries {
             archive: archive(),
             path: ArchivePath {
+                outer: Vec::new(),
                 format: Some(ArchiveFormat::Zip),
                 inner: vec!["docs".to_owned()],
             },
             names: vec!["x".to_owned()],
-            password: None,
+            passwords: Passwords::default(),
         })
     );
     harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
@@ -1578,6 +2021,7 @@ fn history_popup_inside_an_archive_leaves_it_for_the_place_holding_it() {
             Effect::ReadDir {
                 side: Side::Left,
                 location: Location::new(PathBuf::from(LEFT)),
+                passwords: Passwords::default(),
                 request: harness.latest_request(Side::Left),
             },
         ]
@@ -1723,6 +2167,67 @@ fn inside() -> Harness {
     harness
 }
 
+// The left pane is at the root of `inner.zip` inside the archive, with the
+// cursor on `..`.
+fn nested() -> Harness {
+    let mut harness = inside();
+    harness.press("Down");
+    harness.press("Down");
+    harness.press("Down");
+    harness.enter_archive(Side::Left, nested_contents());
+    assert_eq!(harness.cursor_name(Side::Left), "..");
+    harness.take_effects();
+    harness
+}
+
+// As `nested`, reached by giving `pw` for the encrypted entry `inner.zip`.
+fn nested_with_password() -> Harness {
+    let mut harness = inside();
+    harness.press("Down");
+    harness.press("Down");
+    harness.press("Down");
+    harness.press("Enter");
+    harness.need_password(Side::Left, 0, false);
+    harness.edit("pw");
+    harness.press("Enter");
+    harness.load(Side::Left, nested_contents());
+    harness.take_effects();
+    harness
+}
+
+// The left pane is at the root of `c.zip`, knowing its password `c`, and
+// has just started to move to the right pane's place inside `inner.zip`,
+// with the password `pw` the right pane knows.
+fn syncing_from_another_archive() -> Harness {
+    let mut harness = nested_with_password();
+    harness.press("Shift+O");
+    harness.load(Side::Right, nested_contents());
+    harness.press("BS");
+    harness.load(Side::Left, contents());
+    harness.press("BS");
+    harness.load(Side::Left, vec![file("a.zip"), file("c.zip")]);
+    harness.press("Down");
+    harness.press("Enter");
+    harness.load(Side::Left, vec![file("x.txt")]);
+    harness.press("Down");
+    harness.press("E");
+    harness.operation(OperationEvent::NeedPassword {
+        archive: path(LEFT, "c.zip"),
+        level: 0,
+        retry: false,
+    });
+    harness.edit("c");
+    harness.press("Enter");
+    harness.finish(Outcome::Completed { skipped: 0 });
+    assert_eq!(
+        harness.archive_passwords(Side::Left),
+        passwords(&[Some("c")])
+    );
+    harness.press("O");
+    harness.take_effects();
+    harness
+}
+
 // A copy of `b.txt` out of the archive has started.
 fn copying_inside() -> Harness {
     let mut harness = inside();
@@ -1743,6 +2248,10 @@ fn contents() -> Vec<Entry> {
     ]
 }
 
+fn nested_contents() -> Vec<Entry> {
+    vec![dir("y"), file("c.txt")]
+}
+
 fn archive() -> PathBuf {
     path(LEFT, "a.zip")
 }
@@ -1751,14 +2260,23 @@ fn root() -> Location {
     Location::archive_root(archive(), Some(ArchiveFormat::Zip))
 }
 
+fn nested_root() -> Location {
+    root().nested_root("inner.zip", Some(ArchiveFormat::Zip))
+}
+
+fn c_root() -> Location {
+    Location::archive_root(path(LEFT, "c.zip"), Some(ArchiveFormat::Zip))
+}
+
 fn entries(names: &[&str], password: Option<&str>) -> ArchiveEntries {
     ArchiveEntries {
         archive: archive(),
         path: ArchivePath {
+            outer: Vec::new(),
             format: Some(ArchiveFormat::Zip),
             inner: Vec::new(),
         },
         names: names.iter().map(|name| (*name).to_owned()).collect(),
-        password: password.map(ToOwned::to_owned),
+        passwords: passwords(&[password]),
     }
 }

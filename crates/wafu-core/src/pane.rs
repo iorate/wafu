@@ -9,7 +9,7 @@ use crate::error::IoError;
 use crate::filter::Filter;
 use crate::history::History;
 use crate::listing::{Listing, SortSpec};
-use crate::location::Location;
+use crate::location::{Location, Passwords};
 use crate::path::drive_letter;
 use crate::text::nfc;
 use crate::view::{ExtensionColors, RowView};
@@ -38,8 +38,8 @@ pub struct Pane {
     history: History,
     // The last place visited on each drive, by letter. Not saved.
     drive_memory: HashMap<char, PathBuf>,
-    // Kept while inside one archive, forgotten on leaving it.
-    archive_password: Option<String>,
+    // Those of the archive levels of the location.
+    archive_passwords: Passwords,
     size_format: SizeFormat,
     extension_colors: ExtensionColors,
     rows: Arc<[RowView]>,
@@ -58,15 +58,21 @@ pub enum InFlight {
         failed: Option<IoError>,
     },
     /// A move to `target`. The pane keeps showing its current place until the
-    /// listing arrives.
+    /// listing arrives, and takes `passwords` for the target's archive levels
+    /// then.
     Navigate {
         request: RequestId,
         target: Location,
         cursor: Option<OsString>,
         history: HistoryMove,
+        passwords: Passwords,
     },
-    /// A re-read of the current place.
-    Refresh { request: RequestId },
+    /// A re-read of the current place, with `passwords`, which become the
+    /// pane's when the listing arrives.
+    Refresh {
+        request: RequestId,
+        passwords: Passwords,
+    },
     /// The I/O layer is listing the drives. `purpose` is what to do with the
     /// list once it arrives.
     Drives {
@@ -81,7 +87,7 @@ impl InFlight {
         match self {
             Self::Resolve { request, .. }
             | Self::Navigate { request, .. }
-            | Self::Refresh { request }
+            | Self::Refresh { request, .. }
             | Self::Drives { request, .. } => *request,
         }
     }
@@ -129,7 +135,7 @@ impl Pane {
             reload_pending: false,
             history: History::new(),
             drive_memory: HashMap::new(),
-            archive_password: None,
+            archive_passwords: Passwords::default(),
             size_format: SizeFormat::Plain,
             extension_colors: ExtensionColors::new(),
             rows: Arc::from([]),
@@ -276,12 +282,6 @@ impl Pane {
     /// Replaces the location and empties the listing until the new one arrives.
     /// Marks belong to the old location and are dropped; the filter stays.
     pub fn set_location(&mut self, location: Location, pending_cursor: Option<OsString>) {
-        let same_archive = location.in_archive()
-            && self.location.in_archive()
-            && location.base == self.location.base;
-        if !same_archive {
-            self.archive_password = None;
-        }
         self.location = location;
         self.pending_cursor = pending_cursor;
         self.listing = Listing::default();
@@ -557,12 +557,16 @@ impl Pane {
         }
     }
 
-    pub(crate) fn archive_password(&self) -> Option<&str> {
-        self.archive_password.as_deref()
+    pub(crate) fn archive_passwords(&self) -> &Passwords {
+        &self.archive_passwords
     }
 
-    pub(crate) fn set_archive_password(&mut self, password: Option<String>) {
-        self.archive_password = password;
+    pub(crate) fn set_archive_password(&mut self, level: usize, password: Option<String>) {
+        self.archive_passwords.set(level, password);
+    }
+
+    pub(crate) fn set_archive_passwords(&mut self, passwords: Passwords) {
+        self.archive_passwords = passwords;
     }
 
     pub(crate) fn loading(&self) -> Option<&InFlight> {
@@ -589,6 +593,7 @@ impl Pane {
         cursor: Option<OsString>,
         directory: Directory,
         history: HistoryMove,
+        passwords: Passwords,
     ) {
         // Places inside an archive are neither remembered nor recorded.
         if !target.in_archive() {
@@ -601,6 +606,7 @@ impl Pane {
             }
         }
         self.set_location(target, cursor);
+        self.archive_passwords = passwords;
         self.set_directory(directory);
     }
 
@@ -997,22 +1003,6 @@ mod tests {
 
         assert_eq!(marked(&pane), Vec::<String>::new());
         assert_eq!(pane.row_count(), 2);
-    }
-
-    #[test]
-    fn set_location_keeps_the_archive_password_only_inside_the_same_archive() {
-        let root = Location::archive_root(PathBuf::from("/a/x.zip"), Some(ArchiveFormat::Zip));
-        let mut pane = Pane::new(root.clone());
-        pane.set_archive_password(Some("pw".to_owned()));
-
-        pane.set_location(root.child("d"), None);
-        assert_eq!(pane.archive_password(), Some("pw"));
-
-        pane.set_location(
-            Location::archive_root(PathBuf::from("/a/y.zip"), Some(ArchiveFormat::Zip)),
-            None,
-        );
-        assert_eq!(pane.archive_password(), None);
     }
 
     #[test]
@@ -1513,7 +1503,7 @@ mod tests {
     }
 
     fn enter(pane: &mut Pane, target: Location, history: HistoryMove) {
-        pane.enter(target, None, entries(&[]), history);
+        pane.enter(target, None, entries(&[]), history, Passwords::default());
     }
 
     fn names(entries: Vec<&Entry>) -> Vec<String> {
