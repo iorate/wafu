@@ -6,7 +6,7 @@ use toml::{Table, Value};
 
 use super::{
     Bookmark, Color, Colors, Config, Diagnostic, DiagnosticKind, FONT_SIZE_MAX, FONT_SIZE_MIN,
-    Font, ImagePlacement, SizeFormat, SyntaxError, Theme,
+    Font, ImagePlacement, OpenAlternativeConfig, SizeFormat, SyntaxError, Theme,
 };
 use crate::app::Os;
 use crate::command::{Command, Context};
@@ -17,6 +17,12 @@ const CONTEXTS: [(&str, Context); 3] = [
     ("filelist", Context::FileList),
     ("image", Context::Image),
     ("text", Context::Text),
+];
+
+const EXTENSION_TABLES: [&[&str]; 3] = [
+    &["colors", "light", "extensions"],
+    &["colors", "dark", "extensions"],
+    &["open_alternative", "extensions"],
 ];
 
 // The table is walked by hand rather than with serde, which cannot skip one
@@ -43,6 +49,7 @@ pub(super) fn parse_layers<'a>(
     read_colors(&mut root, &mut config);
     read_bookmarks(&mut root, &mut config);
     read_commands(&mut root, &mut config, os);
+    read_open_alternative(&mut root, &mut config, os);
     read_keys(&mut root, &mut config);
     root.finish();
     Ok((config, diagnostics))
@@ -203,6 +210,17 @@ impl<'a> Reader<'a> {
         self.choice(key, "a color like #rrggbb", Color::parse)
     }
 
+    fn command_line(&mut self, key: &str, text: &str, os: Os) -> Option<CommandLine> {
+        match CommandLine::parse(text, os) {
+            Ok(line) => Some(line),
+            Err(error) => {
+                let path = self.path_of(key);
+                self.report(path, DiagnosticKind::InvalidCommandLine(error));
+                None
+            }
+        }
+    }
+
     fn entries(&mut self) -> Vec<(String, Value)> {
         std::mem::take(&mut self.table).into_iter().collect()
     }
@@ -278,14 +296,10 @@ fn read_programs(root: &mut Reader<'_>, config: &mut Config, os: Os) {
     let Some(mut programs) = root.table("programs") else {
         return;
     };
-    if let Some(text) = programs.string("editor") {
-        match CommandLine::parse(&text, os) {
-            Ok(editor) => config.programs.editor = editor,
-            Err(error) => {
-                let path = programs.path_of("editor");
-                programs.report(path, DiagnosticKind::InvalidCommandLine(error));
-            }
-        }
+    if let Some(text) = programs.string("editor")
+        && let Some(editor) = programs.command_line("editor", &text, os)
+    {
+        config.programs.editor = editor;
     }
     if let Some(value) = programs.bool("use_login_shell_env") {
         config.programs.use_login_shell_env = value;
@@ -358,7 +372,16 @@ fn read_colors(root: &mut Reader<'_>, config: &mut Config) {
             extensions,
         } = set;
         if let Some(mut table) = reader.table("extensions") {
-            read_extensions(&mut table, extensions);
+            read_extensions(&mut table, extensions, |table, key, value| {
+                if let Value::String(color) = &value
+                    && let Some(color) = Color::parse(color)
+                {
+                    Some(color)
+                } else {
+                    table.invalid(key, "a color like #rrggbb");
+                    None
+                }
+            });
             table.finish();
         }
         for (item, color) in [
@@ -384,7 +407,11 @@ fn read_colors(root: &mut Reader<'_>, config: &mut Config) {
     colors.finish();
 }
 
-fn read_extensions(reader: &mut Reader<'_>, extensions: &mut BTreeMap<String, Color>) {
+fn read_extensions<T>(
+    reader: &mut Reader<'_>,
+    extensions: &mut BTreeMap<String, T>,
+    mut read: impl FnMut(&mut Reader<'_>, &str, Value) -> Option<T>,
+) {
     let mut spellings: HashMap<String, Vec<String>> = HashMap::new();
     let mut entries = Vec::new();
     for (text, value) in reader.entries() {
@@ -415,12 +442,8 @@ fn read_extensions(reader: &mut Reader<'_>, extensions: &mut BTreeMap<String, Co
             }
             continue;
         }
-        if let Value::String(color) = &value
-            && let Some(color) = Color::parse(color)
-        {
-            extensions.insert(extension, color);
-        } else {
-            reader.invalid(&text, "a color like #rrggbb");
+        if let Some(value) = read(reader, &text, value) {
+            extensions.insert(extension, value);
         }
     }
 }
@@ -494,20 +517,37 @@ fn read_commands(root: &mut Reader<'_>, config: &mut Config, os: Os) {
         };
         let path = commands.path_of(&name);
         let mut reader = Reader::new(table, path, commands.diagnostics);
-        if let Some(run) = reader.required_string("run") {
-            match CommandLine::parse(&run, os) {
-                Ok(line) => {
-                    config.commands.insert(name, line);
-                }
-                Err(error) => {
-                    let path = reader.path_of("run");
-                    reader.report(path, DiagnosticKind::InvalidCommandLine(error));
-                }
-            }
+        if let Some(run) = reader.required_string("run")
+            && let Some(line) = reader.command_line("run", &run, os)
+        {
+            config.commands.insert(name, line);
         }
         reader.finish();
     }
     commands.finish();
+}
+
+fn read_open_alternative(root: &mut Reader<'_>, config: &mut Config, os: Os) {
+    let Some(mut table) = root.table("open_alternative") else {
+        return;
+    };
+    let OpenAlternativeConfig { dir, extensions } = &mut config.open_alternative;
+    if let Some(text) = table.string("dir")
+        && let Some(line) = table.command_line("dir", &text, os)
+    {
+        *dir = Some(line);
+    }
+    if let Some(mut reader) = table.table("extensions") {
+        read_extensions(&mut reader, extensions, |reader, key, value| {
+            let Value::String(text) = value else {
+                reader.invalid(key, "a string");
+                return None;
+            };
+            reader.command_line(key, &text, os)
+        });
+        reader.finish();
+    }
+    table.finish();
 }
 
 fn read_keys(root: &mut Reader<'_>, config: &mut Config) {
@@ -572,21 +612,17 @@ fn read_keys(root: &mut Reader<'_>, config: &mut Config) {
     keys.finish();
 }
 
-// Key tables and extension colors merge by normalized key, so that an
+// Key tables and tables keyed by extension merge by normalized key, so that an
 // overlay's `"a"` replaces a `"A"` below it rather than both being reported as
 // the same key twice.
 fn merge(base: &mut Table, mut overlay: Table) {
-    for theme in ["light", "dark"] {
-        let above = overlay
-            .get("colors")
-            .and_then(|colors| colors.get(theme))
-            .and_then(|colors| colors.get("extensions"))
-            .and_then(Value::as_table);
-        let below = base
-            .get_mut("colors")
-            .and_then(|colors| colors.get_mut(theme))
-            .and_then(|colors| colors.get_mut("extensions"))
-            .and_then(Value::as_table_mut);
+    for path in EXTENSION_TABLES {
+        let above = path
+            .iter()
+            .try_fold(&overlay, |table, key| table.get(*key)?.as_table());
+        let below = path
+            .iter()
+            .try_fold(&mut *base, |table, key| table.get_mut(*key)?.as_table_mut());
         if let (Some(above), Some(below)) = (above, below) {
             below.retain(|spelling, _| {
                 !above
@@ -744,6 +780,12 @@ path = "~/Downloads"
 [commands.open_terminal]
 run = "wt -d {dir}"
 
+[open_alternative]
+dir = "code {paths}"
+
+[open_alternative.extensions]
+pdf = "sumatrapdf {paths}"
+
 [keys.filelist]
 "F2" = "$open_terminal"
 "Q" = "nop"
@@ -789,6 +831,16 @@ run = "wt -d {dir}"
         assert_eq!(
             config.commands["open_terminal"],
             CommandLine::parse("wt -d {dir}", Os::Linux).unwrap()
+        );
+        assert_eq!(
+            config.open_alternative,
+            OpenAlternativeConfig {
+                dir: Some(CommandLine::parse("code {paths}", Os::Linux).unwrap()),
+                extensions: BTreeMap::from([(
+                    "pdf".to_owned(),
+                    CommandLine::parse("sumatrapdf {paths}", Os::Linux).unwrap()
+                )]),
+            }
         );
         assert_eq!(
             config
@@ -1159,6 +1211,79 @@ jpeg = "#eeeeee"
     }
 
     #[test]
+    fn open_alternative_rules_are_keyed_in_lowercase_and_bad_items_dropped_alone() {
+        let text = r#"
+[open_alternative]
+dir = "x 'unterminated"
+other = 1
+[open_alternative.extensions]
+PDF = "view {paths}"
+"" = "view"
+"tar.gz" = "view"
+md = ""
+txt = 1
+Jpg = "a"
+jpg = "b"
+"#;
+
+        let (config, diagnostics) = parse(text, Os::Linux).unwrap();
+
+        assert_eq!(
+            config.open_alternative,
+            OpenAlternativeConfig {
+                dir: None,
+                extensions: BTreeMap::from([(
+                    "pdf".to_owned(),
+                    CommandLine::parse("view {paths}", Os::Linux).unwrap()
+                )]),
+            }
+        );
+        let diagnostic = |path: &str, kind| Diagnostic {
+            path: path.to_owned(),
+            kind,
+        };
+        assert_eq!(
+            diagnostics,
+            [
+                diagnostic(
+                    "open_alternative.dir",
+                    DiagnosticKind::InvalidCommandLine(
+                        CommandLineError::UnterminatedQuoteOrBackslash
+                    )
+                ),
+                diagnostic(
+                    "open_alternative.extensions",
+                    DiagnosticKind::InvalidKey { key: String::new() }
+                ),
+                diagnostic(
+                    "open_alternative.extensions",
+                    DiagnosticKind::InvalidKey {
+                        key: "tar.gz".to_owned()
+                    }
+                ),
+                diagnostic(
+                    "open_alternative.extensions",
+                    DiagnosticKind::DuplicateKey {
+                        key: "jpg".to_owned(),
+                        spellings: vec!["Jpg".to_owned(), "jpg".to_owned()],
+                    }
+                ),
+                diagnostic(
+                    "open_alternative.extensions.md",
+                    DiagnosticKind::InvalidCommandLine(CommandLineError::Empty)
+                ),
+                diagnostic(
+                    "open_alternative.extensions.txt",
+                    DiagnosticKind::InvalidValue {
+                        expected: "a string".to_owned()
+                    }
+                ),
+                diagnostic("open_alternative.other", DiagnosticKind::UnknownItem),
+            ]
+        );
+    }
+
+    #[test]
     fn bookmarks_must_be_tables_with_a_name_and_a_path() {
         let text = "bookmarks = [1, { name = \"a\", path = \"/a\", x = 1 }, { name = \"b\" }, { path = \"/c\" }, { name = 1, path = \"/d\" }, { name = \"\", path = \"/e\" }, { name = \"f\", path = \"\" }]\n";
 
@@ -1429,6 +1554,33 @@ run = "wt"
                 ("gif".to_owned(), Color::new(0x66, 0x66, 0x66)),
                 ("png".to_owned(), Color::new(0x22, 0x22, 0x22)),
                 ("zip".to_owned(), Color::new(0x33, 0x33, 0x33)),
+            ])
+        );
+        assert_eq!(diagnostics, []);
+    }
+
+    #[test]
+    fn open_alternative_rules_merge_by_lowercased_extension() {
+        let (config, diagnostics) = parse_layers(
+            [
+                "[open_alternative.extensions]\nPDF = \"a {paths}\"\ntxt = \"b {paths}\"\n",
+                "[open_alternative.extensions]\npdf = \"c {paths}\"\n",
+            ],
+            Os::Linux,
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.open_alternative.extensions,
+            BTreeMap::from([
+                (
+                    "pdf".to_owned(),
+                    CommandLine::parse("c {paths}", Os::Linux).unwrap()
+                ),
+                (
+                    "txt".to_owned(),
+                    CommandLine::parse("b {paths}", Os::Linux).unwrap()
+                ),
             ])
         );
         assert_eq!(diagnostics, []);

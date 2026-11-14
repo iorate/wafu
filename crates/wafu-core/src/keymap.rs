@@ -16,6 +16,7 @@ const DEFAULT_FILELIST: &[(&str, &str)] = &[
     ("Right", "focus_right"),
     ("Tab", "switch_pane"),
     ("Enter", "open"),
+    ("Shift+Enter", "open_alternative"),
     ("Ctrl+Enter", "open_with_os"),
     ("V", "open_as_text"),
     ("BS", "go_parent"),

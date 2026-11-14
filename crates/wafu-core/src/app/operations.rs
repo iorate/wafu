@@ -628,6 +628,36 @@ impl App {
         self.start_temp(temp, entries, effects);
     }
 
+    pub(super) fn start_on_entry(
+        &mut self,
+        name: SpawnName,
+        line: CommandLine,
+        location: &Location,
+        entry: &Entry,
+        effects: &mut Vec<Effect>,
+    ) {
+        if location.in_archive() && line.uses_paths() {
+            let temp = Temp {
+                action: TempAction::Spawn { name, line },
+                cursor: Some(TempPath::Extracted(entry.name.clone())),
+                marked: Vec::new(),
+                targets: vec![entry.name.clone()],
+                entry_skipped: false,
+            };
+            let entries = self.archive_entries(location, std::slice::from_ref(&entry.name));
+            self.start_temp(temp, entries, effects);
+        } else {
+            let path = location.base.join(&entry.name);
+            let expansion = Expansion {
+                cursor_path: Some(path.clone()),
+                marked_paths: Vec::new(),
+                paths: vec![path],
+                ..self.expansion()
+            };
+            Self::spawn(name, &line, &expansion, effects);
+        }
+    }
+
     pub(super) fn copy_to_clipboard(&mut self, full_paths: bool, effects: &mut Vec<Effect>) {
         let Some(targets) = self.active_pane().targets() else {
             return;

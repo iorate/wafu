@@ -636,6 +636,7 @@ impl App {
         let pane = &mut self.panes[side.index()];
         match command {
             Command::Open => self.open_entry(effects),
+            Command::OpenAlternative => self.open_alternative(effects),
             Command::OpenAsText => self.open_as_text(effects),
             Command::GoParent => self.go_parent(effects),
             Command::GoRoot => self.go_root(effects),
