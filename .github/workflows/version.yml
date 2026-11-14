@@ -154,6 +154,7 @@ jobs:
         env:
           VERSION: ${{ needs.version.outputs.release-wafu-io }}
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+          CARGO_RESOLVER_INCOMPATIBLE_PUBLISH_AGE: allow # wafu-core of this release is younger than min-publish-age
 
       - name: Publish wafu to crates.io
         if: needs.version.outputs.release-wafu != ''
@@ -167,6 +168,7 @@ jobs:
         env:
           VERSION: ${{ needs.version.outputs.release-wafu }}
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+          CARGO_RESOLVER_INCOMPATIBLE_PUBLISH_AGE: allow # wafu-core and wafu-io of this release are younger than min-publish-age
 
       - name: Generate token
         id: generate-token
