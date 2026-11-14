@@ -105,7 +105,7 @@ fifo = "#f0c050"
 socket = "#e58ae0"
 ```
 
-There are no default bookmarks, external commands, or [extension colors](#colors). Without a `[keys]` table, the keys shown in the [command palette](#keys) are the defaults.
+There are no default bookmarks, external commands, [`open_alternative` programs](#alternative-open), or [extension colors](#colors). Without a `[keys]` table, the keys shown in the [command palette](#keys) are the defaults.
 
 ## File list
 
@@ -247,6 +247,25 @@ These placeholders are replaced when the command runs:
 A placeholder must be a whole argument: `{dir}` is replaced, but `--dir={dir}` is passed as written, as is any other text in braces. Paths are full paths. Inside an archive, a line that uses `{cursor_path}`, `{marked_paths}`, or `{paths}` first extracts the items to a temporary directory, and those placeholders name the extracted files. `{dir}` is then the directory that holds the archive.
 
 The same rules apply to `editor`.
+
+## Alternative open
+
+`open_alternative` (`Shift+Enter` in the file list) opens the item under the cursor in a program you choose for its kind, in place of what `open` (`Enter`) does:
+
+```toml
+[open_alternative]
+dir = "code {paths}"
+
+[open_alternative.extensions]
+pdf = "sumatrapdf {paths}"
+```
+
+- `dir` is the command line for directories, and links to them.
+- `[open_alternative.extensions]` gives regular files, and links to them, a command line by extension. Its keys follow the rules of [extension colors](#colors): an extension without the dot, matched in either case and against the part after the last dot only. A rule for an extension wins over entering an archive or running an executable file, so a `zip` rule opens `a.zip` in its program rather than entering it.
+- Anything without a rule, the `..` row, broken links, special files, and links inside an archive are opened as `open` does.
+- Both are empty by default.
+
+The command lines follow the rules of [external commands](#commands), with the item under the cursor as the only target: `{paths}` and `{cursor_path}` are that item, and `{marked_paths}` is empty, whatever is marked. Inside an archive, a line that uses `{cursor_path}`, `{marked_paths}`, or `{paths}` first extracts the item to a temporary directory, as for external commands.
 
 ## Keys
 

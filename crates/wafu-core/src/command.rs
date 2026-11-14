@@ -4,6 +4,7 @@ use crate::app::Os;
 
 const NAMES: &[(Command, &str)] = &[
     (Command::Open, "open"),
+    (Command::OpenAlternative, "open_alternative"),
     (Command::OpenWithOs, "open_with_os"),
     (Command::OpenAsText, "open_as_text"),
     (Command::GoParent, "go_parent"),
@@ -97,6 +98,9 @@ const NAMES: &[(Command, &str)] = &[
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Command {
     Open,
+    /// Starts the program the configuration gives for the cursor item's kind
+    /// or extension, or does what `open` does when there is none.
+    OpenAlternative,
     OpenWithOs,
     /// Opens the cursor file in the text preview, whatever its name says it is.
     OpenAsText,
@@ -332,6 +336,7 @@ impl Command {
                 Target::ListView
             }
             Self::Open
+            | Self::OpenAlternative
             | Self::OpenAsText
             | Self::GoParent
             | Self::GoRoot

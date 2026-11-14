@@ -1008,6 +1008,104 @@ fn edit_inside_an_archive_keeps_the_marks_of_the_extracted_entries() {
 }
 
 #[test]
+fn open_alternative_inside_an_archive_extracts_the_cursor_entry_alone_and_then_starts() {
+    let mut harness = inside();
+    harness.config(
+        "[open_alternative.extensions]\ntxt = \"view {cursor_path} {marked_paths} {paths}\"\n",
+    );
+    harness.press("Down");
+    harness.press("Space");
+    assert_eq!(harness.cursor_name(Side::Left), "b.txt");
+    harness.take_effects();
+
+    harness.press("Shift+Enter");
+
+    let spec = harness.start_operation().unwrap();
+    assert_eq!(spec.kind, OperationKind::ExtractToTemp);
+    assert_eq!(spec.sources, Sources::Entries(entries(&["b.txt"], None)));
+
+    harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
+    harness.finish(Outcome::Completed { skipped: 0 });
+
+    let effects = harness.take_effects();
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::ReadDir { .. }, Effect::Spawn { name, program, args, cwd }]
+            if *name == SpawnName::Command(Command::OpenAlternative)
+                && program == "view"
+                && *args == vec![
+                    path(TEMP, "b.txt").into_os_string(),
+                    path(TEMP, "b.txt").into_os_string(),
+                ]
+                && cwd.as_os_str() == LEFT
+    ));
+}
+
+#[test]
+fn open_alternative_on_a_directory_inside_an_archive_extracts_the_directory() {
+    let mut harness = inside();
+    harness.config("[open_alternative]\ndir = \"code {paths}\"\n");
+    harness.press("Down");
+    assert_eq!(harness.cursor_name(Side::Left), "docs");
+    harness.take_effects();
+
+    harness.press("Shift+Enter");
+
+    let spec = harness.start_operation().unwrap();
+    assert_eq!(spec.sources, Sources::Entries(entries(&["docs"], None)));
+
+    harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
+    harness.finish(Outcome::Completed { skipped: 0 });
+
+    let effects = harness.take_effects();
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::ReadDir { .. }, Effect::Spawn { program, args, .. }]
+            if program == "code" && *args == vec![path(TEMP, "docs").into_os_string()]
+    ));
+}
+
+#[test]
+fn open_alternative_inside_an_archive_with_a_line_without_paths_starts_at_once() {
+    let mut harness = inside();
+    harness.config("[open_alternative]\ndir = \"term {dir}\"\n");
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("Shift+Enter");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Spawn {
+            name: SpawnName::Command(Command::OpenAlternative),
+            program: "term".to_owned(),
+            args: vec![PathBuf::from(LEFT).into_os_string()],
+            cwd: PathBuf::from(LEFT),
+        }]
+    );
+}
+
+#[test]
+fn open_alternative_on_a_link_inside_an_archive_does_what_open_does() {
+    let mut harness = outside();
+    harness.config("[open_alternative.extensions]\ntxt = \"view {paths}\"\n");
+    let link = Entry {
+        kind: EntryKind::Symlink {
+            target: Some(TargetKind::File { executable: false }),
+        },
+        ..file("link.txt")
+    };
+    harness.enter_archive(Side::Left, vec![link]);
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("Shift+Enter");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.log(), ["Reloaded config"]);
+}
+
+#[test]
 fn open_with_os_inside_an_archive_extracts_the_cursor_entry() {
     let mut harness = inside();
     harness.press("Down");

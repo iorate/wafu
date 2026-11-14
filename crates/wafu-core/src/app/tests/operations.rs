@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use crate::app::{Change, Effect, IoEvent, MenuAnchor, Msg, Os, Side, SpawnName};
 use crate::command::Command;
-use crate::entry::SpecialKind;
+use crate::entry::{Entry, EntryKind, SpecialKind};
 use crate::error::IoError;
 use crate::external::{CommandLine, Expansion};
 use crate::location::Location;
@@ -1329,6 +1329,161 @@ fn edit_refuses_a_special_file() {
             shown(LEFT, "fifo")
         )]
     );
+}
+
+#[test]
+fn open_alternative_starts_the_rule_for_the_extension_on_the_cursor_entry_alone() {
+    let mut harness = Harness::start_with_config(
+        LEFT,
+        RIGHT,
+        "[open_alternative.extensions]\npdf = \"view {cursor_path} {marked_paths} {paths} {dir} {other_dir}\"\n",
+    );
+    harness.load(Side::Left, vec![file("a.pdf"), file("b.PDF")]);
+    harness.press("Down");
+    harness.press("Space");
+    assert_eq!(harness.cursor_name(Side::Left), "b.PDF");
+    harness.take_effects();
+
+    harness.press("Shift+Enter");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Spawn {
+            name: SpawnName::Command(Command::OpenAlternative),
+            program: "view".to_owned(),
+            args: vec![
+                path(LEFT, "b.PDF").into_os_string(),
+                path(LEFT, "b.PDF").into_os_string(),
+                OsString::from(LEFT),
+                OsString::from(RIGHT),
+            ],
+            cwd: PathBuf::from(LEFT),
+        }]
+    );
+}
+
+#[test]
+fn open_alternative_starts_the_dir_rule_on_a_directory() {
+    let mut harness =
+        Harness::start_with_config(LEFT, RIGHT, "[open_alternative]\ndir = \"code {paths}\"\n");
+    harness.load(Side::Left, vec![dir("d")]);
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("Shift+Enter");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Spawn {
+            name: SpawnName::Command(Command::OpenAlternative),
+            program: "code".to_owned(),
+            args: vec![path(LEFT, "d").into_os_string()],
+            cwd: PathBuf::from(LEFT),
+        }]
+    );
+}
+
+#[test]
+fn open_alternative_rules_win_over_entering_an_archive_and_running_a_program() {
+    let mut harness = Harness::start_with_config(
+        LEFT,
+        RIGHT,
+        "[open_alternative.extensions]\nzip = \"z {paths}\"\nsh = \"s {paths}\"\n",
+    );
+    harness.load(Side::Left, vec![file("a.zip"), executable("run.sh")]);
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("Shift+Enter");
+    harness.press("Down");
+    harness.press("Shift+Enter");
+
+    let started: Vec<(String, Vec<OsString>)> = harness
+        .take_effects()
+        .into_iter()
+        .filter_map(|effect| match effect {
+            Effect::Spawn { program, args, .. } => Some((program, args)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        started,
+        [
+            ("z".to_owned(), vec![path(LEFT, "a.zip").into_os_string()]),
+            ("s".to_owned(), vec![path(LEFT, "run.sh").into_os_string()]),
+        ]
+    );
+    assert!(harness.popup().is_none());
+    assert_eq!(harness.view().left.path, LEFT);
+}
+
+#[test]
+fn open_alternative_without_a_rule_does_what_open_does() {
+    let broken = Entry {
+        kind: EntryKind::Symlink { target: None },
+        ..file("broken.txt")
+    };
+    let cases = [
+        ("[open_alternative]\ndir = \"alt {paths}\"\n", dir("d"), 0),
+        (
+            "[open_alternative.extensions]\ntxt = \"alt {paths}\"\n",
+            dir("d"),
+            1,
+        ),
+        (
+            "[open_alternative.extensions]\ntxt = \"alt {paths}\"\n",
+            file("a.md"),
+            1,
+        ),
+        (
+            "[open_alternative.extensions]\ntxt = \"alt {paths}\"\n",
+            file("txt"),
+            1,
+        ),
+        (
+            "[open_alternative]\ndir = \"alt {paths}\"\n",
+            file("a.txt"),
+            1,
+        ),
+        (
+            "[open_alternative.extensions]\ntxt = \"alt {paths}\"\n",
+            broken,
+            1,
+        ),
+        (
+            "[open_alternative.extensions]\ntxt = \"alt {paths}\"\n",
+            special("p.txt", SpecialKind::Fifo),
+            1,
+        ),
+        (
+            "[open_alternative.extensions]\ntxt = \"alt {paths}\"\n",
+            file("a.zip"),
+            1,
+        ),
+        (
+            "[open_alternative.extensions]\ntxt = \"alt {paths}\"\n",
+            executable("run"),
+            1,
+        ),
+    ];
+
+    for (config, entry, downs) in cases {
+        let name = entry.name.to_string_lossy().into_owned();
+        let run = |key: &str| {
+            let mut harness = Harness::start_with_config(LEFT, RIGHT, config);
+            harness.load(Side::Left, vec![entry.clone()]);
+            for _ in 0..downs {
+                harness.press("Down");
+            }
+            harness.take_effects();
+            harness.press(key);
+            (harness.take_effects(), harness.view())
+        };
+
+        let (effects, view) = run("Shift+Enter");
+
+        assert_eq!((effects, view), run("Enter"), "{name} after {downs} downs");
+    }
 }
 
 #[test]

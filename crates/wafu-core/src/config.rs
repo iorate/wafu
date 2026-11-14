@@ -34,6 +34,7 @@ pub struct Config {
     pub colors: ColorsConfig,
     pub bookmarks: Vec<Bookmark>,
     pub commands: BTreeMap<String, CommandLine>,
+    pub open_alternative: OpenAlternativeConfig,
     pub keys: KeyMap,
 }
 
@@ -144,6 +145,16 @@ pub enum ImagePlacement {
 pub struct ProgramsConfig {
     pub editor: CommandLine,
     pub use_login_shell_env: bool,
+}
+
+/// The programs `open_alternative` starts in place of what `open` does.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct OpenAlternativeConfig {
+    /// The command line for directories.
+    pub dir: Option<CommandLine>,
+    /// The command lines for regular files by extension, keyed in ASCII
+    /// lowercase without the dot.
+    pub extensions: BTreeMap<String, CommandLine>,
 }
 
 /// The default font and the fonts of the areas that may differ from it.
@@ -340,6 +351,7 @@ impl Config {
             },
             bookmarks: Vec::new(),
             commands: BTreeMap::new(),
+            open_alternative: OpenAlternativeConfig::default(),
             keys: KeyMap::default_for(os),
         }
     }
