@@ -580,7 +580,7 @@ impl App {
         }
         // Whatever moved the cursor, the image preview follows it.
         self.sync_image_preview(&mut effects);
-        self.release_preview(archive_before.as_deref(), &mut effects);
+        self.release_preview(archive_before.as_ref(), &mut effects);
         self.follow_popup(popup_before);
         self.hold_spawns(&mut effects);
         effects

@@ -7,7 +7,7 @@ use crate::entry::Entry;
 use crate::error::{AppError, IoError};
 use crate::external::{CommandLine, Expansion};
 use crate::key::{Key, KeyBase, NamedKey};
-use crate::location::{ArchiveFormat, Location};
+use crate::location::{ArchiveFormat, ArchivePath, Location};
 use crate::operation::{
     ArchiveEntries, ArchiveOutput, OperationEvent, OperationKind, OperationSpec, Outcome,
     OutcomeLine, Reply, Sources,
@@ -124,8 +124,12 @@ impl App {
         let Some(dest) = self.other_dest(kind.verb()) else {
             return;
         };
-        let source_dir = location.base;
-        let sources = source_paths(&source_dir, &names);
+        let source_dir = location.base.clone();
+        let sources = if location.in_archive() {
+            Sources::Entries(self.archive_entries(&location, &names))
+        } else {
+            source_paths(&source_dir, &names)
+        };
         self.start_operation(kind, source_dir, names, sources, Some(dest), effects);
     }
 
@@ -599,9 +603,12 @@ impl App {
                 let path = at.base.join(&entry.name);
                 (location, Some(TempPath::Real(path)), marked.clone())
             }
-            // The `..` row inside the archive is the directory the marks are
-            // in, and extracting it would extract everything in it. With
-            // marks, they are extracted alone and the cursor path is left out.
+            // The `..` row elsewhere in an archive is an entry of the place
+            // above: the directory the marks are in, which would extract
+            // everything in it, or at the root of an archive inside an
+            // archive, that archive. With marks, they are extracted alone and
+            // the cursor path is left out, since entries of two places cannot
+            // go in one extraction.
             Some((at, entry)) if marked.is_empty() => {
                 let cursor = TempPath::Extracted(entry.name.clone());
                 (at, Some(cursor), vec![entry.name])
@@ -757,18 +764,35 @@ impl App {
     }
 
     fn archive_entries(&self, location: &Location, names: &[OsString]) -> ArchiveEntries {
+        let path = location
+            .archive
+            .clone()
+            .expect("archive entries are only made inside an archive");
+        let password = if self.is_pane_archive(&location.base, &path) {
+            self.active_pane().archive_password().map(ToOwned::to_owned)
+        } else {
+            None
+        };
         ArchiveEntries {
             archive: location.base.clone(),
-            path: location
-                .archive
-                .clone()
-                .expect("archive entries are only made inside an archive"),
+            path,
             names: names
                 .iter()
                 .map(|name| name.to_string_lossy().into_owned())
                 .collect(),
-            password: self.active_pane().archive_password().map(ToOwned::to_owned),
+            password,
         }
+    }
+
+    // The password the pane remembers belongs to the archive it is in, which
+    // the `..` row at the root of a nested archive is not in.
+    fn is_pane_archive(&self, base: &Path, archive: &ArchivePath) -> bool {
+        let pane = self.active_pane().location();
+        pane.base == base
+            && pane
+                .archive
+                .as_ref()
+                .is_some_and(|pane| pane.outer == archive.outer)
     }
 
     fn start_temp(&mut self, temp: Temp, entries: ArchiveEntries, effects: &mut Vec<Effect>) {
@@ -816,7 +840,15 @@ impl App {
         if source_dir.as_os_str().is_empty() {
             return;
         }
-        let remember_password = matches!(sources, Sources::Entries(_));
+        // What an extract asks for is the password of the archive it unpacks,
+        // not of the one the pane is in.
+        let remember_password = match &sources {
+            Sources::Entries(entries) => {
+                !matches!(kind, OperationKind::Extract { .. })
+                    && self.is_pane_archive(&entries.archive, &entries.path)
+            }
+            Sources::Paths(_) => false,
+        };
         effects.push(Effect::StartOperation(OperationSpec {
             kind,
             sources,
@@ -1022,7 +1054,8 @@ fn requires_marks(command: &Command) -> bool {
     )
 }
 
-// The commands that work on the entries of an archive without changing it.
+// The commands that work on the entries of an archive without changing it;
+// `extract` unpacks the entries that are archives into the other pane.
 // `calculate_size` and `calculate_size_on_disk` would not change it either,
 // but they only add up files on disk.
 fn allowed_in_archive(command: &Command) -> bool {
@@ -1034,6 +1067,7 @@ fn allowed_in_archive(command: &Command) -> bool {
             | Command::CopyPath
             | Command::CopyName
             | Command::EnterAsArchive
+            | Command::Extract
     )
 }
 

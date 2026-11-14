@@ -1,10 +1,10 @@
 use std::ffi::{OsStr, OsString};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use encoding_rs::Encoding;
 
-use super::navigation::is_link_in_archive;
+use super::navigation::{archive_shown, is_link_in_archive};
 use super::{App, Effect, MouseInput, PreviewError, PreviewSource, Side};
 use crate::command::{Command, Context};
 use crate::config::ImagePlacement;
@@ -190,16 +190,16 @@ impl App {
     // Holding an archive open keeps a removable drive from being ejected
     // and, on Windows, keeps a deleted archive's name taken, so the io is
     // told to let it go as soon as nothing previews its entries.
-    pub(super) fn release_preview(&self, before: Option<&Path>, effects: &mut Vec<Effect>) {
-        if before.is_some() && self.previewed_archive().as_deref() != before {
+    pub(super) fn release_preview(&self, before: Option<&Location>, effects: &mut Vec<Effect>) {
+        if before.is_some() && self.previewed_archive().as_ref() != before {
             effects.push(Effect::ReleasePreview);
         }
     }
 
-    pub(super) fn previewed_archive(&self) -> Option<PathBuf> {
+    // Two archives in one file are told apart by the root of each.
+    pub(super) fn previewed_archive(&self) -> Option<Location> {
         self.preview.as_ref()?;
-        let location = self.active_pane().location();
-        location.archive.as_ref().map(|_| location.base.clone())
+        self.active_pane().location().innermost_root()
     }
 
     pub(super) fn preview_loaded(
@@ -226,7 +226,7 @@ impl App {
                 preview.document = Some(document);
             }
             Err(PreviewError::PasswordRequired { retry }) => {
-                let archive = preview.source.path.clone();
+                let archive = archive_shown(self.active_pane().location());
                 self.ask_preview_password(archive, retry);
             }
             Err(PreviewError::Failed(source)) => {
@@ -243,7 +243,7 @@ impl App {
         request: RequestId,
         result: Result<ImageData, PreviewError>,
     ) {
-        let archive = self.active_pane().location().base.clone();
+        let archive = archive_shown(self.active_pane().location());
         let shown = match &self.preview {
             Some(Preview::Image(preview)) if preview.loading == Some(request) => preview
                 .shown

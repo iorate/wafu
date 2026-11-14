@@ -92,6 +92,9 @@ impl Worker<'_> {
             (Sources::Entries(entries), OperationKind::ExtractToTemp) => {
                 self.extract_to_temp(entries)
             }
+            (Sources::Entries(entries), OperationKind::Extract { into_dir }) => {
+                self.extract_nested_archives(entries, spec, into_dir)
+            }
             (Sources::Entries(entries), _) => {
                 let dest = spec
                     .dest

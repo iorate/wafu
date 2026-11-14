@@ -1,5 +1,6 @@
 use std::cell::Cell;
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::fmt;
 use std::fs::{self, File, FileTimes};
 use std::io::{self, Read, Write};
@@ -7,7 +8,10 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::SystemTime;
 
-use wafu_core::{ArchiveEntries, ArchiveFormat, IoError, OperationEvent, OperationSpec, Reply};
+use wafu_core::{
+    ArchiveEntries, ArchiveFormat, ArchivePath, IoError, OperationEvent, OperationSpec,
+    OuterArchive, Reply,
+};
 
 use super::{
     CHUNK_SIZE, NOT_REGULAR, Step, Stop, Worker, children, fail, failure, is_within,
@@ -28,29 +32,78 @@ impl Worker<'_> {
         into_dir: bool,
     ) -> Result<(), Stop> {
         for (index, archive) in archives.iter().enumerate() {
-            let root = spec
-                .dest
-                .as_deref()
-                .ok_or_else(|| failure(archive, "no destination"))?;
             let name = archive.file_name().unwrap_or_default();
             let format = ArchiveFormat::from_name(name);
-            // One destination serves the whole operation; naming the directory
-            // here saves the core from passing one per archive.
-            let dest = if into_dir {
-                root.join(ArchiveFormat::stem_of(name))
-            } else {
-                root.to_path_buf()
+            self.extract_whole(index, archive, name, spec, into_dir, |_, dest| {
+                Extraction::open(archive, format, None, dest)
+            })?;
+        }
+        Ok(())
+    }
+
+    // Each entry is an archive inside the archive, unpacked as a file on disk
+    // would be.
+    pub(super) fn extract_nested_archives(
+        &mut self,
+        entries: &ArchiveEntries,
+        spec: &OperationSpec,
+        into_dir: bool,
+    ) -> Result<(), Stop> {
+        for (index, name) in entries.names.iter().enumerate() {
+            let mut entry = entries.path.inner.clone();
+            entry.push(name.clone());
+            let mut outer = entries.path.outer.clone();
+            outer.push(OuterArchive {
+                format: entries.path.format,
+                entry,
+            });
+            let path = ArchivePath {
+                outer,
+                format: ArchiveFormat::from_name(OsStr::new(name)),
+                inner: Vec::new(),
             };
-            let mut extraction = Extraction::open(archive, format, None, &dest)?;
-            if into_dir {
-                ensure_dir(archive, root, &dest).map_err(Stop::fatal)?;
-            }
-            let all: Vec<usize> = (0..extraction.reader.entries().len()).collect();
-            let complete = self.extract_indices(&mut extraction, &all, 0)?;
-            let unlinked = self.finish_extraction(extraction);
-            if complete && unlinked.is_empty() {
-                (self.report)(OperationEvent::ItemDone { index });
-            }
+            let shown = nested_shown(&entries.archive, &path);
+            self.extract_whole(
+                index,
+                &shown,
+                OsStr::new(name),
+                spec,
+                into_dir,
+                |worker, dest| worker.open_nested(&entries.archive, &path, None, dest),
+            )?;
+        }
+        Ok(())
+    }
+
+    fn extract_whole(
+        &mut self,
+        index: usize,
+        shown: &Path,
+        name: &OsStr,
+        spec: &OperationSpec,
+        into_dir: bool,
+        open: impl FnOnce(&Self, &Path) -> Result<Extraction, Stop>,
+    ) -> Result<(), Stop> {
+        let root = spec
+            .dest
+            .as_deref()
+            .ok_or_else(|| failure(shown, "no destination"))?;
+        // One destination serves the whole operation; naming the directory
+        // here saves the core from passing one per archive.
+        let dest = if into_dir {
+            root.join(ArchiveFormat::stem_of(name))
+        } else {
+            root.to_path_buf()
+        };
+        let mut extraction = open(self, &dest)?;
+        if into_dir {
+            ensure_dir(shown, root, &dest).map_err(Stop::fatal)?;
+        }
+        let all: Vec<usize> = (0..extraction.reader.entries().len()).collect();
+        let complete = self.extract_indices(&mut extraction, &all, 0)?;
+        let unlinked = self.finish_extraction(extraction);
+        if complete && unlinked.is_empty() {
+            (self.report)(OperationEvent::ItemDone { index });
         }
         Ok(())
     }
@@ -165,16 +218,23 @@ impl Worker<'_> {
         }
     }
 
-    // A nested archive is named by the path of the entries leading to it, as
-    // its entries are.
     fn open_entries(&self, entries: &ArchiveEntries, dest: &Path) -> Result<Extraction, Stop> {
-        let archive = entries
-            .path
-            .outer
-            .iter()
-            .fold(entries.archive.clone(), |path, outer| {
-                shown(&path, &outer.entry)
-            });
+        self.open_nested(
+            &entries.archive,
+            &entries.path,
+            entries.password.clone(),
+            dest,
+        )
+    }
+
+    fn open_nested(
+        &self,
+        base: &Path,
+        path: &ArchivePath,
+        password: Option<String>,
+        dest: &Path,
+    ) -> Result<Extraction, Stop> {
+        let archive = nested_shown(base, path);
         // A cancel is taken off the replies when seen, so it is remembered
         // to tell the error it causes from others.
         let cancelled = Cell::new(false);
@@ -184,19 +244,11 @@ impl Worker<'_> {
             }
             cancelled.get()
         };
-        let opened = Stamp::of(&entries.archive)
+        let opened = Stamp::of(base)
             .map_err(ArchiveError::from)
-            .and_then(|stamp| {
-                self.nested
-                    .open(&entries.archive, stamp, &entries.path, &check)
-            });
+            .and_then(|stamp| self.nested.open(base, stamp, path, &check));
         match opened {
-            Ok(opened) => Ok(Extraction::new(
-                archive,
-                opened.reader,
-                entries.password.clone(),
-                dest,
-            )),
+            Ok(opened) => Ok(Extraction::new(archive, opened.reader, password, dest)),
             Err(_) if cancelled.get() => Err(Stop::Cancelled),
             Err(error) => Err(failure(&archive, &error.to_string())),
         }
@@ -544,6 +596,16 @@ impl Extraction {
             written: HashMap::new(),
         }
     }
+}
+
+// A nested archive is named by the path of the entries leading to it, as
+// its entries are.
+fn nested_shown(base: &Path, path: &ArchivePath) -> PathBuf {
+    path.outer
+        .iter()
+        .fold(base.to_path_buf(), |shown_path, outer| {
+            shown(&shown_path, &outer.entry)
+        })
 }
 
 fn shown(archive: &Path, components: &[String]) -> PathBuf {
@@ -1701,6 +1763,115 @@ mod tests {
     }
 
     #[test]
+    fn extract_unpacks_an_archive_inside_an_archive_into_a_directory_or_straight() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.zip");
+        let nested = archive_bytes(ArchiveFormat::Zip, &[("f.txt", b"f")]);
+        write_archive(&archive, ArchiveFormat::Zip, &[("x/n.zip", &nested)]);
+
+        for into_dir in [true, false] {
+            let dest = dir.path().join(format!("out-{into_dir}"));
+            fs::create_dir(&dest).unwrap();
+            let entries = entries(&archive, &["x"], &["n.zip"], None);
+
+            let (outcome, done, _) = run(&extract_entries(entries, &dest, into_dir), []);
+
+            assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+            assert_eq!(done, 1);
+            let unpacked = if into_dir { dest.join("n") } else { dest };
+            assert_eq!(fs::read(unpacked.join("f.txt")).unwrap(), b"f");
+        }
+    }
+
+    #[test]
+    fn extract_unpacks_an_archive_inside_a_nested_archive() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.zip");
+        let innermost = archive_bytes(ArchiveFormat::Tar, &[("f.txt", b"f")]);
+        let nested = archive_bytes(ArchiveFormat::Zip, &[("m.tar", &innermost)]);
+        write_archive(&archive, ArchiveFormat::Zip, &[("n.zip", &nested)]);
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        let mut entries = entries(&archive, &[], &["m.tar"], None);
+        entries.path.outer = vec![OuterArchive {
+            format: Some(ArchiveFormat::Zip),
+            entry: vec!["n.zip".to_owned()],
+        }];
+
+        let (outcome, _, _) = run(&extract_entries(entries, &dest, true), []);
+
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(fs::read(dest.join("m").join("f.txt")).unwrap(), b"f");
+    }
+
+    #[test]
+    fn extracting_an_encrypted_archive_inside_an_archive_asks_for_its_own_password_under_its_path()
+    {
+        let dir = TempDir::new().unwrap();
+        let inner = dir.path().join("inner.zip");
+        write_zip(&inner, Some("secret"), |writer| {
+            writer
+                .add_file("a.txt", 1, None, None, &mut &b"a"[..])
+                .unwrap();
+        });
+        let archive = dir.path().join("a.zip");
+        write_archive(
+            &archive,
+            ArchiveFormat::Zip,
+            &[("n.zip", &fs::read(&inner).unwrap())],
+        );
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        let entries = entries(&archive, &[], &["n.zip"], Some("not this one"));
+
+        let (outcome, _, events) = run(
+            &extract_entries(entries, &dest, false),
+            [Reply::Password("secret".to_owned())],
+        );
+
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        let asked: Vec<(&PathBuf, bool)> = events
+            .iter()
+            .filter_map(|event| match event {
+                OperationEvent::NeedPassword { archive, retry } => Some((archive, *retry)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(asked, [(&archive.join("n.zip"), false)]);
+        assert_eq!(fs::read(dest.join("a.txt")).unwrap(), b"a");
+    }
+
+    #[test]
+    fn extracting_a_missing_entry_or_a_directory_inside_an_archive_fails() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.zip");
+        write_zip(&archive, None, |writer| {
+            writer.add_dir("d", None, None).unwrap();
+        });
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+
+        for (name, message) in [
+            ("missing.zip", "not found in the archive"),
+            ("d", "not a regular file"),
+        ] {
+            let entries = entries(&archive, &[], &[name], None);
+
+            let (outcome, _, _) = run(&extract_entries(entries, &dest, true), []);
+
+            assert!(
+                matches!(
+                    &outcome,
+                    Outcome::Failed { path, error }
+                        if *path == archive.join(name) && error.to_string() == message
+                ),
+                "{outcome:?}"
+            );
+        }
+        assert_eq!(fs::read_dir(&dest).unwrap().count(), 0);
+    }
+
+    #[test]
     fn a_file_that_is_not_an_archive_fails_to_extract() {
         let dir = TempDir::new().unwrap();
         let text = dir.path().join("t.txt");
@@ -2124,6 +2295,15 @@ mod tests {
         OperationSpec {
             kind: OperationKind::Copy,
             sources: Sources::Entries(entries(archive, &[], names, Some(password))),
+            dest: Some(dest.to_path_buf()),
+            output: None,
+        }
+    }
+
+    fn extract_entries(entries: ArchiveEntries, dest: &Path, into_dir: bool) -> OperationSpec {
+        OperationSpec {
+            kind: OperationKind::Extract { into_dir },
+            sources: Sources::Entries(entries),
             dest: Some(dest.to_path_buf()),
             output: None,
         }

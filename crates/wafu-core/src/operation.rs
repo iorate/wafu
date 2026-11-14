@@ -23,7 +23,8 @@ pub struct OperationSpec {
 pub enum Sources {
     /// Full paths, in display order.
     Paths(Vec<PathBuf>),
-    /// Entries of one directory inside an archive.
+    /// Entries of one directory inside an archive. For
+    /// [`OperationKind::Extract`], each names an archive to unpack.
     Entries(ArchiveEntries),
 }
 
@@ -34,7 +35,9 @@ pub struct ArchiveEntries {
     pub path: ArchivePath,
     /// In display order.
     pub names: Vec<String>,
-    /// The password the pane knows; the worker asks when it needs one and has none.
+    /// The password the pane knows for this archive; the worker asks when it
+    /// needs one and has none. For [`OperationKind::Extract`], it is not that
+    /// of the archives unpacked.
     pub password: Option<String>,
 }
 
@@ -52,8 +55,8 @@ pub enum OperationKind {
     Move,
     Delete,
     Trash,
-    /// Unpacks whole archives into the destination, each into a directory
-    /// named after it when `into_dir`.
+    /// Unpacks whole archives, files or entries of an archive, into the
+    /// destination, each into a directory named after it when `into_dir`.
     Extract {
         into_dir: bool,
     },

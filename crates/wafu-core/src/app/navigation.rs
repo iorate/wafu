@@ -159,7 +159,7 @@ impl App {
                 Err(source) => {
                     self.log.push(
                         AppError::ReadDir {
-                            path: target.base,
+                            path: archive_shown(&target),
                             source,
                         }
                         .to_string(),
@@ -386,9 +386,13 @@ impl App {
             self.log.push(AppError::NotRegularFile { path }.to_string());
             return;
         }
-        // The `..` row at an archive root is the archive the pane is in;
-        // entering it would only reload it, dropping the marks.
-        if !location.in_archive() && self.active_pane().location().in_archive() {
+        // A `..` row that is not a directory is the archive whose root the
+        // pane is at; entering it would only reload it, dropping the marks.
+        if self.active_pane().cursor_entry().is_none() {
+            return;
+        }
+        // A link inside an archive leads nowhere until extracted.
+        if is_link_in_archive(&location, entry.kind) {
             return;
         }
         // An unknown extension leaves the format to the content.
@@ -403,12 +407,11 @@ impl App {
         format: Option<ArchiveFormat>,
         effects: &mut Vec<Effect>,
     ) {
-        if location.in_archive() {
-            let path = PathBuf::from(location.child_display(name));
-            self.log.push(AppError::NestedArchive { path }.to_string());
-            return;
-        }
-        let target = Location::archive_root(location.base.join(name), format);
+        let target = if location.in_archive() {
+            location.nested_root(&name.to_string_lossy(), format)
+        } else {
+            Location::archive_root(location.base.join(name), format)
+        };
         self.navigate(self.active, target, None, HistoryMove::Visit, effects);
     }
 
@@ -633,6 +636,18 @@ impl App {
                 path: path.clone(),
             });
         }
+    }
+}
+
+// The file a location stands for in messages: `base`, or for a place inside a
+// nested archive that archive, as the user sees its path, since `base` is then
+// only the outermost file.
+pub(super) fn archive_shown(location: &Location) -> PathBuf {
+    match location.innermost_root() {
+        Some(root) if root.archive.as_ref().is_some_and(|a| !a.outer.is_empty()) => {
+            PathBuf::from(root.to_string())
+        }
+        _ => location.base.clone(),
     }
 }
 

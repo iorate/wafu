@@ -1098,6 +1098,29 @@ fn an_image_preview_releases_the_archive_only_once_the_pane_leaves_it() {
 }
 
 #[test]
+fn a_preview_password_in_a_nested_archive_is_asked_for_that_archive() {
+    let mut harness = inside_nested_archive();
+    harness.press("Enter");
+
+    harness.fail_preview(PreviewError::PasswordRequired { retry: false });
+
+    let popup = harness.view().popup.unwrap();
+    assert_eq!(popup.message.as_deref(), Some("n.zip"));
+}
+
+#[test]
+fn an_image_password_in_a_nested_archive_is_asked_for_that_archive() {
+    let mut harness = inside_nested_archive();
+    harness.press("Down");
+    harness.press("Enter");
+
+    harness.fail_image(PreviewError::PasswordRequired { retry: false });
+
+    let popup = harness.view().popup.unwrap();
+    assert_eq!(popup.message.as_deref(), Some("n.zip"));
+}
+
+#[test]
 fn a_wrong_preview_password_is_asked_again_and_esc_closes() {
     let mut harness = inside_archive();
     harness.press("Enter");
@@ -1485,6 +1508,22 @@ fn inside_archive() -> Harness {
     harness.press("Down");
     harness.take_effects();
     assert_eq!(harness.cursor_name(Side::Left), "b.txt");
+    harness
+}
+
+// The left pane is inside `n.zip`, an entry of `a.zip`, with the cursor on
+// `b.txt` and `c.png` below it.
+fn inside_nested_archive() -> Harness {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("a.zip")]);
+    harness.press("Down");
+    harness.press("Enter");
+    harness.load(Side::Left, vec![file("n.zip")]);
+    harness.press("Down");
+    harness.press("Enter");
+    harness.load(Side::Left, vec![file("b.txt"), file("c.png")]);
+    harness.press("Down");
+    harness.take_effects();
     harness
 }
 
