@@ -15,12 +15,14 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::thread;
 
 use wafu_core::{
-    ArchivePath, Change, Directory, Effect, IoError, IoEvent, Location, OperationEvent,
-    OperationSpec, Outcome, PreviewError, PreviewSource, Reply, RequestId, Side, Sources,
-    SpawnKind, SpawnName,
+    ArchivePath, Change, Directory, Effect, Entry, IoError, IoEvent, Location, OperationEvent,
+    OperationSpec, Outcome, OuterArchive, PreviewError, PreviewSource, Reply, RequestId, Side,
+    Sources, SpawnKind, SpawnName,
 };
 
-use crate::archive::{ArchiveEntry, dir_entry, list_dir, open_archive};
+use crate::archive::{
+    ArchiveEntry, ArchiveError, LaneArchives, NestedArchives, Stamp, dir_entry, list_dir,
+};
 #[cfg(windows)]
 use crate::color_scheme::{ColorSchemeWatch, watch_color_scheme};
 use crate::drives::drives;
@@ -66,6 +68,7 @@ pub struct Runtime {
     clipboard: Mutex<Option<arboard::Clipboard>>,
     // The login shell's environment for the programs started, once read.
     shell_env: Arc<OnceLock<Vec<(OsString, OsString)>>>,
+    nested: Arc<NestedArchives>,
     on_event: OnEvent,
 }
 
@@ -73,14 +76,16 @@ impl Runtime {
     pub fn new(paths: Paths, on_event: impl Fn(IoEvent) + Send + Sync + 'static) -> Self {
         let on_event: OnEvent = Arc::new(on_event);
         let pending = Arc::new(Mutex::new(HashSet::new()));
+        let nested = Arc::new(NestedArchives::default());
         Self {
             paths,
-            left: Lane::new("left", None, &pending, &on_event),
-            right: Lane::new("right", None, &pending, &on_event),
+            left: Lane::new("left", None, &pending, &nested, &on_event),
+            right: Lane::new("right", None, &pending, &nested, &on_event),
             preview: Lane::new(
                 "preview",
                 Some(MAX_ABANDONED_PREVIEW_READERS),
                 &pending,
+                &nested,
                 &on_event,
             ),
             pending,
@@ -92,6 +97,7 @@ impl Runtime {
             owner_window: Mutex::new(None),
             clipboard: Mutex::new(None),
             shell_env: Arc::new(OnceLock::new()),
+            nested,
             on_event,
         }
     }
@@ -283,6 +289,7 @@ impl Runtime {
                 let (sender, replies) = mpsc::channel();
                 *lock(&self.operation) = Some(sender);
                 let owner_window = *lock(&self.owner_window);
+                let nested = Arc::clone(&self.nested);
                 let on_event = Arc::clone(&self.on_event);
                 thread::Builder::new()
                     .name("wafu-io-operation".to_owned())
@@ -297,7 +304,7 @@ impl Runtime {
                         if let Err(payload) = panic::catch_unwind(AssertUnwindSafe(|| {
                             #[cfg(test)]
                             assert_ne!(first_source(&spec), Path::new(PANIC_PATH), "injected");
-                            run_operation(&spec, owner_window, &replies, &report);
+                            run_operation(&spec, owner_window, &nested, &replies, &report);
                         })) {
                             let path = progress.into_inner().unwrap_or_else(|| first_source(&spec));
                             on_event(IoEvent::Operation(OperationEvent::Finished(
@@ -434,6 +441,7 @@ struct Lane {
     limit: Option<usize>,
     abandoned: Arc<AtomicUsize>,
     pending: Arc<Mutex<HashSet<RequestId>>>,
+    nested: Arc<NestedArchives>,
     on_event: OnEvent,
     reader: Mutex<Reader>,
 }
@@ -443,15 +451,17 @@ impl Lane {
         name: &'static str,
         limit: Option<usize>,
         pending: &Arc<Mutex<HashSet<RequestId>>>,
+        nested: &Arc<NestedArchives>,
         on_event: &OnEvent,
     ) -> Self {
         let abandoned = Arc::new(AtomicUsize::new(0));
-        let reader = Reader::spawn(name, &abandoned, pending, on_event);
+        let reader = Reader::spawn(name, &abandoned, pending, nested, on_event);
         Self {
             name,
             limit,
             abandoned,
             pending: Arc::clone(pending),
+            nested: Arc::clone(nested),
             on_event: Arc::clone(on_event),
             reader: Mutex::new(reader),
         }
@@ -476,7 +486,13 @@ impl Lane {
         }
         reader.abandoned.store(true, Ordering::SeqCst);
         self.abandoned.fetch_add(1, Ordering::SeqCst);
-        *reader = Reader::spawn(self.name, &self.abandoned, &self.pending, &self.on_event);
+        *reader = Reader::spawn(
+            self.name,
+            &self.abandoned,
+            &self.pending,
+            &self.nested,
+            &self.on_event,
+        );
     }
 }
 
@@ -492,10 +508,14 @@ struct Reader {
 }
 
 impl Reader {
+    // `name` stands for the lane in what `nested` keeps, so a reader that
+    // takes over the lane's queue takes over its archives too; once
+    // abandoned, a reader no longer changes them.
     fn spawn(
-        name: &str,
+        name: &'static str,
         lane_abandoned: &Arc<AtomicUsize>,
         pending: &Arc<Mutex<HashSet<RequestId>>>,
+        nested: &Arc<NestedArchives>,
         on_event: &OnEvent,
     ) -> Self {
         let (jobs, receiver) = mpsc::channel::<Queued>();
@@ -508,10 +528,12 @@ impl Reader {
         };
         let lane_abandoned = Arc::clone(lane_abandoned);
         let pending = Arc::clone(pending);
+        let nested = Arc::clone(nested);
         let on_event = Arc::clone(on_event);
         thread::Builder::new()
             .name(format!("wafu-io-reader-{name}"))
             .spawn(move || {
+                let lane = nested.lane(name, &abandoned);
                 let mut cache: Option<CachedArchive> = None;
                 let mut previewed = PreviewedArchive::default();
                 for queued in receiver {
@@ -519,6 +541,7 @@ impl Reader {
                         Queued::Job(job) => job,
                         Queued::ReleasePreview => {
                             previewed = PreviewedArchive::default();
+                            lane.release();
                             continue;
                         }
                     };
@@ -527,7 +550,7 @@ impl Reader {
                     let live = lock(&pending).contains(&request);
                     let event = live.then(|| {
                         panic::catch_unwind(AssertUnwindSafe(|| {
-                            read(&job, &mut cache, &mut previewed, &pending)
+                            read(&job, lane, &mut cache, &mut previewed, &pending)
                         }))
                         .unwrap_or_else(|payload| job.failed(panic_error(&*payload)))
                     });
@@ -551,8 +574,9 @@ impl Reader {
 // its directories does not read it again. A changed archive misses the cache.
 struct CachedArchive {
     path: PathBuf,
-    len: u64,
-    modified: Option<std::time::SystemTime>,
+    stamp: Stamp,
+    outer: Vec<OuterArchive>,
+    own: Option<Entry>,
     entries: Vec<ArchiveEntry>,
 }
 
@@ -562,6 +586,7 @@ pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 fn read(
     job: &Job,
+    lane: LaneArchives<'_>,
     cache: &mut Option<CachedArchive>,
     previewed: &mut PreviewedArchive,
     pending: &Mutex<HashSet<RequestId>>,
@@ -573,8 +598,11 @@ fn read(
             assert_ne!(location.base, Path::new(PANIC_PATH), "injected");
             let cancelled = || !lock(pending).contains(&request);
             let result = match &location.archive {
-                None => read_dir_with(&location.base, cancelled),
-                Some(archive) => list_archive(cache, &location.base, archive, cancelled),
+                None => {
+                    lane.release();
+                    read_dir_with(&location.base, cancelled)
+                }
+                Some(archive) => list_archive(lane, cache, &location.base, archive, cancelled),
             }
             .map_err(|error| IoError::new(error.to_string()));
             IoEvent::DirLoaded {
@@ -592,40 +620,54 @@ fn read(
         },
         Job::LoadPreview { source, .. } => IoEvent::PreviewLoaded {
             request,
-            result: load_preview(source, previewed),
+            result: load_preview(source, lane, previewed, &|| {
+                !lock(pending).contains(&request)
+            }),
         },
         Job::LoadImage { source, .. } => IoEvent::ImageLoaded {
             request,
-            result: load_image(source, previewed),
+            result: load_image(source, lane, previewed, &|| {
+                !lock(pending).contains(&request)
+            }),
         },
     }
 }
 
 fn list_archive(
+    lane: LaneArchives<'_>,
     cache: &mut Option<CachedArchive>,
     path: &Path,
     archive: &ArchivePath,
     cancelled: impl Fn() -> bool,
 ) -> io::Result<Directory> {
-    let meta = fs::metadata(path)?;
-    let (len, modified) = (meta.len(), meta.modified().ok());
+    let stamp = Stamp::of(path)?;
+    lane.hold(path, stamp, &archive.outer);
     let fresh = cache.as_ref().is_some_and(|cached| {
-        cached.path == path && cached.len == len && cached.modified == modified
+        cached.path == path && cached.stamp == stamp && cached.outer == archive.outer
     });
     let cached = match cache {
         Some(cached) if fresh => cached,
         _ => {
-            let reader = open_archive(path, archive.format).map_err(io::Error::other)?;
+            let opened =
+                lane.open(path, stamp, archive, &cancelled)
+                    .map_err(|error| match error {
+                        ArchiveError::Io(error) => error,
+                        error => io::Error::other(error),
+                    })?;
             cache.insert(CachedArchive {
                 path: path.to_path_buf(),
-                len,
-                modified,
-                entries: reader.entries().to_vec(),
+                stamp,
+                outer: archive.outer.clone(),
+                own: opened.own,
+                entries: opened.reader.entries().to_vec(),
             })
         }
     };
     let entries = &cached.entries;
-    let own = dir_entry(entries, &archive.inner).or_else(|| own_entry(path));
+    let own = dir_entry(entries, &archive.inner).or_else(|| match &cached.own {
+        Some(own) => Some(own.clone()),
+        None => own_entry(path),
+    });
     let entries = list_dir(entries, &archive.inner, cancelled)?;
     Ok(Directory { own, entries })
 }
@@ -665,9 +707,10 @@ mod tests {
     use std::time::Duration;
 
     use tempfile::TempDir;
-    use wafu_core::{Command, ConfigContent, ConfigFile};
+    use wafu_core::{ArchiveFormat, Command, ConfigContent, ConfigFile};
 
     use super::*;
+    use crate::archive::tests::{archive_bytes, write_archive};
     use crate::watch::tests::symlink;
 
     const TIMEOUT: Duration = Duration::from_secs(5);
@@ -863,6 +906,7 @@ mod tests {
                 path: archive.clone(),
                 entry: Some((
                     ArchivePath {
+                        outer: Vec::new(),
                         format: Some(wafu_core::ArchiveFormat::Tar),
                         inner: Vec::new(),
                     },
@@ -1226,6 +1270,49 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].name, "f.txt");
         assert_eq!(entries[0].size, 1);
+    }
+
+    #[test]
+    fn read_dir_keeps_the_tables_of_nested_archives_apart() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.zip");
+        let nested_c = archive_bytes(ArchiveFormat::Zip, &[("in_c.txt", b"c")]);
+        let nested_b = archive_bytes(ArchiveFormat::Zip, &[("in_b.txt", b"b")]);
+        write_archive(
+            &archive,
+            ArchiveFormat::Zip,
+            &[("c.zip", &nested_c), ("b.zip", &nested_b)],
+        );
+        let (runtime, events) = runtime();
+        let root = Location::archive_root(archive, Some(ArchiveFormat::Zip));
+        let c = root.nested_root("c.zip", Some(ArchiveFormat::Zip));
+        let b = root.nested_root("b.zip", Some(ArchiveFormat::Zip));
+
+        for (request, location) in (1..).zip([&c, &b, &root]) {
+            runtime.run(Effect::ReadDir {
+                side: Side::Left,
+                location: location.clone(),
+                request: RequestId(request),
+            });
+        }
+
+        let mut listed = Vec::new();
+        for _ in 0..3 {
+            let IoEvent::DirLoaded { result, .. } = events.recv_timeout(TIMEOUT).unwrap() else {
+                panic!("expected DirLoaded");
+            };
+            let directory = result.unwrap();
+            let names: Vec<OsString> = directory.entries.into_iter().map(|e| e.name).collect();
+            listed.push((directory.own.unwrap().name, names));
+        }
+        assert_eq!(
+            listed,
+            [
+                ("c.zip".into(), vec!["in_c.txt".into()]),
+                ("b.zip".into(), vec!["in_b.txt".into()]),
+                ("a.zip".into(), vec!["c.zip".into(), "b.zip".into()]),
+            ]
+        );
     }
 
     #[cfg(windows)]

@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use wafu_core::{IoError, OperationEvent, OperationKind, OperationSpec, Outcome, Reply, Sources};
 
+use crate::archive::NestedArchives;
 use crate::trash::trash;
 
 mod archives;
@@ -30,11 +31,13 @@ const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
 pub(crate) fn run_operation(
     spec: &OperationSpec,
     owner_window: Option<isize>,
+    nested: &NestedArchives,
     replies: &Receiver<Reply>,
     report: &dyn Fn(OperationEvent),
 ) {
     let mut worker = Worker {
         owner_window,
+        nested,
         replies,
         report,
         policy: None,
@@ -48,6 +51,7 @@ pub(crate) fn run_operation(
 
 struct Worker<'a> {
     owner_window: Option<isize>,
+    nested: &'a NestedArchives,
     replies: &'a Receiver<Reply>,
     report: &'a dyn Fn(OperationEvent),
     // "Apply to all" from an earlier conflict.
@@ -1333,8 +1337,10 @@ mod tests {
         let (_sender, replies) = mpsc::channel();
         let events = Mutex::new(Vec::new());
         let report = |event| events.lock().unwrap().push(event);
+        let nested = NestedArchives::default();
         let mut worker = Worker {
             owner_window: None,
+            nested: &nested,
             replies: &replies,
             report: &report,
             policy: None,
@@ -1371,7 +1377,13 @@ mod tests {
             }
         };
 
-        run_operation(&copy(&[src.join("big")], &dst), None, &replies, &report);
+        run_operation(
+            &copy(&[src.join("big")], &dst),
+            None,
+            &NestedArchives::default(),
+            &replies,
+            &report,
+        );
 
         assert!(!dst.join("big").exists());
         assert!(src.join("big").is_file());
@@ -1577,7 +1589,13 @@ mod tests {
             }
         };
 
-        run_operation(&calculate(&[dir.path().join("a")]), None, &replies, &report);
+        run_operation(
+            &calculate(&[dir.path().join("a")]),
+            None,
+            &NestedArchives::default(),
+            &replies,
+            &report,
+        );
 
         assert_eq!(outcome.into_inner().unwrap(), Some(Outcome::Cancelled));
     }
@@ -1705,8 +1723,10 @@ mod tests {
             }
             events.lock().unwrap().push(event);
         };
+        let nested = NestedArchives::default();
         let mut worker = Worker {
             owner_window: None,
+            nested: &nested,
             replies: &replies,
             report: &report,
             policy: None,

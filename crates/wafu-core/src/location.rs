@@ -12,10 +12,22 @@ pub struct Location {
 /// A directory inside an archive. An empty `inner` means the archive root.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ArchivePath {
+    /// The archives this one is an entry of, outermost first. `base` is the
+    /// file of the first of them, or of this archive when there are none.
+    pub outer: Vec<OuterArchive>,
     /// `None` when the name did not tell; the I/O layer then reads the
     /// format off the content.
     pub format: Option<ArchiveFormat>,
     pub inner: Vec<String>,
+}
+
+/// An archive that holds the next one in an [`ArchivePath`].
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct OuterArchive {
+    /// As [`ArchivePath::format`].
+    pub format: Option<ArchiveFormat>,
+    /// The path inside this archive of the archive it holds; never empty.
+    pub entry: Vec<String>,
 }
 
 /// An archive format the I/O layer can read and write. Adding one means
@@ -107,10 +119,51 @@ impl Location {
         Self {
             base,
             archive: Some(ArchivePath {
+                outer: Vec::new(),
                 format,
                 inner: Vec::new(),
             }),
         }
+    }
+
+    /// The root of the archive that is the entry `name` in this place inside
+    /// an archive.
+    #[must_use]
+    pub fn nested_root(&self, name: &str, format: Option<ArchiveFormat>) -> Self {
+        let archive = self
+            .archive
+            .as_ref()
+            .expect("nested_root is only used inside an archive");
+        let mut entry = archive.inner.clone();
+        entry.push(name.to_owned());
+        let mut outer = archive.outer.clone();
+        outer.push(OuterArchive {
+            format: archive.format,
+            entry,
+        });
+        Self {
+            base: self.base.clone(),
+            archive: Some(ArchivePath {
+                outer,
+                format,
+                inner: Vec::new(),
+            }),
+        }
+    }
+
+    /// The root of the innermost archive this place is in, or `None` outside
+    /// an archive.
+    #[must_use]
+    pub fn innermost_root(&self) -> Option<Self> {
+        let archive = self.archive.as_ref()?;
+        Some(Self {
+            base: self.base.clone(),
+            archive: Some(ArchivePath {
+                outer: archive.outer.clone(),
+                format: archive.format,
+                inner: Vec::new(),
+            }),
+        })
     }
 
     #[must_use]
@@ -122,7 +175,7 @@ impl Location {
     #[must_use]
     pub fn has_parent(&self) -> bool {
         match &self.archive {
-            Some(archive) if !archive.inner.is_empty() => true,
+            Some(archive) if !archive.inner.is_empty() || !archive.outer.is_empty() => true,
             _ => self.base.parent().is_some(),
         }
     }
@@ -138,7 +191,22 @@ impl Location {
                 Some(Self {
                     base: self.base.clone(),
                     archive: Some(ArchivePath {
+                        outer: archive.outer.clone(),
                         format: archive.format,
+                        inner,
+                    }),
+                })
+            }
+            Some(archive) if !archive.outer.is_empty() => {
+                let mut outer = archive.outer.clone();
+                let holder = outer.pop()?;
+                let mut inner = holder.entry;
+                inner.pop();
+                Some(Self {
+                    base: self.base.clone(),
+                    archive: Some(ArchivePath {
+                        outer,
+                        format: holder.format,
                         inner,
                     }),
                 })
@@ -156,6 +224,11 @@ impl Location {
     pub fn leaf_name(&self) -> Option<OsString> {
         match &self.archive {
             Some(archive) if !archive.inner.is_empty() => archive.inner.last().map(OsString::from),
+            Some(archive) if !archive.outer.is_empty() => archive
+                .outer
+                .last()
+                .and_then(|holder| holder.entry.last())
+                .map(OsString::from),
             _ => self.base.file_name().map(OsString::from),
         }
     }
@@ -198,7 +271,8 @@ impl fmt::Display for Location {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.base.display())?;
         if let Some(archive) = &self.archive {
-            for segment in &archive.inner {
+            let entries = archive.outer.iter().flat_map(|holder| &holder.entry);
+            for segment in entries.chain(&archive.inner) {
                 write!(f, "/{segment}")?;
             }
         }
@@ -226,6 +300,49 @@ mod tests {
         assert_eq!(root.parent(), Some(Location::new(PathBuf::from("/a/b"))));
         assert!(root.has_parent());
         assert_eq!(root.leaf_name(), Some(OsString::from("c.zip")));
+    }
+
+    #[test]
+    fn parent_of_a_nested_root_is_the_directory_holding_it_in_the_outer_archive() {
+        let root = nested(&[]);
+
+        assert_eq!(root.parent(), Some(inside(&["d"])));
+        assert!(root.has_parent());
+        assert_eq!(root.leaf_name(), Some(OsString::from("n.tar.gz")));
+    }
+
+    #[test]
+    fn parent_inside_a_nested_archive_stays_in_it() {
+        assert_eq!(nested(&["x", "y"]).parent(), Some(nested(&["x"])));
+    }
+
+    #[test]
+    fn nested_root_records_the_outer_archive_and_its_entry() {
+        let root = nested(&[]).nested_root("m.tar", Some(ArchiveFormat::Tar));
+
+        let archive = root.archive.unwrap();
+        assert_eq!(
+            archive.outer,
+            [
+                OuterArchive {
+                    format: Some(ArchiveFormat::Zip),
+                    entry: vec!["d".to_owned(), "n.tar.gz".to_owned()],
+                },
+                OuterArchive {
+                    format: Some(ArchiveFormat::TarGz),
+                    entry: vec!["m.tar".to_owned()],
+                },
+            ]
+        );
+        assert_eq!(archive.format, Some(ArchiveFormat::Tar));
+        assert_eq!(archive.inner, Vec::<String>::new());
+    }
+
+    #[test]
+    fn innermost_root_keeps_the_outer_archives() {
+        assert_eq!(nested(&["x", "y"]).innermost_root(), Some(nested(&[])));
+        assert_eq!(inside(&["d"]).innermost_root(), Some(inside(&[])));
+        assert_eq!(Location::new(PathBuf::from("/a")).innermost_root(), None);
     }
 
     #[test]
@@ -260,6 +377,11 @@ mod tests {
             Location::new(PathBuf::from("/a/b")).child_display(OsStr::new("f.txt")),
             PathBuf::from("/a/b").join("f.txt").to_string_lossy()
         );
+    }
+
+    #[test]
+    fn display_of_a_nested_archive_goes_through_the_outer_entries() {
+        assert_eq!(nested(&["x"]).to_string(), "/a/b/c.zip/d/n.tar.gz/x");
     }
 
     #[test]
@@ -306,9 +428,23 @@ mod tests {
         Location {
             base: PathBuf::from("/a/b/c.zip"),
             archive: Some(ArchivePath {
+                outer: Vec::new(),
                 format: Some(ArchiveFormat::Zip),
-                inner: segments.iter().map(|s| (*s).to_owned()).collect(),
+                inner: strings(segments),
             }),
         }
+    }
+
+    // `/a/b/c.zip/d/n.tar.gz`, then `segments` inside it.
+    fn nested(segments: &[&str]) -> Location {
+        let mut location = inside(&["d"]).nested_root("n.tar.gz", Some(ArchiveFormat::TarGz));
+        if let Some(archive) = &mut location.archive {
+            archive.inner = strings(segments);
+        }
+        location
+    }
+
+    fn strings(segments: &[&str]) -> Vec<String> {
+        segments.iter().map(|s| (*s).to_owned()).collect()
     }
 }

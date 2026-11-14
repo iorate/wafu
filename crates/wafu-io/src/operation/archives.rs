@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::fmt;
 use std::fs::{self, File, FileTimes};
@@ -13,8 +14,8 @@ use super::{
     open_for_times, refuse, refuse_io,
 };
 use crate::archive::{
-    ArchiveEntry, ArchiveEntryKind, ArchiveError, ArchiveReader, ArchiveWriter, UNSAFE_NAME,
-    check_component, create_archive, open_archive,
+    ArchiveEntry, ArchiveEntryKind, ArchiveError, ArchiveReader, ArchiveWriter, NOT_FOUND, Stamp,
+    UNSAFE_NAME, check_component, create_archive, open_archive,
 };
 
 const TEMP_PREFIX: &str = "wafu-";
@@ -59,12 +60,7 @@ impl Worker<'_> {
         entries: &ArchiveEntries,
         dest: &Path,
     ) -> Result<(), Stop> {
-        let mut extraction = Extraction::open(
-            &entries.archive,
-            entries.path.format,
-            entries.password.clone(),
-            dest,
-        )?;
+        let mut extraction = self.open_entries(entries, dest)?;
         let prefix = &entries.path.inner;
         let mut items: HashMap<&str, usize> = HashMap::new();
         for (item, name) in entries.names.iter().enumerate() {
@@ -92,10 +88,7 @@ impl Worker<'_> {
         {
             let mut components = prefix.clone();
             components.push(missing.clone());
-            return Err(failure(
-                &shown(&extraction.archive, &components),
-                "not found in the archive",
-            ));
+            return Err(failure(&shown(&extraction.archive, &components), NOT_FOUND));
         }
         // In archive order, since a tar is read front to back and going back
         // reads it again from the start.
@@ -169,6 +162,43 @@ impl Worker<'_> {
                 let _ = fs::remove_file(&out);
                 Err(stop)
             }
+        }
+    }
+
+    // A nested archive is named by the path of the entries leading to it, as
+    // its entries are.
+    fn open_entries(&self, entries: &ArchiveEntries, dest: &Path) -> Result<Extraction, Stop> {
+        let archive = entries
+            .path
+            .outer
+            .iter()
+            .fold(entries.archive.clone(), |path, outer| {
+                shown(&path, &outer.entry)
+            });
+        // A cancel is taken off the replies when seen, so it is remembered
+        // to tell the error it causes from others.
+        let cancelled = Cell::new(false);
+        let check = || {
+            if !cancelled.get() && self.check_cancel().is_err() {
+                cancelled.set(true);
+            }
+            cancelled.get()
+        };
+        let opened = Stamp::of(&entries.archive)
+            .map_err(ArchiveError::from)
+            .and_then(|stamp| {
+                self.nested
+                    .open(&entries.archive, stamp, &entries.path, &check)
+            });
+        match opened {
+            Ok(opened) => Ok(Extraction::new(
+                archive,
+                opened.reader,
+                entries.password.clone(),
+                dest,
+            )),
+            Err(_) if cancelled.get() => Err(Stop::Cancelled),
+            Err(error) => Err(failure(&archive, &error.to_string())),
         }
     }
 
@@ -495,15 +525,24 @@ impl Extraction {
     ) -> Result<Self, Stop> {
         let reader =
             open_archive(archive, format).map_err(|error| failure(archive, &error.to_string()))?;
-        Ok(Self {
-            archive: archive.to_path_buf(),
+        Ok(Self::new(archive.to_path_buf(), reader, password, dest))
+    }
+
+    fn new(
+        archive: PathBuf,
+        reader: Box<dyn ArchiveReader>,
+        password: Option<String>,
+        dest: &Path,
+    ) -> Self {
+        Self {
+            archive,
             reader,
             password,
             dest: dest.to_path_buf(),
             links: Vec::new(),
             dirs: Vec::new(),
             written: HashMap::new(),
-        })
+        }
     }
 }
 
@@ -636,11 +675,13 @@ mod tests {
 
     use tar::{EntryType, Header};
     use tempfile::TempDir;
-    use wafu_core::{ArchiveOutput, ArchivePath, OperationKind, Outcome, Sources};
+    use wafu_core::{ArchiveOutput, ArchivePath, OperationKind, Outcome, OuterArchive, Sources};
 
     use super::super::run_operation;
     use super::*;
+    use crate::archive::NestedArchives;
     use crate::archive::tar::header_of;
+    use crate::archive::tests::{archive_bytes, write_archive};
     use crate::archive::zip::ZipArchiveWriter;
 
     const MODIFIED: SystemTime = SystemTime::UNIX_EPOCH;
@@ -783,8 +824,10 @@ mod tests {
                 sender.send(Reply::Overwrite { all: false }).unwrap();
             }
         };
+        let nested = NestedArchives::default();
         let mut worker = Worker {
             owner_window: None,
+            nested: &nested,
             replies: &replies,
             report: &report,
             policy: None,
@@ -1329,7 +1372,7 @@ mod tests {
             }
         };
 
-        run_operation(&spec, None, &replies, &report);
+        run_operation(&spec, None, &NestedArchives::default(), &replies, &report);
 
         assert_eq!(link_at_done.into_inner().unwrap(), [(0, true), (1, true)]);
     }
@@ -1539,7 +1582,7 @@ mod tests {
             events.lock().unwrap().push(event);
         };
 
-        run_operation(&spec, None, &replies, &report);
+        run_operation(&spec, None, &NestedArchives::default(), &replies, &report);
 
         assert!(matches!(
             events.into_inner().unwrap().last(),
@@ -1567,6 +1610,94 @@ mod tests {
             Outcome::Failed { path, error, .. }
                 if path == archive.join("missing") && error.to_string() == "not found in the archive"
         ));
+    }
+
+    #[test]
+    fn entries_of_a_nested_archive_are_copied_out() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.zip");
+        let nested = archive_bytes(ArchiveFormat::TarGz, &[("d/f.txt", b"nested")]);
+        write_archive(&archive, ArchiveFormat::Zip, &[("x/n.tar.gz", &nested)]);
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        let mut spec = copy_entries(&archive, &["d"], &["f.txt"], &dest);
+        if let Sources::Entries(entries) = &mut spec.sources {
+            entries.path.outer = vec![OuterArchive {
+                format: Some(ArchiveFormat::Zip),
+                entry: vec!["x".to_owned(), "n.tar.gz".to_owned()],
+            }];
+            entries.path.format = Some(ArchiveFormat::TarGz);
+        }
+
+        let (outcome, done, _) = run(&spec, []);
+
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(done, 1);
+        assert_eq!(fs::read(dest.join("f.txt")).unwrap(), b"nested");
+    }
+
+    #[test]
+    fn the_password_of_a_nested_archive_is_asked_for_under_its_path() {
+        let dir = TempDir::new().unwrap();
+        let inner = dir.path().join("inner.zip");
+        write_zip(&inner, Some("secret"), |writer| {
+            writer
+                .add_file("a.txt", 1, None, None, &mut &b"a"[..])
+                .unwrap();
+        });
+        let archive = dir.path().join("a.zip");
+        write_archive(
+            &archive,
+            ArchiveFormat::Zip,
+            &[("n.zip", &fs::read(&inner).unwrap())],
+        );
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        let mut spec = copy_entries(&archive, &[], &["a.txt"], &dest);
+        if let Sources::Entries(entries) = &mut spec.sources {
+            entries.path.outer = vec![OuterArchive {
+                format: Some(ArchiveFormat::Zip),
+                entry: vec!["n.zip".to_owned()],
+            }];
+        }
+
+        let (outcome, _, events) = run(&spec, [Reply::Password("secret".to_owned())]);
+
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert!(events.iter().any(|event| matches!(
+            event,
+            OperationEvent::NeedPassword { archive: asked, .. } if *asked == archive.join("n.zip")
+        )));
+    }
+
+    #[test]
+    fn a_cancel_while_a_nested_archive_is_copied_out_stops_the_copy_as_cancelled() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.zip");
+        let nested = archive_bytes(ArchiveFormat::Zip, &[("f.txt", b"f")]);
+        write_archive(&archive, ArchiveFormat::Zip, &[("n.zip", &nested)]);
+        let mut entries = entries(&archive, &[], &["f.txt"], None);
+        entries.path.outer = vec![OuterArchive {
+            format: Some(ArchiveFormat::Zip),
+            entry: vec!["n.zip".to_owned()],
+        }];
+        let (sender, replies) = mpsc::channel();
+        sender.send(Reply::Cancel).unwrap();
+        let store = NestedArchives::default();
+        let worker = Worker {
+            owner_window: None,
+            nested: &store,
+            replies: &replies,
+            report: &|_| {},
+            policy: None,
+            done: 0,
+            skipped: 0,
+            last_progress: None,
+        };
+
+        let result = worker.open_entries(&entries, dir.path());
+
+        assert!(matches!(result, Err(Stop::Cancelled)));
     }
 
     #[test]
@@ -1821,6 +1952,7 @@ mod tests {
         run_operation(
             &compress(&[src], &dest, "a.zip", None),
             None,
+            &NestedArchives::default(),
             &replies,
             &|event| {
                 events.lock().unwrap().push(event);
@@ -1884,8 +2016,10 @@ mod tests {
             }
             events.lock().unwrap().push(event);
         };
+        let nested = NestedArchives::default();
         let mut worker = Worker {
             owner_window: None,
+            nested: &nested,
             replies: &replies,
             report: &report,
             policy: None,
@@ -1963,6 +2097,7 @@ mod tests {
         ArchiveEntries {
             archive: archive.to_path_buf(),
             path: ArchivePath {
+                outer: Vec::new(),
                 format: ArchiveFormat::from_name(archive.file_name().unwrap()),
                 inner: inner.iter().map(|s| (*s).to_owned()).collect(),
             },

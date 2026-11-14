@@ -41,7 +41,7 @@ pub use entry::{
 };
 pub use error::IoError;
 pub use key::KeyInput;
-pub use location::{ArchiveFormat, ArchivePath, Location};
+pub use location::{ArchiveFormat, ArchivePath, Location, OuterArchive};
 pub use operation::{
     ArchiveEntries, ArchiveOutput, OperationEvent, OperationKind, OperationSpec, Outcome, Reply,
     Sources,

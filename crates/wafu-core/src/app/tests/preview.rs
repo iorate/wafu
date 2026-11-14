@@ -340,6 +340,7 @@ fn e_on_an_archive_entry_extracts_it_with_the_preview_password_and_then_starts_t
             sources: Sources::Entries(ArchiveEntries {
                 archive: PathBuf::from(LEFT).join("a.zip"),
                 path: ArchivePath {
+                    outer: Vec::new(),
                     format: Some(ArchiveFormat::Zip),
                     inner: Vec::new(),
                 },
@@ -1492,6 +1493,7 @@ fn entry_source(name: &str, password: Option<&str>) -> PreviewSource {
         path: PathBuf::from(LEFT).join("a.zip"),
         entry: Some((
             ArchivePath {
+                outer: Vec::new(),
                 format: Some(ArchiveFormat::Zip),
                 inner: Vec::new(),
             },

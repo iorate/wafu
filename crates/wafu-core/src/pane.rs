@@ -276,9 +276,11 @@ impl Pane {
     /// Replaces the location and empties the listing until the new one arrives.
     /// Marks belong to the old location and are dropped; the filter stays.
     pub fn set_location(&mut self, location: Location, pending_cursor: Option<OsString>) {
-        let same_archive = location.in_archive()
-            && self.location.in_archive()
-            && location.base == self.location.base;
+        let same_archive = location.base == self.location.base
+            && match (&location.archive, &self.location.archive) {
+                (Some(new), Some(old)) => new.outer == old.outer,
+                _ => false,
+            };
         if !same_archive {
             self.archive_password = None;
         }
@@ -1012,6 +1014,17 @@ mod tests {
             Location::archive_root(PathBuf::from("/a/y.zip"), Some(ArchiveFormat::Zip)),
             None,
         );
+        assert_eq!(pane.archive_password(), None);
+    }
+
+    #[test]
+    fn set_location_drops_the_archive_password_for_another_archive_in_the_same_file() {
+        let root = Location::archive_root(PathBuf::from("/a/x.zip"), Some(ArchiveFormat::Zip));
+        let mut pane = Pane::new(root.clone());
+        pane.set_archive_password(Some("pw".to_owned()));
+
+        pane.set_location(root.nested_root("n.zip", Some(ArchiveFormat::Zip)), None);
+
         assert_eq!(pane.archive_password(), None);
     }
 

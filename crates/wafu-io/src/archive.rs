@@ -11,11 +11,13 @@ use wafu_core::{ArchiveFormat, Entry, EntryKind, Permissions, TargetKind};
 use crate::time::timestamp;
 
 mod names;
+mod nested;
 mod shared;
 pub(crate) mod tar;
 pub(crate) mod zip;
 
 pub(crate) use names::{UNSAFE_NAME, check_component};
+pub(crate) use nested::{LaneArchives, NestedArchives, Stamp};
 
 use self::shared::SharedFile;
 use self::tar::Compression;
@@ -25,6 +27,7 @@ const CANCEL_CHECK_INTERVAL: usize = 256;
 const SNIFF_LEN: usize = 512;
 const TAR_CHECKSUM: std::ops::Range<usize> = 148..156;
 const NOT_ARCHIVE: &str = "not an archive";
+pub(crate) const NOT_FOUND: &str = "not found in the archive";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ArchiveEntry {
@@ -110,7 +113,13 @@ pub(crate) fn open_archive(
     path: &Path,
     format: Option<ArchiveFormat>,
 ) -> Result<Box<dyn ArchiveReader>, ArchiveError> {
-    let file = SharedFile::new(File::open(path)?);
+    open_file(SharedFile::new(File::open(path)?), format)
+}
+
+fn open_file(
+    file: SharedFile,
+    format: Option<ArchiveFormat>,
+) -> Result<Box<dyn ArchiveReader>, ArchiveError> {
     let detected = format.is_none();
     let format = match format {
         Some(format) => format,
@@ -346,8 +355,10 @@ fn is_hidden(name: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::time::Duration;
+
+    use tempfile::TempDir;
 
     use super::*;
 
@@ -505,6 +516,25 @@ mod tests {
         let error = list_dir(&entries, &[], || true).unwrap_err();
 
         assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+    }
+
+    // An archive of `files`, each a path and its content.
+    pub(crate) fn write_archive(path: &Path, format: ArchiveFormat, files: &[(&str, &[u8])]) {
+        let mut writer = create_archive(File::create(path).unwrap(), format, None).unwrap();
+        for (name, data) in files {
+            writer
+                .add_file(name, data.len() as u64, None, None, &mut &data[..])
+                .unwrap();
+        }
+        writer.finish().unwrap();
+    }
+
+    // What `write_archive` writes, to put in another archive.
+    pub(crate) fn archive_bytes(format: ArchiveFormat, files: &[(&str, &[u8])]) -> Vec<u8> {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a");
+        write_archive(&path, format, files);
+        std::fs::read(path).unwrap()
     }
 
     fn file(components: &[&str], size: u64) -> ArchiveEntry {

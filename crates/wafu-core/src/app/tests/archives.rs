@@ -1389,6 +1389,7 @@ fn an_external_command_on_the_parent_row_with_marks_extracts_the_marks_alone() {
         Sources::Entries(ArchiveEntries {
             archive: archive(),
             path: ArchivePath {
+                outer: Vec::new(),
                 format: Some(ArchiveFormat::Zip),
                 inner: vec!["docs".to_owned()],
             },
@@ -1755,6 +1756,7 @@ fn entries(names: &[&str], password: Option<&str>) -> ArchiveEntries {
     ArchiveEntries {
         archive: archive(),
         path: ArchivePath {
+            outer: Vec::new(),
             format: Some(ArchiveFormat::Zip),
             inner: Vec::new(),
         },

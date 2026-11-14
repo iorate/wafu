@@ -423,8 +423,8 @@ impl App {
 
     pub(super) fn go_root(&mut self, effects: &mut Vec<Effect>) {
         let location = self.active_pane().location();
-        let target = match &location.archive {
-            Some(archive) => Location::archive_root(location.base.clone(), archive.format),
+        let target = match location.innermost_root() {
+            Some(root) => root,
             None => match root_of(&location.base) {
                 Some(root) => Location::new(root),
                 None => return,
