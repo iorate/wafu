@@ -5336,7 +5336,7 @@ dependencies = [
 
 [[package]]
 name = "wafu"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "clap",
  "raw-window-handle",
@@ -5349,7 +5349,7 @@ dependencies = [
 
 [[package]]
 name = "wafu-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chardetng",
  "encoding_rs",
@@ -5364,7 +5364,7 @@ dependencies = [
 
 [[package]]
 name = "wafu-io"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "arboard",
  "bzip2",
