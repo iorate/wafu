@@ -26,7 +26,7 @@
     {
       "description": "Batch minor and patch updates weekly; everything else is raised as soon as it is available",
       "matchUpdateTypes": ["minor", "patch"],
-      "schedule": ["* 15-23 * * 4", "* 0-14 * * 5"]
+      "schedule": ["* 15-23 * * 4", "* 0-8 * * 5"]
     },
     {
       "description": "First-party actions; update immediately in their own group",
@@ -47,6 +47,6 @@
     }
   ],
   "lockFileMaintenance": {
-    "schedule": ["* 15-23 * * 5"]
+    "schedule": ["* 9-23 * * 5"]
   }
 }
