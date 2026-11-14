@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::{self, Cursor, Read};
 use std::path::PathBuf;
 
-use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, ImageResult};
+use image::{DynamicImage, ImageDecoder, ImageReader, ImageResult};
 use wafu_core::{
     Document, ImageData, IoError, OuterArchive, PREVIEW_LIMIT, PreviewSource, ReadError,
 };
@@ -49,7 +49,6 @@ pub(crate) fn load_image(
 
 fn decode_image(bytes: &[u8]) -> ImageResult<ImageData> {
     let reader = ImageReader::new(Cursor::new(bytes)).with_guessed_format()?;
-    let format = reader.format().map_or("", format_name);
     let mut decoder = reader.into_decoder()?;
     let orientation = decoder.orientation()?;
     let mut image = DynamicImage::from_decoder(decoder)?;
@@ -60,20 +59,7 @@ fn decode_image(bytes: &[u8]) -> ImageResult<ImageData> {
         width,
         height,
         rgba: image.into_raw(),
-        format,
     })
-}
-
-fn format_name(format: ImageFormat) -> &'static str {
-    match format {
-        ImageFormat::Png => "png",
-        ImageFormat::Jpeg => "jpeg",
-        ImageFormat::Gif => "gif",
-        ImageFormat::Bmp => "bmp",
-        ImageFormat::WebP => "webp",
-        ImageFormat::Ico => "ico",
-        other => other.extensions_str().first().copied().unwrap_or(""),
-    }
 }
 
 fn load_image_limited(

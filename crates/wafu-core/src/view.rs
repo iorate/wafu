@@ -200,10 +200,8 @@ pub enum ItemKind {
 pub struct PreviewView {
     pub placement: PreviewPlacement,
     pub content: PreviewContent,
-    /// What the overlay in the corner says: the encoding of a document in
-    /// text mode, or the format of the image and whether its entry is
-    /// marked. Empty when there is nothing to say.
-    pub detail: String,
+    /// Whether the entry of the image is marked. Never set for a document.
+    pub marked: bool,
 }
 
 /// Where a preview is drawn.

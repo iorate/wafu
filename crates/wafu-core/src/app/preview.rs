@@ -341,16 +341,12 @@ impl App {
     pub(super) fn preview_view(&self) -> Option<PreviewView> {
         Some(match self.preview.as_ref()? {
             Preview::Document(preview) => {
-                let (lines, digits, detail) = match &preview.document {
+                let (lines, digits) = match &preview.document {
                     Some(document) => (
                         document.lines(preview.mode, preview.scroll_top, self.preview_rows),
                         document.digits(preview.mode),
-                        match preview.mode {
-                            DocumentMode::Text => document.encoding.to_lowercase(),
-                            DocumentMode::Binary => String::new(),
-                        },
                     ),
-                    None => (Vec::new(), 0, String::new()),
+                    None => (Vec::new(), 0),
                 };
                 PreviewView {
                     placement: PreviewPlacement::Full,
@@ -359,7 +355,7 @@ impl App {
                         digits,
                         hex_dump: preview.mode == DocumentMode::Binary,
                     },
-                    detail,
+                    marked: false,
                 }
             }
             Preview::Image(preview) => {
@@ -367,21 +363,13 @@ impl App {
                 let marked = pane
                     .cursor_entry()
                     .is_some_and(|entry| pane.is_marked(entry));
-                let detail = preview
-                    .image
-                    .as_ref()
-                    .map(|image| image.format)
-                    .into_iter()
-                    .chain(marked.then_some("marked"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
                 PreviewView {
                     placement: preview.placement,
                     content: match &preview.error {
                         Some(error) => PreviewContent::Message(show_line_breaks(error.clone())),
                         None => PreviewContent::Image(preview.image.clone().map(SharedImage)),
                     },
-                    detail,
+                    marked,
                 }
             }
         })

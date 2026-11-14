@@ -106,7 +106,6 @@ pub struct ImageData {
     pub width: u32,
     pub height: u32,
     pub rgba: Vec<u8>,
-    pub format: &'static str,
 }
 
 impl Document {
