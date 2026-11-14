@@ -643,6 +643,29 @@ fn the_last_image_stays_until_the_next_one_arrives() {
 }
 
 #[test]
+fn the_mark_shown_is_that_of_the_image_on_screen() {
+    let mut harness = image();
+    harness.image_loaded(1, 1);
+
+    harness.press("Space");
+
+    assert_eq!(harness.cursor_name(Side::Left), "two.JPG");
+    assert!(harness.view().preview.unwrap().marked);
+
+    harness.image_loaded(1, 1);
+
+    assert!(!harness.view().preview.unwrap().marked);
+
+    harness.press("Up");
+
+    assert!(!harness.view().preview.unwrap().marked);
+
+    harness.image_loaded(1, 1);
+
+    assert!(harness.view().preview.unwrap().marked);
+}
+
+#[test]
 fn a_loading_image_shows_progress_until_it_arrives() {
     let mut harness = image();
 
@@ -718,7 +741,6 @@ fn image_keys_are_the_cursor_and_mark_keys_of_the_image_context() {
     assert_eq!(harness.marks(Side::Left), ["one.png"]);
     assert_eq!(harness.cursor_name(Side::Left), "two.JPG");
     harness.press("Up");
-    assert!(harness.view().preview.unwrap().marked);
     harness.take_effects();
 
     harness.press("C");

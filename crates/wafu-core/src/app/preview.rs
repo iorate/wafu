@@ -35,6 +35,7 @@ impl App {
                 placement,
                 shown: None,
                 loading: None,
+                displayed: None,
                 image: None,
                 error: None,
             }));
@@ -258,6 +259,7 @@ impl App {
         preview.loading = None;
         match result {
             Ok(image) => {
+                preview.displayed.clone_from(&preview.shown);
                 preview.image = Some(Arc::new(image));
                 preview.error = None;
             }
@@ -272,6 +274,7 @@ impl App {
                     source,
                 }
                 .to_string();
+                preview.displayed.clone_from(&preview.shown);
                 preview.image = None;
                 preview.error = Some(line.clone());
                 self.log.push(line);
@@ -359,10 +362,13 @@ impl App {
                 }
             }
             Preview::Image(preview) => {
-                let pane = self.active_pane();
-                let marked = pane
-                    .cursor_entry()
-                    .is_some_and(|entry| pane.is_marked(entry));
+                // The mark is that of the image on screen, not of the cursor
+                // entry, so that the background changes together with the image.
+                let marked = (preview.image.is_some() || preview.error.is_some())
+                    && preview
+                        .displayed
+                        .as_deref()
+                        .is_some_and(|name| self.active_pane().is_marked(name));
                 PreviewView {
                     placement: preview.placement,
                     content: match &preview.error {
@@ -513,6 +519,8 @@ pub(crate) struct ImagePreview {
     // The entry being shown or requested; `None` when the cursor is not on an image.
     shown: Option<OsString>,
     loading: Option<RequestId>,
+    // The entry whose image or message is on screen; stale while neither is.
+    displayed: Option<OsString>,
     image: Option<Arc<ImageData>>,
     error: Option<String>,
 }
