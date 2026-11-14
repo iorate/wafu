@@ -1,5 +1,49 @@
 # wafu
 
+## 0.3.0
+
+### Minor Changes
+
+- Log messages now start with a capital letter and follow one format. An operation names the item it was run on, or counts the selected items rather than the files inside them, as in "Copied docs".
+
+- Shift+I (calculate_size) logs the number of files and directories and the total size of the marked items, or of the item under the cursor, counting what is inside directories. Symbolic links are not followed and count as nothing.
+
+- I (calculate_size_on_disk) logs the space the marked items, or the item under the cursor, take up on disk, counting what is inside directories. On macOS and Linux, the space of a file with several hard links is counted once.
+
+- The image viewer shows the "Loading" popup while an image takes more than a moment to load, as the text viewer does. Moving to another image before it appears starts the wait over, so that it stays out of the way while you move through images quickly.
+
+- Regular files can be colored by extension with the new `[colors.light.extensions]` and `[colors.dark.extensions]` tables, as in `zip = "#a02020"`. Directories, executables, links, and other kinds keep their own color.
+
+- `history` (H) now narrows its list as you type, like the command palette: to the paths that contain the text, ignoring case. The 0-9 and A-Z keys no longer pick a place in the history at once.
+
+- The previews no longer show the encoding, the image format, and whether the image is marked in a corner of the window. Instead, the preview of a marked image has the background color of marked rows.
+
+- Add the `open_alternative` command (`Shift+Enter` in the file list), which opens the item under the cursor in the program set for directories or for its extension in `[open_alternative]`, and does what `open` does when none is set.
+
+- The configuration file created on first launch now contains only a link to the new configuration reference, docs/configuration.md. Existing configuration files are not changed.
+
+- `search` (F) now finds the text anywhere in a name, not only at its start. Set `search_matches_anywhere = false` in `[filelist]` to match only the start as before.
+
+- An empty string in the configuration now means the item is not set, so a configuration file can take back what a file it extends set, such as `pdf = ""` for an `open_alternative` rule. In a key table, `""` restores the built-in binding.
+
+- A configuration file can name other files as its base with `extends`, so that settings shared between machines live in one file and each machine keeps only its differences. The per-OS `[os.*]` sections are removed in its favor.
+
+- The filter now stays when the pane moves to another directory or archive, until it is cleared or replaced. It is not saved when wafu exits.
+
+- Add `[preview.image]` with `from_left` and `from_right`, which choose whether an image opened from each pane is previewed in place of the other pane (`"other_pane"`) or of both panes (`"both_panes"`). `hide_log_in_preview` is replaced by `hide_log` in `[preview.text]` and in `[preview.image]`.
+
+- Bookmarks take their key from a new `key` item in `[[bookmarks]]`: one digit or letter, such as `key = "D"`. The bookmarks popup no longer gives 0-9 and A-Z to the bookmarks in order, so a bookmark without `key` is picked with the arrow keys and Enter.
+
+- Archives inside archives can now be entered and browsed like any other archive, and extract works on archives inside an archive, unpacking them into the other pane.
+
+- The configuration tables are reorganized: `[general]` is split into `[filelist]` (where `mkdir_then_enter` is now `mkdir_enters_dir`) and `[programs]` (`editor`, `use_login_shell_env`), `[appearance.font]` is now `[font]`, `theme` moves to `[colors]` and `size_format` to `[filelist]`, and `cursor-inactive` is now `cursor_inactive`. Items under the old names are reported as unknown and ignored.
+
+- The text preview's encoding can now be chosen from a searchable list with C (preview_encoding), or set back to auto-detection. The choice lasts until the preview is closed.
+
+- In the directory history list, Tab switches between the histories of the left and right panes. A place picked from the other pane's history opens in the active pane.
+
+- The color of line numbers in the text preview can be set with `line_number` in `[colors.light]` and `[colors.dark]`, and how faint hidden items look with `hidden_opacity` in `[colors]`. Line numbers no longer follow `fg` and `bg`: nothing changes with the default colors, but if you changed those, set `line_number` to match.
+
 ## 0.2.0
 
 ### Minor Changes
