@@ -229,15 +229,15 @@ impl Pane {
     }
 
     #[must_use]
-    pub fn is_marked(&self, entry: &Entry) -> bool {
-        self.marks.contains(&entry.name)
+    pub fn is_marked(&self, name: &OsStr) -> bool {
+        self.marks.contains(name)
     }
 
     /// The marked entries in display order.
     pub fn marked_entries(&self) -> impl Iterator<Item = &Entry> {
         self.listing
             .visible_entries()
-            .filter(|entry| self.is_marked(entry))
+            .filter(|entry| self.is_marked(&entry.name))
     }
 
     /// The number of marked entries and their total size, excluding directories.
@@ -691,7 +691,7 @@ impl Pane {
 
     fn row_is_marked(&self, row: usize) -> bool {
         self.entry_at(row)
-            .is_some_and(|entry| self.is_marked(entry))
+            .is_some_and(|entry| self.is_marked(&entry.name))
     }
 
     fn row_starts_with(&self, row: usize, lower_prefix: &str) -> bool {
@@ -787,7 +787,7 @@ impl Pane {
             .chain(
                 self.listing
                     .visible_entries()
-                    .map(|entry| self.is_marked(entry)),
+                    .map(|entry| self.is_marked(&entry.name)),
             )
             .collect();
     }

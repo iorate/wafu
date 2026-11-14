@@ -681,7 +681,7 @@ impl Ui {
                     kind,
                     hex_dump,
                     message: message.into(),
-                    detail: preview.detail.as_str().into(),
+                    marked: preview.marked,
                 };
                 (
                     lines.iter().map(preview_line).collect(),

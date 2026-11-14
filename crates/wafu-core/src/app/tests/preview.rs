@@ -47,7 +47,6 @@ fn enter_on_a_text_file_opens_an_empty_preview_and_reads_the_file() {
             hex_dump: false,
         }
     );
-    assert_eq!(preview.detail, "");
     // The progress popup is held back by the UI for a moment.
     assert!(view.popup.is_some_and(|popup| popup.progress));
 }
@@ -77,12 +76,11 @@ fn enter_on_an_executable_image_previews_it() {
 }
 
 #[test]
-fn a_loaded_document_shows_its_lines_and_encoding() {
+fn a_loaded_document_shows_its_lines() {
     let mut harness = document();
 
     let view = harness.view();
     let preview = view.preview.unwrap();
-    assert_eq!(preview.detail, "utf-8");
     assert_eq!(harness.preview_lines(), ["l0", "l1", "l2"]);
     assert_eq!(harness.preview_numbers(), ["1", "2", "3"]);
     assert!(matches!(
@@ -150,7 +148,6 @@ fn tab_switches_to_the_hex_dump_and_back_from_the_top() {
     assert!(lines[0].starts_with("6c 30 0a 6c 31 0a"));
     assert_eq!(harness.preview_numbers(), ["00000000", "00000010"]);
     let preview = harness.view().preview.unwrap();
-    assert_eq!(preview.detail, "");
     assert!(matches!(
         preview.content,
         PreviewContent::Lines { hex_dump: true, .. }
@@ -241,7 +238,6 @@ fn a_picked_encoding_shows_text_from_the_top_even_from_the_hex_dump() {
     ));
 
     assert_eq!(harness.preview_lines(), ["a\0", "b"]);
-    assert_eq!(harness.view().preview.unwrap().detail, "shift_jis");
 }
 
 #[test]
@@ -384,7 +380,6 @@ fn a_binary_file_opens_as_a_hex_dump_with_the_note() {
     assert!(lines[0].starts_with("61 62 00"));
     assert_eq!(lines[1], truncated_note());
     assert_eq!(harness.preview_numbers(), ["00000000", ""]);
-    assert_eq!(harness.view().preview.unwrap().detail, "");
 }
 
 #[test]
@@ -514,7 +509,6 @@ fn an_image_opened_from_the_left_pane_uses_the_right_area_and_follows_the_cursor
     let preview = harness.view().preview.unwrap();
     assert_eq!(preview.placement, PreviewPlacement::RightPane);
     assert_eq!(preview.content, PreviewContent::Image(None));
-    assert_eq!(preview.detail, "");
 
     // Moving on before the image arrives drops the request.
     harness.press("Down");
@@ -541,7 +535,6 @@ fn an_image_opened_from_the_left_pane_uses_the_right_area_and_follows_the_cursor
     assert_eq!(harness.take_effects(), vec![]);
     let preview = harness.view().preview.unwrap();
     assert_eq!(preview.content, PreviewContent::Image(None));
-    assert_eq!(preview.detail, "");
 
     harness.press("Up");
 
@@ -567,7 +560,6 @@ fn a_special_file_named_like_an_image_is_not_requested() {
     assert_eq!(harness.take_effects(), vec![]);
     let preview = harness.view().preview.unwrap();
     assert_eq!(preview.content, PreviewContent::Image(None));
-    assert_eq!(preview.detail, "");
 }
 
 #[test]
@@ -583,7 +575,6 @@ fn a_directory_named_like_an_image_is_not_requested() {
     assert_eq!(harness.take_effects(), vec![]);
     let preview = harness.view().preview.unwrap();
     assert_eq!(preview.content, PreviewContent::Image(None));
-    assert_eq!(preview.detail, "");
 }
 
 #[test]
@@ -603,7 +594,6 @@ fn a_broken_link_named_like_an_image_is_not_requested() {
     assert_eq!(harness.take_effects(), vec![]);
     let preview = harness.view().preview.unwrap();
     assert_eq!(preview.content, PreviewContent::Image(None));
-    assert_eq!(preview.detail, "");
 }
 
 #[test]
@@ -630,7 +620,6 @@ fn a_link_inside_an_archive_named_like_an_image_is_not_requested() {
     assert_eq!(harness.take_effects(), vec![]);
     let preview = harness.view().preview.unwrap();
     assert_eq!(preview.content, PreviewContent::Image(None));
-    assert_eq!(preview.detail, "");
 }
 
 #[test]
@@ -644,7 +633,6 @@ fn the_last_image_stays_until_the_next_one_arrives() {
         harness.view().preview.unwrap().content,
         PreviewContent::Image(Some(_))
     ));
-    assert_eq!(harness.view().preview.unwrap().detail, "png");
 
     harness.image_loaded(3, 3);
 
@@ -652,6 +640,57 @@ fn the_last_image_stays_until_the_next_one_arrives() {
         panic!("expected an image");
     };
     assert_eq!(image.0.width, 3);
+}
+
+#[test]
+fn the_mark_shown_is_that_of_the_image_on_screen() {
+    let mut harness = image();
+    harness.image_loaded(1, 1);
+
+    harness.press("Space");
+
+    assert_eq!(harness.cursor_name(Side::Left), "two.JPG");
+    assert!(harness.view().preview.unwrap().marked);
+
+    harness.image_loaded(1, 1);
+
+    assert!(!harness.view().preview.unwrap().marked);
+
+    harness.press("Up");
+
+    assert!(!harness.view().preview.unwrap().marked);
+
+    harness.image_loaded(1, 1);
+
+    assert!(harness.view().preview.unwrap().marked);
+}
+
+#[test]
+fn a_preview_showing_nothing_is_not_marked() {
+    let mut harness = image();
+    harness.image_loaded(1, 1);
+    harness.press("Space");
+    harness.press("Down");
+
+    assert_eq!(harness.cursor_name(Side::Left), "zzz.txt");
+    let preview = harness.view().preview.unwrap();
+    assert_eq!(preview.content, PreviewContent::Image(None));
+    assert!(!preview.marked);
+}
+
+#[test]
+fn the_message_of_a_marked_image_is_marked() {
+    let mut harness = image();
+    harness.image_loaded(1, 1);
+    harness.press("Space");
+    harness.image_loaded(1, 1);
+    harness.press("Up");
+
+    harness.fail_image(ReadError::Failed(IoError::new("bad png")));
+
+    let preview = harness.view().preview.unwrap();
+    assert!(matches!(preview.content, PreviewContent::Message(_)));
+    assert!(preview.marked);
 }
 
 #[test]
@@ -730,7 +769,6 @@ fn image_keys_are_the_cursor_and_mark_keys_of_the_image_context() {
     assert_eq!(harness.marks(Side::Left), ["one.png"]);
     assert_eq!(harness.cursor_name(Side::Left), "two.JPG");
     harness.press("Up");
-    assert_eq!(harness.view().preview.unwrap().detail, "png, marked");
     harness.take_effects();
 
     harness.press("C");
@@ -816,7 +854,6 @@ fn a_stale_image_is_discarded() {
             width: 1,
             height: 1,
             rgba: vec![0; 4],
-            format: "png",
         }),
     }));
 
@@ -1226,7 +1263,6 @@ fn esc_on_the_password_of_an_encrypted_image_clears_the_previous_image() {
     harness.press("Down");
     harness.press("Enter");
     harness.image_loaded(1, 1);
-    assert_eq!(harness.view().preview.unwrap().detail, "png");
 
     harness.press("Down");
     harness.fail_image(ReadError::PasswordRequired {
@@ -1238,7 +1274,6 @@ fn esc_on_the_password_of_an_encrypted_image_clears_the_previous_image() {
     let preview = harness.view().preview.unwrap();
     assert!(harness.view().popup.is_none());
     assert_eq!(preview.content, PreviewContent::Image(None));
-    assert_eq!(preview.detail, "");
 }
 
 #[test]

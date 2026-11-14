@@ -1,4 +1,3 @@
-import { Palette } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 
 export struct PreviewData {
@@ -10,7 +9,7 @@ export struct PreviewData {
     kind: int,
     hex-dump: bool,
     message: string,
-    detail: string,
+    marked: bool,
 }
 
 export struct PreviewLine {
@@ -52,7 +51,7 @@ export component PreviewWidget inherits Rectangle {
     }
 
     clip: true;
-    background: Theme.colors.bg;
+    background: root.data.marked ? Theme.colors.mark : Theme.colors.bg;
 
     measure := Text {
         text: "0";
@@ -129,24 +128,6 @@ export component PreviewWidget inherits Rectangle {
         font-family: Theme.preview-font-family;
         font-size: Theme.preview-font-size;
         color: Theme.colors.fg;
-    }
-
-    if root.data.covers-left && root.data.covers-right && root.data.detail != "": Rectangle {
-        width: overlay.preferred-width + 16px;
-        height: overlay.preferred-height + 8px;
-        x: root.width - self.width - 8px;
-        y: root.height - self.height - 8px;
-        background: Palette.alternate-background.with-alpha(0.85);
-        border-width: 1px;
-        border-color: Palette.border;
-        border-radius: 4px;
-
-        overlay := Text {
-            text: root.data.detail;
-            font-family: Theme.preview-font-family;
-            font-size: Theme.preview-font-size;
-            color: Palette.foreground;
-        }
     }
 
     // The core owns the scroll position; a single click does nothing in a preview.

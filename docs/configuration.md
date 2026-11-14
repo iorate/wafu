@@ -177,7 +177,7 @@ size = 16
 | `fg` | Text: regular files and the rest of the window's text |
 | `bg` | Background |
 | `line_number` | Line numbers in the text preview, and offsets in its binary mode |
-| `mark` | Background of marked rows |
+| `mark` | Background of marked rows and of the preview of a marked image |
 | `cursor` | The cursor line |
 | `cursor_inactive` | The cursor line while the window is not focused |
 | `dir` | Directories |
