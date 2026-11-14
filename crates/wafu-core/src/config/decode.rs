@@ -123,7 +123,22 @@ impl<'a> Reader<'a> {
         }
     }
 
+    // TOML has no null, so an empty string stands for an item that no file
+    // has written: it is how a file takes back what a file it extends set.
+    // Nothing takes an empty string as a value of its own. Items of an array
+    // are not read this way, since an array replaces the one below it whole.
+    fn take_unset(&mut self, key: &str) -> bool {
+        let unset = matches!(self.table.get(key), Some(Value::String(text)) if text.is_empty());
+        if unset {
+            self.table.remove(key);
+        }
+        unset
+    }
+
     fn string(&mut self, key: &str) -> Option<String> {
+        if self.take_unset(key) {
+            return None;
+        }
         if let Value::String(text) = self.table.remove(key)? {
             Some(text)
         } else {
@@ -155,10 +170,22 @@ impl<'a> Reader<'a> {
         }
     }
 
+    fn choice<T>(
+        &mut self,
+        key: &str,
+        expected: &str,
+        parse: impl FnOnce(&str) -> Option<T>,
+    ) -> Option<T> {
+        if self.take_unset(key) {
+            return None;
+        }
+        self.parsed(key, expected, parse)
+    }
+
     // Reads a string and maps it; anything the mapping rejects is invalid.
     // The message names the choices even for a value of another type, since
     // that is what the user has to write.
-    fn choice<T>(
+    fn parsed<T>(
         &mut self,
         key: &str,
         expected: &str,
@@ -332,7 +359,7 @@ fn read_font(root: &mut Reader<'_>, config: &mut Config) {
 
 fn read_font_items(reader: &mut Reader<'_>, font: &mut Font) {
     if let Some(family) = reader.string("family") {
-        font.family = (!family.is_empty()).then_some(family);
+        font.family = Some(family);
     }
     if let Some(size) = reader.size("size") {
         font.size = Some(size);
@@ -442,6 +469,9 @@ fn read_extensions<T>(
             }
             continue;
         }
+        if matches!(&value, Value::String(text) if text.is_empty()) {
+            continue;
+        }
         if let Some(value) = read(reader, &text, value) {
             extensions.insert(extension, value);
         }
@@ -467,7 +497,7 @@ fn read_bookmarks(root: &mut Reader<'_>, config: &mut Config) {
         let mut reader = Reader::new(table, item_path.clone(), root.diagnostics);
         let name = reader.required_string("name");
         let path = reader.required_string("path");
-        let key = reader.choice("key", "a digit or a letter", bookmark_key);
+        let key = reader.parsed("key", "a digit or a letter", bookmark_key);
         if let (Some(name), Some(path)) = (name, path) {
             if let Some(key) = key {
                 users.entry(key).or_default().push(item_path);
@@ -517,7 +547,8 @@ fn read_commands(root: &mut Reader<'_>, config: &mut Config, os: Os) {
         };
         let path = commands.path_of(&name);
         let mut reader = Reader::new(table, path, commands.diagnostics);
-        if let Some(run) = reader.required_string("run")
+        if !reader.take_unset("run")
+            && let Some(run) = reader.required_string("run")
             && let Some(line) = reader.command_line("run", &run, os)
         {
             config.commands.insert(name, line);
@@ -588,6 +619,9 @@ fn read_keys(root: &mut Reader<'_>, config: &mut Config) {
                 reader.invalid(&text, "a command name");
                 continue;
             };
+            if name.is_empty() {
+                continue;
+            }
             let path = reader.path_of(&text);
             let command = match Command::from_name(&name) {
                 Some(Command::External(external)) if !config.commands.contains_key(&external) => {
@@ -1220,7 +1254,7 @@ other = 1
 PDF = "view {paths}"
 "" = "view"
 "tar.gz" = "view"
-md = ""
+md = " "
 txt = 1
 Jpg = "a"
 jpg = "b"
@@ -1431,8 +1465,8 @@ name = "none"
 [[bookmarks]]
 name = "a"
 path = "/a"
-[commands.empty]
-run = ""
+[commands.bad]
+run = 1
 [commands.norun]
 [commands.term]
 run = "wt"
@@ -1456,7 +1490,7 @@ run = "wt"
             paths(&diagnostics),
             [
                 "bookmarks[0]",
-                "commands.empty.run",
+                "commands.bad.run",
                 "commands.norun",
                 "keys.filelist.F1"
             ]
@@ -1584,6 +1618,108 @@ run = "wt"
             ])
         );
         assert_eq!(diagnostics, []);
+    }
+
+    #[test]
+    fn an_empty_string_takes_back_what_a_file_below_set() {
+        let (config, diagnostics) = parse_layers(
+            [
+                r##"
+[filelist]
+size_format = "human"
+[programs]
+editor = "code {paths}"
+[font]
+family = "Menlo"
+[colors.light]
+fg = "#111111"
+[colors.light.extensions]
+ZIP = "#222222"
+png = "#333333"
+[commands.term]
+run = "wt"
+[commands.other]
+run = "x"
+[open_alternative]
+dir = "code {paths}"
+[open_alternative.extensions]
+PDF = "view {paths}"
+txt = "edit {paths}"
+[keys.filelist]
+"c" = "move"
+"m" = "$other"
+"##,
+                r#"
+[filelist]
+size_format = ""
+[programs]
+editor = ""
+[font]
+family = ""
+[colors.light]
+fg = ""
+[colors.light.extensions]
+zip = ""
+[commands.term]
+run = ""
+[open_alternative]
+dir = ""
+[open_alternative.extensions]
+pdf = ""
+[keys.filelist]
+"C" = ""
+"#,
+            ],
+            Os::Linux,
+        )
+        .unwrap();
+
+        let defaults = Config::default_for(Os::Linux);
+        assert_eq!(diagnostics, []);
+        assert_eq!(config.filelist.size_format, defaults.filelist.size_format);
+        assert_eq!(config.programs.editor, defaults.programs.editor);
+        assert_eq!(config.font.default.family, None);
+        assert_eq!(config.colors.light.fg, defaults.colors.light.fg);
+        assert_eq!(
+            config.colors.light.extensions,
+            BTreeMap::from([("png".to_owned(), Color::new(0x33, 0x33, 0x33))])
+        );
+        assert_eq!(
+            config
+                .commands
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            ["other"]
+        );
+        assert_eq!(config.open_alternative.dir, None);
+        assert_eq!(
+            config
+                .open_alternative
+                .extensions
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            ["txt"]
+        );
+        let key: Key = "c".parse().unwrap();
+        assert_eq!(
+            config.keys.lookup(Context::FileList, &key),
+            defaults.keys.lookup(Context::FileList, &key)
+        );
+        assert_ne!(config.keys.lookup(Context::FileList, &key), None);
+    }
+
+    #[test]
+    fn unknown_items_beside_or_holding_an_empty_string_are_still_reported() {
+        let text = "[filelist]\nbogus = \"\"\n[commands.term]\nrun = \"\"\nbogus = 1\n";
+
+        let (_, diagnostics) = parse(text, Os::Linux).unwrap();
+
+        assert_eq!(
+            paths(&diagnostics),
+            ["filelist.bogus", "commands.term.bogus"]
+        );
     }
 
     #[test]
