@@ -58,6 +58,7 @@ fn start_resolves_both_panes_then_watches_and_reads_them() {
             Effect::ReadDir {
                 side: Side::Left,
                 location: Location::new(PathBuf::from("/home/user")),
+                passwords: Passwords::default(),
                 request: RequestId(3),
             },
         ]
@@ -452,6 +453,7 @@ fn escape_cancels_a_move_and_stays_put() {
             Effect::ReadDir {
                 side: Side::Left,
                 location: Location::new(PathBuf::from("/home/user")),
+                passwords: Passwords::default(),
                 request: harness.latest_request(Side::Left),
             },
         ]
@@ -545,6 +547,7 @@ fn read_error_is_logged_and_the_pane_stays_where_it_was() {
             Effect::ReadDir {
                 side: Side::Left,
                 location: Location::new(PathBuf::from("/home/user")),
+                passwords: Passwords::default(),
                 request: harness.latest_request(Side::Left),
             },
         ]
@@ -1425,6 +1428,7 @@ fn reload_watches_the_place_again_and_reads_it() {
             Effect::ReadDir {
                 side: Side::Left,
                 location: Location::new(PathBuf::from("/home/user")),
+                passwords: Passwords::default(),
                 request: harness.latest_request(Side::Left),
             },
         ]
@@ -1453,6 +1457,7 @@ fn reload_during_a_reload_watches_again_and_reads_again_after_it_finishes() {
         vec![Effect::ReadDir {
             side: Side::Left,
             location: Location::new(PathBuf::from("/home/user")),
+            passwords: Passwords::default(),
             request: harness.latest_request(Side::Left),
         }]
     );
@@ -1489,6 +1494,7 @@ fn change_in_the_watched_directory_reloads_it() {
         vec![Effect::ReadDir {
             side: Side::Left,
             location: Location::new(PathBuf::from("/home/user")),
+            passwords: Passwords::default(),
             request: harness.latest_request(Side::Left),
         }]
     );
@@ -1531,6 +1537,7 @@ fn change_during_a_move_is_applied_after_it_finishes() {
         vec![Effect::ReadDir {
             side: Side::Left,
             location: Location::new(PathBuf::from("/home/user")),
+            passwords: Passwords::default(),
             request: RequestId(5),
         }]
     );
@@ -1872,6 +1879,7 @@ fn start_with_nothing_existing_falls_back_to_home() {
             Effect::ReadDir {
                 side: Side::Left,
                 location: Location::new(PathBuf::from(HOME)),
+                passwords: Passwords::default(),
                 request: harness.latest_request(Side::Left),
             },
         ]
@@ -1899,6 +1907,7 @@ fn a_move_to_a_drive_with_nothing_on_it_stays_put() {
             Effect::ReadDir {
                 side: Side::Left,
                 location: Location::new(PathBuf::from("/home/user")),
+                passwords: Passwords::default(),
                 request: harness.latest_request(Side::Left),
             },
         ]
@@ -1934,6 +1943,7 @@ fn history_back_and_forward_move_without_recording_and_stop_at_an_end() {
             Effect::ReadDir {
                 side: Side::Left,
                 location: Location::new(PathBuf::from("/home/user")),
+                passwords: Passwords::default(),
                 request: harness.latest_request(Side::Left),
             },
         ]
@@ -2089,6 +2099,7 @@ fn history_popup_visits_a_place_that_left_its_position_while_open() {
             Effect::ReadDir {
                 side: Side::Left,
                 location: Location::new(PathBuf::from("/c")),
+                passwords: Passwords::default(),
                 request: harness.latest_request(Side::Left),
             },
         ]
@@ -2133,6 +2144,7 @@ fn go_home_at_home_reads_it_again_without_recording_history() {
             Effect::ReadDir {
                 side: Side::Left,
                 location: Location::new(PathBuf::from("/home/user")),
+                passwords: Passwords::default(),
                 request: harness.latest_request(Side::Left),
             },
         ]
@@ -2166,6 +2178,7 @@ fn swap_panes_at_the_same_place_reads_both_again_without_recording_history() {
             Effect::ReadDir {
                 side: Side::Left,
                 location: Location::new(PathBuf::from("/home/user")),
+                passwords: Passwords::default(),
                 request: harness.latest_request(Side::Left),
             },
             Effect::Watch {
@@ -2175,6 +2188,7 @@ fn swap_panes_at_the_same_place_reads_both_again_without_recording_history() {
             Effect::ReadDir {
                 side: Side::Right,
                 location: Location::new(PathBuf::from("/home/user")),
+                passwords: Passwords::default(),
                 request: harness.latest_request(Side::Right),
             },
         ]
@@ -2225,6 +2239,7 @@ fn go_to_path_starts_with_the_current_path_and_expands_the_input() {
             Effect::ReadDir {
                 side: Side::Left,
                 location: Location::new(docs),
+                passwords: Passwords::default(),
                 request: harness.latest_request(Side::Left),
             },
         ]
@@ -2296,6 +2311,7 @@ fn go_to_path_to_the_current_place_reads_it_again_without_recording_history() {
             Effect::ReadDir {
                 side: Side::Left,
                 location: Location::new(PathBuf::from("/home/user")),
+                passwords: Passwords::default(),
                 request: harness.latest_request(Side::Left),
             },
         ]
@@ -2348,6 +2364,7 @@ fn go_to_path_to_a_missing_place_logs_an_error_and_stays() {
             Effect::ReadDir {
                 side: Side::Left,
                 location: Location::new(PathBuf::from("/home/user")),
+                passwords: Passwords::default(),
                 request: harness.latest_request(Side::Left),
             },
         ]
@@ -2370,6 +2387,7 @@ fn sync_commands_copy_the_location_across() {
             Effect::ReadDir {
                 side: Side::Right,
                 location: Location::new(PathBuf::from("/home/user")),
+                passwords: Passwords::default(),
                 request: harness.latest_request(Side::Right),
             },
         ]
@@ -2404,6 +2422,7 @@ fn swap_panes_exchanges_the_locations_and_keeps_the_active_pane() {
             Effect::ReadDir {
                 side: Side::Left,
                 location: Location::new(PathBuf::from("/tmp")),
+                passwords: Passwords::default(),
                 request: harness.latest_request(Side::Left),
             },
             Effect::Watch {
@@ -2413,6 +2432,7 @@ fn swap_panes_exchanges_the_locations_and_keeps_the_active_pane() {
             Effect::ReadDir {
                 side: Side::Right,
                 location: Location::new(PathBuf::from("/home/user")),
+                passwords: Passwords::default(),
                 request: harness.latest_request(Side::Right),
             },
         ]
@@ -2489,6 +2509,7 @@ fn a_vanished_place_is_left_for_the_nearest_ancestor() {
             Effect::ReadDir {
                 side: Side::Left,
                 location: Location::new(PathBuf::from("/home/user")),
+                passwords: Passwords::default(),
                 request: read,
             },
             Effect::Resolve {
@@ -2517,6 +2538,7 @@ fn a_vanished_place_is_left_for_the_nearest_ancestor() {
             Effect::ReadDir {
                 side: Side::Left,
                 location: Location::new(PathBuf::from("/home")),
+                passwords: Passwords::default(),
                 request: harness.latest_request(Side::Left),
             },
         ]
@@ -2550,6 +2572,7 @@ fn a_vanished_place_without_an_ancestor_is_left_for_home() {
             Effect::ReadDir {
                 side: Side::Left,
                 location: Location::new(PathBuf::from(HOME)),
+                passwords: Passwords::default(),
                 request: harness.latest_request(Side::Left),
             },
         ]

@@ -4,10 +4,10 @@ use std::path::PathBuf;
 
 use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, ImageResult};
 use wafu_core::{
-    Document, ImageData, IoError, OuterArchive, PREVIEW_LIMIT, PreviewError, PreviewSource,
+    Document, ImageData, IoError, OuterArchive, PREVIEW_LIMIT, PreviewSource, ReadError,
 };
 
-use crate::archive::{ArchiveError, ArchiveReader, LaneArchives, NOT_FOUND, Stamp, find_entry};
+use crate::archive::{ArchiveReader, LaneArchives, LevelError, NOT_FOUND, Stamp, find_entry};
 
 const IMAGE_PREVIEW_LIMIT: u64 = 64 * 1024 * 1024;
 
@@ -33,7 +33,7 @@ pub(crate) fn load_preview(
     lane: LaneArchives<'_>,
     previewed: &mut PreviewedArchive,
     cancelled: &dyn Fn() -> bool,
-) -> Result<Document, PreviewError> {
+) -> Result<Document, ReadError> {
     let (bytes, truncated) = read_source(source, PREVIEW_LIMIT, lane, previewed, cancelled)?;
     Ok(Document::decode(bytes, truncated, source.encoding))
 }
@@ -43,7 +43,7 @@ pub(crate) fn load_image(
     lane: LaneArchives<'_>,
     previewed: &mut PreviewedArchive,
     cancelled: &dyn Fn() -> bool,
-) -> Result<ImageData, PreviewError> {
+) -> Result<ImageData, ReadError> {
     load_image_limited(source, IMAGE_PREVIEW_LIMIT, lane, previewed, cancelled)
 }
 
@@ -82,15 +82,15 @@ fn load_image_limited(
     lane: LaneArchives<'_>,
     previewed: &mut PreviewedArchive,
     cancelled: &dyn Fn() -> bool,
-) -> Result<ImageData, PreviewError> {
+) -> Result<ImageData, ReadError> {
     let (bytes, truncated) = read_source(source, limit, lane, previewed, cancelled)?;
     if truncated {
-        return Err(PreviewError::Failed(IoError::new(format!(
+        return Err(ReadError::Failed(IoError::new(format!(
             "too large (over {} MiB)",
             IMAGE_PREVIEW_LIMIT / 1024 / 1024
         ))));
     }
-    decode_image(&bytes).map_err(|error| PreviewError::Failed(IoError::new(error.to_string())))
+    decode_image(&bytes).map_err(|error| ReadError::Failed(IoError::new(error.to_string())))
 }
 
 // At most `limit` bytes, and whether there were more.
@@ -100,7 +100,7 @@ fn read_source(
     lane: LaneArchives<'_>,
     previewed: &mut PreviewedArchive,
     cancelled: &dyn Fn() -> bool,
-) -> Result<(Vec<u8>, bool), PreviewError> {
+) -> Result<(Vec<u8>, bool), ReadError> {
     let Some((archive, name)) = &source.entry else {
         previewed.0 = None;
         lane.release();
@@ -118,8 +118,8 @@ fn read_source(
         slot => {
             *slot = None;
             let opened = lane
-                .open(&source.path, stamp, archive, cancelled)
-                .map_err(convert)?;
+                .open(&source.path, stamp, archive, &source.passwords, cancelled)
+                .map_err(LevelError::into_read_error)?;
             slot.insert(OpenArchive {
                 path: source.path.clone(),
                 stamp,
@@ -129,11 +129,12 @@ fn read_source(
         }
     };
     let index = find_entry(open.reader.entries(), &archive.inner, name)
-        .ok_or_else(|| PreviewError::Failed(IoError::new(NOT_FOUND)))?;
+        .ok_or_else(|| ReadError::Failed(IoError::new(NOT_FOUND)))?;
+    let level = archive.outer.len();
     let result = open
         .reader
-        .open(index, source.password.as_deref())
-        .map_err(convert)
+        .open(index, source.passwords.get(level))
+        .map_err(|error| LevelError { level, error }.into_read_error())
         .and_then(|entry| read_limited(entry, limit).map_err(|e| failed(&e)));
     // A read that failed partway may leave a tar's stream out of step.
     if result.is_err() {
@@ -153,16 +154,8 @@ fn read_limited(reader: impl Read, limit: u64) -> io::Result<(Vec<u8>, bool)> {
     Ok((bytes, truncated))
 }
 
-fn convert(error: ArchiveError) -> PreviewError {
-    match error {
-        ArchiveError::PasswordRequired => PreviewError::PasswordRequired { retry: false },
-        ArchiveError::WrongPassword => PreviewError::PasswordRequired { retry: true },
-        other => PreviewError::Failed(IoError::new(other.to_string())),
-    }
-}
-
-fn failed(error: &io::Error) -> PreviewError {
-    PreviewError::Failed(IoError::new(error.to_string()))
+fn failed(error: &io::Error) -> ReadError {
+    ReadError::Failed(IoError::new(error.to_string()))
 }
 
 #[cfg(test)]
@@ -174,10 +167,10 @@ mod tests {
 
     use image::{ImageFormat, RgbaImage};
     use tempfile::TempDir;
-    use wafu_core::{ArchiveFormat, ArchivePath};
+    use wafu_core::{ArchiveFormat, ArchivePath, Passwords};
 
     use super::*;
-    use crate::archive::tests::{archive_bytes, write_archive};
+    use crate::archive::tests::{archive_bytes, encrypted_bytes, write_archive, write_encrypted};
     use crate::archive::{NestedArchives, create_archive};
 
     #[test]
@@ -234,7 +227,7 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             error,
-            PreviewError::Failed(IoError::new("not found in the archive"))
+            ReadError::Failed(IoError::new("not found in the archive"))
         );
     }
 
@@ -251,7 +244,10 @@ mod tests {
                 &mut previewed
             )
             .unwrap_err(),
-            PreviewError::PasswordRequired { retry: false }
+            ReadError::PasswordRequired {
+                level: 0,
+                retry: false
+            }
         );
         assert_eq!(
             preview(
@@ -259,7 +255,10 @@ mod tests {
                 &mut previewed
             )
             .unwrap_err(),
-            PreviewError::PasswordRequired { retry: true }
+            ReadError::PasswordRequired {
+                level: 0,
+                retry: true
+            }
         );
         let document = preview(
             &entry_source(&archive, &[], "top.txt", Some("secret")),
@@ -320,6 +319,39 @@ mod tests {
     }
 
     #[test]
+    fn an_encrypted_entry_of_an_encrypted_nested_archive_takes_the_password_of_each_level() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.zip");
+        let nested = encrypted_bytes(ArchiveFormat::Zip, Some("inner"), &[("f.txt", b"f")]);
+        write_encrypted(
+            &archive,
+            ArchiveFormat::Zip,
+            Some("outer"),
+            &[("n.zip", &nested)],
+        );
+        let mut source = entry_source(&archive, &[], "f.txt", Some("outer"));
+        if let Some((path, _)) = &mut source.entry {
+            path.outer = vec![OuterArchive {
+                format: Some(ArchiveFormat::Zip),
+                entry: vec!["n.zip".to_owned()],
+            }];
+        }
+        let mut previewed = PreviewedArchive::default();
+
+        assert_eq!(
+            preview(&source, &mut previewed).unwrap_err(),
+            ReadError::PasswordRequired {
+                level: 1,
+                retry: false
+            }
+        );
+
+        source.passwords.set(1, Some("inner".to_owned()));
+        let document = preview(&source, &mut previewed).unwrap();
+        assert_eq!(texts(&document), ["f"]);
+    }
+
+    #[test]
     fn an_image_over_the_limit_is_too_large() {
         let mut bytes = Cursor::new(Vec::new());
         RgbaImage::new(2, 3)
@@ -337,14 +369,14 @@ mod tests {
 
         assert_eq!(
             image_limited(&source, len - 1, &mut PreviewedArchive::default()).unwrap_err(),
-            PreviewError::Failed(IoError::new("too large (over 64 MiB)"))
+            ReadError::Failed(IoError::new("too large (over 64 MiB)"))
         );
     }
 
     fn preview(
         source: &PreviewSource,
         previewed: &mut PreviewedArchive,
-    ) -> Result<Document, PreviewError> {
+    ) -> Result<Document, ReadError> {
         let nested = NestedArchives::default();
         load_preview(
             source,
@@ -358,7 +390,7 @@ mod tests {
         source: &PreviewSource,
         limit: u64,
         previewed: &mut PreviewedArchive,
-    ) -> Result<ImageData, PreviewError> {
+    ) -> Result<ImageData, ReadError> {
         let nested = NestedArchives::default();
         load_image_limited(
             source,
@@ -373,7 +405,7 @@ mod tests {
         source: &PreviewSource,
         limit: u64,
         previewed: &mut PreviewedArchive,
-    ) -> Result<(Vec<u8>, bool), PreviewError> {
+    ) -> Result<(Vec<u8>, bool), ReadError> {
         let nested = NestedArchives::default();
         read_source(
             source,
@@ -396,7 +428,7 @@ mod tests {
         PreviewSource {
             path: path.to_path_buf(),
             entry: None,
-            password: None,
+            passwords: Passwords::default(),
             encoding: None,
         }
     }
@@ -417,7 +449,11 @@ mod tests {
                 },
                 name.to_owned(),
             )),
-            password: password.map(ToOwned::to_owned),
+            passwords: {
+                let mut passwords = Passwords::default();
+                passwords.set(0, password.map(ToOwned::to_owned));
+                passwords
+            },
             encoding: None,
         }
     }

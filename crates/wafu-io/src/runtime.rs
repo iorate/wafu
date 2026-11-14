@@ -16,12 +16,12 @@ use std::thread;
 
 use wafu_core::{
     ArchivePath, Change, Directory, Effect, Entry, IoError, IoEvent, Location, OperationEvent,
-    OperationSpec, Outcome, OuterArchive, PreviewError, PreviewSource, Reply, RequestId, Side,
-    Sources, SpawnKind, SpawnName,
+    OperationSpec, Outcome, OuterArchive, Passwords, PreviewSource, ReadError, Reply, RequestId,
+    Side, Sources, SpawnKind, SpawnName,
 };
 
 use crate::archive::{
-    ArchiveEntry, ArchiveError, LaneArchives, NestedArchives, Stamp, dir_entry, list_dir,
+    ArchiveEntry, LaneArchives, LevelError, NestedArchives, Stamp, dir_entry, list_dir,
 };
 #[cfg(windows)]
 use crate::color_scheme::{ColorSchemeWatch, watch_color_scheme};
@@ -116,12 +116,14 @@ impl Runtime {
             Effect::ReadDir {
                 side,
                 location,
+                passwords,
                 request,
             } => {
                 lock(&self.pending).insert(request);
                 self.send(Job::ReadDir {
                     side,
                     location,
+                    passwords,
                     request,
                 });
             }
@@ -378,6 +380,7 @@ enum Job {
     ReadDir {
         side: Side,
         location: Location,
+        passwords: Passwords,
         request: RequestId,
     },
     Resolve {
@@ -412,7 +415,7 @@ impl Job {
             Job::ReadDir { side, .. } => IoEvent::DirLoaded {
                 side: *side,
                 request,
-                result: Err(error),
+                result: Err(ReadError::Failed(error)),
             },
             Job::Resolve { side, .. } => IoEvent::Resolved {
                 side: *side,
@@ -421,11 +424,11 @@ impl Job {
             },
             Job::LoadPreview { .. } => IoEvent::PreviewLoaded {
                 request,
-                result: Err(PreviewError::Failed(error)),
+                result: Err(ReadError::Failed(error)),
             },
             Job::LoadImage { .. } => IoEvent::ImageLoaded {
                 request,
-                result: Err(PreviewError::Failed(error)),
+                result: Err(ReadError::Failed(error)),
             },
         }
     }
@@ -593,18 +596,24 @@ fn read(
 ) -> IoEvent {
     let request = job.request();
     match job {
-        Job::ReadDir { side, location, .. } => {
+        Job::ReadDir {
+            side,
+            location,
+            passwords,
+            ..
+        } => {
             #[cfg(test)]
             assert_ne!(location.base, Path::new(PANIC_PATH), "injected");
             let cancelled = || !lock(pending).contains(&request);
             let result = match &location.archive {
                 None => {
                     lane.release();
-                    read_dir_with(&location.base, cancelled)
+                    read_dir_with(&location.base, cancelled).map_err(|error| read_failed(&error))
                 }
-                Some(archive) => list_archive(lane, cache, &location.base, archive, cancelled),
-            }
-            .map_err(|error| IoError::new(error.to_string()));
+                Some(archive) => {
+                    list_archive(lane, cache, &location.base, archive, passwords, cancelled)
+                }
+            };
             IoEvent::DirLoaded {
                 side: *side,
                 request,
@@ -638,9 +647,10 @@ fn list_archive(
     cache: &mut Option<CachedArchive>,
     path: &Path,
     archive: &ArchivePath,
+    passwords: &Passwords,
     cancelled: impl Fn() -> bool,
-) -> io::Result<Directory> {
-    let stamp = Stamp::of(path)?;
+) -> Result<Directory, ReadError> {
+    let stamp = Stamp::of(path).map_err(|error| read_failed(&error))?;
     lane.hold(path, stamp, &archive.outer);
     let fresh = cache.as_ref().is_some_and(|cached| {
         cached.path == path && cached.stamp == stamp && cached.outer == archive.outer
@@ -648,12 +658,9 @@ fn list_archive(
     let cached = match cache {
         Some(cached) if fresh => cached,
         _ => {
-            let opened =
-                lane.open(path, stamp, archive, &cancelled)
-                    .map_err(|error| match error {
-                        ArchiveError::Io(error) => error,
-                        error => io::Error::other(error),
-                    })?;
+            let opened = lane
+                .open(path, stamp, archive, passwords, &cancelled)
+                .map_err(LevelError::into_read_error)?;
             cache.insert(CachedArchive {
                 path: path.to_path_buf(),
                 stamp,
@@ -668,8 +675,13 @@ fn list_archive(
         Some(own) => Some(own.clone()),
         None => own_entry(path),
     });
-    let entries = list_dir(entries, &archive.inner, cancelled)?;
+    let entries =
+        list_dir(entries, &archive.inner, cancelled).map_err(|error| read_failed(&error))?;
     Ok(Directory { own, entries })
+}
+
+fn read_failed(error: &io::Error) -> ReadError {
+    ReadError::Failed(IoError::new(error.to_string()))
 }
 
 // A path that no file system accepts, so a test can make a worker panic on it.
@@ -710,7 +722,7 @@ mod tests {
     use wafu_core::{ArchiveFormat, Command, ConfigContent, ConfigFile};
 
     use super::*;
-    use crate::archive::tests::{archive_bytes, write_archive};
+    use crate::archive::tests::{archive_bytes, write_archive, write_encrypted};
     use crate::watch::tests::symlink;
 
     const TIMEOUT: Duration = Duration::from_secs(5);
@@ -810,6 +822,7 @@ mod tests {
         runtime.run(Effect::ReadDir {
             side: Side::Right,
             location: Location::new(dir.path().to_path_buf()),
+            passwords: Passwords::default(),
             request: RequestId(2),
         });
 
@@ -869,7 +882,7 @@ mod tests {
             source: PreviewSource {
                 path,
                 entry: None,
-                password: None,
+                passwords: Passwords::default(),
                 encoding: None,
             },
             request: RequestId(1),
@@ -880,7 +893,7 @@ mod tests {
             panic!("expected ImageLoaded, got {event:?}");
         };
         assert_eq!(request, RequestId(1));
-        assert!(matches!(result, Err(wafu_core::PreviewError::Failed(_))));
+        assert!(matches!(result, Err(wafu_core::ReadError::Failed(_))));
     }
 
     #[test]
@@ -912,7 +925,7 @@ mod tests {
                     },
                     name.to_owned(),
                 )),
-                password: None,
+                passwords: Passwords::default(),
                 encoding: None,
             },
             request: RequestId(request),
@@ -1242,11 +1255,13 @@ mod tests {
         runtime.run(Effect::ReadDir {
             side: Side::Left,
             location: root.clone(),
+            passwords: Passwords::default(),
             request: RequestId(1),
         });
         runtime.run(Effect::ReadDir {
             side: Side::Left,
             location: root.child("d"),
+            passwords: Passwords::default(),
             request: RequestId(2),
         });
 
@@ -1292,6 +1307,7 @@ mod tests {
             runtime.run(Effect::ReadDir {
                 side: Side::Left,
                 location: location.clone(),
+                passwords: Passwords::default(),
                 request: RequestId(request),
             });
         }
@@ -1311,6 +1327,55 @@ mod tests {
                 ("c.zip".into(), vec!["in_c.txt".into()]),
                 ("b.zip".into(), vec!["in_b.txt".into()]),
                 ("a.zip".into(), vec!["c.zip".into(), "b.zip".into()]),
+            ]
+        );
+    }
+
+    #[test]
+    fn read_dir_of_a_nested_archive_behind_an_encrypted_entry_asks_for_its_password() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.zip");
+        let nested = archive_bytes(ArchiveFormat::Zip, &[("f.txt", b"f")]);
+        write_encrypted(
+            &archive,
+            ArchiveFormat::Zip,
+            Some("pw"),
+            &[("n.zip", &nested)],
+        );
+        let (runtime, events) = runtime();
+        let location = Location::archive_root(archive, Some(ArchiveFormat::Zip))
+            .nested_root("n.zip", Some(ArchiveFormat::Zip));
+
+        for (request, password) in (1..).zip([None, Some("bad"), Some("pw")]) {
+            let mut passwords = Passwords::default();
+            passwords.set(0, password.map(ToOwned::to_owned));
+            runtime.run(Effect::ReadDir {
+                side: Side::Left,
+                location: location.clone(),
+                passwords,
+                request: RequestId(request),
+            });
+        }
+
+        let mut results = Vec::new();
+        for _ in 0..3 {
+            let IoEvent::DirLoaded { result, .. } = events.recv_timeout(TIMEOUT).unwrap() else {
+                panic!("expected DirLoaded");
+            };
+            results.push(result.map(|directory| directory.entries.len()));
+        }
+        assert_eq!(
+            results,
+            [
+                Err(ReadError::PasswordRequired {
+                    level: 0,
+                    retry: false
+                }),
+                Err(ReadError::PasswordRequired {
+                    level: 0,
+                    retry: true
+                }),
+                Ok(1),
             ]
         );
     }
@@ -1754,9 +1819,10 @@ mod tests {
         };
         assert_eq!(request, RequestId(1));
         assert!(
-            result
-                .as_ref()
-                .is_err_and(|error| error.to_string().starts_with("panicked: ")),
+            result.as_ref().is_err_and(|error| matches!(
+                error,
+                ReadError::Failed(error) if error.to_string().starts_with("panicked: ")
+            )),
             "{result:?}"
         );
         let IoEvent::DirLoaded {
@@ -1816,6 +1882,7 @@ mod tests {
         Effect::ReadDir {
             side: Side::Left,
             location: Location::new(path.to_path_buf()),
+            passwords: Passwords::default(),
             request: RequestId(request),
         }
     }
@@ -1824,6 +1891,7 @@ mod tests {
         Job::ReadDir {
             side: Side::Left,
             location: Location::new(path.to_path_buf()),
+            passwords: Passwords::default(),
             request: RequestId(request),
         }
     }
@@ -1847,6 +1915,7 @@ mod tests {
                 path.to_path_buf(),
                 Some(wafu_core::ArchiveFormat::Zip),
             ),
+            passwords: Passwords::default(),
             request: RequestId(request),
         }
     }
@@ -1857,7 +1926,7 @@ mod tests {
             source: PreviewSource {
                 path: path.to_path_buf(),
                 entry: None,
-                password: None,
+                passwords: Passwords::default(),
                 encoding: None,
             },
             request,

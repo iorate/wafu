@@ -1,13 +1,14 @@
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
-use super::{App, Effect, Os, Resolved, Side, SpawnName};
+use super::{App, Effect, Os, ReadError, Resolved, Side, SpawnName};
 use crate::command::Command;
 use crate::entry::{Directory, EntryKind};
 use crate::error::{AppError, IoError};
-use crate::location::{ArchiveFormat, Location};
+use crate::location::{ArchiveFormat, Location, Passwords};
 use crate::pane::{DrivePurpose, HistoryMove, InFlight, Pane, RequestId};
 use crate::path::{drive_letter, root_of};
+use crate::popup::{InputKind, InputPopup, PasswordPurpose, PendingNavigation, Popup};
 use crate::preview::is_image_name;
 
 impl App {
@@ -47,6 +48,22 @@ impl App {
         history: HistoryMove,
         effects: &mut Vec<Effect>,
     ) {
+        let pane = &self.panes[side.index()];
+        let passwords = pane
+            .archive_passwords()
+            .truncated(target.shared_levels(pane.location()));
+        self.navigate_with(side, target, cursor, history, passwords, effects);
+    }
+
+    fn navigate_with(
+        &mut self,
+        side: Side,
+        target: Location,
+        cursor: Option<OsString>,
+        history: HistoryMove,
+        passwords: Passwords,
+        effects: &mut Vec<Effect>,
+    ) {
         Self::cancel_loading(&mut self.panes[side.index()], effects);
         // Watching before reading means a change during the read is not missed.
         effects.push(Effect::Watch {
@@ -57,6 +74,7 @@ impl App {
         effects.push(Effect::ReadDir {
             side,
             location: target.clone(),
+            passwords: passwords.clone(),
             request,
         });
         self.panes[side.index()].set_loading(Some(InFlight::Navigate {
@@ -64,6 +82,7 @@ impl App {
             target,
             cursor,
             history,
+            passwords,
         }));
     }
 
@@ -110,7 +129,12 @@ impl App {
             pane.set_reload_pending(true);
             return;
         }
-        let location = pane.location().clone();
+        let passwords = pane.archive_passwords().clone();
+        self.refresh_with(side, passwords, effects);
+    }
+
+    fn refresh_with(&mut self, side: Side, passwords: Passwords, effects: &mut Vec<Effect>) {
+        let location = self.panes[side.index()].location().clone();
         if location.base.as_os_str().is_empty() {
             return;
         }
@@ -118,9 +142,10 @@ impl App {
         effects.push(Effect::ReadDir {
             side,
             location,
+            passwords: passwords.clone(),
             request,
         });
-        self.panes[side.index()].set_loading(Some(InFlight::Refresh { request }));
+        self.panes[side.index()].set_loading(Some(InFlight::Refresh { request, passwords }));
     }
 
     pub(super) fn cancel_navigation(&mut self, effects: &mut Vec<Effect>) {
@@ -141,7 +166,7 @@ impl App {
         &mut self,
         side: Side,
         request: RequestId,
-        result: Result<Directory, IoError>,
+        result: Result<Directory, ReadError>,
         effects: &mut Vec<Effect>,
     ) {
         let pane = &mut self.panes[side.index()];
@@ -153,10 +178,23 @@ impl App {
                 target,
                 cursor,
                 history,
+                passwords,
                 ..
             }) => match result {
-                Ok(directory) => pane.enter(target, cursor, directory, history),
-                Err(source) => {
+                Ok(directory) => pane.enter(target, cursor, directory, history, passwords),
+                Err(ReadError::PasswordRequired { level, retry }) => {
+                    Self::rewatch(side, pane, effects);
+                    pane.set_reload_pending(false);
+                    self.refresh(side, effects);
+                    let navigation = PendingNavigation {
+                        target,
+                        cursor,
+                        history,
+                    };
+                    self.ask_listing_password(side, Some(navigation), passwords, level, retry);
+                    return;
+                }
+                Err(ReadError::Failed(source)) => {
                     self.log.push(
                         AppError::ReadDir {
                             path: archive_shown(&target),
@@ -170,9 +208,15 @@ impl App {
                     return;
                 }
             },
-            Some(InFlight::Refresh { .. }) => match result {
-                Ok(directory) => pane.set_directory(directory),
-                Err(source) => {
+            Some(InFlight::Refresh { passwords, .. }) => match result {
+                Ok(directory) => {
+                    pane.set_directory(directory);
+                    pane.set_archive_passwords(passwords);
+                }
+                Err(ReadError::PasswordRequired { level, retry }) => {
+                    self.ask_listing_password(side, None, passwords, level, retry);
+                }
+                Err(ReadError::Failed(source)) => {
                     // The place may be gone; let the I/O layer find out.
                     let path = pane.location().base.clone();
                     self.resolve(side, path, true, Some(source), effects);
@@ -185,6 +229,88 @@ impl App {
         if pane.reload_pending() {
             pane.set_reload_pending(false);
             self.refresh(side, effects);
+        }
+    }
+
+    // `passwords` are those the read was made with. A wrong password the
+    // pane remembered is forgotten. While an operation runs or another popup
+    // is open, no prompt can be shown, so the read fails and the pane stays
+    // where it is.
+    fn ask_listing_password(
+        &mut self,
+        side: Side,
+        navigation: Option<PendingNavigation>,
+        passwords: Passwords,
+        level: usize,
+        retry: bool,
+    ) {
+        let pane = &mut self.panes[side.index()];
+        let location = navigation
+            .as_ref()
+            .map_or_else(|| pane.location().clone(), |n| n.target.clone());
+        if retry && level < location.shared_levels(pane.location()) {
+            pane.set_archive_password(level, None);
+        }
+        let archive = level_shown(&location, level);
+        if self.operation.is_some() || self.popup.is_some() {
+            let reason = if retry {
+                "wrong password"
+            } else {
+                "a password is required"
+            };
+            self.log.push(
+                AppError::ReadDir {
+                    path: archive,
+                    source: IoError::new(reason),
+                }
+                .to_string(),
+            );
+            return;
+        }
+        self.popup = Some(Popup::Input(InputPopup::password(
+            archive,
+            level,
+            retry,
+            PasswordPurpose::Listing {
+                side,
+                passwords,
+                navigation: navigation.map(Box::new),
+            },
+        )));
+    }
+
+    // The read is made again with the password, which the pane takes once
+    // the listing arrives.
+    pub(super) fn listing_password(&mut self, popup: InputPopup, effects: &mut Vec<Effect>) {
+        let password = popup.text(0).to_owned();
+        if password.is_empty() {
+            self.popup = Some(Popup::Input(popup));
+            return;
+        }
+        let InputKind::ArchivePassword {
+            level,
+            purpose:
+                PasswordPurpose::Listing {
+                    side,
+                    mut passwords,
+                    navigation,
+                },
+            ..
+        } = popup.kind
+        else {
+            return;
+        };
+        passwords.set(level, Some(password));
+        if let Some(navigation) = navigation {
+            let PendingNavigation {
+                target,
+                cursor,
+                history,
+            } = *navigation;
+            self.navigate_with(side, target, cursor, history, passwords, effects);
+        } else {
+            Self::cancel_loading(&mut self.panes[side.index()], effects);
+            self.refresh_with(side, passwords, effects);
         }
     }
 
@@ -474,35 +600,49 @@ impl App {
     }
 
     pub(super) fn sync_to_other(&mut self, effects: &mut Vec<Effect>) {
-        let target = self.panes[self.active.other().index()].location().clone();
-        if target.base.as_os_str().is_empty() {
-            return;
-        }
-        self.navigate(self.active, target, None, HistoryMove::Visit, effects);
+        self.copy_location(self.active.other(), self.active, effects);
     }
 
     pub(super) fn sync_other_to_this(&mut self, effects: &mut Vec<Effect>) {
-        let target = self.active_pane().location().clone();
-        if target.base.as_os_str().is_empty() {
+        self.copy_location(self.active, self.active.other(), effects);
+    }
+
+    pub(super) fn swap_panes(&mut self, effects: &mut Vec<Effect>) {
+        let (left, right) = (&self.panes[0], &self.panes[1]);
+        if left.location().base.as_os_str().is_empty()
+            || right.location().base.as_os_str().is_empty()
+        {
             return;
         }
-        self.navigate(
-            self.active.other(),
-            target,
+        let left = (left.location().clone(), left.archive_passwords().clone());
+        let right = (right.location().clone(), right.archive_passwords().clone());
+        self.navigate_with(
+            Side::Left,
+            right.0,
             None,
             HistoryMove::Visit,
+            right.1,
+            effects,
+        );
+        self.navigate_with(
+            Side::Right,
+            left.0,
+            None,
+            HistoryMove::Visit,
+            left.1,
             effects,
         );
     }
 
-    pub(super) fn swap_panes(&mut self, effects: &mut Vec<Effect>) {
-        let left = self.panes[0].location().clone();
-        let right = self.panes[1].location().clone();
-        if left.base.as_os_str().is_empty() || right.base.as_os_str().is_empty() {
+    // The passwords go along with the location.
+    fn copy_location(&mut self, from: Side, to: Side, effects: &mut Vec<Effect>) {
+        let pane = &self.panes[from.index()];
+        let target = pane.location().clone();
+        if target.base.as_os_str().is_empty() {
             return;
         }
-        self.navigate(Side::Left, right, None, HistoryMove::Visit, effects);
-        self.navigate(Side::Right, left, None, HistoryMove::Visit, effects);
+        let passwords = pane.archive_passwords().clone();
+        self.navigate_with(to, target, None, HistoryMove::Visit, passwords, effects);
     }
 
     // The request takes the active pane's load slot: input is held off while
@@ -642,11 +782,14 @@ impl App {
 // The file a location stands for in messages: `base`, or for a place inside a
 // nested archive that archive, as the user sees its path, since `base` is then
 // only the outermost file.
-pub(super) fn archive_shown(location: &Location) -> PathBuf {
-    match location.innermost_root() {
-        Some(root) if root.archive.as_ref().is_some_and(|a| !a.outer.is_empty()) => {
-            PathBuf::from(root.to_string())
-        }
+fn archive_shown(location: &Location) -> PathBuf {
+    level_shown(location, location.levels().saturating_sub(1))
+}
+
+// The archive at `level` of a location, as `archive_shown` names it.
+pub(super) fn level_shown(location: &Location, level: usize) -> PathBuf {
+    match location.level_root(level) {
+        Some(root) if level > 0 => PathBuf::from(root.to_string()),
         _ => location.base.clone(),
     }
 }

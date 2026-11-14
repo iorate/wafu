@@ -1,15 +1,17 @@
 use std::path::PathBuf;
 
-use crate::app::{Effect, IoEvent, MouseInput, Msg, PreviewError, PreviewSource, Side, SpawnName};
+use crate::app::{Effect, IoEvent, MouseInput, Msg, PreviewSource, ReadError, Side, SpawnName};
 use crate::entry::{Entry, EntryKind, SpecialKind, TargetKind};
 use crate::error::IoError;
-use crate::location::{ArchiveFormat, ArchivePath};
+use crate::location::{ArchiveFormat, ArchivePath, Passwords};
 use crate::operation::{
     ArchiveEntries, OperationEvent, OperationKind, OperationSpec, Outcome, Sources,
 };
 use crate::pane::InFlight;
 use crate::preview::{Document, truncated_note};
-use crate::test_support::{Harness, LEFT, RIGHT, dir, executable, file, path, shown, special};
+use crate::test_support::{
+    Harness, LEFT, RIGHT, dir, executable, file, passwords, path, shown, special,
+};
 use crate::view::{PreviewContent, PreviewPlacement};
 
 const TEMP: &str = "/tmp/wafu/x1";
@@ -28,7 +30,7 @@ fn enter_on_a_text_file_opens_an_empty_preview_and_reads_the_file() {
             source: PreviewSource {
                 path: PathBuf::from(LEFT).join("note.txt"),
                 entry: None,
-                password: None,
+                passwords: Passwords::default(),
                 encoding: None,
             },
             request: harness.latest_preview_request(),
@@ -200,7 +202,7 @@ fn a_picked_encoding_reads_the_file_again_with_it() {
             source: PreviewSource {
                 path: PathBuf::from(LEFT).join("note.txt"),
                 entry: None,
-                password: None,
+                passwords: Passwords::default(),
                 encoding: Some(encoding_rs::SHIFT_JIS),
             },
             request: harness.latest_preview_request(),
@@ -271,7 +273,10 @@ fn auto_detect_reads_the_file_again_and_lets_it_show_as_binary() {
 fn a_picked_encoding_reads_an_archive_entry_again_with_the_password() {
     let mut harness = inside_archive();
     harness.press("Enter");
-    harness.fail_preview(PreviewError::PasswordRequired { retry: false });
+    harness.fail_preview(ReadError::PasswordRequired {
+        level: 0,
+        retry: false,
+    });
     harness.edit("pw");
     harness.press("Enter");
     harness.preview_loaded(Document::decode(b"secret".to_vec(), false, None));
@@ -324,7 +329,10 @@ fn e_closes_the_preview_and_opens_the_shown_file_in_the_editor_whatever_is_marke
 fn e_on_an_archive_entry_extracts_it_with_the_preview_password_and_then_starts_the_editor() {
     let mut harness = inside_archive();
     harness.press("Enter");
-    harness.fail_preview(PreviewError::PasswordRequired { retry: false });
+    harness.fail_preview(ReadError::PasswordRequired {
+        level: 0,
+        retry: false,
+    });
     harness.edit("pw");
     harness.press("Enter");
     harness.preview_loaded(Document::decode(b"secret".to_vec(), false, None));
@@ -345,7 +353,7 @@ fn e_on_an_archive_entry_extracts_it_with_the_preview_password_and_then_starts_t
                     inner: Vec::new(),
                 },
                 names: vec!["b.txt".to_owned()],
-                password: Some("pw".to_owned()),
+                passwords: passwords(&[Some("pw")]),
             }),
             dest: None,
             output: None,
@@ -403,7 +411,7 @@ fn a_slow_read_shows_progress_and_esc_cancels_it() {
 fn a_failed_read_is_logged_and_closes_the_preview() {
     let mut harness = opening();
 
-    harness.fail_preview(PreviewError::Failed(IoError::new("permission denied")));
+    harness.fail_preview(ReadError::Failed(IoError::new("permission denied")));
 
     assert!(harness.view().preview.is_none());
     assert_eq!(
@@ -496,7 +504,7 @@ fn an_image_opened_from_the_left_pane_uses_the_right_area_and_follows_the_cursor
             source: PreviewSource {
                 path: PathBuf::from(LEFT).join("one.png"),
                 entry: None,
-                password: None,
+                passwords: Passwords::default(),
                 encoding: None,
             },
             request: harness.latest_preview_request(),
@@ -758,7 +766,7 @@ fn a_reload_that_moves_the_cursor_changes_the_image() {
 fn a_failed_decode_shows_the_message_in_place_of_the_image() {
     let mut harness = image();
 
-    harness.fail_image(PreviewError::Failed(IoError::new("bad png")));
+    harness.fail_image(ReadError::Failed(IoError::new("bad png")));
 
     let message = format!(
         "Cannot preview {}: bad png",
@@ -785,7 +793,7 @@ fn a_failed_decode_shows_line_breaks_in_the_name_as_symbols() {
     harness.press("Down");
     harness.press("Enter");
 
-    harness.fail_image(PreviewError::Failed(IoError::new("bad png")));
+    harness.fail_image(ReadError::Failed(IoError::new("bad png")));
 
     assert_eq!(
         harness.view().preview.unwrap().content,
@@ -1030,7 +1038,10 @@ fn a_file_inside_an_archive_is_read_as_an_entry_with_the_known_password() {
         }]
     );
 
-    harness.fail_preview(PreviewError::PasswordRequired { retry: false });
+    harness.fail_preview(ReadError::PasswordRequired {
+        level: 0,
+        retry: false,
+    });
 
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Password");
@@ -1063,7 +1074,7 @@ fn a_file_inside_an_archive_is_read_as_an_entry_with_the_known_password() {
 
     assert!(matches!(
         harness.take_effects().as_slice(),
-        [Effect::LoadPreview { source, .. }] if source.password.as_deref() == Some("pw")
+        [Effect::LoadPreview { source, .. }] if source.passwords.get(0) == Some("pw")
     ));
 }
 
@@ -1098,14 +1109,24 @@ fn an_image_preview_releases_the_archive_only_once_the_pane_leaves_it() {
 }
 
 #[test]
-fn a_preview_password_in_a_nested_archive_is_asked_for_that_archive() {
+fn a_preview_password_for_an_outer_archive_is_asked_for_it_and_sent_at_its_level() {
     let mut harness = inside_nested_archive();
     harness.press("Enter");
 
-    harness.fail_preview(PreviewError::PasswordRequired { retry: false });
+    harness.fail_preview(ReadError::PasswordRequired {
+        level: 0,
+        retry: false,
+    });
 
     let popup = harness.view().popup.unwrap();
-    assert_eq!(popup.message.as_deref(), Some("n.zip"));
+    assert_eq!(popup.message.as_deref(), Some("a.zip"));
+    harness.take_effects();
+    harness.edit("pw");
+    harness.press("Enter");
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::LoadPreview { source, .. }] if source.passwords == passwords(&[Some("pw")])
+    ));
 }
 
 #[test]
@@ -1114,7 +1135,10 @@ fn an_image_password_in_a_nested_archive_is_asked_for_that_archive() {
     harness.press("Down");
     harness.press("Enter");
 
-    harness.fail_image(PreviewError::PasswordRequired { retry: false });
+    harness.fail_image(ReadError::PasswordRequired {
+        level: 1,
+        retry: false,
+    });
 
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.message.as_deref(), Some("n.zip"));
@@ -1124,12 +1148,18 @@ fn an_image_password_in_a_nested_archive_is_asked_for_that_archive() {
 fn a_wrong_preview_password_is_asked_again_and_esc_closes() {
     let mut harness = inside_archive();
     harness.press("Enter");
-    harness.fail_preview(PreviewError::PasswordRequired { retry: false });
+    harness.fail_preview(ReadError::PasswordRequired {
+        level: 0,
+        retry: false,
+    });
     harness.edit("bad");
     harness.press("Enter");
     harness.take_effects();
 
-    harness.fail_preview(PreviewError::PasswordRequired { retry: true });
+    harness.fail_preview(ReadError::PasswordRequired {
+        level: 0,
+        retry: true,
+    });
 
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.message.as_deref(), Some("Wrong password for a.zip"));
@@ -1142,7 +1172,7 @@ fn a_wrong_preview_password_is_asked_again_and_esc_closes() {
     harness.press("Enter");
     assert!(matches!(
         harness.take_effects().as_slice(),
-        [Effect::LoadPreview { source, .. }] if source.password.is_none()
+        [Effect::LoadPreview { source, .. }] if source.passwords == Passwords::default()
     ));
 }
 
@@ -1157,7 +1187,10 @@ fn an_encrypted_image_asks_once_and_shows_nothing_on_esc() {
         [Effect::LoadImage { source, .. }] if *source == entry_source("c.png", None)
     ));
 
-    harness.fail_image(PreviewError::PasswordRequired { retry: false });
+    harness.fail_image(ReadError::PasswordRequired {
+        level: 0,
+        retry: false,
+    });
     harness.press("Esc");
 
     assert!(harness.view().popup.is_none());
@@ -1170,7 +1203,10 @@ fn an_encrypted_image_asks_once_and_shows_nothing_on_esc() {
     harness.press("Up");
     harness.press("Down");
     harness.take_effects();
-    harness.fail_image(PreviewError::PasswordRequired { retry: false });
+    harness.fail_image(ReadError::PasswordRequired {
+        level: 0,
+        retry: false,
+    });
     harness.edit("pw");
     harness.press("Enter");
 
@@ -1193,7 +1229,10 @@ fn esc_on_the_password_of_an_encrypted_image_clears_the_previous_image() {
     assert_eq!(harness.view().preview.unwrap().detail, "png");
 
     harness.press("Down");
-    harness.fail_image(PreviewError::PasswordRequired { retry: false });
+    harness.fail_image(ReadError::PasswordRequired {
+        level: 0,
+        retry: false,
+    });
     harness.press("Esc");
 
     let preview = harness.view().preview.unwrap();
@@ -1210,7 +1249,10 @@ fn an_encrypted_image_does_not_replace_an_open_popup() {
     harness.take_effects();
 
     harness.press("@");
-    harness.fail_image(PreviewError::PasswordRequired { retry: false });
+    harness.fail_image(ReadError::PasswordRequired {
+        level: 0,
+        retry: false,
+    });
 
     assert_eq!(harness.view().popup.unwrap().title, "Mark");
     harness.edit("*.png");
@@ -1251,7 +1293,7 @@ fn v_opens_an_image_in_the_text_preview() {
             source: PreviewSource {
                 path: PathBuf::from(LEFT).join("one.png"),
                 entry: None,
-                password: None,
+                passwords: Passwords::default(),
                 encoding: None,
             },
             request: harness.latest_preview_request(),
@@ -1313,7 +1355,7 @@ fn v_on_the_parent_row_of_an_archive_root_opens_the_archive_file() {
             source: PreviewSource {
                 path: PathBuf::from(LEFT).join("a.zip"),
                 entry: None,
-                password: None,
+                passwords: Passwords::default(),
                 encoding: None,
             },
             request: harness.latest_preview_request(),
@@ -1538,7 +1580,7 @@ fn entry_source(name: &str, password: Option<&str>) -> PreviewSource {
             },
             name.to_owned(),
         )),
-        password: password.map(ToOwned::to_owned),
+        passwords: passwords(&[password]),
         encoding: None,
     }
 }

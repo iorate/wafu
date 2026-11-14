@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::SystemTime;
 
-use wafu_core::{ArchivePath, Entry, OuterArchive};
+use wafu_core::{ArchivePath, Entry, IoError, OuterArchive, Passwords, ReadError};
 
 use super::shared::SharedFile;
 use super::{
@@ -41,6 +41,14 @@ pub(crate) struct OpenedArchive {
     // A nested archive as an entry of the archive holding it; `None` for an
     // archive that is a file on disk.
     pub own: Option<Entry>,
+}
+
+// Why an archive could not be opened, with the level (as in `Passwords`) of
+// the archive being read when it failed.
+#[derive(Debug)]
+pub(crate) struct LevelError {
+    pub level: usize,
+    pub error: ArchiveError,
 }
 
 // The archives inside archives that the reader lanes have copied out, so
@@ -82,9 +90,10 @@ impl NestedArchives {
         base: &Path,
         stamp: Stamp,
         archive: &ArchivePath,
+        passwords: &Passwords,
         cancelled: &dyn Fn() -> bool,
-    ) -> Result<OpenedArchive, ArchiveError> {
-        self.open_with(base, stamp, archive, false, cancelled)
+    ) -> Result<OpenedArchive, LevelError> {
+        self.open_with(base, stamp, archive, passwords, false, cancelled)
     }
 
     // A nested archive is copied out level by level from the deepest level
@@ -95,12 +104,14 @@ impl NestedArchives {
         base: &Path,
         stamp: Stamp,
         archive: &ArchivePath,
+        passwords: &Passwords,
         share: bool,
         cancelled: &dyn Fn() -> bool,
-    ) -> Result<OpenedArchive, ArchiveError> {
+    ) -> Result<OpenedArchive, LevelError> {
+        let innermost = archive.outer.len();
         let Some(last) = archive.outer.last() else {
             return Ok(OpenedArchive {
-                reader: open_archive(base, archive.format)?,
+                reader: open_archive(base, archive.format).map_err(at(innermost))?,
                 own: None,
             });
         };
@@ -112,14 +123,17 @@ impl NestedArchives {
                 Some((index + 1, copied.file.rewound(), copied.entry.clone()))
             })
         };
-        let (start, mut file, mut entry) = match found {
-            Some((start, file, entry)) => (start, file, Some(entry)),
-            None => (0, SharedFile::new(File::open(base)?), None),
+        let (start, mut file, mut entry) = if let Some((start, file, entry)) = found {
+            (start, file, Some(entry))
+        } else {
+            let file = File::open(base).map_err(|error| at(0)(error.into()))?;
+            (0, SharedFile::new(file), None)
         };
-        for (outer, level) in archive.outer.iter().zip(&levels).skip(start) {
+        for (index, (outer, level)) in archive.outer.iter().zip(&levels).enumerate().skip(start) {
             // The store is not locked while copying, so that a large copy
             // does not hold up the other lanes.
-            let copied = copy_out(file, outer, cancelled)?;
+            let copied =
+                copy_out(file, outer, passwords.get(index), cancelled).map_err(at(index))?;
             let (kept, kept_entry) = if share {
                 lock(&self.0).keep(level, copied)
             } else {
@@ -130,9 +144,28 @@ impl NestedArchives {
         }
         let name = last.entry.last().map_or("", String::as_str);
         Ok(OpenedArchive {
-            reader: open_file(file, archive.format)?,
+            reader: open_file(file, archive.format).map_err(at(innermost))?,
             own: entry.map(|entry| listed_entry(name, &entry)),
         })
+    }
+}
+
+impl LevelError {
+    // A wrong password counts as given for that level; a ZipCrypto password
+    // that passes the header check but not the data fails as damaged data,
+    // which is a plain failure.
+    pub(crate) fn into_read_error(self) -> ReadError {
+        match self.error {
+            ArchiveError::PasswordRequired => ReadError::PasswordRequired {
+                level: self.level,
+                retry: false,
+            },
+            ArchiveError::WrongPassword => ReadError::PasswordRequired {
+                level: self.level,
+                retry: true,
+            },
+            error => ReadError::Failed(IoError::new(error.to_string())),
+        }
     }
 }
 
@@ -162,9 +195,11 @@ impl LaneArchives<'_> {
         base: &Path,
         stamp: Stamp,
         archive: &ArchivePath,
+        passwords: &Passwords,
         cancelled: &dyn Fn() -> bool,
-    ) -> Result<OpenedArchive, ArchiveError> {
-        self.nested.open_with(base, stamp, archive, true, cancelled)
+    ) -> Result<OpenedArchive, LevelError> {
+        self.nested
+            .open_with(base, stamp, archive, passwords, true, cancelled)
     }
 }
 
@@ -216,11 +251,14 @@ fn levels(base: &Path, stamp: Stamp, outer: &[OuterArchive]) -> Vec<Level> {
         .collect()
 }
 
-// Outer archives are read without a password: an encrypted one fails here
-// with `ArchiveError::PasswordRequired`.
+fn at(level: usize) -> impl Fn(ArchiveError) -> LevelError {
+    move |error| LevelError { level, error }
+}
+
 fn copy_out(
     file: SharedFile,
     outer: &OuterArchive,
+    password: Option<&str>,
     cancelled: &dyn Fn() -> bool,
 ) -> Result<Copied, ArchiveError> {
     let mut reader = open_file(file, outer.format)?;
@@ -231,7 +269,7 @@ fn copy_out(
     if entry.kind != ArchiveEntryKind::File {
         return Err(ArchiveError::Invalid(NOT_REGULAR.to_owned()));
     }
-    let mut source = reader.open(index, None)?;
+    let mut source = reader.open(index, password)?;
     // A file with no name, which the OS removes once the last handle to it
     // is closed, even after a crash: nothing to clean up, nothing left
     // behind, and wafu does not hold the archive in memory.
@@ -262,7 +300,7 @@ mod tests {
 
     use super::*;
     use crate::archive::create_archive;
-    use crate::archive::tests::{archive_bytes, write_archive};
+    use crate::archive::tests::{archive_bytes, encrypted_bytes, write_archive};
 
     static LIVE: AtomicBool = AtomicBool::new(false);
 
@@ -279,7 +317,13 @@ mod tests {
             let (base, archive) = nest(dir.path(), formats, b"inner");
 
             let mut opened = NestedArchives::default()
-                .open(&base, stamp(&base), &archive, &|| false)
+                .open(
+                    &base,
+                    stamp(&base),
+                    &archive,
+                    &Passwords::default(),
+                    &|| false,
+                )
                 .unwrap();
 
             assert_eq!(content(&mut opened, "y/f.txt"), b"inner", "{formats:?}");
@@ -301,7 +345,13 @@ mod tests {
         archive.format = None;
 
         let mut opened = NestedArchives::default()
-            .open(&base, stamp(&base), &archive, &|| false)
+            .open(
+                &base,
+                stamp(&base),
+                &archive,
+                &Passwords::default(),
+                &|| false,
+            )
             .unwrap();
 
         assert_eq!(content(&mut opened, "y/f.txt"), b"inner");
@@ -332,12 +382,57 @@ mod tests {
             };
 
             let error = NestedArchives::default()
-                .open(&base, stamp(&base), &archive, &|| false)
+                .open(
+                    &base,
+                    stamp(&base),
+                    &archive,
+                    &Passwords::default(),
+                    &|| false,
+                )
                 .err()
                 .unwrap();
 
-            assert_eq!(error.to_string(), message, "{entry:?}");
+            assert_eq!(error.error.to_string(), message, "{entry:?}");
         }
+    }
+
+    #[test]
+    fn an_encrypted_outer_entry_is_read_with_the_password_of_its_level() {
+        let dir = TempDir::new().unwrap();
+        let innermost = archive_bytes(ArchiveFormat::Zip, &[("f.txt", b"f")]);
+        let middle = encrypted_bytes(ArchiveFormat::Zip, Some("pw"), &[("m.zip", &innermost)]);
+        let base = dir.path().join("a.zip");
+        write_archive(&base, ArchiveFormat::Zip, &[("n.zip", &middle)]);
+        let archive = ArchivePath {
+            outer: vec![
+                OuterArchive {
+                    format: Some(ArchiveFormat::Zip),
+                    entry: strings(&["n.zip"]),
+                },
+                OuterArchive {
+                    format: Some(ArchiveFormat::Zip),
+                    entry: strings(&["m.zip"]),
+                },
+            ],
+            format: Some(ArchiveFormat::Zip),
+            inner: Vec::new(),
+        };
+        let nested = NestedArchives::default();
+        let open = |passwords: &Passwords| {
+            nested.open(&base, stamp(&base), &archive, passwords, &|| false)
+        };
+
+        let error = open(&Passwords::default()).err().unwrap();
+        assert_eq!(error.level, 1);
+        assert!(
+            matches!(error.error, ArchiveError::PasswordRequired),
+            "{error:?}"
+        );
+
+        let mut passwords = Passwords::default();
+        passwords.set(1, Some("pw".to_owned()));
+        let mut opened = open(&passwords).unwrap();
+        assert_eq!(content(&mut opened, "f.txt"), b"f");
     }
 
     #[test]
@@ -346,12 +441,18 @@ mod tests {
         let (base, archive) = nest(dir.path(), &[ArchiveFormat::Zip, ArchiveFormat::Zip], b"a");
 
         let error = NestedArchives::default()
-            .open(&base, stamp(&base), &archive, &|| true)
+            .open(
+                &base,
+                stamp(&base),
+                &archive,
+                &Passwords::default(),
+                &|| true,
+            )
             .err()
             .unwrap();
 
         assert!(
-            matches!(&error, ArchiveError::Io(error) if error.kind() == io::ErrorKind::Interrupted),
+            matches!(&error.error, ArchiveError::Io(error) if error.kind() == io::ErrorKind::Interrupted),
             "{error:?}"
         );
     }
@@ -364,15 +465,20 @@ mod tests {
         let stamp = stamp(&base);
         let left = nested.lane("left", &LIVE);
         left.hold(&base, stamp, &archive.outer);
-        left.open(&base, stamp, &archive, &|| false).unwrap();
+        left.open(&base, stamp, &archive, &Passwords::default(), &|| false)
+            .unwrap();
         spoil_keeping_the_stamp(&base);
 
         let right = nested.lane("right", &LIVE);
         right.hold(&base, stamp, &archive.outer);
-        let mut opened = right.open(&base, stamp, &archive, &|| false).unwrap();
+        let mut opened = right
+            .open(&base, stamp, &archive, &Passwords::default(), &|| false)
+            .unwrap();
         assert_eq!(content(&mut opened, "y/f.txt"), b"a");
 
-        let mut opened = nested.open(&base, stamp, &archive, &|| false).unwrap();
+        let mut opened = nested
+            .open(&base, stamp, &archive, &Passwords::default(), &|| false)
+            .unwrap();
         assert_eq!(content(&mut opened, "y/f.txt"), b"a");
     }
 
@@ -385,7 +491,8 @@ mod tests {
         let (left, right) = (nested.lane("left", &LIVE), nested.lane("right", &LIVE));
         left.hold(&base, stamp, &archive.outer);
         right.hold(&base, stamp, &archive.outer);
-        left.open(&base, stamp, &archive, &|| false).unwrap();
+        left.open(&base, stamp, &archive, &Passwords::default(), &|| false)
+            .unwrap();
 
         left.release();
         assert_eq!(copies(&nested), 1);
@@ -402,7 +509,8 @@ mod tests {
         let stamp = stamp(&base);
         let left = nested.lane("left", &LIVE);
         left.hold(&base, stamp, &archive.outer);
-        left.open(&base, stamp, &archive, &|| false).unwrap();
+        left.open(&base, stamp, &archive, &Passwords::default(), &|| false)
+            .unwrap();
 
         let abandoned = AtomicBool::new(true);
         nested.lane("left", &abandoned).release();
@@ -417,12 +525,14 @@ mod tests {
         let nested = NestedArchives::default();
         let stamp = stamp(&base);
 
-        nested.open(&base, stamp, &archive, &|| false).unwrap();
+        nested
+            .open(&base, stamp, &archive, &Passwords::default(), &|| false)
+            .unwrap();
         assert_eq!(copies(&nested), 0);
 
         nested
             .lane("left", &LIVE)
-            .open(&base, stamp, &archive, &|| false)
+            .open(&base, stamp, &archive, &Passwords::default(), &|| false)
             .unwrap();
         assert_eq!(copies(&nested), 0);
     }
@@ -435,7 +545,8 @@ mod tests {
         let left = nested.lane("left", &LIVE);
         let old = stamp(&base);
         left.hold(&base, old, &archive.outer);
-        left.open(&base, old, &archive, &|| false).unwrap();
+        left.open(&base, old, &archive, &Passwords::default(), &|| false)
+            .unwrap();
 
         nest(
             dir.path(),
@@ -443,7 +554,9 @@ mod tests {
             b"longer",
         );
         let new = stamp(&base);
-        let mut opened = nested.open(&base, new, &archive, &|| false).unwrap();
+        let mut opened = nested
+            .open(&base, new, &archive, &Passwords::default(), &|| false)
+            .unwrap();
 
         assert_eq!(content(&mut opened, "y/f.txt"), b"longer");
     }

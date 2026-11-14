@@ -10,7 +10,7 @@ use std::time::SystemTime;
 
 use wafu_core::{
     ArchiveEntries, ArchiveFormat, ArchivePath, IoError, OperationEvent, OperationSpec,
-    OuterArchive, Reply,
+    OuterArchive, Passwords, Reply,
 };
 
 use super::{
@@ -18,8 +18,8 @@ use super::{
     open_for_times, refuse, refuse_io,
 };
 use crate::archive::{
-    ArchiveEntry, ArchiveEntryKind, ArchiveError, ArchiveReader, ArchiveWriter, NOT_FOUND, Stamp,
-    UNSAFE_NAME, check_component, create_archive, open_archive,
+    ArchiveEntry, ArchiveEntryKind, ArchiveError, ArchiveReader, ArchiveWriter, LevelError,
+    NOT_FOUND, Stamp, UNSAFE_NAME, check_component, create_archive, open_archive,
 };
 
 const TEMP_PREFIX: &str = "wafu-";
@@ -35,7 +35,7 @@ impl Worker<'_> {
             let name = archive.file_name().unwrap_or_default();
             let format = ArchiveFormat::from_name(name);
             self.extract_whole(index, archive, name, spec, into_dir, |_, dest| {
-                Extraction::open(archive, format, None, dest)
+                Extraction::open(archive, format, dest)
             })?;
         }
         Ok(())
@@ -69,7 +69,9 @@ impl Worker<'_> {
                 OsStr::new(name),
                 spec,
                 into_dir,
-                |worker, dest| worker.open_nested(&entries.archive, &path, None, dest),
+                |worker, dest| {
+                    worker.open_nested(&entries.archive, &path, entries.passwords.clone(), dest)
+                },
             )?;
         }
         Ok(())
@@ -222,16 +224,17 @@ impl Worker<'_> {
         self.open_nested(
             &entries.archive,
             &entries.path,
-            entries.password.clone(),
+            entries.passwords.clone(),
             dest,
         )
     }
 
+    // Asks for the password of whichever level needs one, until all open.
     fn open_nested(
         &self,
         base: &Path,
         path: &ArchivePath,
-        password: Option<String>,
+        mut passwords: Passwords,
         dest: &Path,
     ) -> Result<Extraction, Stop> {
         let archive = nested_shown(base, path);
@@ -244,13 +247,35 @@ impl Worker<'_> {
             }
             cancelled.get()
         };
-        let opened = Stamp::of(base)
-            .map_err(ArchiveError::from)
-            .and_then(|stamp| self.nested.open(base, stamp, path, &check));
-        match opened {
-            Ok(opened) => Ok(Extraction::new(archive, opened.reader, password, dest)),
-            Err(_) if cancelled.get() => Err(Stop::Cancelled),
-            Err(error) => Err(failure(&archive, &error.to_string())),
+        let stamp = Stamp::of(base).map_err(fail(&archive))?;
+        let innermost = path.outer.len();
+        loop {
+            let (level, retry) = match self.nested.open(base, stamp, path, &passwords, &check) {
+                Ok(opened) => {
+                    let password = passwords.get(innermost).map(ToOwned::to_owned);
+                    return Ok(Extraction::new(
+                        archive,
+                        opened.reader,
+                        innermost,
+                        password,
+                        dest,
+                    ));
+                }
+                Err(_) if cancelled.get() => return Err(Stop::Cancelled),
+                Err(LevelError {
+                    level,
+                    error: ArchiveError::PasswordRequired,
+                }) => (level, false),
+                Err(LevelError {
+                    level,
+                    error: ArchiveError::WrongPassword,
+                }) => (level, true),
+                Err(LevelError { error, .. }) => {
+                    return Err(failure(&archive, &error.to_string()));
+                }
+            };
+            let password = self.ask_password(&level_shown(base, path, level), level, retry)?;
+            passwords.set(level, Some(password));
         }
     }
 
@@ -401,13 +426,15 @@ impl Worker<'_> {
                 Err(ArchiveError::WrongPassword) => true,
                 Err(error) => return Err(entry_error(shown, error)),
             };
-            extraction.password = Some(self.ask_password(&extraction.archive, retry)?);
+            extraction.password =
+                Some(self.ask_password(&extraction.archive, extraction.level, retry)?);
         }
     }
 
-    fn ask_password(&mut self, archive: &Path, retry: bool) -> Result<String, Stop> {
+    fn ask_password(&self, archive: &Path, level: usize, retry: bool) -> Result<String, Stop> {
         (self.report)(OperationEvent::NeedPassword {
             archive: archive.to_path_buf(),
+            level,
             retry,
         });
         loop {
@@ -560,6 +587,8 @@ impl Read for Cancellable<'_> {
 struct Extraction {
     archive: PathBuf,
     reader: Box<dyn ArchiveReader>,
+    // The level of the archive among those read to reach it, and its password.
+    level: usize,
     password: Option<String>,
     dest: PathBuf,
     // The link, its target, the entry's index, and its path as shown.
@@ -569,26 +598,23 @@ struct Extraction {
 }
 
 impl Extraction {
-    fn open(
-        archive: &Path,
-        format: Option<ArchiveFormat>,
-        password: Option<String>,
-        dest: &Path,
-    ) -> Result<Self, Stop> {
+    fn open(archive: &Path, format: Option<ArchiveFormat>, dest: &Path) -> Result<Self, Stop> {
         let reader =
             open_archive(archive, format).map_err(|error| failure(archive, &error.to_string()))?;
-        Ok(Self::new(archive.to_path_buf(), reader, password, dest))
+        Ok(Self::new(archive.to_path_buf(), reader, 0, None, dest))
     }
 
     fn new(
         archive: PathBuf,
         reader: Box<dyn ArchiveReader>,
+        level: usize,
         password: Option<String>,
         dest: &Path,
     ) -> Self {
         Self {
             archive,
             reader,
+            level,
             password,
             dest: dest.to_path_buf(),
             links: Vec::new(),
@@ -601,7 +627,11 @@ impl Extraction {
 // A nested archive is named by the path of the entries leading to it, as
 // its entries are.
 fn nested_shown(base: &Path, path: &ArchivePath) -> PathBuf {
-    path.outer
+    level_shown(base, path, path.outer.len())
+}
+
+fn level_shown(base: &Path, path: &ArchivePath, level: usize) -> PathBuf {
+    path.outer[..level]
         .iter()
         .fold(base.to_path_buf(), |shown_path, outer| {
             shown(&shown_path, &outer.entry)
@@ -737,13 +767,15 @@ mod tests {
 
     use tar::{EntryType, Header};
     use tempfile::TempDir;
-    use wafu_core::{ArchiveOutput, ArchivePath, OperationKind, Outcome, OuterArchive, Sources};
+    use wafu_core::{
+        ArchiveOutput, ArchivePath, OperationKind, Outcome, OuterArchive, Passwords, Sources,
+    };
 
     use super::super::run_operation;
     use super::*;
     use crate::archive::NestedArchives;
     use crate::archive::tar::header_of;
-    use crate::archive::tests::{archive_bytes, write_archive};
+    use crate::archive::tests::{archive_bytes, encrypted_bytes, write_archive, write_encrypted};
     use crate::archive::zip::ZipArchiveWriter;
 
     const MODIFIED: SystemTime = SystemTime::UNIX_EPOCH;
@@ -1733,6 +1765,68 @@ mod tests {
     }
 
     #[test]
+    fn copying_out_of_an_archive_behind_an_encrypted_entry_asks_for_its_password() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.zip");
+        let nested = archive_bytes(ArchiveFormat::Zip, &[("f.txt", b"f")]);
+        write_encrypted(
+            &archive,
+            ArchiveFormat::Zip,
+            Some("pw"),
+            &[("n.zip", &nested)],
+        );
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        let mut spec = copy_entries(&archive, &[], &["f.txt"], &dest);
+        if let Sources::Entries(entries) = &mut spec.sources {
+            entries.path.outer = vec![OuterArchive {
+                format: Some(ArchiveFormat::Zip),
+                entry: vec!["n.zip".to_owned()],
+            }];
+        }
+
+        let (outcome, _, events) = run(
+            &spec,
+            [
+                Reply::Password("bad".to_owned()),
+                Reply::Password("pw".to_owned()),
+            ],
+        );
+
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(
+            asked(&events),
+            [(archive.clone(), 0, false), (archive.clone(), 0, true)]
+        );
+        assert_eq!(fs::read(dest.join("f.txt")).unwrap(), b"f");
+    }
+
+    #[test]
+    fn extracting_an_encrypted_archive_behind_an_encrypted_entry_asks_only_for_its_own() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.zip");
+        let nested = encrypted_bytes(ArchiveFormat::Zip, Some("inner"), &[("f.txt", b"f")]);
+        write_encrypted(
+            &archive,
+            ArchiveFormat::Zip,
+            Some("outer"),
+            &[("n.zip", &nested)],
+        );
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        let entries = entries(&archive, &[], &["n.zip"], Some("outer"));
+
+        let (outcome, _, events) = run(
+            &extract_entries(entries, &dest, false),
+            [Reply::Password("inner".to_owned())],
+        );
+
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(asked(&events), [(archive.join("n.zip"), 1, false)]);
+        assert_eq!(fs::read(dest.join("f.txt")).unwrap(), b"f");
+    }
+
+    #[test]
     fn a_cancel_while_a_nested_archive_is_copied_out_stops_the_copy_as_cancelled() {
         let dir = TempDir::new().unwrap();
         let archive = dir.path().join("a.zip");
@@ -1802,43 +1896,6 @@ mod tests {
 
         assert_eq!(outcome, Outcome::Completed { skipped: 0 });
         assert_eq!(fs::read(dest.join("m").join("f.txt")).unwrap(), b"f");
-    }
-
-    #[test]
-    fn extracting_an_encrypted_archive_inside_an_archive_asks_for_its_own_password_under_its_path()
-    {
-        let dir = TempDir::new().unwrap();
-        let inner = dir.path().join("inner.zip");
-        write_zip(&inner, Some("secret"), |writer| {
-            writer
-                .add_file("a.txt", 1, None, None, &mut &b"a"[..])
-                .unwrap();
-        });
-        let archive = dir.path().join("a.zip");
-        write_archive(
-            &archive,
-            ArchiveFormat::Zip,
-            &[("n.zip", &fs::read(&inner).unwrap())],
-        );
-        let dest = dir.path().join("out");
-        fs::create_dir(&dest).unwrap();
-        let entries = entries(&archive, &[], &["n.zip"], Some("not this one"));
-
-        let (outcome, _, events) = run(
-            &extract_entries(entries, &dest, false),
-            [Reply::Password("secret".to_owned())],
-        );
-
-        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
-        let asked: Vec<(&PathBuf, bool)> = events
-            .iter()
-            .filter_map(|event| match event {
-                OperationEvent::NeedPassword { archive, retry } => Some((archive, *retry)),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(asked, [(&archive.join("n.zip"), false)]);
-        assert_eq!(fs::read(dest.join("a.txt")).unwrap(), b"a");
     }
 
     #[test]
@@ -2203,6 +2260,29 @@ mod tests {
         (outcome, done, events.into_inner().unwrap())
     }
 
+    // The archive, level, and retry of each password asked for.
+    fn asked(events: &[OperationEvent]) -> Vec<(PathBuf, usize, bool)> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                OperationEvent::NeedPassword {
+                    archive,
+                    level,
+                    retry,
+                } => Some((archive.clone(), *level, *retry)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn passwords(levels: &[Option<&str>]) -> Passwords {
+        let mut passwords = Passwords::default();
+        for (level, password) in levels.iter().enumerate() {
+            passwords.set(level, password.map(ToOwned::to_owned));
+        }
+        passwords
+    }
+
     fn answer(sender: &Sender<Reply>, script: &Mutex<VecDeque<Reply>>) {
         let reply = script
             .lock()
@@ -2273,7 +2353,7 @@ mod tests {
                 inner: inner.iter().map(|s| (*s).to_owned()).collect(),
             },
             names: names.iter().map(|s| (*s).to_owned()).collect(),
-            password: password.map(ToOwned::to_owned),
+            passwords: passwords(&[password]),
         }
     }
 

@@ -30,6 +30,13 @@ pub struct OuterArchive {
     pub entry: Vec<String>,
 }
 
+/// The passwords of the archives a place inside an archive is in, by level.
+/// Level `k` below `outer.len()` is the archive `outer[k]`, whose password
+/// reads the next archive out of it; the last level is the innermost
+/// archive. Levels past the end have none.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Passwords(Vec<Option<String>>);
+
 /// An archive format the I/O layer can read and write. Adding one means
 /// adding a variant here, its extension below, and an implementation in the
 /// I/O layer.
@@ -104,6 +111,36 @@ impl ArchiveFormat {
     }
 }
 
+impl Passwords {
+    #[must_use]
+    pub fn get(&self, level: usize) -> Option<&str> {
+        self.0.get(level)?.as_deref()
+    }
+
+    pub fn set(&mut self, level: usize, password: Option<String>) {
+        if self.0.len() <= level {
+            self.0.resize(level + 1, None);
+        }
+        self.0[level] = password;
+        self.trim();
+    }
+
+    /// Keeps the passwords of the first `levels` levels only.
+    #[must_use]
+    pub fn truncated(&self, levels: usize) -> Self {
+        let mut passwords = Self(self.0.iter().take(levels).cloned().collect());
+        passwords.trim();
+        passwords
+    }
+
+    // Without trailing `None`s, so that equal passwords compare equal.
+    fn trim(&mut self) {
+        while self.0.last() == Some(&None) {
+            self.0.pop();
+        }
+    }
+}
+
 impl Location {
     #[must_use]
     pub fn new(base: PathBuf) -> Self {
@@ -164,6 +201,47 @@ impl Location {
                 inner: Vec::new(),
             }),
         })
+    }
+
+    /// The root of the archive at `level`, or `None` past the innermost.
+    #[must_use]
+    pub fn level_root(&self, level: usize) -> Option<Self> {
+        let archive = self.archive.as_ref()?;
+        let format = match archive.outer.get(level) {
+            Some(outer) => outer.format,
+            None if level == archive.outer.len() => archive.format,
+            None => return None,
+        };
+        Some(Self {
+            base: self.base.clone(),
+            archive: Some(ArchivePath {
+                outer: archive.outer[..level].to_vec(),
+                format,
+                inner: Vec::new(),
+            }),
+        })
+    }
+
+    /// The number of archive levels: none outside an archive, else one for
+    /// each outer archive and one for the innermost.
+    #[must_use]
+    pub fn levels(&self) -> usize {
+        self.archive
+            .as_ref()
+            .map_or(0, |archive| archive.outer.len() + 1)
+    }
+
+    /// The number of leading levels the two places have in common: the same
+    /// archive, reached through the same entries, at each of them. Where
+    /// inside an archive each place is does not matter.
+    #[must_use]
+    pub fn shared_levels(&self, other: &Self) -> usize {
+        if self.base != other.base {
+            return 0;
+        }
+        (0..self.levels().min(other.levels()))
+            .take_while(|&level| self.level_root(level) == other.level_root(level))
+            .count()
     }
 
     #[must_use]
@@ -343,6 +421,39 @@ mod tests {
         assert_eq!(nested(&["x", "y"]).innermost_root(), Some(nested(&[])));
         assert_eq!(inside(&["d"]).innermost_root(), Some(inside(&[])));
         assert_eq!(Location::new(PathBuf::from("/a")).innermost_root(), None);
+    }
+
+    #[test]
+    fn level_root_is_the_root_of_each_archive_on_the_way_in() {
+        let place = nested(&["x"]);
+
+        assert_eq!(place.levels(), 2);
+        assert_eq!(place.level_root(0), Some(inside(&[])));
+        assert_eq!(place.level_root(1), Some(nested(&[])));
+        assert_eq!(place.level_root(2), None);
+        assert_eq!(Location::new(PathBuf::from("/a")).levels(), 0);
+    }
+
+    #[test]
+    fn an_archive_read_as_another_format_shares_no_level() {
+        let unknown = Location::archive_root(PathBuf::from("/a/b/c.zip"), None);
+
+        assert_eq!(unknown.shared_levels(&nested(&[])), 0);
+        assert_eq!(inside(&["d"]).shared_levels(&nested(&[])), 1);
+    }
+
+    #[test]
+    fn passwords_without_the_trailing_levels_are_equal() {
+        let mut passwords = Passwords::default();
+        passwords.set(0, Some("a".to_owned()));
+        passwords.set(2, Some("c".to_owned()));
+        assert_eq!(passwords.get(2), Some("c"));
+
+        let mut first = Passwords::default();
+        first.set(0, Some("a".to_owned()));
+        assert_eq!(passwords.truncated(2), first);
+        passwords.set(2, None);
+        assert_eq!(passwords, first);
     }
 
     #[test]

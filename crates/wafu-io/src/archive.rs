@@ -17,7 +17,7 @@ pub(crate) mod tar;
 pub(crate) mod zip;
 
 pub(crate) use names::{UNSAFE_NAME, check_component};
-pub(crate) use nested::{LaneArchives, NestedArchives, Stamp};
+pub(crate) use nested::{LaneArchives, LevelError, NestedArchives, Stamp};
 
 use self::shared::SharedFile;
 use self::tar::Compression;
@@ -520,7 +520,17 @@ pub(crate) mod tests {
 
     // An archive of `files`, each a path and its content.
     pub(crate) fn write_archive(path: &Path, format: ArchiveFormat, files: &[(&str, &[u8])]) {
-        let mut writer = create_archive(File::create(path).unwrap(), format, None).unwrap();
+        write_encrypted(path, format, None, files);
+    }
+
+    // As `write_archive`, with every file encrypted when `password` is given.
+    pub(crate) fn write_encrypted(
+        path: &Path,
+        format: ArchiveFormat,
+        password: Option<&str>,
+        files: &[(&str, &[u8])],
+    ) {
+        let mut writer = create_archive(File::create(path).unwrap(), format, password).unwrap();
         for (name, data) in files {
             writer
                 .add_file(name, data.len() as u64, None, None, &mut &data[..])
@@ -531,9 +541,17 @@ pub(crate) mod tests {
 
     // What `write_archive` writes, to put in another archive.
     pub(crate) fn archive_bytes(format: ArchiveFormat, files: &[(&str, &[u8])]) -> Vec<u8> {
+        encrypted_bytes(format, None, files)
+    }
+
+    pub(crate) fn encrypted_bytes(
+        format: ArchiveFormat,
+        password: Option<&str>,
+        files: &[(&str, &[u8])],
+    ) -> Vec<u8> {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("a");
-        write_archive(&path, format, files);
+        write_encrypted(&path, format, password, files);
         std::fs::read(path).unwrap()
     }
 

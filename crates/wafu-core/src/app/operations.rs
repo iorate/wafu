@@ -7,7 +7,7 @@ use crate::entry::Entry;
 use crate::error::{AppError, IoError};
 use crate::external::{CommandLine, Expansion};
 use crate::key::{Key, KeyBase, NamedKey};
-use crate::location::{ArchiveFormat, ArchivePath, Location};
+use crate::location::{ArchiveFormat, Location, Passwords};
 use crate::operation::{
     ArchiveEntries, ArchiveOutput, OperationEvent, OperationKind, OperationSpec, Outcome,
     OutcomeLine, Reply, Sources,
@@ -283,10 +283,11 @@ impl App {
             self.popup = Some(Popup::Input(popup));
             return;
         }
-        if let Some(operation) = &self.operation
-            && operation.remember_password
+        if let InputKind::ArchivePassword { level, .. } = popup.kind
+            && let Some(operation) = &self.operation
+            && level < operation.remembered_levels
         {
-            self.panes[operation.side.index()].set_archive_password(Some(password.clone()));
+            self.panes[operation.side.index()].set_archive_password(level, Some(password.clone()));
         }
         self.reply(Reply::Password(password), effects);
     }
@@ -317,12 +318,17 @@ impl App {
             OperationEvent::Conflict { source, dest } => {
                 self.show_operation_popup(Popup::Conflict(ConflictPopup::new(source, dest, false)));
             }
-            OperationEvent::NeedPassword { archive, retry } => {
-                if retry && operation.remember_password {
-                    self.panes[operation.side.index()].set_archive_password(None);
+            OperationEvent::NeedPassword {
+                archive,
+                level,
+                retry,
+            } => {
+                if retry && level < operation.remembered_levels {
+                    self.panes[operation.side.index()].set_archive_password(level, None);
                 }
                 self.show_operation_popup(Popup::Input(InputPopup::password(
                     archive,
+                    level,
                     retry,
                     PasswordPurpose::Operation,
                 )));
@@ -530,7 +536,7 @@ impl App {
                 archive: source.path,
                 path,
                 names: vec![name],
-                password: source.password,
+                passwords: source.passwords,
             };
             self.start_temp(temp, entries, effects);
         } else {
@@ -683,6 +689,14 @@ impl App {
         effects.push(Effect::Clipboard(lines.join("\n")));
     }
 
+    // The passwords the pane knows for the archive levels `location` shares
+    // with the pane's.
+    pub(super) fn passwords_for(&self, location: &Location) -> Passwords {
+        let pane = self.active_pane();
+        pane.archive_passwords()
+            .truncated(location.shared_levels(pane.location()))
+    }
+
     // The location a command works in: that of what it acts on, or the pane's
     // for one that makes something new there. Commands that open or rename look
     // at the cursor alone, since following the marks would launch one
@@ -768,11 +782,6 @@ impl App {
             .archive
             .clone()
             .expect("archive entries are only made inside an archive");
-        let password = if self.is_pane_archive(&location.base, &path) {
-            self.active_pane().archive_password().map(ToOwned::to_owned)
-        } else {
-            None
-        };
         ArchiveEntries {
             archive: location.base.clone(),
             path,
@@ -780,19 +789,8 @@ impl App {
                 .iter()
                 .map(|name| name.to_string_lossy().into_owned())
                 .collect(),
-            password,
+            passwords: self.passwords_for(location),
         }
-    }
-
-    // The password the pane remembers belongs to the archive it is in, which
-    // the `..` row at the root of a nested archive is not in.
-    fn is_pane_archive(&self, base: &Path, archive: &ArchivePath) -> bool {
-        let pane = self.active_pane().location();
-        pane.base == base
-            && pane
-                .archive
-                .as_ref()
-                .is_some_and(|pane| pane.outer == archive.outer)
     }
 
     fn start_temp(&mut self, temp: Temp, entries: ArchiveEntries, effects: &mut Vec<Effect>) {
@@ -840,14 +838,13 @@ impl App {
         if source_dir.as_os_str().is_empty() {
             return;
         }
-        // What an extract asks for is the password of the archive it unpacks,
-        // not of the one the pane is in.
-        let remember_password = match &sources {
-            Sources::Entries(entries) => {
-                !matches!(kind, OperationKind::Extract { .. })
-                    && self.is_pane_archive(&entries.archive, &entries.path)
+        let remembered_levels = match &sources {
+            Sources::Entries(entries) => Location {
+                base: entries.archive.clone(),
+                archive: Some(entries.path.clone()),
             }
-            Sources::Paths(_) => false,
+            .shared_levels(self.active_pane().location()),
+            Sources::Paths(_) => 0,
         };
         effects.push(Effect::StartOperation(OperationSpec {
             kind,
@@ -867,7 +864,7 @@ impl App {
             quit_after: false,
             temp,
             temp_dir: None,
-            remember_password,
+            remembered_levels,
         });
     }
 
@@ -1009,9 +1006,10 @@ pub(crate) struct Operation {
     quit_after: bool,
     temp: Option<Temp>,
     temp_dir: Option<PathBuf>,
-    // A password typed for this operation is kept by the pane, which is
-    // inside the archive.
-    remember_password: bool,
+    // A password typed for one of the first this many archive levels of the
+    // sources is kept by the pane, whose location has them too. An archive
+    // unpacked by an extract is past them.
+    remembered_levels: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

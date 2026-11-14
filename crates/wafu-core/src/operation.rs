@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use crate::config::SizeFormat;
 use crate::error::IoError;
-use crate::location::{ArchiveFormat, ArchivePath};
+use crate::location::{ArchiveFormat, ArchivePath, Passwords};
 use crate::view::size_with_unit;
 
 /// A file operation for the I/O layer to carry out.
@@ -35,10 +35,11 @@ pub struct ArchiveEntries {
     pub path: ArchivePath,
     /// In display order.
     pub names: Vec<String>,
-    /// The password the pane knows for this archive; the worker asks when it
-    /// needs one and has none. For [`OperationKind::Extract`], it is not that
-    /// of the archives unpacked.
-    pub password: Option<String>,
+    /// The passwords the pane knows for the archive levels of `path`; the
+    /// worker asks for any it needs and has not. For
+    /// [`OperationKind::Extract`], the archives unpacked are one level past
+    /// these.
+    pub passwords: Passwords,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -94,10 +95,12 @@ pub enum OperationEvent {
         source: PathBuf,
         dest: PathBuf,
     },
-    /// An entry of the archive is encrypted; the worker waits for a password.
-    /// `retry` means the one it was given was wrong.
+    /// What the worker reads is encrypted in the archive at `level` of the
+    /// sources (see [`Passwords`]), shown as `archive`; the worker waits for a
+    /// password. `retry` means the one it was given was wrong.
     NeedPassword {
         archive: PathBuf,
+        level: usize,
         retry: bool,
     },
     /// Where an `ExtractToTemp` puts its entries. Reported once, first.

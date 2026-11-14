@@ -4,15 +4,15 @@ use std::sync::Arc;
 
 use encoding_rs::Encoding;
 
-use super::navigation::{archive_shown, is_link_in_archive};
-use super::{App, Effect, MouseInput, PreviewError, PreviewSource, Side};
+use super::navigation::{is_link_in_archive, level_shown};
+use super::{App, Effect, MouseInput, PreviewSource, ReadError, Side};
 use crate::command::{Command, Context};
 use crate::config::ImagePlacement;
 use crate::entry::Entry;
 use crate::error::AppError;
-use crate::location::Location;
+use crate::location::{Location, Passwords};
 use crate::pane::RequestId;
-use crate::popup::{InputPopup, ListPopup, PasswordPurpose, Popup};
+use crate::popup::{InputKind, InputPopup, ListPopup, PasswordPurpose, Popup};
 use crate::preview::{Document, DocumentMode, ImageData, is_image_name};
 use crate::text::show_line_breaks;
 use crate::view::{PreviewContent, PreviewPlacement, PreviewView, SharedImage};
@@ -205,7 +205,7 @@ impl App {
     pub(super) fn preview_loaded(
         &mut self,
         request: RequestId,
-        result: Result<Document, PreviewError>,
+        result: Result<Document, ReadError>,
         effects: &mut Vec<Effect>,
     ) {
         let Some(Preview::Document(preview)) = &mut self.preview else {
@@ -225,11 +225,11 @@ impl App {
                 preview.scroll_top = 0;
                 preview.document = Some(document);
             }
-            Err(PreviewError::PasswordRequired { retry }) => {
-                let archive = archive_shown(self.active_pane().location());
-                self.ask_preview_password(archive, retry);
+            Err(ReadError::PasswordRequired { level, retry }) => {
+                let location = preview.source.location();
+                self.ask_preview_password(&location, level, retry);
             }
-            Err(PreviewError::Failed(source)) => {
+            Err(ReadError::Failed(source)) => {
                 let path = preview.source.shown();
                 self.log
                     .push(AppError::PreviewFailed { path, source }.to_string());
@@ -241,9 +241,9 @@ impl App {
     pub(super) fn image_loaded(
         &mut self,
         request: RequestId,
-        result: Result<ImageData, PreviewError>,
+        result: Result<ImageData, ReadError>,
     ) {
-        let archive = archive_shown(self.active_pane().location());
+        let location = self.active_pane().location().clone();
         let shown = match &self.preview {
             Some(Preview::Image(preview)) if preview.loading == Some(request) => preview
                 .shown
@@ -261,12 +261,12 @@ impl App {
                 preview.image = Some(Arc::new(image));
                 preview.error = None;
             }
-            Err(PreviewError::PasswordRequired { retry }) => {
+            Err(ReadError::PasswordRequired { level, retry }) => {
                 if self.popup.is_none() {
-                    self.ask_preview_password(archive, retry);
+                    self.ask_preview_password(&location, level, retry);
                 }
             }
-            Err(PreviewError::Failed(source)) => {
+            Err(ReadError::Failed(source)) => {
                 let line = AppError::PreviewFailed {
                     path: PathBuf::from(shown),
                     source,
@@ -285,11 +285,14 @@ impl App {
             self.popup = Some(Popup::Input(popup));
             return;
         }
+        let InputKind::ArchivePassword { level, .. } = popup.kind else {
+            return;
+        };
         self.active_pane_mut()
-            .set_archive_password(Some(password.clone()));
+            .set_archive_password(level, Some(password.clone()));
         match &mut self.preview {
             Some(Preview::Document(preview)) => {
-                preview.source.password = Some(password);
+                preview.source.passwords.set(level, Some(password));
                 self.request_document(effects);
             }
             // Forgetting what is shown makes the follow-up ask again, now with the password.
@@ -448,12 +451,15 @@ impl App {
         preview.loading = Some(request);
     }
 
-    fn ask_preview_password(&mut self, archive: PathBuf, retry: bool) {
+    // `location` is where the entry read is: the pane's location, or the one
+    // above it for the `..` row, so its levels are the pane's.
+    fn ask_preview_password(&mut self, location: &Location, level: usize, retry: bool) {
         if retry {
-            self.active_pane_mut().set_archive_password(None);
+            self.active_pane_mut().set_archive_password(level, None);
         }
         self.popup = Some(Popup::Input(InputPopup::password(
-            archive,
+            level_shown(location, level),
+            level,
             retry,
             PasswordPurpose::Preview,
         )));
@@ -464,13 +470,13 @@ impl App {
             None => PreviewSource {
                 path: location.base.join(name),
                 entry: None,
-                password: None,
+                passwords: Passwords::default(),
                 encoding: None,
             },
             Some(archive) => PreviewSource {
                 path: location.base.clone(),
                 entry: Some((archive.clone(), name.to_string_lossy().into_owned())),
-                password: self.active_pane().archive_password().map(ToOwned::to_owned),
+                passwords: self.passwords_for(location),
                 encoding: None,
             },
         }
@@ -483,13 +489,15 @@ impl PreviewSource {
     pub fn shown(&self) -> PathBuf {
         match &self.entry {
             None => self.path.clone(),
-            Some((archive, name)) => {
-                let location = Location {
-                    base: self.path.clone(),
-                    archive: Some(archive.clone()),
-                };
-                PathBuf::from(location.child_display(OsStr::new(name)))
-            }
+            Some((_, name)) => PathBuf::from(self.location().child_display(OsStr::new(name))),
+        }
+    }
+
+    // The place of the entry read, or the file's own place outside archives.
+    fn location(&self) -> Location {
+        Location {
+            base: self.path.clone(),
+            archive: self.entry.as_ref().map(|(archive, _)| archive.clone()),
         }
     }
 }

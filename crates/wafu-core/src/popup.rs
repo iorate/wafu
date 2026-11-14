@@ -9,7 +9,8 @@ use crate::config::Bookmark;
 use crate::history::History;
 use crate::key::{Key, KeyBase, NamedKey};
 use crate::listing::{SortKey, SortSpec};
-use crate::location::ArchiveFormat;
+use crate::location::{ArchiveFormat, Location, Passwords};
+use crate::pane::HistoryMove;
 use crate::preview::ENCODINGS;
 use crate::text::nfc;
 use crate::view::{InputField, ItemKind, PopupItem};
@@ -157,9 +158,12 @@ pub enum InputKind {
         dest: PathBuf,
         all: bool,
     },
-    /// An encrypted entry was met. `retry` means the last password was wrong.
+    /// An encrypted entry was met in the archive `archive`, at `level` of
+    /// what was read (see [`Passwords`]). `retry` means the last password was
+    /// wrong.
     ArchivePassword {
         archive: PathBuf,
+        level: usize,
         retry: bool,
         purpose: PasswordPurpose,
     },
@@ -173,10 +177,25 @@ pub enum InputKind {
 }
 
 /// Who asked for the password, and so who gets it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PasswordPurpose {
     Operation,
     Preview,
+    /// The listing of a pane, read with `passwords`: of the move in
+    /// `navigation`, or of where the pane is when it is `None`.
+    Listing {
+        side: Side,
+        passwords: Passwords,
+        navigation: Option<Box<PendingNavigation>>,
+    },
+}
+
+/// A move to make again once a password is given.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingNavigation {
+    pub target: Location,
+    pub cursor: Option<OsString>,
+    pub history: HistoryMove,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -347,10 +366,11 @@ impl InputPopup {
 
     /// Asks for the password of an archive.
     #[must_use]
-    pub fn password(archive: PathBuf, retry: bool, purpose: PasswordPurpose) -> Self {
+    pub fn password(archive: PathBuf, level: usize, retry: bool, purpose: PasswordPurpose) -> Self {
         Self {
             kind: InputKind::ArchivePassword {
                 archive,
+                level,
                 retry,
                 purpose,
             },
@@ -1135,8 +1155,8 @@ mod tests {
     fn password_popup_names_the_archive_and_says_when_the_password_was_wrong() {
         let archive = PathBuf::from("/a/b.zip");
 
-        let first = InputPopup::password(archive.clone(), false, PasswordPurpose::Operation);
-        let retry = InputPopup::password(archive, true, PasswordPurpose::Operation);
+        let first = InputPopup::password(archive.clone(), 0, false, PasswordPurpose::Operation);
+        let retry = InputPopup::password(archive, 0, true, PasswordPurpose::Operation);
 
         assert_eq!(first.message().as_deref(), Some("b.zip"));
         assert_eq!(retry.message().as_deref(), Some("Wrong password for b.zip"));

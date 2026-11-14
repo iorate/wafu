@@ -356,6 +356,8 @@ impl App {
                     purpose: PasswordPurpose::Preview,
                     ..
                 } => self.preview_password_refused(effects),
+                // The rest just close, a listing's password leaving the pane
+                // where it is.
                 _ => {}
             },
             KeyBase::Named(NamedKey::Enter) => self.confirm_input(popup, effects),
@@ -406,6 +408,13 @@ impl App {
                 ..
             } => {
                 self.preview_password(popup, effects);
+                return;
+            }
+            InputKind::ArchivePassword {
+                purpose: PasswordPurpose::Listing { .. },
+                ..
+            } => {
+                self.listing_password(popup, effects);
                 return;
             }
             InputKind::Compress { dir, dest, names } => {
