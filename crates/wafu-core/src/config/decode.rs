@@ -547,8 +547,7 @@ fn read_commands(root: &mut Reader<'_>, config: &mut Config, os: Os) {
         };
         let path = commands.path_of(&name);
         let mut reader = Reader::new(table, path, commands.diagnostics);
-        if !reader.take_unset("run")
-            && let Some(run) = reader.required_string("run")
+        if let Some(run) = reader.required_string("run")
             && let Some(line) = reader.command_line("run", &run, os)
         {
             config.commands.insert(name, line);
@@ -1465,8 +1464,8 @@ name = "none"
 [[bookmarks]]
 name = "a"
 path = "/a"
-[commands.bad]
-run = 1
+[commands.empty]
+run = ""
 [commands.norun]
 [commands.term]
 run = "wt"
@@ -1490,7 +1489,7 @@ run = "wt"
             paths(&diagnostics),
             [
                 "bookmarks[0]",
-                "commands.bad.run",
+                "commands.empty.run",
                 "commands.norun",
                 "keys.filelist.F1"
             ]
@@ -1636,10 +1635,6 @@ fg = "#111111"
 [colors.light.extensions]
 ZIP = "#222222"
 png = "#333333"
-[commands.term]
-run = "wt"
-[commands.other]
-run = "x"
 [open_alternative]
 dir = "code {paths}"
 [open_alternative.extensions]
@@ -1647,7 +1642,6 @@ PDF = "view {paths}"
 txt = "edit {paths}"
 [keys.filelist]
 "c" = "move"
-"m" = "$other"
 "##,
                 r#"
 [filelist]
@@ -1660,8 +1654,6 @@ family = ""
 fg = ""
 [colors.light.extensions]
 zip = ""
-[commands.term]
-run = ""
 [open_alternative]
 dir = ""
 [open_alternative.extensions]
@@ -1684,14 +1676,6 @@ pdf = ""
             config.colors.light.extensions,
             BTreeMap::from([("png".to_owned(), Color::new(0x33, 0x33, 0x33))])
         );
-        assert_eq!(
-            config
-                .commands
-                .keys()
-                .map(String::as_str)
-                .collect::<Vec<_>>(),
-            ["other"]
-        );
         assert_eq!(config.open_alternative.dir, None);
         assert_eq!(
             config
@@ -1711,15 +1695,10 @@ pdf = ""
     }
 
     #[test]
-    fn unknown_items_beside_or_holding_an_empty_string_are_still_reported() {
-        let text = "[filelist]\nbogus = \"\"\n[commands.term]\nrun = \"\"\nbogus = 1\n";
+    fn an_empty_string_in_an_unknown_item_is_still_reported() {
+        let (_, diagnostics) = parse("[filelist]\nbogus = \"\"\n", Os::Linux).unwrap();
 
-        let (_, diagnostics) = parse(text, Os::Linux).unwrap();
-
-        assert_eq!(
-            paths(&diagnostics),
-            ["filelist.bogus", "commands.term.bogus"]
-        );
+        assert_eq!(paths(&diagnostics), ["filelist.bogus"]);
     }
 
     #[test]
