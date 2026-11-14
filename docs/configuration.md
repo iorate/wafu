@@ -105,7 +105,7 @@ fifo = "#f0c050"
 socket = "#e58ae0"
 ```
 
-There are no default bookmarks or external commands. Without a `[keys]` table, the keys shown in the [command palette](#keys) are the defaults.
+There are no default bookmarks, external commands, or [extension colors](#colors). Without a `[keys]` table, the keys shown in the [command palette](#keys) are the defaults.
 
 ## File list
 
@@ -185,6 +185,18 @@ size = 16
 | `exec` | Executable files |
 | `fifo` | Named pipes and devices |
 | `socket` | Sockets |
+
+`[colors.light.extensions]` and `[colors.dark.extensions]` give regular files a color by extension, in place of `fg`. Each key is an extension without the dot, such as `zip` for `a.zip`, and matches in either case, so `zip` also colors `B.ZIP`. Only the part after the last dot is matched: `gz` colors `a.tar.gz`, and a key with a dot, such as `"tar.gz"`, is reported as invalid. The other kinds above keep their own color, so an executable `run.sh` takes `exec` whatever `sh` is set to. On Windows, `exe`, `com`, `bat`, and `cmd` files are executable, so they take `exec` too. Each theme has its own table: an extension set in only one of them takes `fg` in the other. Both tables are empty by default.
+
+```toml
+[colors.light.extensions]
+zip = "#a02020"
+7z = "#a02020"
+
+[colors.dark.extensions]
+zip = "#ff8080"
+7z = "#ff8080"
+```
 
 ## Bookmarks
 

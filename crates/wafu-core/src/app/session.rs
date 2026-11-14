@@ -16,7 +16,7 @@ use crate::location::Location;
 use crate::pane::Pane;
 use crate::popup::{InputKind, InputPopup, Popup};
 use crate::state::{PaneState, StateFile};
-use crate::view::Style;
+use crate::view::{Style, extension_colors};
 
 impl App {
     pub(super) fn start(&mut self, start: Start, effects: &mut Vec<Effect>) {
@@ -295,8 +295,10 @@ impl App {
     }
 
     fn apply_config(&mut self, config: Config) {
+        let extension_colors = extension_colors(&config.colors);
         for pane in &mut self.panes {
             pane.set_size_format(config.filelist.size_format);
+            pane.set_extension_colors(extension_colors.clone());
         }
         self.config = config;
         self.restyle();

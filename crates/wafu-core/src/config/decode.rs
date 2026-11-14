@@ -355,7 +355,12 @@ fn read_colors(root: &mut Reader<'_>, config: &mut Config) {
             broken,
             fifo,
             socket,
+            extensions,
         } = set;
+        if let Some(mut table) = reader.table("extensions") {
+            read_extensions(&mut table, extensions);
+            table.finish();
+        }
         for (item, color) in [
             ("fg", fg),
             ("bg", bg),
@@ -377,6 +382,47 @@ fn read_colors(root: &mut Reader<'_>, config: &mut Config) {
         reader.finish();
     }
     colors.finish();
+}
+
+fn read_extensions(reader: &mut Reader<'_>, extensions: &mut BTreeMap<String, Color>) {
+    let mut spellings: HashMap<String, Vec<String>> = HashMap::new();
+    let mut entries = Vec::new();
+    for (text, value) in reader.entries() {
+        let extension = text.to_ascii_lowercase();
+        if extension.is_empty() || extension.contains('.') {
+            let path = reader.path.clone();
+            reader.report(path, DiagnosticKind::InvalidKey { key: text });
+            continue;
+        }
+        spellings
+            .entry(extension.clone())
+            .or_default()
+            .push(text.clone());
+        entries.push((text, extension, value));
+    }
+    for (text, extension, value) in entries {
+        let same = &spellings[&extension];
+        if same.len() > 1 {
+            if same[0] == text {
+                let path = reader.path.clone();
+                reader.report(
+                    path,
+                    DiagnosticKind::DuplicateKey {
+                        key: extension,
+                        spellings: same.clone(),
+                    },
+                );
+            }
+            continue;
+        }
+        if let Value::String(color) = &value
+            && let Some(color) = Color::parse(color)
+        {
+            extensions.insert(extension, color);
+        } else {
+            reader.invalid(&text, "a color like #rrggbb");
+        }
+    }
 }
 
 fn read_bookmarks(root: &mut Reader<'_>, config: &mut Config) {
@@ -526,9 +572,29 @@ fn read_keys(root: &mut Reader<'_>, config: &mut Config) {
     keys.finish();
 }
 
-// Key tables merge by normalized key, so that an overlay's `"a"` replaces a
-// `"A"` below it rather than both being reported as the same key twice.
+// Key tables and extension colors merge by normalized key, so that an
+// overlay's `"a"` replaces a `"A"` below it rather than both being reported as
+// the same key twice.
 fn merge(base: &mut Table, mut overlay: Table) {
+    for theme in ["light", "dark"] {
+        let above = overlay
+            .get("colors")
+            .and_then(|colors| colors.get(theme))
+            .and_then(|colors| colors.get("extensions"))
+            .and_then(Value::as_table);
+        let below = base
+            .get_mut("colors")
+            .and_then(|colors| colors.get_mut(theme))
+            .and_then(|colors| colors.get_mut("extensions"))
+            .and_then(Value::as_table_mut);
+        if let (Some(above), Some(below)) = (above, below) {
+            below.retain(|spelling, _| {
+                !above
+                    .keys()
+                    .any(|overlaid| overlaid.eq_ignore_ascii_case(spelling))
+            });
+        }
+    }
     if let Some(Value::Table(overlay_keys)) = overlay.get_mut("keys")
         && let Some(Value::Table(base_keys)) = base.get_mut("keys")
     {
@@ -660,6 +726,9 @@ cursor = "#000000"
 dir = "#0000ff"
 link = "#00ff00"
 
+[colors.light.extensions]
+zip = "#a02020"
+
 [colors.dark]
 fg = "#ffffff"
 bg = "#000000"
@@ -712,6 +781,10 @@ run = "wt -d {dir}"
             Color::new(0x80, 0x80, 0x80)
         );
         assert_eq!(config.colors.light.dir, Color::new(0x00, 0x00, 0xff));
+        assert_eq!(
+            config.colors.light.extensions,
+            BTreeMap::from([("zip".to_owned(), Color::new(0xa0, 0x20, 0x20))])
+        );
         assert_eq!(config.bookmarks, [bookmark("Downloads", "~/Downloads")]);
         assert_eq!(
             config.commands["open_terminal"],
@@ -818,6 +891,7 @@ theme = 1
 [colors.light]
 fg = "red"
 mark = "#123"
+extensions = 1
 "##;
 
         let (config, diagnostics) = parse(text, Os::Linux).unwrap();
@@ -840,6 +914,7 @@ mark = "#123"
                 "font.log.size",
                 "font.size",
                 "colors.theme",
+                "colors.light.extensions",
                 "colors.light.fg",
             ]
         );
@@ -1019,6 +1094,68 @@ run = "x 'unterminated"
             Some(Command::Copy)
         );
         assert_eq!(config.keys.lookup(Context::Image, &key), None);
+    }
+
+    #[test]
+    fn extension_colors_are_keyed_in_lowercase_and_bad_items_dropped_alone() {
+        let text = r##"
+[colors.light.extensions]
+ZIP = "#a02020"
+7z = "#123"
+"" = "#000000"
+"tar.gz" = "#000000"
+png = "red"
+gz = 1
+[colors.dark.extensions]
+Jpg = "#ffffff"
+jpg = "#000000"
+jpeg = "#eeeeee"
+"##;
+
+        let (config, diagnostics) = parse(text, Os::Linux).unwrap();
+
+        assert_eq!(
+            config.colors.light.extensions,
+            BTreeMap::from([
+                ("7z".to_owned(), Color::new(0x11, 0x22, 0x33)),
+                ("zip".to_owned(), Color::new(0xa0, 0x20, 0x20)),
+            ])
+        );
+        assert_eq!(
+            config.colors.dark.extensions,
+            BTreeMap::from([("jpeg".to_owned(), Color::new(0xee, 0xee, 0xee))])
+        );
+        let diagnostic = |path: &str, kind| Diagnostic {
+            path: path.to_owned(),
+            kind,
+        };
+        let invalid_color = || DiagnosticKind::InvalidValue {
+            expected: "a color like #rrggbb".to_owned(),
+        };
+        assert_eq!(
+            diagnostics,
+            [
+                diagnostic(
+                    "colors.light.extensions",
+                    DiagnosticKind::InvalidKey { key: String::new() }
+                ),
+                diagnostic(
+                    "colors.light.extensions",
+                    DiagnosticKind::InvalidKey {
+                        key: "tar.gz".to_owned()
+                    }
+                ),
+                diagnostic("colors.light.extensions.gz", invalid_color()),
+                diagnostic("colors.light.extensions.png", invalid_color()),
+                diagnostic(
+                    "colors.dark.extensions",
+                    DiagnosticKind::DuplicateKey {
+                        key: "jpg".to_owned(),
+                        spellings: vec!["Jpg".to_owned(), "jpg".to_owned()],
+                    }
+                ),
+            ]
+        );
     }
 
     #[test]
@@ -1272,6 +1409,29 @@ run = "wt"
         assert!(!config.filelist.require_marks);
         assert_eq!(config.filelist.size_format, SizeFormat::Human);
         assert!(config.filelist.mkdir_enters_dir);
+    }
+
+    #[test]
+    fn extension_colors_merge_by_lowercased_extension() {
+        let (config, diagnostics) = parse_layers(
+            [
+                "[colors.light.extensions]\nzip = \"#111111\"\npng = \"#222222\"\nGIF = \"#555555\"\n",
+                "[colors.light.extensions]\nzip = \"#333333\"\n7z = \"#444444\"\ngif = \"#666666\"\n",
+            ],
+            Os::Linux,
+        )
+        .unwrap();
+
+        assert_eq!(
+            config.colors.light.extensions,
+            BTreeMap::from([
+                ("7z".to_owned(), Color::new(0x44, 0x44, 0x44)),
+                ("gif".to_owned(), Color::new(0x66, 0x66, 0x66)),
+                ("png".to_owned(), Color::new(0x22, 0x22, 0x22)),
+                ("zip".to_owned(), Color::new(0x33, 0x33, 0x33)),
+            ])
+        );
+        assert_eq!(diagnostics, []);
     }
 
     #[test]

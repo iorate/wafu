@@ -12,6 +12,12 @@ export struct Row {
     size: string,
     modified: string,
     hidden: bool,
+    // Slint has no optional color, so the extension color of each theme
+    // comes with a flag telling whether there is one.
+    has-light-color: bool,
+    light-color: color,
+    has-dark-color: bool,
+    dark-color: color,
 }
 
 export struct PaneData {
@@ -47,7 +53,8 @@ component RowItem {
         : item.kind == 4 ? Theme.colors.broken
         : item.kind == 5 ? Theme.colors.fifo
         : item.kind == 6 ? Theme.colors.socket
-        : Theme.colors.fg;
+        : Theme.dark-scheme ? (item.has-dark-color ? item.dark-color : Theme.colors.fg)
+        : item.has-light-color ? item.light-color : Theme.colors.fg;
     // The text alone is dimmed so that the mark background and the cursor line
     // keep their full strength.
     property <brush> text-color: item.hidden ? kind-color.with-alpha(Theme.hidden-opacity) : kind-color;
