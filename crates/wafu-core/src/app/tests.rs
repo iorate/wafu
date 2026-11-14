@@ -1,7 +1,7 @@
 use std::path::{MAIN_SEPARATOR, Path, PathBuf};
 
 use super::*;
-use crate::config::Theme;
+use crate::config::{Color, Theme};
 use crate::entry::{
     Directory, Entry, EntryKind, LocalDateTime, SpecialKind, TargetKind, Timestamp,
 };
@@ -12,7 +12,7 @@ use crate::test_support::{
     CONFIG_PATH, HOME, Harness, STATE_PATH, config_file, config_source, config_text, dir, file,
     path, shown, special, start_msg, start_msg_with,
 };
-use crate::view::{InputField, ItemKind, RowKind};
+use crate::view::{ExtensionColor, InputField, ItemKind, RowKind};
 
 mod archives;
 mod operations;
@@ -2957,6 +2957,26 @@ fn size_format_applies_to_the_rows_and_the_marked_total_on_reload() {
             .left
             .info
             .contains("1 marked (1,234,567 bytes)")
+    );
+}
+
+#[test]
+fn reloading_extension_colors_recolors_the_rows_already_shown() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a.zip")]);
+    assert_eq!(
+        harness.view().left.rows[1].extension_color,
+        ExtensionColor::default()
+    );
+
+    harness.config("[colors.dark.extensions]\nzip = \"#ff8080\"\n");
+
+    assert_eq!(
+        harness.view().left.rows[1].extension_color,
+        ExtensionColor {
+            light: None,
+            dark: Some(Color::new(0xff, 0x80, 0x80)),
+        }
     );
 }
 

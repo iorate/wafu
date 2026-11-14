@@ -1,7 +1,8 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use crate::app::{ColorScheme, Os};
-use crate::config::{Colors, Config, SizeFormat, Theme, monospace_family};
+use crate::config::{Color, Colors, ColorsConfig, Config, SizeFormat, Theme, monospace_family};
 use crate::entry::{Entry, EntryKind, SpecialKind, TargetKind};
 use crate::pane::Pane;
 use crate::preview::ImageData;
@@ -95,6 +96,15 @@ pub struct RowView {
     pub modified: String,
     /// Whether the entry is a hidden one, which is drawn dimmed.
     pub hidden: bool,
+    /// What the row takes in place of the text color; set only for `File`.
+    pub extension_color: ExtensionColor,
+}
+
+/// The color an extension gives a row in each theme, if any.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ExtensionColor {
+    pub light: Option<Color>,
+    pub dark: Option<Color>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -328,7 +338,11 @@ impl RowView {
     // The `..` row, whose marker, size, and time columns and color describe the location itself.
     // It is not dimmed even in a hidden location: dimming marks the rows that hiding hidden
     // entries takes away, and this row always stays.
-    pub(crate) fn parent(own: Option<&Entry>, size_format: SizeFormat) -> Self {
+    pub(crate) fn parent(
+        own: Option<&Entry>,
+        size_format: SizeFormat,
+        colors: &ExtensionColors,
+    ) -> Self {
         let (size, modified) =
             own.map_or_else(Default::default, |own| size_and_modified(own, size_format));
         Self {
@@ -339,11 +353,19 @@ impl RowView {
             size,
             modified,
             hidden: false,
+            extension_color: own.map_or_else(ExtensionColor::default, |own| {
+                extension_color(own, &own.split_name().1, colors)
+            }),
         }
     }
 
-    pub(crate) fn from_entry(entry: &Entry, size_format: SizeFormat) -> Self {
+    pub(crate) fn from_entry(
+        entry: &Entry,
+        size_format: SizeFormat,
+        colors: &ExtensionColors,
+    ) -> Self {
         let (name, extension) = entry.split_name();
+        let extension_color = extension_color(entry, &extension, colors);
         let extension = if extension.is_empty() {
             extension
         } else {
@@ -358,6 +380,7 @@ impl RowView {
             size,
             modified,
             hidden: entry.hidden,
+            extension_color,
         }
     }
 }
@@ -374,6 +397,29 @@ impl RowKind {
             EntryKind::Special(_) => Self::Fifo,
         }
     }
+}
+
+pub(crate) type ExtensionColors = BTreeMap<String, ExtensionColor>;
+
+pub(crate) fn extension_colors(colors: &ColorsConfig) -> ExtensionColors {
+    let mut merged = ExtensionColors::new();
+    for (extension, &color) in &colors.light.extensions {
+        merged.entry(extension.clone()).or_default().light = Some(color);
+    }
+    for (extension, &color) in &colors.dark.extensions {
+        merged.entry(extension.clone()).or_default().dark = Some(color);
+    }
+    merged
+}
+
+fn extension_color(entry: &Entry, extension: &str, colors: &ExtensionColors) -> ExtensionColor {
+    if RowKind::from_entry_kind(entry.kind) != RowKind::File {
+        return ExtensionColor::default();
+    }
+    colors
+        .get(&extension.to_ascii_lowercase())
+        .copied()
+        .unwrap_or_default()
 }
 
 fn size_and_modified(entry: &Entry, size_format: SizeFormat) -> (String, String) {
@@ -452,6 +498,8 @@ mod tests {
     use crate::location::Location;
 
     const TIME: &str = "2026/01/02 03:04:05";
+    const RED: Color = Color::new(0xa0, 0x20, 0x20);
+    const BLUE: Color = Color::new(0x20, 0x20, 0xa0);
 
     #[test]
     fn theme_auto_follows_the_os_color_scheme() {
@@ -556,7 +604,7 @@ mod tests {
             modified: Some(timestamp()),
             ..dir("user")
         };
-        let row = RowView::parent(Some(&own_dir), SizeFormat::Plain);
+        let row = RowView::parent(Some(&own_dir), SizeFormat::Plain, &no_colors());
         assert_eq!(
             (
                 row.marker,
@@ -571,17 +619,20 @@ mod tests {
             size: 1234,
             ..file("a.zip")
         };
-        let row = RowView::parent(Some(&own_file), SizeFormat::Plain);
-        assert_eq!((row.marker, row.size.as_str()), ("", "1234"));
+        let row = RowView::parent(Some(&own_file), SizeFormat::Plain, &zip_colors());
+        assert_eq!(
+            (row.marker, row.size.as_str(), row.extension_color.light),
+            ("", "1234", Some(RED))
+        );
 
         let own_link = link("tmp", Some(TargetKind::Dir));
-        let row = RowView::parent(Some(&own_link), SizeFormat::Plain);
+        let row = RowView::parent(Some(&own_link), SizeFormat::Plain, &no_colors());
         assert_eq!((row.marker, row.kind), ("@", RowKind::Link));
     }
 
     #[test]
     fn parent_row_without_an_own_entry_is_blank() {
-        let row = RowView::parent(None, SizeFormat::Plain);
+        let row = RowView::parent(None, SizeFormat::Plain, &no_colors());
 
         assert_eq!(
             (
@@ -596,14 +647,73 @@ mod tests {
 
     #[test]
     fn extension_column_has_a_leading_dot_or_is_empty() {
-        let row = RowView::from_entry(&file("a.tar.gz"), SizeFormat::Plain);
+        let row = RowView::from_entry(&file("a.tar.gz"), SizeFormat::Plain, &no_colors());
         assert_eq!(
             (row.name.as_str(), row.extension.as_str()),
             ("a.tar", ".gz")
         );
 
-        let row = RowView::from_entry(&file("noext"), SizeFormat::Plain);
+        let row = RowView::from_entry(&file("noext"), SizeFormat::Plain, &no_colors());
         assert_eq!(row.extension, "");
+    }
+
+    #[test]
+    fn file_rows_take_the_extension_color_whatever_its_case() {
+        for name in ["a.zip", "b.ZIP", "c.Zip"] {
+            let row = RowView::from_entry(&file(name), SizeFormat::Plain, &zip_colors());
+            assert_eq!(row.extension_color.light, Some(RED), "{name}");
+        }
+        let row = RowView::from_entry(&file("zip"), SizeFormat::Plain, &zip_colors());
+        assert_eq!(row.extension_color, ExtensionColor::default());
+    }
+
+    #[test]
+    fn rows_of_other_kinds_keep_their_kind_color() {
+        let entries = [
+            Entry {
+                kind: EntryKind::File { executable: true },
+                ..file("x.zip")
+            },
+            dir("d.zip"),
+            link("l.zip", Some(TargetKind::File { executable: false })),
+            link("b.zip", None),
+            special("p.zip", SpecialKind::Fifo),
+        ];
+        for entry in entries {
+            let row = RowView::from_entry(&entry, SizeFormat::Plain, &zip_colors());
+            assert_eq!(
+                row.extension_color,
+                ExtensionColor::default(),
+                "{:?}",
+                entry.name
+            );
+        }
+    }
+
+    #[test]
+    fn an_extension_colors_only_the_themes_that_set_it() {
+        let mut config = Config::default_for(Os::Linux);
+        config.colors.light.extensions.insert("zip".to_owned(), RED);
+        config.colors.dark.extensions.insert("png".to_owned(), BLUE);
+
+        let colors = extension_colors(&config.colors);
+
+        let color =
+            |name| RowView::from_entry(&file(name), SizeFormat::Plain, &colors).extension_color;
+        assert_eq!(
+            color("a.zip"),
+            ExtensionColor {
+                light: Some(RED),
+                dark: None
+            }
+        );
+        assert_eq!(
+            color("a.png"),
+            ExtensionColor {
+                light: None,
+                dark: Some(BLUE)
+            }
+        );
     }
 
     #[test]
@@ -775,6 +885,20 @@ mod tests {
         let mut config = Config::default_for(Os::Linux);
         config.colors.theme = theme;
         Style::from_config(&config, Os::Linux, scheme).theme
+    }
+
+    fn no_colors() -> ExtensionColors {
+        ExtensionColors::new()
+    }
+
+    fn zip_colors() -> ExtensionColors {
+        ExtensionColors::from([(
+            "zip".to_owned(),
+            ExtensionColor {
+                light: Some(RED),
+                dark: None,
+            },
+        )])
     }
 
     fn status(entry: &Entry) -> String {

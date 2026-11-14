@@ -50,7 +50,7 @@ pub use pane::{DrivePurpose, RequestId};
 pub use preview::{Document, DocumentMode, ImageData, Line, PREVIEW_LIMIT};
 pub use state::{PaneState, StateError, StateFile, WindowState};
 pub use view::{
-    ColorSet, Fonts, InputField, ItemKind, LogView, PaneView, PopupItem, PopupView, PreviewContent,
-    PreviewLine, PreviewPlacement, PreviewView, ResolvedFont, RowKind, RowView, SharedImage, Style,
-    View,
+    ColorSet, ExtensionColor, Fonts, InputField, ItemKind, LogView, PaneView, PopupItem, PopupView,
+    PreviewContent, PreviewLine, PreviewPlacement, PreviewView, ResolvedFont, RowKind, RowView,
+    SharedImage, Style, View,
 };

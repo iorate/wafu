@@ -12,7 +12,7 @@ use crate::listing::{Listing, SortSpec};
 use crate::location::Location;
 use crate::path::drive_letter;
 use crate::text::nfc;
-use crate::view::RowView;
+use crate::view::{ExtensionColors, RowView};
 
 /// A unique number for an asynchronous request, used to discard stale replies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -41,6 +41,7 @@ pub struct Pane {
     // Kept while inside one archive, forgotten on leaving it.
     archive_password: Option<String>,
     size_format: SizeFormat,
+    extension_colors: ExtensionColors,
     rows: Arc<[RowView]>,
     mark_flags: Arc<[bool]>,
 }
@@ -130,6 +131,7 @@ impl Pane {
             drive_memory: HashMap::new(),
             archive_password: None,
             size_format: SizeFormat::Plain,
+            extension_colors: ExtensionColors::new(),
             rows: Arc::from([]),
             mark_flags: Arc::from([]),
         }
@@ -548,6 +550,13 @@ impl Pane {
         }
     }
 
+    pub(crate) fn set_extension_colors(&mut self, colors: ExtensionColors) {
+        if self.extension_colors != colors {
+            self.extension_colors = colors;
+            self.rebuild_rows();
+        }
+    }
+
     pub(crate) fn archive_password(&self) -> Option<&str> {
         self.archive_password.as_deref()
     }
@@ -750,15 +759,16 @@ impl Pane {
     }
 
     fn rebuild_rows(&mut self) {
+        let (format, colors) = (self.size_format, &self.extension_colors);
         let parent = self
             .has_parent()
-            .then(|| RowView::parent(self.listing.own(), self.size_format));
+            .then(|| RowView::parent(self.listing.own(), format, colors));
         self.rows = parent
             .into_iter()
             .chain(
                 self.listing
                     .visible_entries()
-                    .map(|entry| RowView::from_entry(entry, self.size_format)),
+                    .map(|entry| RowView::from_entry(entry, format, colors)),
             )
             .collect();
         self.rebuild_mark_flags();

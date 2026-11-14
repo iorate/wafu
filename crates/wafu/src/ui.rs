@@ -950,6 +950,10 @@ fn row(row: &RowView) -> Row {
         size: row.size.as_str().into(),
         modified: row.modified.as_str().into(),
         hidden: row.hidden,
+        has_light_color: row.extension_color.light.is_some(),
+        light_color: row.extension_color.light.map(color).unwrap_or_default(),
+        has_dark_color: row.extension_color.dark.is_some(),
+        dark_color: row.extension_color.dark.map(color).unwrap_or_default(),
     }
 }
 

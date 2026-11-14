@@ -197,6 +197,9 @@ pub struct Colors {
     pub broken: Color,
     pub fifo: Color,
     pub socket: Color,
+    /// The text color of regular files by extension, keyed in ASCII lowercase
+    /// without the dot.
+    pub extensions: BTreeMap<String, Color>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -317,6 +320,7 @@ impl Config {
                     broken: Color::new(0xc0, 0x39, 0x2b),
                     fifo: Color::new(0xb8, 0x86, 0x0b),
                     socket: Color::new(0xb0, 0x3a, 0x9a),
+                    extensions: BTreeMap::new(),
                 },
                 dark: Colors {
                     fg: Color::new(0xd4, 0xd4, 0xd4),
@@ -331,6 +335,7 @@ impl Config {
                     broken: Color::new(0xff, 0x6b, 0x6b),
                     fifo: Color::new(0xf0, 0xc0, 0x50),
                     socket: Color::new(0xe5, 0x8a, 0xe0),
+                    extensions: BTreeMap::new(),
                 },
             },
             bookmarks: Vec::new(),
