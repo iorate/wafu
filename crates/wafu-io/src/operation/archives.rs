@@ -770,10 +770,16 @@ mod tests {
         );
         let spec = extract(std::slice::from_ref(&archive), &dest);
         let (sender, replies) = mpsc::channel();
-        // With the archive gone, reading it from the start again would fail.
+        // With the archive emptied, reading it from the start again would fail.
+        // Removing it would not do: the reader keeps its handle.
         let report = |event: OperationEvent| {
             if let OperationEvent::Conflict { .. } = event {
-                fs::remove_file(&archive).unwrap();
+                File::options()
+                    .write(true)
+                    .open(&archive)
+                    .unwrap()
+                    .set_len(0)
+                    .unwrap();
                 sender.send(Reply::Overwrite { all: false }).unwrap();
             }
         };

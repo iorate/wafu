@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
-use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 use chrono::{DateTime, Datelike, Local, TimeZone, Timelike};
@@ -11,6 +10,7 @@ use zip::write::FullFileOptions;
 use zip::{AesMode, CompressionMethod, ExtraField, System, ZipArchive, ZipWriter};
 
 use super::names::{decode_name, split_name};
+use super::shared::SharedFile;
 use super::{ArchiveEntry, ArchiveEntryKind, ArchiveError, ArchiveReader, ArchiveWriter};
 
 const ZIP64_THRESHOLD: u64 = 4 * 1024 * 1024 * 1024;
@@ -32,7 +32,7 @@ const DAMAGED: &str = "the zip archive is damaged";
 const WRONG_OR_DAMAGED: &str = "the password is wrong or the zip archive is damaged";
 
 pub(crate) struct ZipReader {
-    archive: ZipArchive<File>,
+    archive: ZipArchive<SharedFile>,
     entries: Vec<ArchiveEntry>,
     // Where each entry is in the crate's index, which also holds the root and
     // the entries replaced by later ones.
@@ -53,12 +53,11 @@ pub(crate) struct ZipArchiveWriter {
 }
 
 impl ZipReader {
-    pub(crate) fn open(path: &Path) -> Result<Self, ArchiveError> {
-        let file = File::open(path)?;
-        let mut archive = match ZipArchive::new(file) {
+    pub(crate) fn open(file: SharedFile) -> Result<Self, ArchiveError> {
+        let mut archive = match ZipArchive::new(file.rewound()) {
             Ok(archive) => archive,
             Err(error) if is_damage(&error) => {
-                let message = if has_signature(path)? {
+                let message = if has_signature(file)? {
                     DAMAGED
                 } else {
                     NOT_ZIP
@@ -225,7 +224,7 @@ impl ArchiveWriter for ZipArchiveWriter {
 
 // The name is decoded here rather than by the crate, whose `name()` reads
 // anything that is not UTF-8 as CP437.
-fn entry_of(file: &ZipFile<'_, File>) -> ArchiveEntry {
+fn entry_of(file: &ZipFile<'_, SharedFile>) -> ArchiveEntry {
     let name = decode_name(file.name_raw());
     let mode = file.unix_mode();
     // Some tools mark a directory only by its attributes, as Unix mode bits
@@ -366,8 +365,7 @@ fn damaged_in(name: &str, encrypted: bool) -> io::Error {
 // self-extracting archive with its stub in front opens. A file that starts as
 // a zip or has an end record near its end is taken for one that is damaged;
 // anything else is not a zip at all.
-fn has_signature(path: &Path) -> io::Result<bool> {
-    let mut file = File::open(path)?;
+fn has_signature(mut file: SharedFile) -> io::Result<bool> {
     let mut head = Vec::with_capacity(LOCAL_SIGNATURE.len());
     (&mut file)
         .take(LOCAL_SIGNATURE.len() as u64)
@@ -375,7 +373,7 @@ fn has_signature(path: &Path) -> io::Result<bool> {
     if head == LOCAL_SIGNATURE || head == END_SIGNATURE {
         return Ok(true);
     }
-    let len = file.metadata()?.len();
+    let len = file.seek(SeekFrom::End(0))?;
     file.seek(SeekFrom::Start(len.saturating_sub(END_SEARCH_LEN)))?;
     let mut tail = Vec::new();
     file.read_to_end(&mut tail)?;
@@ -404,6 +402,8 @@ fn io_error(error: ZipError) -> io::Error {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use tempfile::TempDir;
     use zip::write::{FileOptions, SimpleFileOptions};
 
@@ -431,7 +431,7 @@ mod tests {
             writer.finish().unwrap();
         }
 
-        let mut reader = ZipReader::open(&path).unwrap();
+        let mut reader = ZipReader::open(shared(&path)).unwrap();
 
         let entries = reader.entries().to_vec();
         assert_eq!(entries.len(), 3);
@@ -482,7 +482,7 @@ mod tests {
             .unwrap();
         writer.finish().unwrap();
 
-        let reader = ZipReader::open(&path).unwrap();
+        let reader = ZipReader::open(shared(&path)).unwrap();
 
         let kinds: Vec<ArchiveEntryKind> =
             reader.entries().iter().map(|entry| entry.kind).collect();
@@ -514,7 +514,7 @@ mod tests {
         }
         writer.finish().unwrap();
 
-        let reader = ZipReader::open(&path).unwrap();
+        let reader = ZipReader::open(shared(&path)).unwrap();
 
         let modes: Vec<Option<u32>> = reader
             .entries()
@@ -540,7 +540,7 @@ mod tests {
             let path = dir.path().join(name);
             std::fs::write(&path, content).unwrap();
 
-            let error = ZipReader::open(&path).err().unwrap();
+            let error = ZipReader::open(shared(&path)).err().unwrap();
 
             assert_eq!(error.to_string(), DAMAGED, "{name}");
         }
@@ -571,10 +571,10 @@ mod tests {
         let content_path = dir.path().join("content.zip");
         std::fs::write(&content_path, content).unwrap();
 
-        let error = ZipReader::open(&header_path).err().unwrap();
+        let error = ZipReader::open(shared(&header_path)).err().unwrap();
         assert_eq!(error.to_string(), "the zip archive is damaged in b.txt");
 
-        let mut reader = ZipReader::open(&content_path).unwrap();
+        let mut reader = ZipReader::open(shared(&content_path)).unwrap();
         let error = reader
             .open(1, None)
             .unwrap()
@@ -602,7 +602,7 @@ mod tests {
         zip[30 + name_len + extra_len + 18] ^= 0xff;
         std::fs::write(&path, zip).unwrap();
 
-        let mut reader = ZipReader::open(&path).unwrap();
+        let mut reader = ZipReader::open(shared(&path)).unwrap();
         let error = reader
             .open(0, Some("secret"))
             .unwrap()
@@ -636,7 +636,7 @@ mod tests {
         writer.start_file("unset", options).unwrap();
         writer.finish().unwrap();
 
-        let reader = ZipReader::open(&path).unwrap();
+        let reader = ZipReader::open(shared(&path)).unwrap();
 
         let entries = reader.entries();
         assert_eq!(
@@ -663,7 +663,7 @@ mod tests {
         writer.start_file("before", options).unwrap();
         writer.finish().unwrap();
 
-        let reader = ZipReader::open(&path).unwrap();
+        let reader = ZipReader::open(shared(&path)).unwrap();
 
         let entries = reader.entries();
         assert_eq!(
@@ -684,10 +684,14 @@ mod tests {
         let path = dir.path().join("s.zip");
         std::fs::write(&path, raw_zip(&raw)).unwrap();
 
-        let reader = ZipReader::open(&path).unwrap();
+        let reader = ZipReader::open(shared(&path)).unwrap();
 
         assert_eq!(reader.entries()[0].kind, ArchiveEntryKind::File);
         assert_eq!(reader.entries()[0].components, ["表"]);
+    }
+
+    fn shared(path: &Path) -> SharedFile {
+        SharedFile::new(File::open(path).unwrap())
     }
 
     // Two stored files, `a.txt` and `b.txt`, whose content is `hello`.

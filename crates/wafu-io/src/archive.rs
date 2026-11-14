@@ -11,11 +11,13 @@ use wafu_core::{ArchiveFormat, Entry, EntryKind, Permissions, TargetKind};
 use crate::time::timestamp;
 
 mod names;
+mod shared;
 pub(crate) mod tar;
 pub(crate) mod zip;
 
 pub(crate) use names::{UNSAFE_NAME, check_component};
 
+use self::shared::SharedFile;
 use self::tar::Compression;
 
 const CANCEL_CHECK_INTERVAL: usize = 256;
@@ -108,21 +110,22 @@ pub(crate) fn open_archive(
     path: &Path,
     format: Option<ArchiveFormat>,
 ) -> Result<Box<dyn ArchiveReader>, ArchiveError> {
+    let file = SharedFile::new(File::open(path)?);
     let detected = format.is_none();
     let format = match format {
         Some(format) => format,
-        None => detect_format(path)?,
+        None => detect_format(file.rewound())?,
     };
     match compression(format) {
         // Zip is what a file of no known format is tried as, so one that is
         // not a zip either is not an archive wafu reads.
-        None => match zip::ZipReader::open(path) {
+        None => match zip::ZipReader::open(file) {
             Err(ArchiveError::Invalid(message)) if detected && message == zip::NOT_ZIP => {
                 Err(ArchiveError::Invalid(NOT_ARCHIVE.to_owned()))
             }
             result => Ok(Box::new(result?)),
         },
-        Some(compression) => Ok(Box::new(tar::TarReader::open(path, compression)?)),
+        Some(compression) => Ok(Box::new(tar::TarReader::open(file, compression)?)),
     }
 }
 
@@ -148,9 +151,8 @@ fn compression(format: ArchiveFormat) -> Option<Compression> {
     }
 }
 
-fn detect_format(path: &Path) -> io::Result<ArchiveFormat> {
+fn detect_format(mut file: SharedFile) -> io::Result<ArchiveFormat> {
     let mut head = [0; SNIFF_LEN];
-    let mut file = File::open(path)?;
     let mut filled = 0;
     while filled < head.len() {
         match file.read(&mut head[filled..]) {

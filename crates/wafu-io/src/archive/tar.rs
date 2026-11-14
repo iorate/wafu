@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Cursor, Read, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use bzip2::read::MultiBzDecoder;
@@ -12,6 +11,7 @@ use lzma_rust2::{XzOptions, XzReader, XzWriter};
 use tar::{Archive, Builder, Entries, Entry, EntryType, Header};
 
 use super::names::{decode_name, split_name};
+use super::shared::SharedFile;
 use super::{ArchiveEntry, ArchiveEntryKind, ArchiveError, ArchiveReader, ArchiveWriter};
 
 const DEFAULT_FILE_MODE: u32 = 0o644;
@@ -36,7 +36,7 @@ pub(crate) enum Compression {
 // forward and starts over when asked for something behind it. Reading the
 // entries in index order, as an extraction does, costs one more pass.
 pub(crate) struct TarReader {
-    path: PathBuf,
+    file: SharedFile,
     compression: Compression,
     entries: Vec<ArchiveEntry>,
     contents: Vec<Content>,
@@ -69,7 +69,7 @@ struct Stream {
 }
 
 enum Source {
-    Plain(BufReader<File>),
+    Plain(BufReader<SharedFile>),
     Decoded(Box<dyn Read>),
 }
 
@@ -103,18 +103,18 @@ enum Encoder {
 }
 
 impl TarReader {
-    pub(crate) fn open(path: &Path, compression: Compression) -> Result<Self, ArchiveError> {
-        let file = BufReader::new(File::open(path)?);
+    pub(crate) fn open(file: SharedFile, compression: Compression) -> Result<Self, ArchiveError> {
+        let reader = BufReader::new(file.rewound());
         // A plain tar can seek past the content; a decoded one reads through it.
         let (entries, contents) = if compression == Compression::None {
-            let mut archive = Archive::new(file);
+            let mut archive = Archive::new(reader);
             scan(archive.entries_with_seek()?)?
         } else {
-            let mut archive = Archive::new(decoder(compression, file));
+            let mut archive = Archive::new(decoder(compression, reader));
             scan(archive.entries()?)?
         };
         Ok(Self {
-            path: path.to_path_buf(),
+            file,
             compression,
             entries,
             contents,
@@ -145,7 +145,7 @@ impl ArchiveReader for TarReader {
             )),
             Content::Span { start, len } => {
                 if self.stream.as_ref().is_none_or(|stream| stream.pos > start) {
-                    self.stream = Some(Stream::open(&self.path, self.compression)?);
+                    self.stream = Some(Stream::open(&self.file, self.compression));
                 }
                 let stream = self.stream.as_mut().expect("the stream was just opened");
                 stream.skip_to(start)?;
@@ -253,13 +253,13 @@ impl ArchiveWriter for TarWriter {
 }
 
 impl Stream {
-    fn open(path: &Path, compression: Compression) -> io::Result<Self> {
-        let file = BufReader::new(File::open(path)?);
+    fn open(file: &SharedFile, compression: Compression) -> Self {
+        let file = BufReader::new(file.rewound());
         let source = match compression {
             Compression::None => Source::Plain(file),
             _ => Source::Decoded(decoder(compression, file)),
         };
-        Ok(Self { source, pos: 0 })
+        Self { source, pos: 0 }
     }
 
     // Moves forward to `target`, which is never behind the position.
@@ -610,7 +610,7 @@ fn pax_seconds(record: &str) -> Option<&str> {
 }
 
 // Multi-member streams are what parallel compressors (pigz, pbzip2) write.
-fn decoder(compression: Compression, file: BufReader<File>) -> Box<dyn Read> {
+fn decoder(compression: Compression, file: BufReader<SharedFile>) -> Box<dyn Read> {
     match compression {
         Compression::None => Box::new(file),
         Compression::Gzip => Box::new(MultiGzDecoder::new(file)),
@@ -643,6 +643,7 @@ pub(crate) fn header_of(kind: EntryType, size: u64) -> Header {
 mod tests {
     use std::borrow::Cow;
     use std::fs;
+    use std::path::Path;
 
     use tempfile::TempDir;
 
@@ -682,7 +683,7 @@ mod tests {
                 writer.finish().unwrap();
             }
 
-            let mut reader = TarReader::open(&path, compression).unwrap();
+            let mut reader = TarReader::open(shared(&path), compression).unwrap();
 
             let entries = reader.entries().to_vec();
             assert_eq!(entries.len(), 4, "{compression:?}");
@@ -762,7 +763,7 @@ mod tests {
                 .unwrap();
             writer.finish().unwrap();
         }
-        let mut reader = TarReader::open(&path, Compression::Gzip).unwrap();
+        let mut reader = TarReader::open(shared(&path), Compression::Gzip).unwrap();
 
         let mut head = [0; 2];
         reader.open(1, None).unwrap().read_exact(&mut head).unwrap();
@@ -789,7 +790,7 @@ mod tests {
             builder.finish().unwrap();
         }
 
-        let mut reader = TarReader::open(&path, Compression::None).unwrap();
+        let mut reader = TarReader::open(shared(&path), Compression::None).unwrap();
 
         assert_eq!(reader.entries()[1].kind, ArchiveEntryKind::File);
         assert_eq!(reader.entries()[1].size, 4);
@@ -818,7 +819,7 @@ mod tests {
             builder.finish().unwrap();
         }
 
-        let mut reader = TarReader::open(&path, Compression::None).unwrap();
+        let mut reader = TarReader::open(shared(&path), Compression::None).unwrap();
 
         let names: Vec<&str> = reader
             .entries()
@@ -850,7 +851,7 @@ mod tests {
             builder.finish().unwrap();
         }
 
-        let mut reader = TarReader::open(&path, Compression::None).unwrap();
+        let mut reader = TarReader::open(shared(&path), Compression::None).unwrap();
 
         assert_eq!(reader.entries().len(), 1);
         assert_eq!(reader.entries()[0].components, ["holes.bin"]);
@@ -882,7 +883,7 @@ mod tests {
             builder.finish().unwrap();
         }
 
-        let mut reader = TarReader::open(&path, Compression::None).unwrap();
+        let mut reader = TarReader::open(shared(&path), Compression::None).unwrap();
 
         assert_eq!(reader.entries().len(), 1);
         assert_eq!(reader.entries()[0].components, ["d", "holes.bin"]);
@@ -911,7 +912,7 @@ mod tests {
             builder.finish().unwrap();
         }
 
-        let mut reader = TarReader::open(&path, Compression::None).unwrap();
+        let mut reader = TarReader::open(shared(&path), Compression::None).unwrap();
 
         let entries = reader.entries().to_vec();
         assert_eq!(entries.len(), 2);
@@ -943,7 +944,7 @@ mod tests {
             builder.finish().unwrap();
         }
 
-        let mut reader = TarReader::open(&path, Compression::None).unwrap();
+        let mut reader = TarReader::open(shared(&path), Compression::None).unwrap();
 
         assert_eq!(reader.entries().len(), 1);
         assert_eq!(reader.entries()[0].components, ["old"]);
@@ -969,7 +970,7 @@ mod tests {
             builder.finish().unwrap();
         }
 
-        let reader = TarReader::open(&path, Compression::None).unwrap();
+        let reader = TarReader::open(shared(&path), Compression::None).unwrap();
 
         let modified: Vec<Option<SystemTime>> = reader
             .entries()
@@ -1034,7 +1035,9 @@ mod tests {
             .set_len(len / 2)
             .unwrap();
 
-        let error = TarReader::open(&path, Compression::Gzip).err().unwrap();
+        let error = TarReader::open(shared(&path), Compression::Gzip)
+            .err()
+            .unwrap();
 
         assert_eq!(error.to_string(), "the tar archive is damaged after b");
     }
@@ -1059,7 +1062,9 @@ mod tests {
             builder.get_mut().write_all(&[b'x'; 512]).unwrap();
         }
 
-        let error = TarReader::open(&path, Compression::None).err().unwrap();
+        let error = TarReader::open(shared(&path), Compression::None)
+            .err()
+            .unwrap();
 
         assert_eq!(error.to_string(), "the tar archive is damaged after a");
     }
@@ -1076,7 +1081,7 @@ mod tests {
                 .unwrap();
             writer.finish().unwrap();
         }
-        let mut reader = TarReader::open(&path, Compression::None).unwrap();
+        let mut reader = TarReader::open(shared(&path), Compression::None).unwrap();
         // Everything after the header: the content and the end blocks.
         File::options()
             .write(true)
@@ -1094,6 +1099,10 @@ mod tests {
 
         assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
         assert_eq!(error.to_string(), "the tar archive is damaged in a");
+    }
+
+    fn shared(path: &Path) -> SharedFile {
+        SharedFile::new(File::open(path).unwrap())
     }
 
     fn content(reader: &mut TarReader, index: usize) -> Vec<u8> {
