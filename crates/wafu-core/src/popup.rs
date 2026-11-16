@@ -766,8 +766,8 @@ pub fn stem_selection(name: &str) -> Option<(usize, usize)> {
 
 // The popups that pick a row. The rules for keys and the mouse live in
 // `menu_input` alone; an implementation only describes its rows and what
-// running one does. Separators are rows here too, so that the UI's row
-// numbers are the core's and a click needs no translation.
+// running or confirming one does. Separators are rows here too, so that the
+// UI's row numbers are the core's and a click needs no translation.
 pub(crate) trait Menu {
     type Pick;
 
@@ -777,6 +777,13 @@ pub(crate) trait Menu {
     fn set_cursor(&mut self, row: usize);
     fn row_for_key(&self, key: char) -> Option<usize>;
     fn run(&mut self, row: usize) -> Response<Self::Pick>;
+
+    // Enter on a checkbox. It never flips the box: Enter means "done", so it
+    // either confirms what the popup holds or, with nothing to confirm, does
+    // nothing.
+    fn confirm(&mut self) -> Response<Self::Pick> {
+        Response::Stay
+    }
 
     fn cursor_up(&mut self) {
         let rows = self.rows();
@@ -880,6 +887,10 @@ impl Menu for SortPopup {
                 Response::Stay
             }
         }
+    }
+
+    fn confirm(&mut self) -> Response<SortSpec> {
+        Response::Pick(self.draft)
     }
 }
 
@@ -1032,7 +1043,10 @@ pub(crate) fn menu_input<M: Menu>(menu: &mut M, input: MenuInput) -> Response<M:
     match input {
         MenuInput::Key(key) => match key.base {
             KeyBase::Named(NamedKey::Escape) => Response::Close,
-            KeyBase::Named(NamedKey::Enter) => menu.run(menu.cursor()),
+            KeyBase::Named(NamedKey::Enter) => match menu.kind(menu.cursor()) {
+                ItemKind::Check(_) => menu.confirm(),
+                _ => menu.run(menu.cursor()),
+            },
             KeyBase::Named(NamedKey::Space)
                 if matches!(menu.kind(menu.cursor()), ItemKind::Check(_)) =>
             {
@@ -1152,6 +1166,22 @@ mod tests {
     }
 
     #[test]
+    fn sort_popup_enter_on_a_toggle_confirms_the_draft_without_flipping_it() {
+        let mut popup = SortPopup::new(SortSpec::default());
+        popup.cursor = 7;
+
+        assert_eq!(menu_input(&mut popup, key("Space")), Response::Stay);
+        let toggled = SortSpec {
+            descending: true,
+            ..SortSpec::default()
+        };
+        assert_eq!(
+            menu_input(&mut popup, key("Enter")),
+            Response::Pick(toggled)
+        );
+    }
+
+    #[test]
     fn password_popup_names_the_archive_and_says_when_the_password_was_wrong() {
         let archive = PathBuf::from("/a/b.zip");
 
@@ -1221,7 +1251,7 @@ mod tests {
     }
 
     #[test]
-    fn menu_input_enter_runs_the_row_under_the_cursor() {
+    fn menu_input_enter_runs_a_choice_row_and_leaves_a_check_row_alone() {
         let mut popup = conflict_popup();
 
         popup.cursor = 2;
@@ -1231,7 +1261,7 @@ mod tests {
         );
         popup.cursor = 6;
         assert_eq!(menu_input(&mut popup, key("Enter")), Response::Stay);
-        assert!(popup.all);
+        assert!(!popup.all);
     }
 
     #[test]

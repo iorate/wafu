@@ -266,7 +266,7 @@ fn a_conflict_is_answered_from_the_cursor_too() {
     harness.press("Space");
     assert_eq!(harness.popup_items()[6].kind, ItemKind::Check(true));
     harness.press("Enter");
-    assert_eq!(harness.popup_items()[6].kind, ItemKind::Check(false));
+    assert_eq!(harness.popup_items()[6].kind, ItemKind::Check(true));
     assert_eq!(harness.take_effects(), vec![]);
     harness.press("Down");
     assert_eq!(harness.view().popup.unwrap().cursor, Some(1));
@@ -275,7 +275,7 @@ fn a_conflict_is_answered_from_the_cursor_too() {
 
     assert_eq!(
         harness.take_effects(),
-        vec![Effect::OperationReply(Reply::Skip { all: false })]
+        vec![Effect::OperationReply(Reply::Skip { all: true })]
     );
 }
 
