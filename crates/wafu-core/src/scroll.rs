@@ -35,7 +35,7 @@ impl LineRows {
 
 pub(crate) fn ranges(top: usize, count: usize, area: usize) -> LineRanges {
     let shown = top.min(count)..top.saturating_add(area).min(count);
-    // The last lines before the top are among `before`.
+    // Lines of the last page that lie above the top are already in `before`.
     let tail = count.saturating_sub(area).max(shown.end)..count;
     LineRanges {
         before: top.saturating_sub(area).min(shown.start)..shown.start,

@@ -15,6 +15,7 @@ pub struct Log {
     // Whether the top stays at the end as lines come and sizes change.
     follow: bool,
     viewport_rows: usize,
+    generation: usize,
 }
 
 impl Log {
@@ -26,6 +27,7 @@ impl Log {
             top: 0,
             follow: true,
             viewport_rows: 1,
+            generation: 0,
         }
     }
 
@@ -35,6 +37,7 @@ impl Log {
             kept = &kept[1..];
             self.rows.drop_first();
             self.top = self.top.saturating_sub(1);
+            self.generation += 1;
         }
         self.lines = kept
             .iter()
@@ -60,6 +63,12 @@ impl Log {
     #[must_use]
     pub fn lines(&self) -> Arc<[Arc<str>]> {
         Arc::clone(&self.lines)
+    }
+
+    /// Changes whenever the lines are renumbered or cleared.
+    #[must_use]
+    pub fn generation(&self) -> usize {
+        self.generation
     }
 
     /// The line at the top of the area.
@@ -116,6 +125,7 @@ impl Log {
         self.rows.clear();
         self.top = 0;
         self.follow = true;
+        self.generation += 1;
     }
 
     /// Scrolls by a number of lines; positive moves towards the tail.
@@ -282,6 +292,20 @@ mod tests {
         log.push("new".to_owned());
 
         assert_eq!(log.scroll_top(), MAX_LINES - 2);
+    }
+
+    #[test]
+    fn the_generation_advances_when_lines_are_renumbered_or_cleared() {
+        let mut log = log_with(MAX_LINES - 1, 3);
+        let first = log.generation();
+
+        log.push("last".to_owned());
+        assert_eq!(log.generation(), first);
+        log.push("dropping".to_owned());
+        let dropped = log.generation();
+        assert_ne!(dropped, first);
+        log.clear();
+        assert_ne!(log.generation(), dropped);
     }
 
     #[test]

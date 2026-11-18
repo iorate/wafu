@@ -1417,6 +1417,18 @@ fn log_keys_scroll_and_clear() {
 }
 
 #[test]
+fn clearing_the_log_is_another_generation_of_lines() {
+    let mut harness = Harness::start("/a", "/tmp");
+    let before = harness.view().log.generation;
+
+    harness.press("F1");
+    harness.edit("clear_log");
+    harness.press("Enter");
+
+    assert_ne!(harness.view().log.generation, before);
+}
+
+#[test]
 fn a_long_line_while_following_settles_at_the_end_within_two_rounds_of_measuring() {
     let mut harness = log_of_seven();
     harness.measure(rows_at(40));

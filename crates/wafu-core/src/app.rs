@@ -621,6 +621,7 @@ impl App {
                 scroll_top: self.log.scroll_top(),
                 end: self.log.end(),
                 ranges: self.log.ranges(),
+                generation: self.log.generation(),
             },
             status,
             popup,

@@ -11,7 +11,7 @@ use slint::{
 };
 use wafu_core::{
     App, Color, Colors, Effect, InputField, IoError, IoEvent, ItemKind, KeyInput, LineRanges,
-    MenuAnchor, MouseInput, Msg, PaneView, PopupView, PreviewContent, PreviewPlacement,
+    LogView, MenuAnchor, MouseInput, Msg, PaneView, PopupView, PreviewContent, PreviewPlacement,
     PreviewView, ResolvedFont, RowKind, RowView, SharedImage, Side, StateFile, Style,
     Theme as ConfigTheme, View, WindowState,
 };
@@ -672,12 +672,7 @@ impl Ui {
             rendered.right_marks = Arc::clone(&view.right.marks);
         }
         if !Arc::ptr_eq(&rendered.log, &view.log.lines) || rendered.log_ranges != view.log.ranges {
-            let (lines, ranges) = (&view.log.lines, &view.log.ranges);
-            set_if_changed(&self.log_shown, log_lines(lines, ranges.shown.clone()));
-            set_if_changed(&self.log_before, log_lines(lines, ranges.before.clone()));
-            set_if_changed(&self.log_tail, log_lines(lines, ranges.tail.clone()));
-            rendered.log = Arc::clone(lines);
-            rendered.log_ranges = ranges.clone();
+            self.render_log(&mut rendered, &view.log);
         }
         // A field keeps its own text while typing; it is only written back
         // when the core refused an edit or opened the popup with a value. It is
@@ -723,10 +718,34 @@ impl Ui {
         }
     }
 
+    fn render_log(&self, rendered: &mut Rendered, log: &LogView) {
+        let models = [
+            (&self.log_shown, log.ranges.shown.clone()),
+            (&self.log_before, log.ranges.before.clone()),
+            (&self.log_tail, log.ranges.tail.clone()),
+        ];
+        for (model, range) in models {
+            let lines = log_lines(&log.lines, range);
+            // Lines of another generation are made anew even if they read the
+            // same: an element left in place reports nothing, and after a
+            // renumbering or a clear the line it shows may have no rows under
+            // its index.
+            if rendered.log_generation == log.generation {
+                set_if_changed(model, lines);
+            } else {
+                model.set_vec(lines);
+            }
+        }
+        rendered.log = Arc::clone(&log.lines);
+        rendered.log_ranges = log.ranges.clone();
+        rendered.log_generation = log.generation;
+    }
+
     fn render_preview(&self, rendered: &mut Rendered, preview: Option<&PreviewView>) {
         let none: &[wafu_core::PreviewLine] = &[];
         // Lines of another generation are made anew even if they read the
-        // same: the core has forgotten their rows and waits for the reports.
+        // same: the core has forgotten their rows, and only a new element
+        // reports them.
         let remeasure = lines_generation(rendered.preview.as_ref()) != lines_generation(preview);
         let (lines, digits, image, data) = match preview {
             None => ([none; 3], 0, None, PreviewData::default()),
@@ -837,6 +856,7 @@ struct Rendered {
     right_marks: Arc<[bool]>,
     log: Arc<[Arc<str>]>,
     log_ranges: LineRanges,
+    log_generation: usize,
     popup: Option<PopupView>,
     preview: Option<PreviewView>,
     // The image last handed to Slint, so that it is converted only once.
@@ -854,6 +874,7 @@ impl Default for Rendered {
             right_marks: Arc::from([]),
             log: Arc::from([]),
             log_ranges: LineRanges::default(),
+            log_generation: 0,
             popup: None,
             preview: None,
             image: None,

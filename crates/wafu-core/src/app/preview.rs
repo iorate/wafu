@@ -353,11 +353,8 @@ impl App {
         let Some(Preview::Document(preview)) = &mut self.preview else {
             return;
         };
-        let count = preview.line_count();
         for &(index, rows) in reports {
-            if index < count {
-                preview.rows.set(index, rows);
-            }
+            preview.rows.set(index, rows);
         }
         preview.pull_back(self.preview_rows);
     }

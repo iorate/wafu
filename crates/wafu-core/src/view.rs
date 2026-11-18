@@ -118,6 +118,9 @@ pub struct LogView {
     /// Zero when everything fits.
     pub end: usize,
     pub ranges: LineRanges,
+    /// Changes whenever the lines are renumbered or cleared: lines that read
+    /// the same as before may then lack their rows.
+    pub generation: usize,
 }
 
 /// The lines of a scrolled area, by index, that the UI lays out or only

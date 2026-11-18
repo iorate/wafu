@@ -197,8 +197,8 @@ export component AppWindow inherits Window {
     // that the scrollbar never changes how many rows the lines take.
     property <length> log-text-width: root.width - 8px - Theme.scrollbar-gutter;
 
-    // The rows of a wrapped line are measured against a line of their own:
-    // the height of a single line need not be what a row adds to a text.
+    // What a row adds to a wrapped line. A Text's preferred height is rounded
+    // up to a whole pixel, so ten rows' difference is taken.
     property <length> log-row-pitch: (log-eleven-lines.preferred-height - log-one-line.preferred-height) / 10;
 
     log-one-line := Text {
