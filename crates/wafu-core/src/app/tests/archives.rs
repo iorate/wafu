@@ -751,6 +751,19 @@ fn size_calculations_are_refused_inside_an_archive() {
 }
 
 #[test]
+fn find_is_refused_inside_an_archive() {
+    let mut harness = inside();
+
+    harness.press("Shift+F");
+
+    assert_eq!(harness.popup(), None);
+    assert_eq!(
+        harness.log(),
+        ["Cannot run find: not available inside an archive"]
+    );
+}
+
+#[test]
 fn right_click_inside_an_archive_on_windows_is_refused() {
     let mut harness = Harness::start_on(Os::Windows, r"C:\Users\me", r"D:\");
     harness.load(Side::Left, vec![file("a.zip")]);

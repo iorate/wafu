@@ -705,6 +705,7 @@ impl App {
             Command::GoToPath => self.open_input(InputKind::GoToPath {
                 dir: self.active_pane().location().base.clone(),
             }),
+            Command::Find => self.open_find(),
             Command::Bookmarks => self.open_bookmarks(),
             Command::History => self.open_history(),
             Command::EditConfig => self.edit_config(effects),

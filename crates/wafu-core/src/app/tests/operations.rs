@@ -6,8 +6,11 @@ use crate::command::Command;
 use crate::entry::{Entry, EntryKind, SpecialKind};
 use crate::error::IoError;
 use crate::external::{CommandLine, Expansion};
+use crate::filter::Filter;
 use crate::location::Location;
-use crate::operation::{OperationEvent, OperationKind, OperationSpec, Outcome, Reply, Sources};
+use crate::operation::{
+    FindQuery, OperationEvent, OperationKind, OperationSpec, Outcome, Reply, Sources,
+};
 use crate::popup::Popup;
 use crate::test_support::{Harness, LEFT, RIGHT, dir, executable, file, path, shown, special};
 use crate::view::ItemKind;
@@ -724,6 +727,135 @@ fn calculate_size_on_disk_starts_at_once_and_logs_the_total_without_reading_agai
         Some("Size on disk of a: 4,096 bytes (1 file, 0 directories)")
     );
     assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
+fn find_asks_for_a_pattern_and_searches_the_pane_s_directory_as_the_pane_shows_it() {
+    let mut harness = three_files();
+    harness.press(".");
+    harness.take_effects();
+
+    harness.press("Shift+F");
+    let popup = harness.view().popup.unwrap();
+    assert_eq!(popup.title, "Find");
+    assert_eq!(popup.message, Some(LEFT.to_owned()));
+    assert_eq!(popup.fields[0].text, "");
+    harness.edit("*.rs");
+    harness.press("Enter");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::StartOperation(OperationSpec {
+            kind: OperationKind::Find,
+            sources: Sources::Find(FindQuery {
+                dir: PathBuf::from(LEFT),
+                pattern: Filter::parse("*.rs").unwrap().unwrap(),
+                show_hidden: true,
+            }),
+            dest: None,
+            output: None,
+        })]
+    );
+    assert_eq!(harness.view().popup.unwrap().title, "Finding");
+}
+
+#[test]
+fn find_with_empty_text_does_nothing() {
+    let mut harness = three_files();
+    harness.take_effects();
+
+    harness.press("Shift+F");
+    harness.press("Enter");
+
+    assert_eq!(harness.popup(), None);
+    assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
+fn find_lists_the_paths_found() {
+    let mut harness = three_files();
+    harness.press("Shift+F");
+    harness.edit("*.rs");
+    harness.press("Enter");
+    harness.take_effects();
+
+    harness.finish(Outcome::Found {
+        paths: vec![path(LEFT, "a").join("b.rs"), path(LEFT, "c.rs")],
+        truncated: false,
+    });
+
+    let popup = harness.view().popup.unwrap();
+    assert_eq!(popup.title, "Find");
+    assert_eq!(popup.message, Some(LEFT.to_owned()));
+    assert_eq!(
+        harness.popup_labels(),
+        [
+            Path::new("a").join("b.rs").display().to_string(),
+            "c.rs".to_owned()
+        ]
+    );
+    assert_eq!(harness.log(), Vec::<String>::new());
+    assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
+fn find_goes_to_the_path_picked() {
+    let mut harness = three_files();
+    harness.press("Shift+F");
+    harness.edit("*.rs");
+    harness.press("Enter");
+    harness.finish(Outcome::Found {
+        paths: vec![
+            PathBuf::from("/home/user/a/b.rs"),
+            PathBuf::from("/home/user/c.rs"),
+        ],
+        truncated: false,
+    });
+    harness.take_effects();
+
+    harness.press("Enter");
+
+    assert_eq!(harness.popup(), None);
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::Watch { .. }, Effect::ReadDir { location, .. }]
+            if *location == Location::new(PathBuf::from("/home/user/a"))
+    ));
+    harness.load(Side::Left, vec![file("a.rs"), file("b.rs")]);
+    assert_eq!(harness.cursor_name(Side::Left), "b.rs");
+}
+
+#[test]
+fn find_with_no_matches_shows_an_empty_list_that_says_so() {
+    let mut harness = three_files();
+    harness.press("Shift+F");
+    harness.edit("*.rs");
+    harness.press("Enter");
+
+    harness.finish(Outcome::Found {
+        paths: Vec::new(),
+        truncated: false,
+    });
+
+    let popup = harness.view().popup.unwrap();
+    assert_eq!(popup.note, Some("No matches".to_owned()));
+    assert_eq!(popup.items, None);
+}
+
+#[test]
+fn find_stopped_at_the_limit_logs_it_and_lists_what_it_found() {
+    let mut harness = three_files();
+    harness.press("Shift+F");
+    harness.edit("*");
+    harness.press("Enter");
+
+    harness.finish(Outcome::Found {
+        paths: vec![PathBuf::from("/home/user/a"), PathBuf::from("/home/user/b")],
+        truncated: true,
+    });
+
+    assert_eq!(harness.log(), ["Find stopped at 2 matches"]);
+    assert_eq!(harness.popup_labels(), ["a", "b"]);
 }
 
 #[test]

@@ -12,6 +12,7 @@ use crate::archive::NestedArchives;
 use crate::trash::trash;
 
 mod archives;
+mod find;
 
 const CHUNK_SIZE: usize = 64 * 1024;
 #[cfg(windows)]
@@ -63,12 +64,14 @@ struct Worker<'a> {
 
 impl Worker<'_> {
     fn run(&mut self, spec: &OperationSpec) -> Outcome {
-        if let Sources::Paths(paths) = &spec.sources {
-            match spec.kind {
+        match &spec.sources {
+            Sources::Paths(paths) => match spec.kind {
                 OperationKind::CalculateSize => return self.calculate_size(paths, false),
                 OperationKind::CalculateSizeOnDisk => return self.calculate_size(paths, true),
                 _ => {}
-            }
+            },
+            Sources::Find(query) => return self.find(query),
+            Sources::Entries(_) => {}
         }
         match self.run_all(spec) {
             Ok(()) => Outcome::Completed {
@@ -95,6 +98,7 @@ impl Worker<'_> {
             (Sources::Entries(entries), OperationKind::Extract { into_dir }) => {
                 self.extract_nested_archives(entries, spec, into_dir)
             }
+            (Sources::Find(query), _) => Err(failure(&query.dir, "unsupported operation")),
             (Sources::Entries(entries), _) => {
                 let dest = spec
                     .dest
@@ -127,7 +131,8 @@ impl Worker<'_> {
                 | OperationKind::Compress
                 | OperationKind::ExtractToTemp
                 | OperationKind::CalculateSize
-                | OperationKind::CalculateSizeOnDisk => {
+                | OperationKind::CalculateSizeOnDisk
+                | OperationKind::Find => {
                     return Err(failure(source, "unsupported operation"));
                 }
             };

@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use crate::config::SizeFormat;
 use crate::error::IoError;
+use crate::filter::Filter;
 use crate::location::{ArchiveFormat, ArchivePath, Passwords};
 use crate::view::size_with_unit;
 
@@ -26,6 +27,8 @@ pub enum Sources {
     /// Entries of one directory inside an archive. For
     /// [`OperationKind::Extract`], each names an archive to unpack.
     Entries(ArchiveEntries),
+    /// The directory a [`OperationKind::Find`] searches and what it looks for.
+    Find(FindQuery),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,6 +53,15 @@ pub struct ArchiveOutput {
     pub password: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FindQuery {
+    pub dir: PathBuf,
+    /// Applied to the path of each entry below `dir`.
+    pub pattern: Filter,
+    /// Whether hidden entries are found and hidden directories searched.
+    pub show_hidden: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperationKind {
     Copy,
@@ -71,6 +83,9 @@ pub enum OperationKind {
     /// Adds up the space the files in the sources take up on disk, without
     /// following links.
     CalculateSizeOnDisk,
+    /// Collects the entries below a directory that match a pattern, without
+    /// following links.
+    Find,
 }
 
 /// What the I/O layer reports while an operation runs.
@@ -116,6 +131,12 @@ pub enum Outcome {
         skipped: usize,
     },
     Cancelled,
+    /// The end of a `Find`, sorted by path. `truncated` means it stopped at
+    /// the most it collects.
+    Found {
+        paths: Vec<PathBuf>,
+        truncated: bool,
+    },
     /// The end of a `CalculateSize` or a `CalculateSizeOnDisk`. Links count
     /// as nothing, and `unreadable` entries were left out of the counts with
     /// what is under them.
@@ -167,6 +188,7 @@ impl OperationKind {
             Self::Extract { .. } | Self::ExtractToTemp => "extract",
             Self::Compress => "compress",
             Self::CalculateSize | Self::CalculateSizeOnDisk => "calculate size of",
+            Self::Find => "search",
         }
     }
 
@@ -182,6 +204,16 @@ impl OperationKind {
             Self::Compress => "Compressing",
             Self::CalculateSize => "Calculating size",
             Self::CalculateSizeOnDisk => "Calculating size on disk",
+            Self::Find => "Finding",
+        }
+    }
+
+    /// The word after the count in the progress popup: `3 done`.
+    #[must_use]
+    pub fn progress(self) -> &'static str {
+        match self {
+            Self::Find => "found",
+            _ => "done",
         }
     }
 
@@ -193,6 +225,7 @@ impl OperationKind {
             Self::Extract { .. } | Self::ExtractToTemp => "Extracted",
             Self::Compress => "Compressed",
             Self::CalculateSize | Self::CalculateSizeOnDisk => "Calculated",
+            Self::Find => "Found",
         }
     }
 
@@ -205,6 +238,7 @@ impl OperationKind {
             Self::Extract { .. } | Self::ExtractToTemp => "Extract",
             Self::Compress => "Compress",
             Self::CalculateSize | Self::CalculateSizeOnDisk => "Size calculation",
+            Self::Find => "Find",
         }
     }
 }
@@ -224,6 +258,9 @@ impl fmt::Display for OutcomeLine<'_> {
                 Ok(())
             }
             Outcome::Cancelled => write!(f, "{} cancelled", kind.noun()),
+            Outcome::Found { paths, .. } => {
+                write!(f, "{} stopped at {} matches", kind.noun(), paths.len())
+            }
             Outcome::Measured {
                 files,
                 directories,
@@ -343,6 +380,10 @@ mod tests {
                 &one
             ),
             "Size calculation cancelled"
+        );
+        assert_eq!(
+            line(OperationKind::Find, &Outcome::Cancelled, &one),
+            "Find cancelled"
         );
         assert_eq!(
             line(
