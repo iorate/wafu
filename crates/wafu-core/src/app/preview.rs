@@ -346,20 +346,18 @@ impl App {
         self.request_document(effects);
     }
 
-    pub(super) fn set_preview_rows(&mut self, rows: usize) {
-        self.preview_rows = rows.max(1);
-        if let Some(Preview::Document(preview)) = &mut self.preview {
-            preview.pull_back(self.preview_rows);
+    pub(super) fn set_preview_rows(&mut self, area: Option<usize>, lines: &[(usize, usize)]) {
+        if let Some(area) = area {
+            self.preview_rows = area.max(1);
         }
-    }
-
-    pub(super) fn set_preview_line_rows(&mut self, reports: &[(usize, usize)]) {
         let Some(Preview::Document(preview)) = &mut self.preview else {
             return;
         };
-        for &(index, rows) in reports {
+        for &(index, rows) in lines {
             preview.rows.set(index, rows);
         }
+        // Only after both are in: a pull-back against a new area and the rows
+        // of the old width goes too far, and nothing moves the top forward again.
         preview.pull_back(self.preview_rows);
     }
 
