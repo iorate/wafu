@@ -208,6 +208,20 @@ fn growing_the_preview_pulls_the_top_back_to_the_end() {
 }
 
 #[test]
+fn a_resize_keeps_the_top_at_the_end_measured_with_the_new_line_rows() {
+    let mut harness = document();
+    harness.press("End");
+    harness.preview_line_rows(&(0..10).map(|index| (index, 1)).collect::<Vec<_>>());
+
+    harness.send(Msg::PreviewRows {
+        area: Some(6),
+        lines: (0..10).map(|index| (index, 2)).collect(),
+    });
+
+    assert_eq!(harness.preview_lines()[0], "l7");
+}
+
+#[test]
 fn switching_modes_forgets_the_measured_rows() {
     let mut harness = document();
     harness.preview_line_rows(&[(1, 3)]);

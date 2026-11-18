@@ -194,7 +194,10 @@ impl Harness {
     }
 
     pub(crate) fn preview_rows(&mut self, rows: usize) {
-        self.send(Msg::PreviewRows { rows });
+        self.send(Msg::PreviewRows {
+            area: Some(rows),
+            lines: Vec::new(),
+        });
     }
 
     pub(crate) fn preview_double_click(&mut self) {
@@ -206,8 +209,9 @@ impl Harness {
     }
 
     pub(crate) fn preview_line_rows(&mut self, reports: &[(usize, usize)]) {
-        self.send(Msg::PreviewLineRows {
-            reports: reports.to_vec(),
+        self.send(Msg::PreviewRows {
+            area: None,
+            lines: reports.to_vec(),
         });
     }
 
@@ -231,13 +235,13 @@ impl Harness {
                 ..
             }) = view.preview.as_ref().map(|preview| &preview.content)
             {
-                let reports = lines
+                let lines = lines
                     .iter()
                     .chain(before)
                     .chain(tail)
                     .map(|line| (line.index, rows(&line.text)))
                     .collect();
-                self.send(Msg::PreviewLineRows { reports });
+                self.send(Msg::PreviewRows { area: None, lines });
             }
             if self.view() == view {
                 return round;

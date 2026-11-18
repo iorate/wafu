@@ -489,9 +489,7 @@ impl Ui {
         let weak = Rc::downgrade(ui);
         ui.window.on_preview_rows_changed(move |rows| {
             if let Some(ui) = Weak::upgrade(&weak) {
-                ui.dispatch(Msg::PreviewRows {
-                    rows: usize::try_from(rows).unwrap_or(1),
-                });
+                ui.queue_preview_rows(usize::try_from(rows).unwrap_or(1));
             }
         });
 
@@ -591,8 +589,21 @@ impl Ui {
         index: i32,
         rows: i32,
     ) {
+        area(&mut self.line_rows.borrow_mut())
+            .push((row_of(index), usize::try_from(rows).unwrap_or(1)));
+        self.arm_line_rows();
+    }
+
+    // A resize changes the rows of the preview and of its lines in the same
+    // turn. The core needs both before it corrects the scroll position, so
+    // the rows of the preview are held back to go with those of its lines.
+    fn queue_preview_rows(self: &Rc<Self>, rows: usize) {
+        self.line_rows.borrow_mut().preview_area = Some(rows);
+        self.arm_line_rows();
+    }
+
+    fn arm_line_rows(self: &Rc<Self>) {
         let mut queue = self.line_rows.borrow_mut();
-        area(&mut queue).push((row_of(index), usize::try_from(rows).unwrap_or(1)));
         if !queue.armed {
             queue.armed = true;
             let weak = Rc::downgrade(self);
@@ -605,12 +616,20 @@ impl Ui {
     }
 
     fn flush_line_rows(self: &Rc<Self>) {
-        let LineRowsQueue { log, preview, .. } = std::mem::take(&mut *self.line_rows.borrow_mut());
+        let LineRowsQueue {
+            log,
+            preview,
+            preview_area,
+            ..
+        } = std::mem::take(&mut *self.line_rows.borrow_mut());
         if !log.is_empty() {
             self.dispatch(Msg::LogLineRows { reports: log });
         }
-        if !preview.is_empty() {
-            self.dispatch(Msg::PreviewLineRows { reports: preview });
+        if preview_area.is_some() || !preview.is_empty() {
+            self.dispatch(Msg::PreviewRows {
+                area: preview_area,
+                lines: preview,
+            });
         }
     }
 
@@ -907,6 +926,7 @@ impl Default for Rendered {
 struct LineRowsQueue {
     log: Vec<(usize, usize)>,
     preview: Vec<(usize, usize)>,
+    preview_area: Option<usize>,
     armed: bool,
 }
 
