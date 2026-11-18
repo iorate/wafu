@@ -592,6 +592,14 @@ impl App {
 
     #[must_use]
     pub fn view(&self) -> View {
+        let popup = self.popup_view();
+        let status = match &self.popup {
+            Some(Popup::Input(_) | Popup::Search(_)) | None => status_line(self.active_pane()),
+            Some(_) => popup
+                .as_ref()
+                .and_then(|popup| Some(popup.items.as_ref()?.get(popup.cursor?)?.label.clone()))
+                .unwrap_or_default(),
+        };
         View {
             title: self.title(),
             left: PaneView::from_pane(&self.panes[0], self.active == Side::Left),
@@ -600,8 +608,8 @@ impl App {
                 lines: self.log.lines(),
                 scroll_top: self.log.scroll_top(),
             },
-            status: status_line(self.active_pane()),
-            popup: self.popup_view(),
+            status,
+            popup,
             preview: self.preview_view(),
             hide_log: self.hide_log(),
             split_percent: self.split_percent,

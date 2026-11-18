@@ -140,6 +140,45 @@ fn status_line_spells_out_the_cursor_entry_of_the_active_pane() {
 }
 
 #[test]
+fn status_line_spells_out_the_cursor_row_of_a_popup_with_a_list() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a")]);
+    harness.press("Down");
+
+    harness.press("F1");
+    harness.edit("mark_range");
+    assert_eq!(harness.view().status, harness.popup_items()[0].label);
+    harness.press("Down");
+    assert_eq!(harness.view().status, harness.popup_items()[1].label);
+
+    harness.edit("no such command");
+    assert_eq!(harness.view().status, "");
+}
+
+#[test]
+fn status_line_is_empty_while_a_list_popup_has_nothing_to_list() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+
+    harness.press("J");
+
+    assert_eq!(harness.view().status, "");
+}
+
+#[test]
+fn status_line_stays_with_the_pane_under_a_popup_without_a_list() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a")]);
+    harness.press("Down");
+
+    harness.press("F1");
+    harness.edit("rename");
+    harness.press("Enter");
+
+    assert_eq!(harness.view().popup.unwrap().title, "Rename");
+    assert_eq!(harness.view().status, "a | -????????? | 0 bytes");
+}
+
+#[test]
 fn status_line_on_the_parent_row_spells_out_the_directory_itself() {
     use crate::entry::Permissions;
 
