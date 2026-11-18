@@ -2,11 +2,10 @@ use std::ffi::OsString;
 use std::fmt;
 use std::path::PathBuf;
 
-use crate::config::SizeFormat;
+use crate::config::{SizeFormat, byte_count};
 use crate::error::IoError;
 use crate::filter::Filter;
 use crate::location::{ArchiveFormat, ArchivePath, Passwords};
-use crate::view::size_with_unit;
 
 /// A file operation for the I/O layer to carry out.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -160,7 +159,6 @@ pub struct OutcomeLine<'a> {
     pub outcome: &'a Outcome,
     /// The names of what the operation was started on.
     pub targets: &'a [OsString],
-    pub size_format: SizeFormat,
 }
 
 /// The answer to a conflict or a password request, or a cancellation at any time.
@@ -261,7 +259,9 @@ impl fmt::Display for OutcomeLine<'_> {
             }
             Outcome::Cancelled => write!(f, "{} cancelled", kind.noun()),
             Outcome::Found { paths, .. } => {
-                write!(f, "{} stopped at {} matches", kind.noun(), paths.len())
+                let count = paths.len();
+                let unit = plural(count, "match", "matches");
+                write!(f, "{} stopped at {count} {unit}", kind.noun())
             }
             Outcome::Measured {
                 files,
@@ -276,16 +276,23 @@ impl fmt::Display for OutcomeLine<'_> {
                 };
                 write!(
                     f,
-                    "{size} of {}: {} ({files} {}, {directories} {}",
+                    "{size} of {}: {}",
                     Subject(self.targets),
-                    size_with_unit(self.size_format, *bytes),
-                    plural(*files, "file", "files"),
+                    byte_count(*bytes)
+                )?;
+                if *bytes >= 1024 {
+                    write!(f, " ({}B)", SizeFormat::Human.format(*bytes))?;
+                }
+                write!(
+                    f,
+                    " in {directories} {} and {files} {}",
                     plural(*directories, "directory", "directories"),
+                    plural(*files, "file", "files"),
                 )?;
                 if *unreadable > 0 {
-                    write!(f, ", {unreadable} unreadable")?;
+                    write!(f, " ({unreadable} unreadable)")?;
                 }
-                f.write_str(")")
+                Ok(())
             }
             Outcome::Failed { path, error } => {
                 write!(f, "Cannot {} {}: {error}", kind.verb(), path.display())
@@ -305,7 +312,7 @@ impl fmt::Display for Subject<'_> {
     }
 }
 
-fn plural(count: usize, one: &'static str, many: &'static str) -> &'static str {
+pub(crate) fn plural(count: usize, one: &'static str, many: &'static str) -> &'static str {
     if count == 1 { one } else { many }
 }
 
@@ -326,7 +333,6 @@ mod tests {
                 kind,
                 outcome,
                 targets,
-                size_format: SizeFormat::Plain,
             }
             .to_string()
         };
@@ -412,15 +418,28 @@ mod tests {
     }
 
     #[test]
+    fn a_find_stopped_at_one_match_says_match() {
+        let line = OutcomeLine {
+            kind: OperationKind::Find,
+            outcome: &Outcome::Found {
+                paths: vec![PathBuf::from("a")],
+                truncated: true,
+            },
+            targets: &[OsString::from("docs")],
+        };
+
+        assert_eq!(line.to_string(), "Find stopped at 1 match");
+    }
+
+    #[test]
     fn measured_lines() {
         let one = [OsString::from("docs")];
         let two = [OsString::from("a"), OsString::from("b")];
-        let line = |kind, outcome: &Outcome, targets: &[OsString], size_format| {
+        let line = |kind, outcome: &Outcome, targets: &[OsString]| {
             OutcomeLine {
                 kind,
                 outcome,
                 targets,
-                size_format,
             }
             .to_string()
         };
@@ -429,29 +448,14 @@ mod tests {
             line(
                 OperationKind::CalculateSize,
                 &Outcome::Measured {
-                    files: 1,
-                    directories: 1,
-                    bytes: 1234,
+                    files: 12,
+                    directories: 3,
+                    bytes: 48_318_382_080,
                     unreadable: 0,
                 },
-                &one,
-                SizeFormat::Comma
+                &one
             ),
-            "Size of docs: 1,234 bytes (1 file, 1 directory)"
-        );
-        assert_eq!(
-            line(
-                OperationKind::CalculateSize,
-                &Outcome::Measured {
-                    files: 0,
-                    directories: 2,
-                    bytes: 2048,
-                    unreadable: 3,
-                },
-                &two,
-                SizeFormat::Human
-            ),
-            "Size of 2 items: 2.0K (0 files, 2 directories, 3 unreadable)"
+            "Size of docs: 48,318,382,080 bytes (45GB) in 3 directories and 12 files"
         );
         assert_eq!(
             line(
@@ -462,10 +466,35 @@ mod tests {
                     bytes: 4096,
                     unreadable: 0,
                 },
-                &one,
-                SizeFormat::Comma
+                &one
             ),
-            "Size on disk of docs: 4,096 bytes (2 files, 0 directories)"
+            "Size on disk of docs: 4,096 bytes (4.0KB) in 0 directories and 2 files"
+        );
+        assert_eq!(
+            line(
+                OperationKind::CalculateSize,
+                &Outcome::Measured {
+                    files: 0,
+                    directories: 2,
+                    bytes: 1024,
+                    unreadable: 3,
+                },
+                &two
+            ),
+            "Size of 2 items: 1,024 bytes (1.0KB) in 2 directories and 0 files (3 unreadable)"
+        );
+        assert_eq!(
+            line(
+                OperationKind::CalculateSize,
+                &Outcome::Measured {
+                    files: 1,
+                    directories: 0,
+                    bytes: 1023,
+                    unreadable: 0,
+                },
+                &one
+            ),
+            "Size of docs: 1,023 bytes in 0 directories and 1 file"
         );
     }
 }

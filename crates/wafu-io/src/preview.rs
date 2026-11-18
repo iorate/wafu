@@ -3,7 +3,7 @@ use std::io::{self, Cursor, Read};
 use std::path::PathBuf;
 
 use image::{DynamicImage, ImageDecoder, ImageReader, ImageResult};
-use wafu_core::{Document, ImageData, IoError, OuterArchive, PreviewSource, ReadError, SizeFormat};
+use wafu_core::{Document, ImageData, IoError, OuterArchive, PreviewSource, ReadError, byte_count};
 
 use crate::archive::{ArchiveReader, LaneArchives, LevelError, NOT_FOUND, Stamp, find_entry};
 
@@ -46,8 +46,8 @@ pub(crate) fn load_image(
     if truncated {
         let max_bytes = u64::try_from(max_bytes).unwrap_or(u64::MAX);
         return Err(ReadError::Failed(IoError::new(format!(
-            "too large (over {} bytes)",
-            SizeFormat::Comma.format(max_bytes)
+            "too large (over {})",
+            byte_count(max_bytes)
         ))));
     }
     decode_image(&bytes).map_err(|error| ReadError::Failed(IoError::new(error.to_string())))

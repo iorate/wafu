@@ -36,7 +36,9 @@ pub use app::{
     MouseInput, Msg, Os, PreviewSource, ReadError, Resolved, Side, SpawnKind, SpawnName, Start,
 };
 pub use command::Command;
-pub use config::{CONFIG_TEMPLATE, Color, Colors, SizeFormat, Theme, read_config_chain};
+pub use config::{
+    CONFIG_TEMPLATE, Color, Colors, SizeFormat, Theme, byte_count, read_config_chain,
+};
 pub use entry::{
     Directory, Entry, EntryKind, LocalDateTime, Permissions, SpecialKind, TargetKind, Timestamp,
 };

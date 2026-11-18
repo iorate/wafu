@@ -77,7 +77,7 @@ pub struct FileListConfig {
     pub max_find_results: usize,
 }
 
-/// How a size in bytes is written in the file list and the information line.
+/// How a size in bytes is written in the file list's size column.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SizeFormat {
     #[default]
@@ -297,6 +297,14 @@ pub fn read_config_chain(
     let mut files = Vec::new();
     visit(path, home, &mut read, &mut Vec::new(), &mut files);
     files
+}
+
+/// Writes `bytes` exactly, with thousands separators and the unit:
+/// `1 byte`, `1,234 bytes`.
+#[must_use]
+pub fn byte_count(bytes: u64) -> String {
+    let unit = if bytes == 1 { "byte" } else { "bytes" };
+    format!("{} {unit}", with_commas(&bytes.to_string()))
 }
 
 impl Config {
@@ -621,6 +629,13 @@ mod tests {
         assert_eq!(Human.format(1_048_576), "1.0M");
         assert_eq!(Human.format(345 * 1024 * 1024), "345M");
         assert_eq!(Human.format(u64::MAX), "16E");
+    }
+
+    #[test]
+    fn byte_counts_have_separators_and_a_singular_unit() {
+        assert_eq!(byte_count(0), "0 bytes");
+        assert_eq!(byte_count(1), "1 byte");
+        assert_eq!(byte_count(1_234_567), "1,234,567 bytes");
     }
 
     #[test]
