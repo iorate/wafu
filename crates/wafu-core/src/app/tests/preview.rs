@@ -10,7 +10,7 @@ use crate::operation::{
 use crate::pane::InFlight;
 use crate::preview::{Document, truncated_note};
 use crate::test_support::{
-    Harness, LEFT, RIGHT, dir, executable, file, passwords, path, shown, special,
+    Harness, LEFT, RIGHT, dir, executable, file, passwords, path, rows_at, shown, special,
 };
 use crate::view::{PreviewContent, PreviewPlacement};
 
@@ -42,7 +42,10 @@ fn enter_on_a_text_file_opens_an_empty_preview_and_reads_the_file() {
     assert_eq!(
         preview.content,
         PreviewContent::Lines {
+            generation: 0,
             lines: Vec::new(),
+            before: Vec::new(),
+            tail: Vec::new(),
             digits: 0,
             hex_dump: false,
         }
@@ -111,14 +114,13 @@ fn the_keys_scroll_by_lines_and_pages() {
 
     harness.press("PageDown");
     harness.press("PageDown");
-    harness.press("PageDown");
-    assert_eq!(harness.preview_lines(), ["l9"]);
+    assert_eq!(harness.preview_lines(), ["l7", "l8", "l9"]);
 
     harness.press("Down");
-    assert_eq!(harness.preview_lines(), ["l9"]);
+    assert_eq!(harness.preview_lines(), ["l7", "l8", "l9"]);
 
     harness.press("PageUp");
-    assert_eq!(harness.preview_lines(), ["l6", "l7", "l8"]);
+    assert_eq!(harness.preview_lines(), ["l4", "l5", "l6"]);
 
     harness.press("Home");
     assert_eq!(harness.preview_lines(), ["l0", "l1", "l2"]);
@@ -134,6 +136,71 @@ fn the_keys_scroll_by_lines_and_pages() {
 
     harness.preview_wheel(-3);
     assert_eq!(harness.preview_lines(), ["l3", "l4", "l5"]);
+}
+
+#[test]
+fn page_down_starts_at_the_first_line_cut_off_by_wrapping() {
+    let mut harness = document();
+    harness.preview_line_rows(&[(0, 1), (1, 2)]);
+
+    harness.press("PageDown");
+
+    assert_eq!(harness.preview_lines()[0], "l2");
+}
+
+#[test]
+fn the_wheel_scrolls_no_further_than_a_page() {
+    let mut harness = document();
+    harness.preview_line_rows(&[(0, 1), (1, 3)]);
+
+    harness.preview_wheel(3);
+
+    assert_eq!(harness.preview_lines()[0], "l1");
+}
+
+#[test]
+fn growing_the_preview_pulls_the_top_back_to_the_end() {
+    let mut harness = document();
+    harness.press("End");
+    harness.preview_line_rows(&(0..10).map(|index| (index, 1)).collect::<Vec<_>>());
+
+    harness.preview_rows(5);
+
+    assert_eq!(harness.preview_lines()[0], "l5");
+}
+
+#[test]
+fn switching_modes_forgets_the_measured_rows() {
+    let mut harness = document();
+    harness.preview_line_rows(&[(1, 3)]);
+
+    harness.press("Tab");
+    harness.press("End");
+
+    assert_eq!(harness.preview_numbers()[0], "00000000");
+}
+
+#[test]
+fn bottom_reaches_the_end_of_wrapped_lines_in_one_press() {
+    let mut harness = wrapped_document();
+    harness.measure(rows_at(20));
+
+    harness.press("End");
+
+    assert_eq!(harness.preview_lines()[0], "l7");
+}
+
+#[test]
+fn widening_settles_at_the_new_end_within_two_rounds_of_measuring() {
+    let mut harness = wrapped_document();
+    harness.measure(rows_at(10));
+    harness.press("End");
+    harness.measure(rows_at(10));
+    assert!(harness.preview_lines()[0].starts_with("l9"));
+
+    assert!(harness.measure(rows_at(100)) <= 2);
+
+    assert_eq!(harness.preview_lines()[0], "l5");
 }
 
 #[test]
@@ -206,6 +273,21 @@ fn a_picked_encoding_reads_the_file_again_with_it() {
         }]
     );
     assert_eq!(harness.log(), Vec::<String>::new());
+}
+
+#[test]
+fn a_file_read_again_is_another_generation_of_lines() {
+    let mut harness = document();
+    let before = harness.view().preview;
+    harness.press("C");
+    harness.edit("shift");
+    harness.press("Enter");
+
+    let text = (0..10).fold(String::new(), |text, i| format!("{text}l{i}\n"));
+    harness.preview_loaded(Document::decode(text.into_bytes(), false, None));
+
+    assert_eq!(harness.preview_lines(), ["l0", "l1", "l2"]);
+    assert_ne!(harness.view().preview, before);
 }
 
 #[test]
@@ -1482,6 +1564,7 @@ fn text_keys_come_from_the_text_table_in_both_modes() {
     assert_eq!(harness.preview_lines(), ["l2", "l3", "l4"]);
 
     harness.press("Tab");
+    harness.preview_rows(1);
     harness.press("J");
     assert_eq!(harness.preview_numbers()[0], "00000010");
 
@@ -1555,6 +1638,17 @@ fn document() -> Harness {
     let text = (0..10).fold(String::new(), |text, i| format!("{text}l{i}\n"));
     harness.preview_loaded(Document::decode(text.into_bytes(), false, None));
     harness.preview_rows(3);
+    harness.take_effects();
+    harness
+}
+
+// Like `document`, five rows at a time, with a last line of 50 characters.
+fn wrapped_document() -> Harness {
+    let mut harness = opening();
+    let text = (0..9).fold(String::new(), |text, i| format!("{text}l{i}\n"));
+    let text = format!("{text}l9{}\n", "x".repeat(48));
+    harness.preview_loaded(Document::decode(text.into_bytes(), false, None));
+    harness.preview_rows(5);
     harness.take_effects();
     harness
 }

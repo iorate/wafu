@@ -1,4 +1,4 @@
-import { ListView, Palette } from "std-widgets.slint";
+import { Palette } from "std-widgets.slint";
 import { PaneData, PaneWidget, Row } from "pane.slint";
 import { PopupData, PopupField, PopupItem, PopupOverlay } from "popup.slint";
 import { PreviewData, PreviewLine, PreviewWidget } from "preview.slint";
@@ -6,6 +6,29 @@ import { ScrollBar } from "scrollbar.slint";
 import { Theme, ThemeColors } from "theme.slint";
 
 export { PaneData, PopupData, PopupField, PopupItem, PreviewData, PreviewLine, Row, Theme, ThemeColors }
+
+export struct LogLine {
+    index: int,
+    text: string,
+}
+
+// A log line in whole rows, the rows of a wrapped line as far apart as the
+// lines, so that the area is cut between rows.
+component LogText inherits Text {
+    // The height of one line of the font, which the spacing is relative to.
+    in property <length> natural-row-height;
+    out property <int> rows: max(1, round(self.preferred-height / Theme.log-row-height));
+
+    height: self.rows * Theme.log-row-height;
+    font-family: Theme.log-font-family;
+    font-size: Theme.log-font-size;
+    color: Theme.colors.fg;
+    // Works with the FemtoVG renderer too, though the documentation lists
+    // only Qt and software.
+    wrap: char-wrap;
+    line-height-factor: Theme.log-row-height / self.natural-row-height;
+    vertical-alignment: center;
+}
 
 export component AppWindow inherits Window {
     in property <string> window-title: "wafu";
@@ -20,8 +43,12 @@ export component AppWindow inherits Window {
     in property <string> size-sample;
     in property <int> split-percent: 50;
     in property <int> log-rows: 6;
-    in property <[string]> log-lines;
+    in property <[LogLine]> log-shown;
+    in property <[LogLine]> log-before;
+    in property <[LogLine]> log-tail;
+    in property <int> log-line-count;
     in property <int> log-scroll-top;
+    in property <int> log-end;
     in property <PopupData> popup;
     in property <[PopupItem]> popup-items;
     // The input fields of the popup, at most two, and their texts.
@@ -30,6 +57,8 @@ export component AppWindow inherits Window {
     in-out property <string> popup-text-2;
     in property <PreviewData> preview;
     in property <[PreviewLine]> preview-lines;
+    in property <[PreviewLine]> preview-before;
+    in property <[PreviewLine]> preview-tail;
     in property <string> preview-number-sample;
     in property <image> preview-image;
     in property <bool> preview-has-image;
@@ -53,6 +82,7 @@ export component AppWindow inherits Window {
     callback scroll-to(side: int, top: int);
     callback log-wheel(delta: length);
     callback log-scroll-to(top: int);
+    callback log-line-rows(index: int, rows: int);
     callback split-dragged(percent: int);
     callback log-resized(rows: int);
     callback input-edited(field: int, text: string);
@@ -60,6 +90,7 @@ export component AppWindow inherits Window {
     callback preview-rows-changed(rows: int);
     callback preview-double-clicked();
     callback preview-wheel(delta: length);
+    callback preview-line-rows(index: int, rows: int);
     callback popup-rows-changed(rows: int);
     callback popup-row-clicked(row: int);
     callback popup-row-double-clicked(row: int);
@@ -159,10 +190,58 @@ export component AppWindow inherits Window {
         }
     }
 
-    // Assigned, as in the panes: a binding would not survive the list's own
-    // scrolling.
-    changed log-scroll-top => {
-        log.content-y = -log-scroll-top * Theme.log-row-height;
+    // The log keeps this width whether or not its scrollbar is shown, so
+    // that the scrollbar never changes how many rows the lines take.
+    property <length> log-text-width: root.width - 8px - Theme.scrollbar-gutter;
+
+    log-one-line := Text {
+        text: " ";
+        font-family: Theme.log-font-family;
+        font-size: Theme.log-font-size;
+        visible: false;
+    }
+
+    // Every line the core hands over is measured here, outside the log, so
+    // that the log measures the same while it is hidden. Each one is hidden
+    // on its own: a repeater under a parent that is not drawn may never make
+    // its elements.
+    for line in root.log-shown: LogText {
+        visible: false;
+        width: root.log-text-width;
+        natural-row-height: log-one-line.preferred-height;
+        text: line.text;
+        init => {
+            root.log-line-rows(line.index, self.rows);
+        }
+        changed rows => {
+            root.log-line-rows(line.index, self.rows);
+        }
+    }
+
+    for line in root.log-before: LogText {
+        visible: false;
+        width: root.log-text-width;
+        natural-row-height: log-one-line.preferred-height;
+        text: line.text;
+        init => {
+            root.log-line-rows(line.index, self.rows);
+        }
+        changed rows => {
+            root.log-line-rows(line.index, self.rows);
+        }
+    }
+
+    for line in root.log-tail: LogText {
+        visible: false;
+        width: root.log-text-width;
+        natural-row-height: log-one-line.preferred-height;
+        text: line.text;
+        init => {
+            root.log-line-rows(line.index, self.rows);
+        }
+        changed rows => {
+            root.log-line-rows(line.index, self.rows);
+        }
     }
 
     // Every key, Tab included, ends here, so that Slint never moves the focus
@@ -270,6 +349,8 @@ export component AppWindow inherits Window {
                     height: parent.height;
                     data: root.preview;
                     lines: root.preview-lines;
+                    before: root.preview-before;
+                    tail: root.preview-tail;
                     number-sample: root.preview-number-sample;
                     picture: root.preview-image;
                     has-picture: root.preview-has-image;
@@ -281,6 +362,9 @@ export component AppWindow inherits Window {
                     }
                     wheel(delta) => {
                         root.preview-wheel(delta);
+                    }
+                    line-rows(index, rows) => {
+                        root.preview-line-rows(index, rows);
                     }
                 }
 
@@ -309,27 +393,21 @@ export component AppWindow inherits Window {
                 visible: !root.hide-log;
                 clip: true;
 
-                log := ListView {
+                Rectangle {
                     x: 4px;
                     y: 4px;
-                    width: parent.width - 8px - Theme.scrollbar-gutter;
-                    height: max(0px, parent.height - 8px);
-                    vertical-scrollbar-policy: ScrollBarPolicy.always-off;
+                    width: root.log-text-width;
+                    height: root.log-rows * Theme.log-row-height;
+                    clip: true;
 
-                    // Lines added in the same frame as a scroll are clipped to
-                    // the old height until the list has measured them.
-                    changed viewport-height => {
-                        self.content-y = -root.log-scroll-top * Theme.log-row-height;
-                    }
+                    VerticalLayout {
+                        alignment: start;
 
-                    for line in root.log-lines: Text {
-                        text: line;
-                        height: Theme.log-row-height;
-                        font-family: Theme.log-font-family;
-                        font-size: Theme.log-font-size;
-                        color: Theme.colors.fg;
-                        overflow: elide;
-                        vertical-alignment: center;
+                        for line in root.log-shown: LogText {
+                            width: root.log-text-width;
+                            natural-row-height: log-one-line.preferred-height;
+                            text: line.text;
+                        }
                     }
                 }
 
@@ -345,9 +423,12 @@ export component AppWindow inherits Window {
                     x: parent.width - self.width;
                     y: 4px;
                     height: max(0px, parent.height - 8px);
+                    // In lines, the thumb as long as the lines shown at the end,
+                    // so that it reaches the bottom just there and keeps its
+                    // length while scrolling.
                     top: root.log-scroll-top;
-                    rows: root.log-lines.length;
-                    visible-rows: root.log-rows;
+                    rows: root.log-line-count;
+                    visible-rows: root.log-line-count - root.log-end;
 
                     scroll-to(top) => {
                         root.log-scroll-to(top);

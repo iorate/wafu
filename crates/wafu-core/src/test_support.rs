@@ -14,7 +14,7 @@ use crate::pane::RequestId;
 use crate::popup::Popup;
 use crate::preview::{Document, ImageData};
 use crate::state::{StateError, StateFile};
-use crate::view::{PopupItem, View};
+use crate::view::{PopupItem, PreviewContent, View};
 
 pub(crate) const HOME: &str = "/home/user";
 pub(crate) const LEFT: &str = HOME;
@@ -205,6 +205,47 @@ impl Harness {
         self.send(Msg::Mouse(MouseInput::PreviewWheel { rows }));
     }
 
+    pub(crate) fn preview_line_rows(&mut self, reports: &[(usize, usize)]) {
+        self.send(Msg::PreviewLineRows {
+            reports: reports.to_vec(),
+        });
+    }
+
+    // Plays the UI: reports how many rows each line it was handed takes, as
+    // `rows` makes of its text, until a round of reports changes nothing.
+    // Returns the number of rounds, that last one included.
+    pub(crate) fn measure(&mut self, rows: impl Fn(&str) -> usize) -> usize {
+        for round in 1..=10 {
+            let view = self.view();
+            let ranges = &view.log.ranges;
+            let reports = [&ranges.before, &ranges.shown, &ranges.tail]
+                .into_iter()
+                .flat_map(Clone::clone)
+                .map(|index| (index, rows(&view.log.lines[index])))
+                .collect();
+            self.send(Msg::LogLineRows { reports });
+            if let Some(PreviewContent::Lines {
+                lines,
+                before,
+                tail,
+                ..
+            }) = view.preview.as_ref().map(|preview| &preview.content)
+            {
+                let reports = lines
+                    .iter()
+                    .chain(before)
+                    .chain(tail)
+                    .map(|line| (line.index, rows(&line.text)))
+                    .collect();
+                self.send(Msg::PreviewLineRows { reports });
+            }
+            if self.view() == view {
+                return round;
+            }
+        }
+        panic!("the view should settle");
+    }
+
     pub(crate) fn preview_loaded(&mut self, document: Document) {
         let request = self.latest_preview_request();
         self.send(Msg::Io(IoEvent::PreviewLoaded {
@@ -263,7 +304,7 @@ impl Harness {
 
     fn preview_content(&self) -> Vec<crate::view::PreviewLine> {
         match self.view().preview.map(|preview| preview.content) {
-            Some(crate::view::PreviewContent::Lines { lines, .. }) => lines,
+            Some(PreviewContent::Lines { lines, .. }) => lines,
             other => panic!("expected a lines preview, got {other:?}"),
         }
     }
@@ -487,6 +528,11 @@ impl Harness {
             .map(|item| item.label)
             .collect()
     }
+}
+
+// The rows a line takes when this many characters fit in a row.
+pub(crate) fn rows_at(width: usize) -> impl Fn(&str) -> usize {
+    move |text| text.chars().count().div_ceil(width).max(1)
 }
 
 // A `Start` on the given OS with an empty configuration and no state file.
