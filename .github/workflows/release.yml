@@ -35,7 +35,12 @@ jobs:
       - name: Build
         run: cargo build --release --locked -p wafu
         env:
-          RUSTFLAGS: -C target-feature=+crt-static
+          RUSTFLAGS: >-
+            -C target-feature=+crt-static
+            -C link-arg=/DEFAULTLIB:ucrt.lib
+            -C link-arg=/NODEFAULTLIB:vcruntime.lib
+            -C link-arg=/NODEFAULTLIB:msvcrt.lib
+            -C link-arg=/NODEFAULTLIB:libucrt.lib
 
       - name: Package
         run: |
