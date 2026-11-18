@@ -130,12 +130,16 @@ fn permissions(metadata: &Metadata) -> Permissions {
     Permissions::Mode(metadata.permissions().mode() & 0o7777)
 }
 
-fn is_hidden(name: &OsStr, metadata: Option<&Metadata>) -> bool {
-    name.as_encoded_bytes().first() == Some(&b'.') || has_hidden_attribute(metadata)
+pub(crate) fn is_hidden(name: &OsStr, metadata: Option<&Metadata>) -> bool {
+    has_hidden_name(name) || has_hidden_attribute(metadata)
+}
+
+pub(crate) fn has_hidden_name(name: &OsStr) -> bool {
+    name.as_encoded_bytes().first() == Some(&b'.')
 }
 
 #[cfg(windows)]
-fn has_hidden_attribute(metadata: Option<&Metadata>) -> bool {
+pub(crate) fn has_hidden_attribute(metadata: Option<&Metadata>) -> bool {
     use std::os::windows::fs::MetadataExt;
 
     const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
@@ -147,7 +151,7 @@ fn has_hidden_attribute(metadata: Option<&Metadata>) -> bool {
 // not read: on APFS, setting that bit also sets `UF_HIDDEN`, so the flag
 // covers it without a `getxattr` per entry.
 #[cfg(target_os = "macos")]
-fn has_hidden_attribute(metadata: Option<&Metadata>) -> bool {
+pub(crate) fn has_hidden_attribute(metadata: Option<&Metadata>) -> bool {
     use std::os::macos::fs::MetadataExt;
 
     const UF_HIDDEN: u32 = 0x8000;
@@ -156,7 +160,7 @@ fn has_hidden_attribute(metadata: Option<&Metadata>) -> bool {
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn has_hidden_attribute(_metadata: Option<&Metadata>) -> bool {
+pub(crate) fn has_hidden_attribute(_metadata: Option<&Metadata>) -> bool {
     false
 }
 

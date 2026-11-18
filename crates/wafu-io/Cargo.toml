@@ -16,6 +16,7 @@ bzip2.workspace = true
 chrono.workspace = true
 dirs.workspace = true
 flate2.workspace = true
+ignore.workspace = true
 image.workspace = true
 lzma-rust2.workspace = true
 notify.workspace = true

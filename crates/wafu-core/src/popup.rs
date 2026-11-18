@@ -135,6 +135,10 @@ pub enum InputKind {
     GoToPath {
         dir: PathBuf,
     },
+    /// The pattern to find below `dir`.
+    Find {
+        dir: PathBuf,
+    },
     Rename {
         dir: PathBuf,
         original: OsString,
@@ -259,8 +263,8 @@ pub enum ConflictChoice {
     Abort,
 }
 
-/// A list to pick from: places (history, bookmarks, or drives), or the
-/// encodings of a document preview.
+/// A list to pick from: places (history, bookmarks, or drives), what a find
+/// found, or the encodings of a document preview.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListPopup {
     pub kind: ListKind,
@@ -279,6 +283,7 @@ pub enum ListKind {
     Bookmarks,
     Drives,
     Encodings,
+    Found,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -297,6 +302,8 @@ pub enum ListTarget {
     /// A position in the pane's history and the place it held when the list opened.
     HistoryPos(usize, PathBuf),
     Path(PathBuf),
+    /// An entry to put the cursor on, in its directory.
+    Entry(PathBuf),
     Drive(char),
     /// The encoding to decode the previewed document with; `None` detects it.
     Encoding(Option<&'static Encoding>),
@@ -456,6 +463,7 @@ impl InputKind {
             Self::Filter => "Filter",
             Self::MarkGlob => "Mark",
             Self::GoToPath { .. } => "Go to path",
+            Self::Find { .. } => "Find",
             Self::Rename { .. } | Self::ConflictRename { .. } => "Rename",
             Self::Mkdir { .. } => "Make directory",
             Self::NewFile { .. } => "New file",
@@ -617,6 +625,21 @@ impl ListPopup {
         Self::new(ListKind::Drives, items)
     }
 
+    /// What a find found, in the order given.
+    #[must_use]
+    pub fn found(paths: Vec<PathBuf>) -> Self {
+        let items = paths
+            .into_iter()
+            .map(|path| ListItem {
+                key: None,
+                label: path.display().to_string(),
+                current: false,
+                target: ListTarget::Entry(path),
+            })
+            .collect();
+        Self::new(ListKind::Found, items)
+    }
+
     /// Auto-detection first, then every encoding, with the one named `current` marked.
     #[must_use]
     pub fn encodings(current: &str) -> Self {
@@ -657,6 +680,7 @@ impl ListPopup {
             ListKind::Bookmarks => "Bookmarks",
             ListKind::Drives => "Drives",
             ListKind::Encodings => "Encoding",
+            ListKind::Found => "Find",
         }
     }
 
@@ -668,6 +692,7 @@ impl ListPopup {
             ListKind::Bookmarks => "No bookmarks",
             ListKind::Drives => "No drives",
             ListKind::Encodings => "No encodings",
+            ListKind::Found => "No matches",
         }
     }
 
@@ -675,7 +700,10 @@ impl ListPopup {
     /// picks an item by its key instead.
     #[must_use]
     pub fn filters(&self) -> bool {
-        matches!(self.kind, ListKind::History(_) | ListKind::Encodings)
+        matches!(
+            self.kind,
+            ListKind::History(_) | ListKind::Encodings | ListKind::Found
+        )
     }
 
     /// The side whose history is listed, if the list is a history.
@@ -683,7 +711,7 @@ impl ListPopup {
     pub fn history_side(&self) -> Option<Side> {
         match self.kind {
             ListKind::History(side) => Some(side),
-            ListKind::Bookmarks | ListKind::Drives | ListKind::Encodings => None,
+            ListKind::Bookmarks | ListKind::Drives | ListKind::Encodings | ListKind::Found => None,
         }
     }
 

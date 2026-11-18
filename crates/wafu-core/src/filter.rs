@@ -1,5 +1,6 @@
 use std::ffi::OsStr;
 use std::fmt;
+use std::path::Path;
 
 use globset::{GlobBuilder, GlobMatcher};
 use thiserror::Error;
@@ -9,11 +10,17 @@ use crate::text::nfc;
 /// A case-insensitive glob applied to file names. Alternatives are written
 /// with braces, as in `*.{png,jpg}`. Globs after `~` exclude names, as in
 /// `*~*.bak`; a literal `~` is written `\~` or `[~]`.
+///
+/// A glob may also be applied to a path below a directory, by
+/// [`Filter::matches_path`], with the slash rules of gitignore: a glob
+/// without a slash matches a name at any depth, one with a slash matches the
+/// whole path, a leading slash anchors the glob to the directory searched,
+/// and a trailing slash matches directories only.
 #[derive(Debug, Clone)]
 pub struct Filter {
     pattern: String,
-    include: GlobMatcher,
-    excludes: Vec<GlobMatcher>,
+    include: Glob,
+    excludes: Vec<Glob>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -32,10 +39,10 @@ impl Filter {
         if parts.iter().any(|part| part.is_empty()) {
             return Err(FilterError("empty glob next to '~'".to_owned()));
         }
-        let include = matcher(parts[0])?;
+        let include = Glob::new(parts[0])?;
         let excludes = parts[1..]
             .iter()
-            .map(|part| matcher(part))
+            .map(|part| Glob::new(part))
             .collect::<Result<_, _>>()?;
         Ok(Some(Self {
             pattern: pattern.into_owned(),
@@ -53,11 +60,21 @@ impl Filter {
     pub fn matches(&self, name: &OsStr) -> bool {
         let name = name.to_string_lossy();
         let name = nfc(&name);
-        self.include.is_match(name.as_ref())
+        self.include.name.is_match(name.as_ref())
             && !self
                 .excludes
                 .iter()
-                .any(|exclude| exclude.is_match(name.as_ref()))
+                .any(|exclude| exclude.name.is_match(name.as_ref()))
+    }
+
+    /// Whether an entry matches by its path relative to the directory
+    /// searched.
+    #[must_use]
+    pub fn matches_path(&self, relative: &Path, is_dir: bool) -> bool {
+        let path = relative.to_string_lossy();
+        let path = nfc(&path);
+        let matches = |glob: &Glob| (is_dir || !glob.dir_only) && glob.path.is_match(path.as_ref());
+        matches(&self.include) && !self.excludes.iter().any(matches)
     }
 }
 
@@ -75,10 +92,40 @@ impl fmt::Display for Filter {
     }
 }
 
-fn matcher(glob: &str) -> Result<GlobMatcher, FilterError> {
+#[derive(Debug, Clone)]
+struct Glob {
+    name: GlobMatcher,
+    path: GlobMatcher,
+    dir_only: bool,
+}
+
+impl Glob {
+    fn new(glob: &str) -> Result<Self, FilterError> {
+        let (path, dir_only) = match glob.strip_suffix('/') {
+            Some(rest) => (rest, true),
+            None => (glob, false),
+        };
+        let (path, anchored) = match path.strip_prefix('/') {
+            Some(rest) => (rest, true),
+            None => (path, false),
+        };
+        let path = if anchored || path.contains('/') {
+            path.to_owned()
+        } else {
+            format!("**/{path}")
+        };
+        Ok(Self {
+            name: matcher(glob, false)?,
+            path: matcher(&path, true)?,
+            dir_only,
+        })
+    }
+}
+
+fn matcher(glob: &str, literal_separator: bool) -> Result<GlobMatcher, FilterError> {
     GlobBuilder::new(glob)
         .case_insensitive(true)
-        .literal_separator(false)
+        .literal_separator(literal_separator)
         .backslash_escape(true)
         .build()
         .map(|glob| glob.compile_matcher())
@@ -233,6 +280,66 @@ mod tests {
     fn parse_rejects_an_invalid_pattern() {
         assert!(Filter::parse("[").is_err());
         assert!(Filter::parse("*~{").is_err());
+    }
+
+    #[test]
+    fn matches_path_matches_a_glob_without_a_slash_at_any_depth() {
+        let filter = Filter::parse("*.rs").unwrap().unwrap();
+
+        assert!(filter.matches_path(Path::new("a.rs"), false));
+        assert!(filter.matches_path(&Path::new("src").join("b").join("a.rs"), false));
+        assert!(!filter.matches_path(&Path::new("a.rs").join("b"), false));
+    }
+
+    #[test]
+    fn matches_path_matches_a_glob_with_a_slash_against_the_whole_path() {
+        let filter = Filter::parse("src/*.rs").unwrap().unwrap();
+
+        assert!(filter.matches_path(&Path::new("src").join("a.rs"), false));
+        assert!(!filter.matches_path(&Path::new("src").join("b").join("a.rs"), false));
+        assert!(!filter.matches_path(&Path::new("x").join("src").join("a.rs"), false));
+    }
+
+    #[test]
+    fn matches_path_anchors_a_glob_with_a_leading_slash() {
+        let filter = Filter::parse("/a.rs").unwrap().unwrap();
+
+        assert!(filter.matches_path(Path::new("a.rs"), false));
+        assert!(!filter.matches_path(&Path::new("src").join("a.rs"), false));
+    }
+
+    #[test]
+    fn matches_path_matches_only_directories_with_a_trailing_slash() {
+        let filter = Filter::parse("src/").unwrap().unwrap();
+
+        assert!(filter.matches_path(Path::new("src"), true));
+        assert!(filter.matches_path(&Path::new("x").join("src"), true));
+        assert!(!filter.matches_path(Path::new("src"), false));
+    }
+
+    #[test]
+    fn matches_path_excludes_by_the_same_rules_entry_by_entry() {
+        let filter = Filter::parse("*~/gen/*~target/").unwrap().unwrap();
+
+        assert!(!filter.matches_path(&Path::new("gen").join("a.rs"), false));
+        assert!(filter.matches_path(&Path::new("x").join("gen").join("a.rs"), false));
+        assert!(!filter.matches_path(Path::new("target"), true));
+        assert!(filter.matches_path(Path::new("target"), false));
+        assert!(filter.matches_path(&Path::new("target").join("a.rs"), false));
+    }
+
+    #[test]
+    fn matches_path_ignores_case_and_composes_decomposed_names() {
+        let filter = Filter::parse("src/*\u{30d7}*").unwrap().unwrap();
+
+        assert!(filter.matches_path(&Path::new("SRC").join("\u{30d5}\u{309a}"), false));
+    }
+
+    #[test]
+    fn matches_does_not_match_a_glob_with_a_slash() {
+        let filter = Filter::parse("src/").unwrap().unwrap();
+
+        assert!(!filter.matches(OsStr::new("src")));
     }
 
     #[test]

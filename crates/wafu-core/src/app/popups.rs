@@ -33,6 +33,7 @@ impl App {
                 .unwrap_or_default(),
             InputKind::GoToPath { dir } => dir.to_string_lossy().into_owned(),
             InputKind::MarkGlob
+            | InputKind::Find { .. }
             | InputKind::Rename { .. }
             | InputKind::Mkdir { .. }
             | InputKind::NewFile { .. }
@@ -44,6 +45,17 @@ impl App {
             | InputKind::Compress { .. } => String::new(),
         };
         self.popup = Some(Popup::Input(InputPopup::single(kind, text, None)));
+    }
+
+    pub(super) fn open_find(&mut self) {
+        let location = self.active_pane().location();
+        if location.in_archive() {
+            let command = Command::Find;
+            self.log.push(AppError::InArchive { command }.to_string());
+            return;
+        }
+        let dir = location.base.clone();
+        self.open_input(InputKind::Find { dir });
     }
 
     pub(super) fn open_search(&mut self) {
@@ -433,7 +445,7 @@ impl App {
                 }
                 return;
             }
-            InputKind::Filter | InputKind::MarkGlob => {}
+            InputKind::Filter | InputKind::MarkGlob | InputKind::Find { .. } => {}
         }
         let filter = match Filter::parse(&text) {
             Ok(filter) => filter,
@@ -448,14 +460,18 @@ impl App {
                 return;
             }
         };
-        let pane = self.active_pane_mut();
         match popup.kind {
             InputKind::Filter => {
-                pane.set_filter(filter);
+                self.active_pane_mut().set_filter(filter);
             }
             InputKind::MarkGlob => {
                 if let Some(filter) = filter {
-                    pane.mark_matching(&filter);
+                    self.active_pane_mut().mark_matching(&filter);
+                }
+            }
+            InputKind::Find { dir } => {
+                if let Some(filter) = filter {
+                    self.start_find(dir, filter, effects);
                 }
             }
             _ => {}
@@ -604,6 +620,17 @@ impl App {
                     HistoryMove::Visit,
                     effects,
                 );
+            }
+            ListTarget::Entry(path) => {
+                if let (Some(dir), Some(name)) = (path.parent(), path.file_name()) {
+                    self.navigate(
+                        self.active,
+                        Location::new(dir.to_path_buf()),
+                        Some(name.to_owned()),
+                        HistoryMove::Visit,
+                        effects,
+                    );
+                }
             }
             ListTarget::Drive(letter) => self.switch_drive(letter, effects),
             ListTarget::Encoding(encoding) => self.set_preview_encoding(encoding, effects),

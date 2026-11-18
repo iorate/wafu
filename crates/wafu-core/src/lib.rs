@@ -40,11 +40,12 @@ pub use entry::{
     Directory, Entry, EntryKind, LocalDateTime, Permissions, SpecialKind, TargetKind, Timestamp,
 };
 pub use error::IoError;
+pub use filter::Filter;
 pub use key::KeyInput;
 pub use location::{ArchiveFormat, ArchivePath, Location, OuterArchive, Passwords};
 pub use operation::{
-    ArchiveEntries, ArchiveOutput, OperationEvent, OperationKind, OperationSpec, Outcome, Reply,
-    Sources,
+    ArchiveEntries, ArchiveOutput, FindQuery, OperationEvent, OperationKind, OperationSpec,
+    Outcome, Reply, Sources,
 };
 pub use pane::{DrivePurpose, RequestId};
 pub use preview::{Document, DocumentMode, ImageData, Line, PREVIEW_LIMIT};

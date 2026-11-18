@@ -6,15 +6,17 @@ use crate::command::{Command, Context};
 use crate::entry::Entry;
 use crate::error::{AppError, IoError};
 use crate::external::{CommandLine, Expansion};
+use crate::filter::Filter;
 use crate::key::{Key, KeyBase, NamedKey};
 use crate::location::{ArchiveFormat, Location, Passwords};
 use crate::operation::{
-    ArchiveEntries, ArchiveOutput, OperationEvent, OperationKind, OperationSpec, Outcome,
-    OutcomeLine, Reply, Sources,
+    ArchiveEntries, ArchiveOutput, FindQuery, OperationEvent, OperationKind, OperationSpec,
+    Outcome, OutcomeLine, Reply, Sources,
 };
 use crate::pane::HistoryMove;
 use crate::popup::{
-    ChoiceKind, ChoicePopup, ConflictPopup, InputKind, InputPopup, PasswordPurpose, Popup,
+    ChoiceKind, ChoicePopup, ConflictPopup, InputKind, InputPopup, ListPopup, PasswordPurpose,
+    Popup,
 };
 use crate::view::PopupView;
 
@@ -221,6 +223,16 @@ impl App {
         self.start_removal(kind, location.base, names, effects);
     }
 
+    pub(super) fn start_find(&mut self, dir: PathBuf, pattern: Filter, effects: &mut Vec<Effect>) {
+        let names = vec![dir.clone().into_os_string()];
+        let sources = Sources::Find(FindQuery {
+            dir: dir.clone(),
+            pattern,
+            show_hidden: self.active_pane().show_hidden(),
+        });
+        self.start_operation(OperationKind::Find, dir, names, sources, None, effects);
+    }
+
     pub(super) fn confirm_quit(&mut self) {
         if let Some(Popup::Choice(ChoicePopup {
             kind: ChoiceKind::QuitDuringOperation { .. },
@@ -352,7 +364,11 @@ impl App {
             .unwrap_or_default();
         Some(PopupView {
             title: title.to_owned(),
-            message: Some(format!("{} done: {current}", operation.done)),
+            message: Some(format!(
+                "{} {}: {current}",
+                operation.done,
+                operation.kind.progress()
+            )),
             progress: true,
             ..PopupView::default()
         })
@@ -384,6 +400,7 @@ impl App {
             | InputKind::Filter
             | InputKind::MarkGlob
             | InputKind::GoToPath { .. }
+            | InputKind::Find { .. }
             | InputKind::RunFile
             | InputKind::RunCommand
             | InputKind::ArchivePassword { .. }
@@ -422,6 +439,7 @@ impl App {
             | InputKind::Filter
             | InputKind::MarkGlob
             | InputKind::GoToPath { .. }
+            | InputKind::Find { .. }
             | InputKind::RunFile
             | InputKind::RunCommand
             | InputKind::ArchivePassword { .. }
@@ -844,7 +862,7 @@ impl App {
                 archive: Some(entries.path.clone()),
             }
             .shared_levels(self.active_pane().location()),
-            Sources::Paths(_) => 0,
+            Sources::Paths(_) | Sources::Find(_) => 0,
         };
         effects.push(Effect::StartOperation(OperationSpec {
             kind,
@@ -895,21 +913,27 @@ impl App {
                 .temp
                 .as_ref()
                 .is_some_and(|temp| !temp.entry_skipped);
-        if !launch {
-            self.log.push(
-                OutcomeLine {
-                    kind: operation.kind,
-                    outcome,
-                    targets: &operation.names,
-                    size_format: self.config.filelist.size_format,
-                }
-                .to_string(),
-            );
+        let line = || {
+            OutcomeLine {
+                kind: operation.kind,
+                outcome,
+                targets: &operation.names,
+                size_format: self.config.filelist.size_format,
+            }
+            .to_string()
+        };
+        if let Outcome::Found { paths, truncated } = outcome {
+            if *truncated {
+                self.log.push(line());
+            }
+            self.popup = Some(Popup::List(ListPopup::found(paths.clone())));
+        } else if !launch {
+            self.log.push(line());
         }
-        // A size calculation changes nothing to read again.
+        // A size calculation or a find changes nothing to read again.
         if !matches!(
             operation.kind,
-            OperationKind::CalculateSize | OperationKind::CalculateSizeOnDisk
+            OperationKind::CalculateSize | OperationKind::CalculateSizeOnDisk | OperationKind::Find
         ) {
             self.refresh_showing(&operation.source_dir, effects);
         }

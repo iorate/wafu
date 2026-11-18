@@ -23,6 +23,7 @@ const DEFAULT_FILELIST: &[(&str, &str)] = &[
     ("/", "go_root"),
     ("~", "go_home"),
     ("Shift+J", "go_to_path"),
+    ("Shift+F", "find"),
     ("J", "bookmarks"),
     ("H", "history"),
     ("Ctrl+Shift+Left", "history_back"),
