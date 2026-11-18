@@ -208,6 +208,28 @@ export component AppWindow inherits Window {
         visible: false;
     }
 
+    // Temporary: prints what the row grid of the log is made of.
+    debug-three-rows := LogText {
+        visible: false;
+        natural-row-pitch: root.log-row-pitch;
+        text: "a\nb\nc";
+    }
+
+    debug-one-row := LogText {
+        visible: false;
+        natural-row-pitch: root.log-row-pitch;
+        text: "a";
+    }
+
+    Timer {
+        interval: 2s;
+        running: true;
+        triggered => {
+            self.running = false;
+            debug("log metrics: row-height", Theme.log-row-height / 1px, "one line", log-one-line.preferred-height / 1px, "eleven lines", log-eleven-lines.preferred-height / 1px, "pitch", root.log-row-pitch / 1px, "one row with factor", debug-one-row.preferred-height / 1px, "three rows with factor", debug-three-rows.preferred-height / 1px);
+        }
+    }
+
     log-eleven-lines := Text {
         text: " \n \n \n \n \n \n \n \n \n \n ";
         font-family: Theme.log-font-family;
