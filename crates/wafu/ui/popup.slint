@@ -254,15 +254,14 @@ export component PopupOverlay {
         text: " ";
     }
 
-    // The message wraps at any character, so that a path fills each line
-    // instead of breaking after every separator. It and the note are measured
-    // at the width they are shown at: the list is given the rows they leave,
-    // so their heights have to be known outside the layout.
+    // The message and the note are measured at the width they are shown at:
+    // the list is given the rows they leave, so their heights have to be known
+    // outside the layout.
     wrapped-message := PopupText {
         visible: false;
         width: panel.width - 16px;
         text: data.message;
-        wrap: char-wrap;
+        wrap: word-wrap;
     }
 
     wrapped-note := PopupText {
@@ -295,7 +294,7 @@ export component PopupOverlay {
 
             if data.message != "": PopupText {
                 text: data.message;
-                wrap: root.wraps-message ? char-wrap : no-wrap;
+                wrap: root.wraps-message ? word-wrap : no-wrap;
                 overflow: elide;
                 height: root.message-height;
                 vertical-alignment: center;
