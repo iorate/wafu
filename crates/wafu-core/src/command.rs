@@ -55,6 +55,8 @@ const NAMES: &[(Command, &str)] = &[
     (Command::LogScrollDown, "log_scroll_down"),
     (Command::LogPageUp, "log_page_up"),
     (Command::LogPageDown, "log_page_down"),
+    (Command::LogTop, "log_top"),
+    (Command::LogBottom, "log_bottom"),
     (Command::ClearLog, "clear_log"),
     (Command::CopyLog, "copy_log"),
     (Command::PreviewScrollUp, "preview_scroll_up"),
@@ -155,6 +157,8 @@ pub enum Command {
     LogScrollDown,
     LogPageUp,
     LogPageDown,
+    LogTop,
+    LogBottom,
     ClearLog,
     CopyLog,
     PreviewScrollUp,
@@ -307,6 +311,8 @@ impl Command {
             | Self::LogScrollDown
             | Self::LogPageUp
             | Self::LogPageDown
+            | Self::LogTop
+            | Self::LogBottom
             | Self::ClearLog
             | Self::CopyLog => Target::Log,
             Self::Palette

@@ -1409,6 +1409,10 @@ fn log_keys_scroll_and_clear() {
     harness.press("Shift+Up");
     harness.press("Shift+Down");
     assert_eq!(harness.view().log.scroll_top, 2);
+    harness.press("Shift+Home");
+    assert_eq!(harness.view().log.scroll_top, 0);
+    harness.press("Shift+End");
+    assert_eq!(harness.view().log.scroll_top, 2);
 
     harness.press("F1");
     harness.edit("clear_log");
