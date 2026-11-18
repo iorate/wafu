@@ -751,12 +751,32 @@ fn find_asks_for_a_pattern_and_searches_the_pane_s_directory_as_the_pane_shows_i
                 dir: PathBuf::from(LEFT),
                 pattern: Filter::parse("*.rs").unwrap().unwrap(),
                 show_hidden: true,
+                max_results: 10_000,
             }),
             dest: None,
             output: None,
         })]
     );
     assert_eq!(harness.view().popup.unwrap().title, "Finding");
+}
+
+#[test]
+fn find_uses_the_configured_max_find_results() {
+    let mut harness = three_files();
+    harness.config("[filelist]\nmax_find_results = 5\n");
+    harness.take_effects();
+
+    harness.press("Shift+F");
+    harness.edit("*");
+    harness.press("Enter");
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::StartOperation(OperationSpec {
+            sources: Sources::Find(FindQuery { max_results: 5, .. }),
+            ..
+        })]
+    ));
 }
 
 #[test]

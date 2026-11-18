@@ -60,6 +60,7 @@ size_digits = 9
 extension_chars = 4
 min_name_chars = 8
 max_history = 100
+max_find_results = 10000
 
 [preview.text]
 hide_log = false
@@ -129,6 +130,7 @@ There are no default bookmarks, external commands, [`open_alternative` programs]
 | `extension_chars` | How many characters of an extension the extension column holds after the dot: an integer from 1 to 255. A longer extension ends in an ellipsis. |
 | `min_name_chars` | How many characters of a name a narrow pane still shows before cutting off the other columns: an integer from 1 to 255. |
 | `max_history` | How many places each pane's history keeps, for `history`, `history_back`, and `history_forward`: an integer of 1 or more. |
+| `max_find_results` | How many matches `find` collects before it stops: an integer of 1 or more. |
 
 ## Preview
 

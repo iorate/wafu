@@ -6,8 +6,6 @@ use wafu_core::{FindQuery, IoError, OperationEvent, Outcome};
 use super::Worker;
 use crate::read_dir::{has_hidden_attribute, has_hidden_name};
 
-const LIMIT: usize = 10_000;
-
 impl Worker<'_> {
     // The walk is serial, so that it stops right at the limit or a
     // cancellation; a parallel one goes on delivering entries after it is
@@ -59,7 +57,7 @@ impl Worker<'_> {
                 .file_type()
                 .is_some_and(|file_type| file_type.is_dir());
             if query.pattern.matches_path(relative, is_dir) {
-                if paths.len() == LIMIT {
+                if paths.len() == query.max_results {
                     truncated = true;
                     break;
                 }
@@ -103,7 +101,7 @@ mod tests {
         fs::write(root.join("a.txt"), b"").unwrap();
         fs::write(root.join("b.md"), b"").unwrap();
 
-        let (outcome, _) = find(root, "*", false, []);
+        let (outcome, _) = find(root, "*", false, 10_000, []);
 
         assert_eq!(
             outcome,
@@ -129,8 +127,8 @@ mod tests {
         fs::write(root.join(".b"), b"").unwrap();
         fs::write(root.join("c"), b"").unwrap();
 
-        let (hidden, _) = find(root, "*", false, []);
-        let (shown, _) = find(root, "*", true, []);
+        let (hidden, _) = find(root, "*", false, 10_000, []);
+        let (shown, _) = find(root, "*", true, 10_000, []);
 
         assert_eq!(
             hidden,
@@ -163,7 +161,7 @@ mod tests {
             return;
         }
 
-        let (outcome, _) = find(root, "*", false, []);
+        let (outcome, _) = find(root, "*", false, 10_000, []);
 
         assert_eq!(
             outcome,
@@ -189,7 +187,7 @@ mod tests {
         // A user who can read it anyway (root) has nothing to check.
         let readable = fs::read_dir(&locked).is_ok();
 
-        let (outcome, events) = find(root, "*", false, []);
+        let (outcome, events) = find(root, "*", false, 10_000, []);
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
 
         if readable {
@@ -216,16 +214,15 @@ mod tests {
     fn stops_at_the_limit() {
         let dir = TempDir::new().unwrap();
         let root = dir.path();
-        for i in 0..LIMIT {
-            fs::write(root.join(i.to_string()), b"").unwrap();
+        for name in ["a", "b", "c"] {
+            fs::write(root.join(name), b"").unwrap();
         }
 
-        let (all, _) = find(root, "*", false, []);
-        fs::write(root.join("one more"), b"").unwrap();
-        let (cut, _) = find(root, "*", false, []);
+        let (all, _) = find(root, "*", false, 3, []);
+        let (cut, _) = find(root, "*", false, 2, []);
 
-        assert!(matches!(all, Outcome::Found { paths, truncated: false } if paths.len() == LIMIT));
-        assert!(matches!(cut, Outcome::Found { paths, truncated: true } if paths.len() == LIMIT));
+        assert!(matches!(all, Outcome::Found { paths, truncated: false } if paths.len() == 3));
+        assert!(matches!(cut, Outcome::Found { paths, truncated: true } if paths.len() == 2));
     }
 
     #[test]
@@ -233,7 +230,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         fs::write(dir.path().join("a"), b"").unwrap();
 
-        let (outcome, _) = find(dir.path(), "*", false, [Reply::Cancel]);
+        let (outcome, _) = find(dir.path(), "*", false, 10_000, [Reply::Cancel]);
 
         assert_eq!(outcome, Outcome::Cancelled);
     }
@@ -242,6 +239,7 @@ mod tests {
         dir: &Path,
         pattern: &str,
         show_hidden: bool,
+        max_results: usize,
         replies: impl IntoIterator<Item = Reply>,
     ) -> (Outcome, Vec<OperationEvent>) {
         let (sender, receiver) = mpsc::channel();
@@ -256,6 +254,7 @@ mod tests {
                 dir: dir.to_path_buf(),
                 pattern: Filter::parse(pattern).unwrap().unwrap(),
                 show_hidden,
+                max_results,
             }),
             dest: None,
             output: None,
