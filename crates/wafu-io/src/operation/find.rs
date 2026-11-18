@@ -83,7 +83,6 @@ fn error_path(error: &Error) -> Option<&Path> {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::PathBuf;
     use std::sync::Mutex;
     use std::sync::mpsc;
 
@@ -203,7 +202,7 @@ mod tests {
                 truncated: false,
             }
         );
-        let skipped: Vec<&PathBuf> = events
+        let skipped: Vec<_> = events
             .iter()
             .filter_map(|event| match event {
                 OperationEvent::Skipped { path, .. } => Some(path),

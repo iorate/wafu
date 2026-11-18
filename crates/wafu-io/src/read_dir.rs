@@ -130,7 +130,7 @@ fn permissions(metadata: &Metadata) -> Permissions {
     Permissions::Mode(metadata.permissions().mode() & 0o7777)
 }
 
-pub(crate) fn is_hidden(name: &OsStr, metadata: Option<&Metadata>) -> bool {
+fn is_hidden(name: &OsStr, metadata: Option<&Metadata>) -> bool {
     has_hidden_name(name) || has_hidden_attribute(metadata)
 }
 
