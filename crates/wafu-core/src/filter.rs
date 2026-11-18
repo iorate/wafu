@@ -101,11 +101,11 @@ struct Glob {
 
 impl Glob {
     fn new(glob: &str) -> Result<Self, FilterError> {
-        let (path, dir_only) = match glob.strip_suffix('/') {
+        let (path, anchored) = match glob.strip_prefix('/') {
             Some(rest) => (rest, true),
             None => (glob, false),
         };
-        let (path, anchored) = match path.strip_prefix('/') {
+        let (path, dir_only) = match path.strip_suffix('/') {
             Some(rest) => (rest, true),
             None => (path, false),
         };
@@ -306,6 +306,14 @@ mod tests {
 
         assert!(filter.matches_path(Path::new("a.rs"), false));
         assert!(!filter.matches_path(&Path::new("src").join("a.rs"), false));
+    }
+
+    #[test]
+    fn matches_path_matches_nothing_with_a_lone_slash() {
+        let filter = Filter::parse("/").unwrap().unwrap();
+
+        assert!(!filter.matches_path(Path::new("src"), true));
+        assert!(!filter.matches_path(Path::new("a.rs"), false));
     }
 
     #[test]
