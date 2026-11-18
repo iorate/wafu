@@ -11,6 +11,7 @@ use crate::app::Os;
 /// placeholders are filled in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandLine {
+    source: String,
     program: String,
     args: Vec<Arg>,
 }
@@ -59,7 +60,17 @@ impl CommandLine {
                 None => Arg::Literal(token),
             })
             .collect();
-        Ok(Self { program, args })
+        Ok(Self {
+            source: text.to_owned(),
+            program,
+            args,
+        })
+    }
+
+    /// The text the line was parsed from.
+    #[must_use]
+    pub fn source(&self) -> &str {
+        &self.source
     }
 
     #[must_use]

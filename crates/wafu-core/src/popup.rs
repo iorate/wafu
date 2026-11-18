@@ -11,6 +11,7 @@ use crate::key::{Key, KeyBase, NamedKey};
 use crate::listing::{SortKey, SortSpec};
 use crate::location::{ArchiveFormat, Location, Passwords};
 use crate::pane::HistoryMove;
+use crate::path::expand_tilde;
 use crate::preview::ENCODINGS;
 use crate::text::nfc;
 use crate::view::{InputField, ItemKind, PopupItem};
@@ -297,6 +298,8 @@ pub struct ListItem {
     /// with; the list opens on it.
     pub current: bool,
     pub target: ListTarget,
+    /// What the configuration gives for the item, as written there.
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -583,6 +586,7 @@ impl ListPopup {
             label: path.display().to_string(),
             current: !in_archive && pos == history.pos(),
             target: ListTarget::HistoryPos(pos, path.clone()),
+            source: None,
         })
     }
 
@@ -596,19 +600,25 @@ impl ListPopup {
             label: path.display().to_string(),
             current: false,
             target: ListTarget::Path(path.clone()),
+            source: None,
         })
     }
 
-    /// Bookmarks in the configured order, their paths already expanded.
+    /// Bookmarks in the configured order; a pick goes to the path with `~`
+    /// taken from `home`.
     #[must_use]
-    pub fn bookmarks(bookmarks: Vec<Bookmark>) -> Self {
+    pub fn bookmarks(bookmarks: &[Bookmark], home: &Path) -> Self {
         let items = bookmarks
-            .into_iter()
-            .map(|bookmark| ListItem {
-                key: bookmark.key,
-                label: bookmark.name,
-                current: false,
-                target: ListTarget::Path(bookmark.path),
+            .iter()
+            .map(|bookmark| {
+                let path = bookmark.path.to_string_lossy();
+                ListItem {
+                    key: bookmark.key,
+                    label: bookmark.name.clone(),
+                    current: false,
+                    target: ListTarget::Path(expand_tilde(&path, home)),
+                    source: Some(path.into_owned()),
+                }
             })
             .collect();
         Self::new(ListKind::Bookmarks, items)
@@ -624,6 +634,7 @@ impl ListPopup {
                 label: format!("{letter}:\\"),
                 current: Some(letter) == current,
                 target: ListTarget::Drive(letter),
+                source: None,
             })
             .collect();
         Self::new(ListKind::Drives, items)
@@ -643,6 +654,7 @@ impl ListPopup {
                     .to_string(),
                 current: false,
                 target: ListTarget::Entry(path),
+                source: None,
             })
             .collect();
         Self {
@@ -659,12 +671,14 @@ impl ListPopup {
             label: "Auto-detect".to_owned(),
             current: false,
             target: ListTarget::Encoding(None),
+            source: None,
         })
         .chain(ENCODINGS.iter().map(|&encoding| ListItem {
             key: None,
             label: encoding.name().to_owned(),
             current: encoding.name() == current,
             target: ListTarget::Encoding(Some(encoding)),
+            source: None,
         }))
         .collect();
         Self::new(ListKind::Encodings, items)
@@ -1449,7 +1463,7 @@ mod tests {
     fn list_popup_of_bookmarks_uses_their_own_keys() {
         let bookmarks = vec![bookmark("/a", None), bookmark("/b", Some('z'))];
 
-        let popup = ListPopup::bookmarks(bookmarks);
+        let popup = ListPopup::bookmarks(&bookmarks, Path::new("/home/user"));
 
         assert_eq!(popup.items()[0].detail, "");
         assert_eq!(popup.items()[1].detail, "Z");
@@ -1471,6 +1485,7 @@ mod tests {
             label: PathBuf::from(path).display().to_string(),
             current: pos == 2,
             target: ListTarget::HistoryPos(pos, PathBuf::from(path)),
+            source: None,
         };
         assert_eq!(popup.items, [item(2, "/c"), item(1, "/b"), item(0, "/a")]);
         assert_eq!(popup.cursor, 0);
@@ -1505,6 +1520,7 @@ mod tests {
             label: PathBuf::from(path).display().to_string(),
             current: false,
             target: ListTarget::Path(PathBuf::from(path)),
+            source: None,
         };
         assert_eq!(popup.items, [item("/c"), item("/b"), item("/a")]);
         assert_eq!(popup.cursor, 1);
@@ -1606,7 +1622,7 @@ mod tests {
 
     #[test]
     fn list_popup_closes_on_enter_when_empty() {
-        let mut popup = ListPopup::bookmarks(Vec::new());
+        let mut popup = ListPopup::bookmarks(&[], Path::new("/home/user"));
 
         assert_eq!(menu_input(&mut popup, key("Enter")), Response::Close);
     }

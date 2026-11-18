@@ -593,13 +593,9 @@ impl App {
     #[must_use]
     pub fn view(&self) -> View {
         let popup = self.popup_view();
-        let status = match &self.popup {
-            Some(Popup::Input(_) | Popup::Search(_)) | None => status_line(self.active_pane()),
-            Some(_) => popup
-                .as_ref()
-                .and_then(|popup| Some(popup.items.as_ref()?.get(popup.cursor?)?.label.clone()))
-                .unwrap_or_default(),
-        };
+        let status = self
+            .popup_status(popup.as_ref())
+            .unwrap_or_else(|| status_line(self.active_pane()));
         View {
             title: self.title(),
             left: PaneView::from_pane(&self.panes[0], self.active == Side::Left),

@@ -2,14 +2,13 @@ use std::mem::{Discriminant, discriminant};
 
 use super::{App, Effect, MouseInput, Side};
 use crate::command::Command;
-use crate::config::Bookmark;
 use crate::error::AppError;
 use crate::filter::Filter;
 use crate::key::{Key, KeyBase, NamedKey};
 use crate::location::Location;
 use crate::operation::{OperationKind, Reply};
 use crate::pane::HistoryMove;
-use crate::path::{expand_tilde, resolve_input};
+use crate::path::resolve_input;
 use crate::popup::{
     ChoiceKind, ConflictChoice, ConflictPopup, InputKind, InputPopup, ListItem, ListPopup,
     ListTarget, MenuInput, PalettePopup, PasswordPurpose, Popup, Response, SearchPopup, SortPopup,
@@ -81,17 +80,8 @@ impl App {
     }
 
     pub(super) fn open_bookmarks(&mut self) {
-        let bookmarks = self
-            .config
-            .bookmarks
-            .iter()
-            .map(|bookmark| Bookmark {
-                name: bookmark.name.clone(),
-                path: expand_tilde(&bookmark.path.to_string_lossy(), &self.home),
-                key: bookmark.key,
-            })
-            .collect();
-        self.popup = Some(Popup::List(ListPopup::bookmarks(bookmarks)));
+        let popup = ListPopup::bookmarks(&self.config.bookmarks, &self.home);
+        self.popup = Some(Popup::List(popup));
     }
 
     pub(super) fn open_drives(&mut self, letters: &[char]) {
@@ -215,6 +205,29 @@ impl App {
                     .collect()
             }),
             ..view
+        })
+    }
+
+    pub(super) fn popup_status(&self, view: Option<&PopupView>) -> Option<String> {
+        let source = match self.popup.as_ref()? {
+            Popup::Input(_) | Popup::Search(_) => return None,
+            Popup::Palette(popup) => match popup.selected() {
+                Some(Command::External(name)) => self
+                    .config
+                    .commands
+                    .get(&name)
+                    .map(|line| line.source().to_owned()),
+                _ => None,
+            },
+            Popup::List(popup) => popup.selected().and_then(|item| item.source.clone()),
+            Popup::Sort(_) | Popup::Choice(_) | Popup::Conflict(_) => None,
+        };
+        let label = view
+            .and_then(|view| Some(view.items.as_ref()?.get(view.cursor?)?.label.clone()))
+            .unwrap_or_default();
+        Some(match source {
+            Some(source) => format!("{label} -> {}", show_line_breaks(source)),
+            None => label,
         })
     }
 
