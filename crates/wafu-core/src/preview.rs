@@ -8,17 +8,7 @@ use encoding_rs::Encoding;
 use crate::text::{LINE_BREAK_SYMBOL, is_line_break};
 use crate::view::PreviewLine;
 
-/// How much of a file the preview reads.
-pub const PREVIEW_LIMIT: u64 = 16 * 1024 * 1024;
-
-/// The line shown after a file cut at [`PREVIEW_LIMIT`].
-#[must_use]
-pub fn truncated_note() -> String {
-    format!(
-        "--- truncated: showing the first {} MiB ---",
-        PREVIEW_LIMIT / 1024 / 1024
-    )
-}
+pub(crate) const TRUNCATED_NOTE: &str = "--- truncated ---";
 
 const BINARY_PROBE: usize = 8 * 1024;
 const MAX_LINE_CHARS: usize = 1024;
@@ -143,7 +133,7 @@ impl Document {
         if truncated {
             lines.push(Line {
                 number: 0,
-                text: truncated_note(),
+                text: TRUNCATED_NOTE.to_owned(),
             });
         }
         Self {
@@ -210,7 +200,7 @@ impl Document {
                         PreviewLine {
                             index,
                             number: String::new(),
-                            text: truncated_note(),
+                            text: TRUNCATED_NOTE.to_owned(),
                         }
                     } else {
                         let offset = index * BYTES_PER_LINE;
@@ -517,13 +507,16 @@ mod tests {
     fn a_truncated_document_ends_with_the_note() {
         let document = Document::decode(vec![b'a'; 20], true, None);
 
-        assert_eq!(texts(&document), ["a".repeat(20), truncated_note()]);
+        assert_eq!(
+            texts(&document),
+            ["a".repeat(20), TRUNCATED_NOTE.to_owned()]
+        );
         assert_eq!(numbers(&document), [1, 0]);
         assert_eq!(document.digits(DocumentMode::Text), 1);
         assert_eq!(document.line_count(DocumentMode::Binary), 3);
         assert_eq!(
             shown(&document, DocumentMode::Binary, 2, 5),
-            [truncated_note()]
+            [TRUNCATED_NOTE]
         );
         assert_eq!(
             document.lines(DocumentMode::Text, 1, 1)[0].number,

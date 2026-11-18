@@ -118,15 +118,12 @@ impl Runtime {
                 location,
                 passwords,
                 request,
-            } => {
-                lock(&self.pending).insert(request);
-                self.send(Job::ReadDir {
-                    side,
-                    location,
-                    passwords,
-                    request,
-                });
-            }
+            } => self.send(Job::ReadDir {
+                side,
+                location,
+                passwords,
+                request,
+            }),
             // Resolving runs on the read thread, since `metadata` on a network
             // path may block.
             Effect::Resolve {
@@ -138,7 +135,6 @@ impl Runtime {
                 // The old watch might keep a vanished directory half alive on
                 // Windows; the application watches again once it knows where it is.
                 lock(&self.watcher).unwatch(side);
-                lock(&self.pending).insert(request);
                 self.send(Job::Resolve {
                     side,
                     path,
@@ -152,14 +148,24 @@ impl Runtime {
                     lane.cancel(request);
                 }
             }
-            Effect::LoadPreview { source, request } => {
-                lock(&self.pending).insert(request);
-                self.send(Job::LoadPreview { source, request });
-            }
-            Effect::LoadImage { source, request } => {
-                lock(&self.pending).insert(request);
-                self.send(Job::LoadImage { source, request });
-            }
+            Effect::LoadPreview {
+                source,
+                max_bytes,
+                request,
+            } => self.send(Job::LoadPreview {
+                source,
+                max_bytes,
+                request,
+            }),
+            Effect::LoadImage {
+                source,
+                max_bytes,
+                request,
+            } => self.send(Job::LoadImage {
+                source,
+                max_bytes,
+                request,
+            }),
             // A reader abandoned with a preview stuck in it gets no message,
             // but lets go of its archive when its thread ends.
             Effect::ReleasePreview => self.preview.release_preview(),
@@ -213,6 +219,7 @@ impl Runtime {
     }
 
     fn send(&self, job: Job) {
+        lock(&self.pending).insert(job.request());
         self.lane(&job).send(job);
     }
 
@@ -391,10 +398,12 @@ enum Job {
     },
     LoadPreview {
         source: PreviewSource,
+        max_bytes: usize,
         request: RequestId,
     },
     LoadImage {
         source: PreviewSource,
+        max_bytes: usize,
         request: RequestId,
     },
 }
@@ -627,15 +636,19 @@ fn read(
             request,
             result: resolve(path, *climb),
         },
-        Job::LoadPreview { source, .. } => IoEvent::PreviewLoaded {
+        Job::LoadPreview {
+            source, max_bytes, ..
+        } => IoEvent::PreviewLoaded {
             request,
-            result: load_preview(source, lane, previewed, &|| {
+            result: load_preview(source, *max_bytes, lane, previewed, &|| {
                 !lock(pending).contains(&request)
             }),
         },
-        Job::LoadImage { source, .. } => IoEvent::ImageLoaded {
+        Job::LoadImage {
+            source, max_bytes, ..
+        } => IoEvent::ImageLoaded {
             request,
-            result: load_image(source, lane, previewed, &|| {
+            result: load_image(source, *max_bytes, lane, previewed, &|| {
                 !lock(pending).contains(&request)
             }),
         },
@@ -886,6 +899,7 @@ mod tests {
                 passwords: Passwords::default(),
                 encoding: None,
             },
+            max_bytes: usize::MAX,
             request: RequestId(1),
         });
 
@@ -929,6 +943,7 @@ mod tests {
                 passwords: Passwords::default(),
                 encoding: None,
             },
+            max_bytes: usize::MAX,
             request: RequestId(request),
         };
         runtime.run(load("a.txt", 1));
@@ -1905,7 +1920,7 @@ mod tests {
         queue: impl FnOnce(&mut HashSet<RequestId>, &dyn Fn(Job)),
     ) {
         let mut pending = lock(&runtime.pending);
-        queue(&mut pending, &|job| runtime.send(job));
+        queue(&mut pending, &|job| runtime.lane(&job).send(job));
     }
 
     #[cfg(unix)]
@@ -1930,6 +1945,7 @@ mod tests {
                 passwords: Passwords::default(),
                 encoding: None,
             },
+            max_bytes: usize::MAX,
             request,
         }
     }

@@ -3,13 +3,9 @@ use std::io::{self, Cursor, Read};
 use std::path::PathBuf;
 
 use image::{DynamicImage, ImageDecoder, ImageReader, ImageResult};
-use wafu_core::{
-    Document, ImageData, IoError, OuterArchive, PREVIEW_LIMIT, PreviewSource, ReadError,
-};
+use wafu_core::{Document, ImageData, IoError, OuterArchive, PreviewSource, ReadError, SizeFormat};
 
 use crate::archive::{ArchiveReader, LaneArchives, LevelError, NOT_FOUND, Stamp, find_entry};
-
-const IMAGE_PREVIEW_LIMIT: u64 = 64 * 1024 * 1024;
 
 // The archive previewed last, kept open so that moving through its entries
 // does not build its index again: for a compressed tar that means
@@ -30,21 +26,31 @@ struct OpenArchive {
 // so that decoding a file of the full preview size does not hold up the UI.
 pub(crate) fn load_preview(
     source: &PreviewSource,
+    max_bytes: usize,
     lane: LaneArchives<'_>,
     previewed: &mut PreviewedArchive,
     cancelled: &dyn Fn() -> bool,
 ) -> Result<Document, ReadError> {
-    let (bytes, truncated) = read_source(source, PREVIEW_LIMIT, lane, previewed, cancelled)?;
+    let (bytes, truncated) = read_source(source, max_bytes, lane, previewed, cancelled)?;
     Ok(Document::decode(bytes, truncated, source.encoding))
 }
 
 pub(crate) fn load_image(
     source: &PreviewSource,
+    max_bytes: usize,
     lane: LaneArchives<'_>,
     previewed: &mut PreviewedArchive,
     cancelled: &dyn Fn() -> bool,
 ) -> Result<ImageData, ReadError> {
-    load_image_limited(source, IMAGE_PREVIEW_LIMIT, lane, previewed, cancelled)
+    let (bytes, truncated) = read_source(source, max_bytes, lane, previewed, cancelled)?;
+    if truncated {
+        let max_bytes = u64::try_from(max_bytes).unwrap_or(u64::MAX);
+        return Err(ReadError::Failed(IoError::new(format!(
+            "too large (over {} bytes)",
+            SizeFormat::Comma.format(max_bytes)
+        ))));
+    }
+    decode_image(&bytes).map_err(|error| ReadError::Failed(IoError::new(error.to_string())))
 }
 
 fn decode_image(bytes: &[u8]) -> ImageResult<ImageData> {
@@ -62,27 +68,10 @@ fn decode_image(bytes: &[u8]) -> ImageResult<ImageData> {
     })
 }
 
-fn load_image_limited(
-    source: &PreviewSource,
-    limit: u64,
-    lane: LaneArchives<'_>,
-    previewed: &mut PreviewedArchive,
-    cancelled: &dyn Fn() -> bool,
-) -> Result<ImageData, ReadError> {
-    let (bytes, truncated) = read_source(source, limit, lane, previewed, cancelled)?;
-    if truncated {
-        return Err(ReadError::Failed(IoError::new(format!(
-            "too large (over {} MiB)",
-            IMAGE_PREVIEW_LIMIT / 1024 / 1024
-        ))));
-    }
-    decode_image(&bytes).map_err(|error| ReadError::Failed(IoError::new(error.to_string())))
-}
-
 // At most `limit` bytes, and whether there were more.
 fn read_source(
     source: &PreviewSource,
-    limit: u64,
+    limit: usize,
     lane: LaneArchives<'_>,
     previewed: &mut PreviewedArchive,
     cancelled: &dyn Fn() -> bool,
@@ -129,12 +118,11 @@ fn read_source(
     result
 }
 
-fn read_limited(reader: impl Read, limit: u64) -> io::Result<(Vec<u8>, bool)> {
+fn read_limited(reader: impl Read, limit: usize) -> io::Result<(Vec<u8>, bool)> {
     let mut bytes = Vec::new();
     reader
-        .take(limit.saturating_add(1))
+        .take(u64::try_from(limit).unwrap_or(u64::MAX).saturating_add(1))
         .read_to_end(&mut bytes)?;
-    let limit = usize::try_from(limit).unwrap_or(usize::MAX);
     let truncated = bytes.len() > limit;
     bytes.truncate(limit);
     Ok((bytes, truncated))
@@ -300,7 +288,7 @@ mod tests {
         assert_eq!(texts(&document), ["nested"]);
 
         let outer = entry_source(&archive, &["x"], "n.tar.gz", None);
-        let (bytes, _) = read(&outer, PREVIEW_LIMIT, &mut previewed).unwrap();
+        let (bytes, _) = read(&outer, usize::MAX, &mut previewed).unwrap();
         assert_eq!(bytes, nested);
     }
 
@@ -348,14 +336,14 @@ mod tests {
         let path = dir.path().join("a.png");
         fs::write(&path, &bytes).unwrap();
         let source = file_source(&path);
-        let len = bytes.len() as u64;
+        let len = bytes.len();
 
-        let image = image_limited(&source, len, &mut PreviewedArchive::default()).unwrap();
-        assert_eq!((image.width, image.height), (2, 3));
+        let decoded = image(&source, len, &mut PreviewedArchive::default()).unwrap();
+        assert_eq!((decoded.width, decoded.height), (2, 3));
 
         assert_eq!(
-            image_limited(&source, len - 1, &mut PreviewedArchive::default()).unwrap_err(),
-            ReadError::Failed(IoError::new("too large (over 64 MiB)"))
+            image(&source, len - 1, &mut PreviewedArchive::default()).unwrap_err(),
+            ReadError::Failed(IoError::new(format!("too large (over {} bytes)", len - 1)))
         );
     }
 
@@ -366,19 +354,20 @@ mod tests {
         let nested = NestedArchives::default();
         load_preview(
             source,
+            usize::MAX,
             nested.lane("preview", &AtomicBool::new(false)),
             previewed,
             &|| false,
         )
     }
 
-    fn image_limited(
+    fn image(
         source: &PreviewSource,
-        limit: u64,
+        limit: usize,
         previewed: &mut PreviewedArchive,
     ) -> Result<ImageData, ReadError> {
         let nested = NestedArchives::default();
-        load_image_limited(
+        load_image(
             source,
             limit,
             nested.lane("preview", &AtomicBool::new(false)),
@@ -389,7 +378,7 @@ mod tests {
 
     fn read(
         source: &PreviewSource,
-        limit: u64,
+        limit: usize,
         previewed: &mut PreviewedArchive,
     ) -> Result<(Vec<u8>, bool), ReadError> {
         let nested = NestedArchives::default();

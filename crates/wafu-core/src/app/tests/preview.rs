@@ -8,13 +8,15 @@ use crate::operation::{
     ArchiveEntries, OperationEvent, OperationKind, OperationSpec, Outcome, Sources,
 };
 use crate::pane::InFlight;
-use crate::preview::{Document, truncated_note};
+use crate::preview::{Document, TRUNCATED_NOTE};
 use crate::test_support::{
     Harness, LEFT, RIGHT, dir, executable, file, passwords, path, rows_at, shown, special,
 };
 use crate::view::{PreviewContent, PreviewPlacement};
 
 const TEMP: &str = "/tmp/wafu/x1";
+const TEXT_MAX_BYTES: usize = 16 * 1024 * 1024;
+const IMAGE_MAX_BYTES: usize = 64 * 1024 * 1024;
 
 #[test]
 fn enter_on_a_text_file_opens_an_empty_preview_and_reads_the_file() {
@@ -33,6 +35,7 @@ fn enter_on_a_text_file_opens_an_empty_preview_and_reads_the_file() {
                 passwords: Passwords::default(),
                 encoding: None,
             },
+            max_bytes: TEXT_MAX_BYTES,
             request: harness.latest_preview_request(),
         }]
     );
@@ -321,6 +324,7 @@ fn a_picked_encoding_reads_the_file_again_with_it() {
                 passwords: Passwords::default(),
                 encoding: Some(encoding_rs::SHIFT_JIS),
             },
+            max_bytes: TEXT_MAX_BYTES,
             request: harness.latest_preview_request(),
         }]
     );
@@ -423,6 +427,7 @@ fn a_picked_encoding_reads_an_archive_entry_again_with_the_password() {
                 encoding: Some(encoding_rs::UTF_16LE),
                 ..entry_source("b.txt", Some("pw"))
             },
+            max_bytes: TEXT_MAX_BYTES,
             request: harness.latest_preview_request(),
         }]
     );
@@ -512,7 +517,7 @@ fn a_binary_file_opens_as_a_hex_dump_with_the_note() {
     let lines = harness.preview_lines();
     assert_eq!(lines.len(), 2);
     assert!(lines[0].starts_with("61 62 00"));
-    assert_eq!(lines[1], truncated_note());
+    assert_eq!(lines[1], TRUNCATED_NOTE);
     assert_eq!(harness.preview_numbers(), ["00000000", ""]);
 }
 
@@ -592,6 +597,37 @@ fn a_text_preview_hides_the_log_by_its_own_setting() {
 }
 
 #[test]
+fn the_text_preview_reads_as_many_bytes_as_configured() {
+    let mut harness = listing();
+    harness.config("[preview.text]\nmax_bytes = 5\n");
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("Enter");
+
+    assert!(matches!(
+        harness.take_effects()[..],
+        [Effect::LoadPreview { max_bytes: 5, .. }]
+    ));
+}
+
+#[test]
+fn the_image_preview_accepts_as_many_bytes_as_configured() {
+    let mut harness = listing();
+    harness.config("[preview.image]\nmax_bytes = 5\n");
+    harness.press("Down");
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("Enter");
+
+    assert!(matches!(
+        harness.take_effects()[..],
+        [Effect::LoadImage { max_bytes: 5, .. }]
+    ));
+}
+
+#[test]
 fn only_an_image_filling_the_window_hides_the_log_by_its_own_setting() {
     let mut harness = listing();
     harness.config("[preview.image]\nhide_log = true\n");
@@ -636,6 +672,7 @@ fn an_image_opened_from_the_left_pane_uses_the_right_area_and_follows_the_cursor
                 passwords: Passwords::default(),
                 encoding: None,
             },
+            max_bytes: IMAGE_MAX_BYTES,
             request: harness.latest_preview_request(),
         }]
     );
@@ -1205,6 +1242,7 @@ fn a_file_inside_an_archive_is_read_as_an_entry_with_the_known_password() {
         harness.take_effects(),
         vec![Effect::LoadPreview {
             source: entry_source("b.txt", None),
+            max_bytes: TEXT_MAX_BYTES,
             request: harness.latest_preview_request(),
         }]
     );
@@ -1231,6 +1269,7 @@ fn a_file_inside_an_archive_is_read_as_an_entry_with_the_known_password() {
         harness.take_effects(),
         vec![Effect::LoadPreview {
             source: entry_source("b.txt", Some("pw")),
+            max_bytes: TEXT_MAX_BYTES,
             request: harness.latest_preview_request(),
         }]
     );
@@ -1465,6 +1504,7 @@ fn v_opens_an_image_in_the_text_preview() {
                 passwords: Passwords::default(),
                 encoding: None,
             },
+            max_bytes: TEXT_MAX_BYTES,
             request: harness.latest_preview_request(),
         }]
     );
@@ -1490,6 +1530,7 @@ fn v_on_an_archive_inside_an_archive_opens_it_in_the_text_preview() {
         harness.take_effects(),
         vec![Effect::LoadPreview {
             source: entry_source("inner.zip", None),
+            max_bytes: TEXT_MAX_BYTES,
             request: harness.latest_preview_request(),
         }]
     );
@@ -1527,6 +1568,7 @@ fn v_on_the_parent_row_of_an_archive_root_opens_the_archive_file() {
                 passwords: Passwords::default(),
                 encoding: None,
             },
+            max_bytes: TEXT_MAX_BYTES,
             request: harness.latest_preview_request(),
         }]
     );
