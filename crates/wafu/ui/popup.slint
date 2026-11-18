@@ -219,13 +219,18 @@ export component PopupOverlay {
         root.focused-field = 0;
     }
 
-    // Dims the window and swallows clicks while the popup is open.
+    // Dims the window while the popup is open, except for the status row,
+    // which spells out the row under the popup's cursor.
     Rectangle {
+        y: 0;
+        height: parent.height - Theme.status-row-height;
         background: Palette.background;
         opacity: 0.6;
     }
 
-    // The wheel stops here too, short of the panes underneath.
+    // Swallows clicks, over the status row too: a click that got through
+    // would move the focus out of the popup. The wheel stops here as well,
+    // short of the panes underneath.
     TouchArea {
         scroll-event(event) => {
             accept
@@ -249,14 +254,15 @@ export component PopupOverlay {
         text: " ";
     }
 
-    // The message and the note are measured at the width they are shown at:
-    // the list is given the rows they leave, so their heights have to be known
-    // outside the layout.
+    // The message wraps at any character, so that a path fills each line
+    // instead of breaking after every separator. It and the note are measured
+    // at the width they are shown at: the list is given the rows they leave,
+    // so their heights have to be known outside the layout.
     wrapped-message := PopupText {
         visible: false;
         width: panel.width - 16px;
         text: data.message;
-        wrap: word-wrap;
+        wrap: char-wrap;
     }
 
     wrapped-note := PopupText {
@@ -267,7 +273,7 @@ export component PopupOverlay {
     }
 
     panel := Rectangle {
-        width: min(root.width - 40px, 720px);
+        width: min(root.width - 40px, 600px);
         height: content.preferred-height;
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 3;
@@ -289,7 +295,7 @@ export component PopupOverlay {
 
             if data.message != "": PopupText {
                 text: data.message;
-                wrap: root.wraps-message ? word-wrap : no-wrap;
+                wrap: root.wraps-message ? char-wrap : no-wrap;
                 overflow: elide;
                 height: root.message-height;
                 vertical-alignment: center;
