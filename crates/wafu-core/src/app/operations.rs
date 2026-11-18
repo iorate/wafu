@@ -919,7 +919,6 @@ impl App {
                 kind: operation.kind,
                 outcome,
                 targets: &operation.names,
-                size_format: self.config.filelist.size_format,
             }
             .to_string()
         };

@@ -540,11 +540,6 @@ impl Pane {
         self.search_from(start, query, anywhere, false)
     }
 
-    #[must_use]
-    pub(crate) fn size_format(&self) -> SizeFormat {
-        self.size_format
-    }
-
     pub(crate) fn set_size_format(&mut self, format: SizeFormat) {
         if self.size_format != format {
             self.size_format = format;

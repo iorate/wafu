@@ -3,8 +3,11 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use crate::app::{ColorScheme, Os};
-use crate::config::{Color, Colors, ColorsConfig, Config, SizeFormat, Theme, monospace_family};
+use crate::config::{
+    Color, Colors, ColorsConfig, Config, SizeFormat, Theme, byte_count, monospace_family,
+};
 use crate::entry::{Entry, EntryKind, SpecialKind, TargetKind};
+use crate::operation::plural;
 use crate::pane::Pane;
 use crate::preview::ImageData;
 use crate::text::show_line_breaks;
@@ -351,7 +354,9 @@ impl PaneView {
     pub(crate) fn from_pane(pane: &Pane, active: bool) -> Self {
         let rows = pane.rows();
         let (marked, bytes) = pane.marked_summary();
-        let bytes = size_with_unit(pane.size_format(), bytes);
+        let bytes = byte_count(bytes);
+        let items = pane.listing().visible_len();
+        let unit = plural(items, "item", "items");
         let filter = pane
             .filter()
             .map(|filter| format!(" | filter: {}", show_line_breaks(filter.to_string())))
@@ -365,8 +370,7 @@ impl PaneView {
             marks: pane.mark_flags(),
             scroll_top: pane.scroll_top(),
             info: format!(
-                "{} items | {marked} marked ({bytes}){filter} | sort: {}{descending} | hidden: {hidden}",
-                pane.listing().visible_len(),
+                "{items} {unit} | {marked} marked ({bytes}){filter} | sort: {}{descending} | hidden: {hidden}",
                 pane.sort().key.name(),
             ),
             active,
@@ -495,18 +499,18 @@ fn size_and_modified(
 pub(crate) fn status_line(pane: &Pane) -> String {
     if let Some(entry) = pane.cursor_entry() {
         let name = entry.name.to_string_lossy().into_owned();
-        return entry_status(entry, name, pane.size_format());
+        return entry_status(entry, name);
     }
     if !pane.has_parent() || pane.cursor() != 0 {
         return String::new();
     }
     match pane.listing().own() {
-        Some(own) => entry_status(own, "..".to_owned(), pane.size_format()),
+        Some(own) => entry_status(own, "..".to_owned()),
         None => "..".to_owned(),
     }
 }
 
-fn entry_status(entry: &Entry, mut name: String, size_format: SizeFormat) -> String {
+fn entry_status(entry: &Entry, mut name: String) -> String {
     match entry.kind {
         EntryKind::Symlink { target } => {
             if let Some(link_target) = &entry.link_target {
@@ -522,20 +526,13 @@ fn entry_status(entry: &Entry, mut name: String, size_format: SizeFormat) -> Str
         segments.push("?".to_owned());
     } else {
         if !entry.kind.is_dir_like() && !entry.kind.is_special() {
-            segments.push(size_with_unit(size_format, entry.size));
+            segments.push(byte_count(entry.size));
         }
         if let Some(modified) = entry.modified {
             segments.push(modified.local.to_string());
         }
     }
     show_line_breaks(segments.join(" | "))
-}
-
-pub(crate) fn size_with_unit(format: SizeFormat, bytes: u64) -> String {
-    match format {
-        SizeFormat::Human => SizeFormat::Human.format(bytes),
-        format => format!("{} bytes", format.format(bytes)),
-    }
 }
 
 #[cfg(test)]
@@ -640,7 +637,7 @@ mod tests {
 
         assert_eq!(
             view.info,
-            "1 items | 0 marked (0 bytes) | filter: *.txt | sort: name desc | hidden: on"
+            "1 item | 0 marked (0 bytes) | filter: *.txt | sort: name desc | hidden: on"
         );
     }
 
@@ -892,7 +889,7 @@ mod tests {
 
         assert_eq!(
             status(&entry),
-            format!("a | -rw-r--r-- | 1234 bytes | {TIME}")
+            format!("a | -rw-r--r-- | 1,234 bytes | {TIME}")
         );
     }
 
@@ -942,15 +939,6 @@ mod tests {
         assert_eq!(status(&entry), "in_archive | l????????? | 0 bytes");
     }
 
-    #[test]
-    fn size_with_unit_appends_bytes_except_in_the_human_format() {
-        assert_eq!(
-            size_with_unit(SizeFormat::Comma, 1_234_567),
-            "1,234,567 bytes"
-        );
-        assert_eq!(size_with_unit(SizeFormat::Human, 1_234_567), "1.2M");
-    }
-
     fn theme(theme: Theme, scheme: Option<ColorScheme>) -> Theme {
         let mut config = Config::default_for(Os::Linux);
         config.colors.theme = theme;
@@ -972,11 +960,7 @@ mod tests {
     }
 
     fn status(entry: &Entry) -> String {
-        entry_status(
-            entry,
-            entry.name.to_string_lossy().into_owned(),
-            SizeFormat::Plain,
-        )
+        entry_status(entry, entry.name.to_string_lossy().into_owned())
     }
 
     fn directory(own: Option<Entry>, entries: Vec<Entry>) -> Directory {

@@ -132,7 +132,7 @@ fn status_line_spells_out_the_cursor_entry_of_the_active_pane() {
     harness.press("Down");
     assert_eq!(
         harness.view().status,
-        "a_long_name.txt | -rw-r--r-- | 1234 bytes | 2026/01/02 03:04:05"
+        "a_long_name.txt | -rw-r--r-- | 1,234 bytes | 2026/01/02 03:04:05"
     );
 
     harness.press("Tab");
@@ -270,7 +270,7 @@ fn status_line_on_the_parent_row_of_an_archive_root_describes_the_archive_file()
         },
     );
 
-    assert_eq!(harness.view().status, ".. | -rw-r--r-- | 1234 bytes");
+    assert_eq!(harness.view().status, ".. | -rw-r--r-- | 1,234 bytes");
     let row = &harness.view().left.rows[0];
     assert_eq!(
         (row.marker, row.size.as_str(), row.modified.as_str()),
@@ -917,7 +917,7 @@ fn info_line_shows_line_breaks_in_the_filter_as_symbols() {
 
     assert_eq!(
         harness.view().left.info,
-        "1 items | 0 marked (0 bytes) | filter: a\u{21B5}* | sort: name | hidden: off"
+        "1 item | 0 marked (0 bytes) | filter: a\u{21B5}* | sort: name | hidden: off"
     );
 }
 
@@ -3066,7 +3066,7 @@ fn drive_switching_wraps_and_remembers_the_last_place_on_each_drive() {
 }
 
 #[test]
-fn size_format_applies_to_the_rows_and_the_marked_total_on_reload() {
+fn size_format_applies_to_the_rows_on_reload_and_not_to_the_marked_total() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(
         Side::Left,
@@ -3091,20 +3091,13 @@ fn size_format_applies_to_the_rows_and_the_marked_total_on_reload() {
             .view()
             .left
             .info
-            .contains("1 marked (1234567 bytes)")
+            .contains("1 marked (1,234,567 bytes)")
     );
 
     harness.config("[filelist]\nsize_format = \"comma\"\n");
     assert_eq!(harness.view().style.size_sample, "000,000,000");
     assert_eq!(harness.view().left.rows[1].size, "1,234,567");
     assert_eq!(harness.view().left.rows[2].size, "512");
-    assert!(
-        harness
-            .view()
-            .left
-            .info
-            .contains("1 marked (1,234,567 bytes)")
-    );
 }
 
 #[test]

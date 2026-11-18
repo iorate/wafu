@@ -5,7 +5,7 @@ use std::path::Path;
 use chardetng::{EncodingDetector, Iso2022JpDetection, Utf8Detection};
 use encoding_rs::Encoding;
 
-use crate::config::SizeFormat;
+use crate::config::byte_count;
 use crate::text::{LINE_BREAK_SYMBOL, is_line_break};
 use crate::view::PreviewLine;
 
@@ -233,10 +233,7 @@ pub fn is_image_name(name: &OsStr) -> bool {
 // with.
 fn truncated_note(len: usize) -> String {
     let len = u64::try_from(len).unwrap_or(u64::MAX);
-    format!(
-        "--- truncated: showing the first {} bytes ---",
-        SizeFormat::Comma.format(len)
-    )
+    format!("--- truncated: showing the first {} ---", byte_count(len))
 }
 
 // Splits at `\n`, `\r\n`, and `\r`, expands tabs, shows the other line breaks

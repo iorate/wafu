@@ -663,7 +663,6 @@ fn trash_starts_at_once() {
 #[test]
 fn calculate_size_starts_at_once_and_logs_the_total_without_reading_again() {
     let mut harness = three_files();
-    harness.config("[filelist]\nsize_format = \"comma\"\n");
     harness.press("Down");
     harness.take_effects();
 
@@ -688,7 +687,7 @@ fn calculate_size_starts_at_once_and_logs_the_total_without_reading_again() {
     });
     assert_eq!(
         harness.log().last().map(String::as_str),
-        Some("Size of a: 1,234 bytes (1 file, 0 directories)")
+        Some("Size of a: 1,234 bytes (1.3KB) in 0 directories and 1 file")
     );
     assert_eq!(harness.take_effects(), vec![]);
 }
@@ -696,7 +695,6 @@ fn calculate_size_starts_at_once_and_logs_the_total_without_reading_again() {
 #[test]
 fn calculate_size_on_disk_starts_at_once_and_logs_the_total_without_reading_again() {
     let mut harness = three_files();
-    harness.config("[filelist]\nsize_format = \"comma\"\n");
     harness.press("Down");
     harness.take_effects();
 
@@ -724,7 +722,7 @@ fn calculate_size_on_disk_starts_at_once_and_logs_the_total_without_reading_agai
     });
     assert_eq!(
         harness.log().last().map(String::as_str),
-        Some("Size on disk of a: 4,096 bytes (1 file, 0 directories)")
+        Some("Size on disk of a: 4,096 bytes (4.0KB) in 0 directories and 1 file")
     );
     assert_eq!(harness.take_effects(), vec![]);
 }
