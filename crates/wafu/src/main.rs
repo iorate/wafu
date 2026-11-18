@@ -72,6 +72,25 @@ fn main() -> ExitCode {
         state_read_from,
         inherited,
     })));
+    // Temporary: `WAFU_DEBUG_LOG=<n>` fills the log with n lines of varying
+    // length, each ending in `end <n>`, to try its scrolling by hand.
+    if let Some(count) = std::env::var("WAFU_DEBUG_LOG")
+        .ok()
+        .and_then(|count| count.parse::<usize>().ok())
+    {
+        for index in 1..=count {
+            let words = match index % 5 {
+                0 => 60,
+                3 => 25,
+                _ => 2,
+            };
+            let line = format!(
+                "Debug line {index}:{} end {index}",
+                " lorem ipsum".repeat(words)
+            );
+            ui.dispatch(Msg::DebugLog { line });
+        }
+    }
     match ui.window().run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => report_startup_error(error),
