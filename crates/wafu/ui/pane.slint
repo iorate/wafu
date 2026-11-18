@@ -27,6 +27,7 @@ export struct PaneData {
 }
 
 export struct ColumnWidths {
+    name-min: length,
     extension: length,
     marker: length,
     size: length,
@@ -75,6 +76,9 @@ component RowItem {
             color: root.text-color;
             overflow: elide;
             horizontal-stretch: 1;
+            // An eliding text can shrink to an ellipsis, so without this the
+            // name alone would give way while the other columns stay whole.
+            min-width: root.columns.name-min;
         }
 
         Cell {
@@ -133,8 +137,9 @@ export component PaneWidget {
     callback scroll-to(top: int);
 
     // The fixed columns are as wide as a sample of their widest content in
-    // the current font.
+    // the current font, and the name keeps at least eight digits' width.
     property <ColumnWidths> columns: {
+        name-min: measure-name.preferred-width,
         extension: measure-extension.preferred-width,
         marker: measure-marker.preferred-width,
         size: measure-size.preferred-width,
@@ -165,6 +170,11 @@ export component PaneWidget {
     function report-rows() {
         root.visible-rows = floor(list.visible-height / Theme.row-height);
         root.viewport-rows-changed(root.visible-rows);
+    }
+
+    measure-name := Cell {
+        text: "00000000";
+        visible: false;
     }
 
     measure-extension := Cell {
@@ -208,8 +218,8 @@ export component PaneWidget {
             background: Palette.border;
         }
 
-        // A pane narrower than its fixed columns cuts the rows off at its
-        // edge instead of drawing over the other pane.
+        // A pane narrower than its columns cuts the rows off at its edge
+        // instead of drawing over the other pane.
         area := Rectangle {
             vertical-stretch: 1;
             clip: true;
@@ -223,6 +233,9 @@ export component PaneWidget {
                 width: parent.width - Theme.scrollbar-gutter;
                 height: parent.height;
                 vertical-scrollbar-policy: ScrollBarPolicy.always-off;
+                // The rows' minimum width widens the list's content past the
+                // pane, which would otherwise bring up a horizontal bar.
+                horizontal-scrollbar-policy: ScrollBarPolicy.always-off;
 
                 changed visible-height => {
                     root.report-rows();
