@@ -15,8 +15,9 @@ export struct LogLine {
 // A log line in whole rows, the rows of a wrapped line as far apart as the
 // lines, so that the area is cut between rows.
 component LogText inherits Text {
-    // The height of one line of the font, which the spacing is relative to.
-    in property <length> natural-row-height;
+    // How far apart the font puts the rows of a wrapped line, which the
+    // spacing is relative to.
+    in property <length> natural-row-pitch;
     out property <int> rows: max(1, round(self.preferred-height / Theme.log-row-height));
 
     height: self.rows * Theme.log-row-height;
@@ -26,8 +27,10 @@ component LogText inherits Text {
     // Works with the FemtoVG renderer too, though the documentation lists
     // only Qt and software.
     wrap: char-wrap;
-    line-height-factor: Theme.log-row-height / self.natural-row-height;
-    vertical-alignment: center;
+    line-height-factor: Theme.log-row-height / self.natural-row-pitch;
+    // From the top, so that the first row sits the same in its row of the
+    // area however many rows follow it.
+    vertical-alignment: top;
 }
 
 export component AppWindow inherits Window {
@@ -194,8 +197,19 @@ export component AppWindow inherits Window {
     // that the scrollbar never changes how many rows the lines take.
     property <length> log-text-width: root.width - 8px - Theme.scrollbar-gutter;
 
+    // The rows of a wrapped line are measured against a line of their own:
+    // the height of a single line need not be what a row adds to a text.
+    property <length> log-row-pitch: (log-eleven-lines.preferred-height - log-one-line.preferred-height) / 10;
+
     log-one-line := Text {
         text: " ";
+        font-family: Theme.log-font-family;
+        font-size: Theme.log-font-size;
+        visible: false;
+    }
+
+    log-eleven-lines := Text {
+        text: " \n \n \n \n \n \n \n \n \n \n ";
         font-family: Theme.log-font-family;
         font-size: Theme.log-font-size;
         visible: false;
@@ -208,7 +222,7 @@ export component AppWindow inherits Window {
     for line in root.log-shown: LogText {
         visible: false;
         width: root.log-text-width;
-        natural-row-height: log-one-line.preferred-height;
+        natural-row-pitch: root.log-row-pitch;
         text: line.text;
         init => {
             root.log-line-rows(line.index, self.rows);
@@ -221,7 +235,7 @@ export component AppWindow inherits Window {
     for line in root.log-before: LogText {
         visible: false;
         width: root.log-text-width;
-        natural-row-height: log-one-line.preferred-height;
+        natural-row-pitch: root.log-row-pitch;
         text: line.text;
         init => {
             root.log-line-rows(line.index, self.rows);
@@ -234,7 +248,7 @@ export component AppWindow inherits Window {
     for line in root.log-tail: LogText {
         visible: false;
         width: root.log-text-width;
-        natural-row-height: log-one-line.preferred-height;
+        natural-row-pitch: root.log-row-pitch;
         text: line.text;
         init => {
             root.log-line-rows(line.index, self.rows);
@@ -405,7 +419,7 @@ export component AppWindow inherits Window {
 
                         for line in root.log-shown: LogText {
                             width: root.log-text-width;
-                            natural-row-height: log-one-line.preferred-height;
+                            natural-row-pitch: root.log-row-pitch;
                             text: line.text;
                         }
                     }

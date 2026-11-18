@@ -49,9 +49,9 @@ export component PreviewWidget inherits Rectangle {
     callback wheel(delta: length);
     callback line-rows(index: int, rows: int);
 
-    // The height of one unwrapped line is a row, which decides how many rows
-    // the area has.
-    property <length> row-height: measure.preferred-height;
+    // A row is what a wrapped line grows by, which need not be the height of
+    // a single line. It decides how many rows the area has.
+    property <length> row-height: (measure-eleven-lines.preferred-height - measure.preferred-height) / 10;
     property <int> area-rows: max(1, floor((root.height - 8px) / root.row-height));
     // Two characters in a hex dump, to match the gaps inside its rows.
     property <length> number-spacing: root.number-sample == "" ? 0 : (root.data.hex-dump ? 2 : 1) * measure.preferred-width;
@@ -78,6 +78,13 @@ export component PreviewWidget inherits Rectangle {
 
     measure := Text {
         text: "0";
+        font-family: Theme.preview-font-family;
+        font-size: Theme.preview-font-size;
+        visible: false;
+    }
+
+    measure-eleven-lines := Text {
+        text: "0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0";
         font-family: Theme.preview-font-family;
         font-size: Theme.preview-font-size;
         visible: false;
