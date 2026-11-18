@@ -264,6 +264,7 @@ impl App {
             },
             Popup::List(popup) => PopupView {
                 title: popup.title().to_owned(),
+                message: popup.message.clone(),
                 note: popup
                     .items
                     .is_empty()

@@ -926,7 +926,10 @@ impl App {
             if *truncated {
                 self.log.push(line());
             }
-            self.popup = Some(Popup::List(ListPopup::found(paths.clone())));
+            self.popup = Some(Popup::List(ListPopup::found(
+                &operation.source_dir,
+                paths.clone(),
+            )));
         } else if !launch {
             self.log.push(line());
         }

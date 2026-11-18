@@ -738,6 +738,7 @@ fn find_asks_for_a_pattern_and_searches_the_pane_s_directory_as_the_pane_shows_i
     harness.press("Shift+F");
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Find");
+    assert_eq!(popup.message, Some(LEFT.to_owned()));
     assert_eq!(popup.fields[0].text, "");
     harness.edit("*.rs");
     harness.press("Enter");
@@ -779,18 +780,19 @@ fn find_lists_the_paths_found() {
     harness.take_effects();
 
     harness.finish(Outcome::Found {
-        paths: vec![
-            PathBuf::from("/home/user/a/b.rs"),
-            PathBuf::from("/home/user/c.rs"),
-        ],
+        paths: vec![path(LEFT, "a").join("b.rs"), path(LEFT, "c.rs")],
         truncated: false,
     });
 
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Find");
+    assert_eq!(popup.message, Some(LEFT.to_owned()));
     assert_eq!(
         harness.popup_labels(),
-        ["/home/user/a/b.rs", "/home/user/c.rs"]
+        [
+            Path::new("a").join("b.rs").display().to_string(),
+            "c.rs".to_owned()
+        ]
     );
     assert_eq!(harness.log(), Vec::<String>::new());
     assert_eq!(harness.take_effects(), vec![]);
@@ -853,7 +855,7 @@ fn find_stopped_at_the_limit_logs_it_and_lists_what_it_found() {
     });
 
     assert_eq!(harness.log(), ["Find stopped at 2 matches"]);
-    assert_eq!(harness.popup_labels(), ["/home/user/a", "/home/user/b"]);
+    assert_eq!(harness.popup_labels(), ["a", "b"]);
 }
 
 #[test]

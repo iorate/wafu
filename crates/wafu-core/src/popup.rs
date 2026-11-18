@@ -1,5 +1,5 @@
 use std::ffi::{OsStr, OsString};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use encoding_rs::Encoding;
 
@@ -268,6 +268,8 @@ pub enum ConflictChoice {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListPopup {
     pub kind: ListKind,
+    /// What to show under the title, if anything.
+    pub message: Option<String>,
     pub items: Vec<ListItem>,
     pub query: String,
     /// The items shown, as indices into `items`: those whose label has the query.
@@ -441,6 +443,7 @@ impl InputPopup {
                     name.into_owned()
                 })
             }
+            InputKind::Find { dir } => Some(dir.display().to_string()),
             _ => None,
         }
     }
@@ -564,6 +567,7 @@ impl ListPopup {
         let cursor = items.iter().position(|item| item.current).unwrap_or(0);
         Self {
             kind,
+            message: None,
             matches: (0..items.len()).collect(),
             items,
             query: String::new(),
@@ -625,19 +629,26 @@ impl ListPopup {
         Self::new(ListKind::Drives, items)
     }
 
-    /// What a find found, in the order given.
+    /// What a find found below the directory, in the order given.
     #[must_use]
-    pub fn found(paths: Vec<PathBuf>) -> Self {
+    pub fn found(dir: &Path, paths: Vec<PathBuf>) -> Self {
         let items = paths
             .into_iter()
             .map(|path| ListItem {
                 key: None,
-                label: path.display().to_string(),
+                label: path
+                    .strip_prefix(dir)
+                    .unwrap_or(&path)
+                    .display()
+                    .to_string(),
                 current: false,
                 target: ListTarget::Entry(path),
             })
             .collect();
-        Self::new(ListKind::Found, items)
+        Self {
+            message: Some(dir.display().to_string()),
+            ..Self::new(ListKind::Found, items)
+        }
     }
 
     /// Auto-detection first, then every encoding, with the one named `current` marked.
