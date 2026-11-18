@@ -59,10 +59,6 @@ pub enum Msg {
     PreviewRows {
         rows: usize,
     },
-    /// Temporary: a line for the log, to try its scrolling by hand.
-    DebugLog {
-        line: String,
-    },
     /// How many rows lines of the log take, as `(line, rows)`, for the lines
     /// the UI made or saw change height since it last reported.
     LogLineRows {
@@ -592,7 +588,6 @@ impl App {
             Msg::InputChanged { field, text } => self.input_changed(field, text),
             Msg::ViewportRows { side, rows } => self.panes[side.index()].set_viewport_rows(rows),
             Msg::PreviewRows { rows } => self.set_preview_rows(rows),
-            Msg::DebugLog { line } => self.log.push(line),
             Msg::LogLineRows { reports } => self.log.set_line_rows(&reports),
             Msg::PreviewLineRows { reports } => self.set_preview_line_rows(&reports),
             Msg::PopupRows { rows } => self.set_popup_rows(rows),
