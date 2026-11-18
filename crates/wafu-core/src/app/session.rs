@@ -299,6 +299,7 @@ impl App {
         for pane in &mut self.panes {
             pane.set_size_format(config.filelist.size_format);
             pane.set_size_digits(config.filelist.size_digits);
+            pane.set_time_format(config.filelist.time_format);
             pane.set_extension_colors(extension_colors.clone());
             pane.set_max_history(config.filelist.max_history);
         }

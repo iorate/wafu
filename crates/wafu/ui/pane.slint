@@ -123,6 +123,7 @@ export component PaneWidget {
     in property <[bool]> marks;
     in property <int> scroll-top;
     in property <string> size-sample;
+    in property <string> time-sample;
     in property <string> extension-sample;
     in property <string> name-sample;
     in property <bool> window-active;
@@ -202,7 +203,7 @@ export component PaneWidget {
     }
 
     measure-modified := Cell {
-        text: "0000/00/00 00:00:00";
+        text: root.time-sample;
         visible: false;
     }
 

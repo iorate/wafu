@@ -3121,6 +3121,23 @@ fn column_widths_apply_to_the_samples_and_the_rows_on_reload() {
 }
 
 #[test]
+fn time_format_applies_to_the_sample_and_the_rows_on_reload() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(
+        Side::Left,
+        vec![Entry {
+            modified: Some(timestamp()),
+            ..file("a")
+        }],
+    );
+
+    harness.config("[filelist]\ntime_shows_full_year = false\ntime_shows_seconds = false\n");
+
+    assert_eq!(harness.view().style.time_sample, "00/00/00 00:00");
+    assert_eq!(harness.view().left.rows[1].modified, "26/01/02 03:04");
+}
+
+#[test]
 fn reloading_extension_colors_recolors_the_rows_already_shown() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a.zip")]);

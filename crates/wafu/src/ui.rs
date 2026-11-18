@@ -856,6 +856,8 @@ impl Ui {
         self.window
             .set_size_sample(style.size_sample.as_str().into());
         self.window
+            .set_time_sample(style.time_sample.as_str().into());
+        self.window
             .set_extension_sample(style.extension_sample.as_str().into());
         self.window
             .set_name_sample(style.name_sample.as_str().into());

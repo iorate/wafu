@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use crate::app::{ColorScheme, Os};
 use crate::config::{
-    Color, Colors, ColorsConfig, Config, SizeFormat, Theme, byte_count, monospace_family,
+    Color, Colors, ColorsConfig, Config, SizeFormat, Theme, TimeFormat, byte_count,
+    monospace_family,
 };
 use crate::entry::{Entry, EntryKind, SpecialKind, TargetKind};
 use crate::operation::plural;
@@ -42,6 +43,8 @@ pub struct Style {
     pub theme: Theme,
     /// The text the size column is made wide enough for.
     pub size_sample: String,
+    /// The text the time column is made wide enough for.
+    pub time_sample: String,
     /// The text the extension column is made wide enough for.
     pub extension_sample: String,
     /// The text the name column keeps at least the width of.
@@ -330,6 +333,7 @@ impl Style {
                 (theme, _) => theme,
             },
             size_sample: filelist.size_format.column_sample(filelist.size_digits),
+            time_sample: filelist.time_format.column_sample(),
             extension_sample: format!(".{}", "0".repeat(filelist.extension_chars)),
             name_sample: "0".repeat(filelist.min_name_chars),
             hidden_opacity: config.colors.hidden_opacity,
@@ -386,10 +390,11 @@ impl RowView {
         own: Option<&Entry>,
         size_format: SizeFormat,
         size_digits: usize,
+        time_format: TimeFormat,
         colors: &ExtensionColors,
     ) -> Self {
         let (size, modified) = own.map_or_else(Default::default, |own| {
-            size_and_modified(own, size_format, size_digits)
+            size_and_modified(own, size_format, size_digits, time_format)
         });
         Self {
             kind: own.map_or(RowKind::File, |own| RowKind::from_entry_kind(own.kind)),
@@ -409,6 +414,7 @@ impl RowView {
         entry: &Entry,
         size_format: SizeFormat,
         size_digits: usize,
+        time_format: TimeFormat,
         colors: &ExtensionColors,
     ) -> Self {
         let (name, extension) = entry.split_name();
@@ -418,7 +424,7 @@ impl RowView {
         } else {
             format!(".{}", show_line_breaks(extension))
         };
-        let (size, modified) = size_and_modified(entry, size_format, size_digits);
+        let (size, modified) = size_and_modified(entry, size_format, size_digits, time_format);
         Self {
             kind: RowKind::from_entry_kind(entry.kind),
             name: show_line_breaks(name),
@@ -473,6 +479,7 @@ fn size_and_modified(
     entry: &Entry,
     size_format: SizeFormat,
     size_digits: usize,
+    time_format: TimeFormat,
 ) -> (String, String) {
     if entry.kind.is_broken_link() {
         return ("?".to_owned(), "?".to_owned());
@@ -491,7 +498,7 @@ fn size_and_modified(
     };
     let modified = entry
         .modified
-        .map(|t| t.local.to_string())
+        .map(|t| time_format.format(t.local))
         .unwrap_or_default();
     (size, modified)
 }
@@ -655,7 +662,13 @@ mod tests {
             modified: Some(timestamp()),
             ..dir("user")
         };
-        let row = RowView::parent(Some(&own_dir), SizeFormat::Plain, 12, &no_colors());
+        let row = RowView::parent(
+            Some(&own_dir),
+            SizeFormat::Plain,
+            12,
+            TimeFormat::default(),
+            &no_colors(),
+        );
         assert_eq!(
             (
                 row.marker,
@@ -670,20 +683,38 @@ mod tests {
             size: 1234,
             ..file("a.zip")
         };
-        let row = RowView::parent(Some(&own_file), SizeFormat::Plain, 12, &zip_colors());
+        let row = RowView::parent(
+            Some(&own_file),
+            SizeFormat::Plain,
+            12,
+            TimeFormat::default(),
+            &zip_colors(),
+        );
         assert_eq!(
             (row.marker, row.size.as_str(), row.extension_color.light),
             ("", "1234", Some(RED))
         );
 
         let own_link = link("tmp", Some(TargetKind::Dir));
-        let row = RowView::parent(Some(&own_link), SizeFormat::Plain, 12, &no_colors());
+        let row = RowView::parent(
+            Some(&own_link),
+            SizeFormat::Plain,
+            12,
+            TimeFormat::default(),
+            &no_colors(),
+        );
         assert_eq!((row.marker, row.kind), ("@", RowKind::Link));
     }
 
     #[test]
     fn parent_row_without_an_own_entry_is_blank() {
-        let row = RowView::parent(None, SizeFormat::Plain, 12, &no_colors());
+        let row = RowView::parent(
+            None,
+            SizeFormat::Plain,
+            12,
+            TimeFormat::default(),
+            &no_colors(),
+        );
 
         assert_eq!(
             (
@@ -698,23 +729,47 @@ mod tests {
 
     #[test]
     fn extension_column_has_a_leading_dot_or_is_empty() {
-        let row = RowView::from_entry(&file("a.tar.gz"), SizeFormat::Plain, 12, &no_colors());
+        let row = RowView::from_entry(
+            &file("a.tar.gz"),
+            SizeFormat::Plain,
+            12,
+            TimeFormat::default(),
+            &no_colors(),
+        );
         assert_eq!(
             (row.name.as_str(), row.extension.as_str()),
             ("a.tar", ".gz")
         );
 
-        let row = RowView::from_entry(&file("noext"), SizeFormat::Plain, 12, &no_colors());
+        let row = RowView::from_entry(
+            &file("noext"),
+            SizeFormat::Plain,
+            12,
+            TimeFormat::default(),
+            &no_colors(),
+        );
         assert_eq!(row.extension, "");
     }
 
     #[test]
     fn file_rows_take_the_extension_color_whatever_its_case() {
         for name in ["a.zip", "b.ZIP", "c.Zip"] {
-            let row = RowView::from_entry(&file(name), SizeFormat::Plain, 12, &zip_colors());
+            let row = RowView::from_entry(
+                &file(name),
+                SizeFormat::Plain,
+                12,
+                TimeFormat::default(),
+                &zip_colors(),
+            );
             assert_eq!(row.extension_color.light, Some(RED), "{name}");
         }
-        let row = RowView::from_entry(&file("zip"), SizeFormat::Plain, 12, &zip_colors());
+        let row = RowView::from_entry(
+            &file("zip"),
+            SizeFormat::Plain,
+            12,
+            TimeFormat::default(),
+            &zip_colors(),
+        );
         assert_eq!(row.extension_color, ExtensionColor::default());
     }
 
@@ -731,7 +786,13 @@ mod tests {
             special("p.zip", SpecialKind::Fifo),
         ];
         for entry in entries {
-            let row = RowView::from_entry(&entry, SizeFormat::Plain, 12, &zip_colors());
+            let row = RowView::from_entry(
+                &entry,
+                SizeFormat::Plain,
+                12,
+                TimeFormat::default(),
+                &zip_colors(),
+            );
             assert_eq!(
                 row.extension_color,
                 ExtensionColor::default(),
@@ -749,8 +810,16 @@ mod tests {
 
         let colors = extension_colors(&config.colors);
 
-        let color =
-            |name| RowView::from_entry(&file(name), SizeFormat::Plain, 12, &colors).extension_color;
+        let color = |name| {
+            RowView::from_entry(
+                &file(name),
+                SizeFormat::Plain,
+                12,
+                TimeFormat::default(),
+                &colors,
+            )
+            .extension_color
+        };
         assert_eq!(
             color("a.zip"),
             ExtensionColor {
@@ -802,7 +871,7 @@ mod tests {
             ),
         ];
         for (entry, expected) in cases {
-            let (size, _) = size_and_modified(&entry, SizeFormat::Plain, 12);
+            let (size, _) = size_and_modified(&entry, SizeFormat::Plain, 12, TimeFormat::default());
             assert_eq!(size, expected, "{:?}", entry.name);
         }
     }
@@ -815,7 +884,7 @@ mod tests {
         };
 
         assert_eq!(
-            size_and_modified(&broken, SizeFormat::Plain, 12),
+            size_and_modified(&broken, SizeFormat::Plain, 12, TimeFormat::default()),
             ("?".to_owned(), "?".to_owned())
         );
     }
@@ -827,7 +896,7 @@ mod tests {
                 size: bytes,
                 ..file("a")
             };
-            size_and_modified(&entry, format, 5).0
+            size_and_modified(&entry, format, 5, TimeFormat::default()).0
         };
 
         assert_eq!(size(99_999, SizeFormat::Plain), "99999");

@@ -3,7 +3,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::config::SizeFormat;
+use crate::config::{SizeFormat, TimeFormat};
 use crate::entry::{Directory, Entry, EntryKind};
 use crate::error::IoError;
 use crate::filter::Filter;
@@ -42,6 +42,7 @@ pub struct Pane {
     archive_passwords: Passwords,
     size_format: SizeFormat,
     size_digits: usize,
+    time_format: TimeFormat,
     extension_colors: ExtensionColors,
     rows: Arc<[RowView]>,
     mark_flags: Arc<[bool]>,
@@ -139,6 +140,7 @@ impl Pane {
             archive_passwords: Passwords::default(),
             size_format: SizeFormat::Plain,
             size_digits: 9,
+            time_format: TimeFormat::default(),
             extension_colors: ExtensionColors::new(),
             rows: Arc::from([]),
             mark_flags: Arc::from([]),
@@ -554,6 +556,13 @@ impl Pane {
         }
     }
 
+    pub(crate) fn set_time_format(&mut self, format: TimeFormat) {
+        if self.time_format != format {
+            self.time_format = format;
+            self.rebuild_rows();
+        }
+    }
+
     pub(crate) fn set_extension_colors(&mut self, colors: ExtensionColors) {
         if self.extension_colors != colors {
             self.extension_colors = colors;
@@ -785,15 +794,16 @@ impl Pane {
 
     fn rebuild_rows(&mut self) {
         let (format, digits, colors) = (self.size_format, self.size_digits, &self.extension_colors);
+        let time_format = self.time_format;
         let parent = self
             .has_parent()
-            .then(|| RowView::parent(self.listing.own(), format, digits, colors));
+            .then(|| RowView::parent(self.listing.own(), format, digits, time_format, colors));
         self.rows = parent
             .into_iter()
             .chain(
                 self.listing
                     .visible_entries()
-                    .map(|entry| RowView::from_entry(entry, format, digits, colors)),
+                    .map(|entry| RowView::from_entry(entry, format, digits, time_format, colors)),
             )
             .collect();
         self.rebuild_mark_flags();
