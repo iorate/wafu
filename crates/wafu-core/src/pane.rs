@@ -557,6 +557,21 @@ impl Pane {
         }
     }
 
+    pub(crate) fn set_max_history(&mut self, max_items: usize) {
+        let len = self.history.items().len();
+        self.history.set_max_items(max_items);
+        let dropped = len - self.history.items().len();
+        // A move within the history that is still loading holds a position
+        // from before the oldest places were dropped.
+        if let Some(InFlight::Navigate { history, .. }) = &mut self.loading
+            && let HistoryMove::Position(pos) = *history
+        {
+            *history = pos
+                .checked_sub(dropped)
+                .map_or(HistoryMove::Visit, HistoryMove::Position);
+        }
+    }
+
     pub(crate) fn archive_passwords(&self) -> &Passwords {
         &self.archive_passwords
     }

@@ -4,8 +4,6 @@ use crate::scroll::{self, LineRows};
 use crate::text::show_line_breaks;
 use crate::view::LineRanges;
 
-const MAX_LINES: usize = 1000;
-
 /// The log shown at the bottom of the window.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Log {
@@ -16,9 +14,11 @@ pub struct Log {
     follow: bool,
     viewport_rows: usize,
     generation: usize,
+    max_lines: usize,
 }
 
 impl Log {
+    /// An empty log without a limit.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -28,12 +28,30 @@ impl Log {
             follow: true,
             viewport_rows: 1,
             generation: 0,
+            max_lines: usize::MAX,
         }
+    }
+
+    /// Sets how many lines are kept. The oldest lines beyond it are dropped at
+    /// once.
+    pub fn set_max_lines(&mut self, max_lines: usize) {
+        self.max_lines = max_lines;
+        let excess = self.lines.len().saturating_sub(max_lines);
+        if excess == 0 {
+            return;
+        }
+        self.lines = Arc::from(&self.lines[excess..]);
+        for _ in 0..excess {
+            self.rows.drop_first();
+        }
+        self.top = self.top.saturating_sub(excess);
+        self.generation += 1;
+        self.settle();
     }
 
     pub fn push(&mut self, line: String) {
         let mut kept = &self.lines[..];
-        if kept.len() == MAX_LINES {
+        if kept.len() == self.max_lines {
             kept = &kept[1..];
             self.rows.drop_first();
             self.top = self.top.saturating_sub(1);
@@ -58,8 +76,8 @@ impl Log {
         self.settle();
     }
 
-    /// The lines in order. The same allocation is returned until a line is
-    /// added or the log is cleared.
+    /// The lines in order. The same allocation is returned until the lines
+    /// change.
     #[must_use]
     pub fn lines(&self) -> Arc<[Arc<str>]> {
         Arc::clone(&self.lines)
@@ -183,6 +201,37 @@ impl Default for Log {
 mod tests {
     use super::*;
 
+    const MAX_LINES: usize = 30;
+
+    #[test]
+    fn lowering_the_limit_drops_the_oldest_lines_with_their_rows() {
+        let mut log = log_with(10, 3);
+        log.set_line_rows(&[(9, 3)]);
+        assert_eq!(log.scroll_top(), 9);
+        let before = log.generation();
+
+        log.set_max_lines(5);
+
+        assert_eq!(
+            log.lines().iter().map(|line| &**line).collect::<Vec<_>>(),
+            ["5", "6", "7", "8", "9"]
+        );
+        assert_eq!(log.scroll_top(), 4);
+        assert_ne!(log.generation(), before);
+    }
+
+    #[test]
+    fn lowering_the_limit_keeps_the_view_in_place_when_scrolled() {
+        let mut log = log_with(10, 3);
+        log.scroll_to(4);
+
+        log.set_max_lines(8);
+        assert_eq!(&*log.lines()[log.scroll_top()], "4");
+
+        log.set_max_lines(1);
+        assert_eq!(log.scroll_top(), 0);
+    }
+
     #[test]
     fn following_keeps_the_end_in_view_as_lines_wrap() {
         let mut log = log_with(5, 3);
@@ -297,6 +346,7 @@ mod tests {
     #[test]
     fn oldest_lines_are_dropped_at_the_limit() {
         let mut log = Log::new();
+        log.set_max_lines(MAX_LINES);
         for i in 0..MAX_LINES + 2 {
             log.push(i.to_string());
         }
@@ -349,6 +399,7 @@ mod tests {
     #[test]
     fn dropping_a_line_keeps_the_view_in_place_when_scrolled() {
         let mut log = Log::new();
+        log.set_max_lines(MAX_LINES);
         log.set_viewport_rows(3);
         for i in 0..MAX_LINES {
             log.push(i.to_string());
@@ -379,6 +430,7 @@ mod tests {
 
     fn log_with(lines: usize, viewport_rows: usize) -> Log {
         let mut log = Log::new();
+        log.set_max_lines(MAX_LINES);
         log.set_viewport_rows(viewport_rows);
         for i in 0..lines {
             log.push(i.to_string());

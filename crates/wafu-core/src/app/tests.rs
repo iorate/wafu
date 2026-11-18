@@ -3304,6 +3304,21 @@ fn start_without_a_saved_history_position_continues_from_the_newest_place() {
 }
 
 #[test]
+fn start_keeps_only_the_newest_saved_places_within_max_history() {
+    let mut harness = Harness::start_from(start_msg_with(
+        Os::Linux,
+        Some("/home/user"),
+        Some("/tmp"),
+        config_source("[filelist]\nmax_history = 2\n"),
+        Ok(Some(saved_history(&["/a", "/b", "/c"]))),
+    ));
+    harness.resolve(Side::Left, "/home/user", None);
+    harness.load(Side::Left, vec![]);
+
+    assert_eq!(harness.history(Side::Left), ["/c", "/home/user"]);
+}
+
+#[test]
 fn start_logs_a_created_configuration() {
     let harness = Harness::start_from(start_msg_with(
         Os::Linux,
@@ -3379,6 +3394,77 @@ fn reloading_the_configuration_changes_keys_and_style() {
         harness.take_effects().as_slice(),
         [Effect::Watch { .. }, Effect::ReadDir { location, .. }] if location.base == Path::new("/")
     ));
+}
+
+#[test]
+fn reloading_a_lower_max_history_drops_the_oldest_places() {
+    let mut harness = Harness::start_from(start_msg_with(
+        Os::Linux,
+        Some("/home/user"),
+        Some("/tmp"),
+        config_source(""),
+        Ok(Some(saved_history(&["/a", "/b"]))),
+    ));
+    harness.resolve(Side::Left, "/home/user", None);
+    harness.load(Side::Left, vec![]);
+
+    harness.config("[filelist]\nmax_history = 2\n");
+
+    assert_eq!(harness.history(Side::Left), ["/b", "/home/user"]);
+}
+
+#[test]
+fn a_history_move_still_loading_follows_the_places_a_reload_drops() {
+    let mut harness = Harness::start_from(start_msg_with(
+        Os::Linux,
+        Some("/home/user"),
+        Some("/tmp"),
+        config_source(""),
+        Ok(Some(saved_history(&["/a", "/b", "/c"]))),
+    ));
+    harness.resolve(Side::Left, "/home/user", None);
+    harness.resolve(Side::Right, "/tmp", None);
+    harness.load(Side::Left, vec![]);
+    harness.load(Side::Right, vec![]);
+    harness.press("Ctrl+Shift+Left");
+
+    harness.config("[filelist]\nmax_history = 2\n");
+    harness.load(Side::Left, vec![]);
+
+    assert_eq!(harness.history(Side::Left), ["/c", "/home/user"]);
+    assert_eq!(harness.app().pane(Side::Left).history().pos(), 0);
+}
+
+#[test]
+fn a_history_move_still_loading_becomes_a_visit_when_a_reload_drops_its_place() {
+    let mut harness = Harness::start_from(start_msg_with(
+        Os::Linux,
+        Some("/home/user"),
+        Some("/tmp"),
+        config_source(""),
+        Ok(Some(saved_history(&["/a", "/b", "/c"]))),
+    ));
+    harness.resolve(Side::Left, "/home/user", None);
+    harness.resolve(Side::Right, "/tmp", None);
+    harness.load(Side::Left, vec![]);
+    harness.load(Side::Right, vec![]);
+    harness.press("Ctrl+Shift+Left");
+
+    harness.config("[filelist]\nmax_history = 1\n");
+    harness.load(Side::Left, vec![]);
+
+    assert_eq!(harness.history(Side::Left), ["/c"]);
+}
+
+#[test]
+fn reloading_a_lower_max_lines_drops_the_oldest_log_lines() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.config("");
+    harness.config("");
+
+    harness.config("[log]\nmax_lines = 1\n");
+
+    assert_eq!(harness.log(), ["Reloaded config"]);
 }
 
 #[test]
@@ -4029,4 +4115,14 @@ fn log_of_seven() -> Harness {
         harness.fail_load(Side::Left, "boom");
     }
     harness
+}
+
+fn saved_history(places: &[&str]) -> StateFile {
+    StateFile {
+        left: PaneState {
+            history: places.iter().map(PathBuf::from).collect(),
+            ..PaneState::default()
+        },
+        ..StateFile::default()
+    }
 }

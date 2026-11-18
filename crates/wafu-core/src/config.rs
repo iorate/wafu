@@ -29,6 +29,7 @@ const HUMAN_UNITS: [&str; 6] = ["K", "M", "G", "T", "P", "E"];
 pub struct Config {
     pub filelist: FileListConfig,
     pub preview: PreviewConfig,
+    pub log: LogConfig,
     pub programs: ProgramsConfig,
     pub font: FontSet,
     pub colors: ColorsConfig,
@@ -57,6 +58,8 @@ pub struct FileListConfig {
     pub require_marks: bool,
     pub search_matches_anywhere: bool,
     pub size_format: SizeFormat,
+    /// How many places each pane's history keeps.
+    pub max_history: usize,
 }
 
 /// How a size in bytes is written in the file list and the information line.
@@ -139,6 +142,12 @@ pub enum ImagePlacement {
     /// The pane the image was not opened from.
     OtherPane,
     BothPanes,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LogConfig {
+    /// How many lines the log keeps.
+    pub max_lines: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -292,6 +301,7 @@ impl Config {
                 require_marks: true,
                 search_matches_anywhere: true,
                 size_format: SizeFormat::Plain,
+                max_history: 100,
             },
             preview: PreviewConfig {
                 text: TextPreviewConfig { hide_log: false },
@@ -301,6 +311,7 @@ impl Config {
                     hide_log: false,
                 },
             },
+            log: LogConfig { max_lines: 1000 },
             programs: ProgramsConfig {
                 editor: default_editor(os),
                 use_login_shell_env: true,
