@@ -27,6 +27,7 @@ export struct PaneData {
 }
 
 export struct ColumnWidths {
+    gap: length,
     name-min: length,
     extension: length,
     marker: length,
@@ -69,7 +70,7 @@ component RowItem {
     HorizontalLayout {
         padding-left: 4px;
         padding-right: 4px;
-        spacing: 8px;
+        spacing: root.columns.gap;
 
         Cell {
             text: item.name;
@@ -122,6 +123,8 @@ export component PaneWidget {
     in property <[bool]> marks;
     in property <int> scroll-top;
     in property <string> size-sample;
+    in property <string> extension-sample;
+    in property <string> name-sample;
     in property <bool> window-active;
     // Where the list and its top row are in the window, for a menu below a
     // row.
@@ -137,8 +140,9 @@ export component PaneWidget {
     callback scroll-to(top: int);
 
     // The fixed columns are as wide as a sample of their widest content in
-    // the current font, and the name keeps at least eight digits' width.
+    // the current font, and the name keeps at least the width of its sample.
     property <ColumnWidths> columns: {
+        gap: measure-gap.preferred-width,
         name-min: measure-name.preferred-width,
         extension: measure-extension.preferred-width,
         marker: measure-marker.preferred-width,
@@ -172,13 +176,18 @@ export component PaneWidget {
         root.viewport-rows-changed(root.visible-rows);
     }
 
+    measure-gap := Cell {
+        text: "0";
+        visible: false;
+    }
+
     measure-name := Cell {
-        text: "00000000";
+        text: root.name-sample;
         visible: false;
     }
 
     measure-extension := Cell {
-        text: ".0000000";
+        text: root.extension-sample;
         visible: false;
     }
 

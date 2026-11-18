@@ -56,6 +56,9 @@ extract_creates_dir = true
 require_marks = true
 search_matches_anywhere = true
 size_format = "plain"
+size_digits = 9
+extension_chars = 4
+min_name_chars = 8
 max_history = 100
 
 [preview.text]
@@ -122,6 +125,9 @@ There are no default bookmarks, external commands, [`open_alternative` programs]
 | `require_marks` | `copy`, `move`, `delete`, and `trash` act only on marked items, never on the cursor item alone. |
 | `search_matches_anywhere` | `search` finds the text anywhere in a name. When `false`, only at the start of a name. |
 | `size_format` | How sizes are written: `"plain"` (`1234567`), `"comma"` (`1,234,567`), or `"human"` (`1.2M`). |
+| `size_digits` | How many digits the size column holds with `"plain"` and `"comma"`: an integer from 5 to 20. A size with more digits is written as with `"human"`. With `"human"`, the column always holds five characters. |
+| `extension_chars` | How many characters of an extension the extension column holds after the dot: an integer from 1 to 255. A longer extension ends in an ellipsis. |
+| `min_name_chars` | How many characters of a name a narrow pane still shows before cutting off the other columns: an integer from 1 to 255. |
 | `max_history` | How many places each pane's history keeps, for `history`, `history_back`, and `history_forward`: an integer of 1 or more. |
 
 ## Preview

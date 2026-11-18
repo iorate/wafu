@@ -41,6 +41,7 @@ pub struct Pane {
     // Those of the archive levels of the location.
     archive_passwords: Passwords,
     size_format: SizeFormat,
+    size_digits: usize,
     extension_colors: ExtensionColors,
     rows: Arc<[RowView]>,
     mark_flags: Arc<[bool]>,
@@ -137,6 +138,7 @@ impl Pane {
             drive_memory: HashMap::new(),
             archive_passwords: Passwords::default(),
             size_format: SizeFormat::Plain,
+            size_digits: 9,
             extension_colors: ExtensionColors::new(),
             rows: Arc::from([]),
             mark_flags: Arc::from([]),
@@ -550,6 +552,13 @@ impl Pane {
         }
     }
 
+    pub(crate) fn set_size_digits(&mut self, digits: usize) {
+        if self.size_digits != digits {
+            self.size_digits = digits;
+            self.rebuild_rows();
+        }
+    }
+
     pub(crate) fn set_extension_colors(&mut self, colors: ExtensionColors) {
         if self.extension_colors != colors {
             self.extension_colors = colors;
@@ -780,16 +789,16 @@ impl Pane {
     }
 
     fn rebuild_rows(&mut self) {
-        let (format, colors) = (self.size_format, &self.extension_colors);
+        let (format, digits, colors) = (self.size_format, self.size_digits, &self.extension_colors);
         let parent = self
             .has_parent()
-            .then(|| RowView::parent(self.listing.own(), format, colors));
+            .then(|| RowView::parent(self.listing.own(), format, digits, colors));
         self.rows = parent
             .into_iter()
             .chain(
                 self.listing
                     .visible_entries()
-                    .map(|entry| RowView::from_entry(entry, format, colors)),
+                    .map(|entry| RowView::from_entry(entry, format, digits, colors)),
             )
             .collect();
         self.rebuild_mark_flags();
