@@ -104,6 +104,8 @@ pub enum MouseInput {
     LogRowsTo { rows: usize },
     /// Wheel movement over a document preview, in rows.
     PreviewWheel { rows: i32 },
+    /// The scrollbar of a document preview was dragged; same as `ScrollTo`.
+    PreviewScrollTo { top: usize },
     /// A double click on a preview of any kind.
     PreviewDoubleClick,
     /// A click on the popup's list. Separators count as rows.
@@ -792,6 +794,7 @@ impl App {
             MouseInput::SplitTo { percent } => self.split_to(percent),
             MouseInput::LogRowsTo { rows } => self.log_rows_to(rows),
             MouseInput::PreviewWheel { .. }
+            | MouseInput::PreviewScrollTo { .. }
             | MouseInput::PreviewDoubleClick
             | MouseInput::PopupClick { .. }
             | MouseInput::PopupDoubleClick { .. }

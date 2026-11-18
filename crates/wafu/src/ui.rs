@@ -512,6 +512,13 @@ impl Ui {
         });
 
         let weak = Rc::downgrade(ui);
+        ui.window.on_preview_scroll_to(move |top| {
+            if let Some(ui) = Weak::upgrade(&weak) {
+                ui.dispatch(Msg::Mouse(MouseInput::PreviewScrollTo { top: top_of(top) }));
+            }
+        });
+
+        let weak = Rc::downgrade(ui);
         ui.window.on_preview_line_rows(move |index, rows| {
             if let Some(ui) = Weak::upgrade(&weak) {
                 ui.queue_line_rows(|queue| &mut queue.preview, index, rows);
@@ -750,27 +757,36 @@ impl Ui {
         let (lines, digits, image, data) = match preview {
             None => ([none; 3], 0, None, PreviewData::default()),
             Some(preview) => {
-                let (kind, lines, digits, hex_dump, image, message) = match &preview.content {
+                let (kind, lines, scroll, digits, hex_dump, image, message) = match &preview.content
+                {
                     PreviewContent::Lines {
                         lines,
                         before,
                         tail,
+                        scroll_top,
+                        line_count,
+                        end,
                         digits,
                         hex_dump,
                         ..
                     } => (
                         0,
                         [lines.as_slice(), before, tail],
+                        [*scroll_top, *line_count, *end],
                         *digits,
                         *hex_dump,
                         None,
                         "",
                     ),
-                    PreviewContent::Image(image) => (1, [none; 3], 0, false, image.clone(), ""),
+                    PreviewContent::Image(image) => {
+                        (1, [none; 3], [0; 3], 0, false, image.clone(), "")
+                    }
                     PreviewContent::Message(message) => {
-                        (2, [none; 3], 0, false, None, message.as_str())
+                        (2, [none; 3], [0; 3], 0, false, None, message.as_str())
                     }
                 };
+                let [scroll_top, line_count, end] =
+                    scroll.map(|value| i32::try_from(value).unwrap_or(i32::MAX));
                 let (covers_left, covers_right) = match preview.placement {
                     PreviewPlacement::Full => (true, true),
                     PreviewPlacement::LeftPane => (true, false),
@@ -782,6 +798,9 @@ impl Ui {
                     covers_right,
                     kind,
                     hex_dump,
+                    scroll_top,
+                    line_count,
+                    end,
                     message: message.into(),
                     marked: preview.marked,
                 };

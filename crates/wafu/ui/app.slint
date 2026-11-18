@@ -93,6 +93,7 @@ export component AppWindow inherits Window {
     callback preview-rows-changed(rows: int);
     callback preview-double-clicked();
     callback preview-wheel(delta: length);
+    callback preview-scroll-to(top: int);
     callback preview-line-rows(index: int, rows: int);
     callback popup-rows-changed(rows: int);
     callback popup-row-clicked(row: int);
@@ -376,6 +377,9 @@ export component AppWindow inherits Window {
                     }
                     wheel(delta) => {
                         root.preview-wheel(delta);
+                    }
+                    scroll-to(top) => {
+                        root.preview-scroll-to(top);
                     }
                     line-rows(index, rows) => {
                         root.preview-line-rows(index, rows);

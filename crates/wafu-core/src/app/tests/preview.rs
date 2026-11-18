@@ -46,6 +46,9 @@ fn enter_on_a_text_file_opens_an_empty_preview_and_reads_the_file() {
             lines: Vec::new(),
             before: Vec::new(),
             tail: Vec::new(),
+            scroll_top: 0,
+            line_count: 0,
+            end: 0,
             digits: 0,
             hex_dump: false,
         }
@@ -156,6 +159,41 @@ fn the_wheel_scrolls_no_further_than_a_page() {
     harness.preview_wheel(3);
 
     assert_eq!(harness.preview_lines()[0], "l1");
+}
+
+#[test]
+fn dragging_the_scrollbar_puts_the_line_at_the_top() {
+    let mut harness = document();
+
+    harness.send(Msg::Mouse(MouseInput::PreviewScrollTo { top: 4 }));
+
+    assert_eq!(harness.preview_lines(), ["l4", "l5", "l6"]);
+}
+
+#[test]
+fn the_lines_report_the_top_and_the_end_for_the_scrollbar() {
+    let mut harness = document();
+
+    harness.press("Down");
+
+    assert!(matches!(
+        harness.view().preview.unwrap().content,
+        PreviewContent::Lines {
+            scroll_top: 1,
+            line_count: 10,
+            end: 7,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn dragging_the_scrollbar_past_the_end_stops_at_the_end() {
+    let mut harness = document();
+
+    harness.send(Msg::Mouse(MouseInput::PreviewScrollTo { top: 100 }));
+
+    assert_eq!(harness.preview_lines(), ["l7", "l8", "l9"]);
 }
 
 #[test]
