@@ -36,7 +36,7 @@ pub use app::{
     MouseInput, Msg, Os, PreviewSource, ReadError, Resolved, Side, SpawnKind, SpawnName, Start,
 };
 pub use command::Command;
-pub use config::{CONFIG_TEMPLATE, Color, Colors, Theme, read_config_chain};
+pub use config::{CONFIG_TEMPLATE, Color, Colors, SizeFormat, Theme, read_config_chain};
 pub use entry::{
     Directory, Entry, EntryKind, LocalDateTime, Permissions, SpecialKind, TargetKind, Timestamp,
 };
@@ -49,7 +49,7 @@ pub use operation::{
     Outcome, Reply, Sources,
 };
 pub use pane::{DrivePurpose, RequestId};
-pub use preview::{Document, DocumentMode, ImageData, Line, PREVIEW_LIMIT};
+pub use preview::{Document, DocumentMode, ImageData, Line};
 pub use state::{PaneState, StateError, StateFile, WindowState};
 pub use view::{
     ColorSet, ExtensionColor, Fonts, InputField, ItemKind, LineRanges, LogView, PaneView,

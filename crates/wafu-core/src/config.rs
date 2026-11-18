@@ -131,6 +131,8 @@ pub struct PreviewConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextPreviewConfig {
     pub hide_log: bool,
+    /// How many bytes of a file the text preview reads.
+    pub max_bytes: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -141,6 +143,8 @@ pub struct ImagePreviewConfig {
     pub from_right: ImagePlacement,
     /// Whether an image in place of both panes hides the log.
     pub hide_log: bool,
+    /// The largest image file, in bytes, the image preview opens.
+    pub max_bytes: usize,
 }
 
 /// What an image preview takes the place of.
@@ -315,11 +319,15 @@ impl Config {
                 max_find_results: 10_000,
             },
             preview: PreviewConfig {
-                text: TextPreviewConfig { hide_log: false },
+                text: TextPreviewConfig {
+                    hide_log: false,
+                    max_bytes: 16 * 1024 * 1024,
+                },
                 image: ImagePreviewConfig {
                     from_left: ImagePlacement::OtherPane,
                     from_right: ImagePlacement::BothPanes,
                     hide_log: false,
+                    max_bytes: 64 * 1024 * 1024,
                 },
             },
             log: LogConfig { max_lines: 1000 },

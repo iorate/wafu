@@ -64,11 +64,13 @@ max_find_results = 10000
 
 [preview.text]
 hide_log = false
+max_bytes = 16777216
 
 [preview.image]
 from_left = "other_pane"
 from_right = "both_panes"
 hide_log = false
+max_bytes = 67108864
 
 [log]
 max_lines = 1000
@@ -139,6 +141,7 @@ There are no default bookmarks, external commands, [`open_alternative` programs]
 | Item | Meaning |
 |---|---|
 | `hide_log` | Hide the log while a text preview is open. |
+| `max_bytes` | How many bytes of a file the text preview reads: an integer of 1 or more. A longer file is cut there. |
 
 `[preview.image]` is for the image preview:
 
@@ -147,6 +150,7 @@ There are no default bookmarks, external commands, [`open_alternative` programs]
 | `from_left` | Where an image opened from the left pane is shown: `"other_pane"` (in place of the right pane, while the left pane stays) or `"both_panes"`. |
 | `from_right` | Where an image opened from the right pane is shown: `"other_pane"` (in place of the left pane, while the right pane stays) or `"both_panes"`. |
 | `hide_log` | Hide the log while an image takes the place of both panes. |
+| `max_bytes` | The largest image file, in bytes, the image preview opens: an integer of 1 or more. |
 
 ## Log
 

@@ -337,6 +337,9 @@ fn read_preview(root: &mut Reader<'_>, config: &mut Config) {
         if let Some(value) = text.bool("hide_log") {
             config.preview.text.hide_log = value;
         }
+        if let Some(max) = text.limit("max_bytes") {
+            config.preview.text.max_bytes = max;
+        }
         text.finish();
     }
     if let Some(mut image) = preview.table("image") {
@@ -353,6 +356,9 @@ fn read_preview(root: &mut Reader<'_>, config: &mut Config) {
         }
         if let Some(value) = image.bool("hide_log") {
             settings.hide_log = value;
+        }
+        if let Some(max) = image.limit("max_bytes") {
+            settings.max_bytes = max;
         }
         image.finish();
     }
@@ -891,11 +897,15 @@ pdf = "sumatrapdf {paths}"
         assert_eq!(
             config.preview,
             PreviewConfig {
-                text: TextPreviewConfig { hide_log: true },
+                text: TextPreviewConfig {
+                    hide_log: true,
+                    max_bytes: 16 * 1024 * 1024,
+                },
                 image: ImagePreviewConfig {
                     from_left: ImagePlacement::BothPanes,
                     from_right: ImagePlacement::OtherPane,
                     hide_log: true,
+                    max_bytes: 64 * 1024 * 1024,
                 },
             }
         );
@@ -1011,20 +1021,28 @@ pdf = "sumatrapdf {paths}"
     fn limits_are_integers_of_one_or_more() {
         let read = |value: &str| {
             let text = format!(
-                "[filelist]\nmax_history = {value}\nmax_find_results = {value}\n[log]\nmax_lines = {value}\n"
+                "[filelist]\nmax_history = {value}\nmax_find_results = {value}\n\
+                 [preview.text]\nmax_bytes = {value}\n[preview.image]\nmax_bytes = {value}\n\
+                 [log]\nmax_lines = {value}\n"
             );
             let (config, diagnostics) = parse(&text, Os::Linux).unwrap();
             (
                 config.filelist.max_history,
                 config.filelist.max_find_results,
+                config.preview.text.max_bytes,
+                config.preview.image.max_bytes,
                 config.log.max_lines,
                 paths(&diagnostics).len(),
             )
         };
 
-        assert_eq!(read("1"), (1, 1, 1, 0));
+        assert_eq!(read("1"), (1, 1, 1, 1, 1, 0));
         for invalid in ["0", "\"\""] {
-            assert_eq!(read(invalid), (100, 10_000, 1000, 3), "{invalid}");
+            assert_eq!(
+                read(invalid),
+                (100, 10_000, 16 * 1024 * 1024, 64 * 1024 * 1024, 1000, 5),
+                "{invalid}"
+            );
         }
     }
 

@@ -185,14 +185,17 @@ pub enum Effect {
     CancelRead {
         request: RequestId,
     },
-    /// Reads the start of a file and decodes it for the preview.
+    /// Reads the first `max_bytes` bytes of a file and decodes them for the
+    /// preview.
     LoadPreview {
         source: PreviewSource,
+        max_bytes: usize,
         request: RequestId,
     },
-    /// Decodes an image file for the preview.
+    /// Decodes an image file of at most `max_bytes` bytes for the preview.
     LoadImage {
         source: PreviewSource,
+        max_bytes: usize,
         request: RequestId,
     },
     /// Lets go of the archive kept open for previewing its entries, once the

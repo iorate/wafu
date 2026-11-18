@@ -189,6 +189,7 @@ impl App {
             .as_deref()
             .map(|name| self.preview_source(pane.location(), name));
         let request = source.is_some().then(|| self.next_request_id());
+        let max_bytes = self.config.preview.image.max_bytes;
         let Some(Preview::Image(preview)) = &mut self.preview else {
             return;
         };
@@ -199,7 +200,11 @@ impl App {
         preview.error = None;
         match (source, request) {
             (Some(source), Some(request)) => {
-                effects.push(Effect::LoadImage { source, request });
+                effects.push(Effect::LoadImage {
+                    source,
+                    max_bytes,
+                    request,
+                });
                 preview.loading = Some(request);
             }
             _ => preview.image = None,
@@ -477,6 +482,7 @@ impl App {
 
     fn request_document(&mut self, effects: &mut Vec<Effect>) {
         let request = self.next_request_id();
+        let max_bytes = self.config.preview.text.max_bytes;
         let Some(Preview::Document(preview)) = &mut self.preview else {
             return;
         };
@@ -485,6 +491,7 @@ impl App {
         }
         effects.push(Effect::LoadPreview {
             source: preview.source.clone(),
+            max_bytes,
             request,
         });
         preview.loading = Some(request);
