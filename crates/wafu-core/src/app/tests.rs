@@ -156,6 +156,39 @@ fn status_line_spells_out_the_cursor_row_of_a_popup_with_a_list() {
 }
 
 #[test]
+fn status_line_follows_a_bookmark_with_its_path_as_written() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.config("[[bookmarks]]\nname = \"Docs\"\npath = \"~/docs\"\n");
+
+    harness.press("J");
+
+    assert_eq!(harness.view().status, "Docs -> ~/docs");
+}
+
+#[test]
+fn status_line_follows_an_external_command_with_its_line_as_written() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.config("[commands.term]\nrun = \"wt  -d '{dir}'\\n\"\n");
+
+    harness.press("F1");
+    harness.edit("$te");
+
+    assert_eq!(harness.view().status, "$term -> wt  -d '{dir}'\u{21B5}");
+}
+
+#[test]
+fn status_line_names_an_external_command_alone_once_the_configuration_dropped_it() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.config("[commands.term]\nrun = \"wt\"\n");
+    harness.press("F1");
+    harness.edit("$te");
+
+    harness.config("");
+
+    assert_eq!(harness.view().status, "$term");
+}
+
+#[test]
 fn status_line_is_empty_while_a_list_popup_has_nothing_to_list() {
     let mut harness = Harness::start("/home/user", "/tmp");
 
