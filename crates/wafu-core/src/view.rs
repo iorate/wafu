@@ -38,7 +38,11 @@ pub struct Style {
     /// `Auto` only while the OS has not reported its color scheme.
     pub theme: Theme,
     /// The text the size column is made wide enough for.
-    pub size_sample: &'static str,
+    pub size_sample: String,
+    /// The text the extension column is made wide enough for.
+    pub extension_sample: String,
+    /// The text the name column keeps at least the width of.
+    pub name_sample: String,
     /// How opaque the names of hidden entries are, in percent.
     pub hidden_opacity: u8,
     pub fonts: Fonts,
@@ -310,6 +314,7 @@ pub enum RowKind {
 impl Style {
     pub(crate) fn from_config(config: &Config, os: Os, scheme: Option<ColorScheme>) -> Self {
         let font = &config.font;
+        let filelist = &config.filelist;
         let monospace = monospace_family(os);
         let resolve = |area: &crate::config::Font| {
             let (family, size) = area.resolve(&font.default, monospace);
@@ -321,7 +326,9 @@ impl Style {
                 (Theme::Auto, Some(ColorScheme::Dark)) => Theme::Dark,
                 (theme, _) => theme,
             },
-            size_sample: config.filelist.size_format.column_sample(),
+            size_sample: filelist.size_format.column_sample(filelist.size_digits),
+            extension_sample: format!(".{}", "0".repeat(filelist.extension_chars)),
+            name_sample: "0".repeat(filelist.min_name_chars),
             hidden_opacity: config.colors.hidden_opacity,
             fonts: Fonts {
                 path: resolve(&font.path),
@@ -374,10 +381,12 @@ impl RowView {
     pub(crate) fn parent(
         own: Option<&Entry>,
         size_format: SizeFormat,
+        size_digits: usize,
         colors: &ExtensionColors,
     ) -> Self {
-        let (size, modified) =
-            own.map_or_else(Default::default, |own| size_and_modified(own, size_format));
+        let (size, modified) = own.map_or_else(Default::default, |own| {
+            size_and_modified(own, size_format, size_digits)
+        });
         Self {
             kind: own.map_or(RowKind::File, |own| RowKind::from_entry_kind(own.kind)),
             name: "..".to_owned(),
@@ -395,6 +404,7 @@ impl RowView {
     pub(crate) fn from_entry(
         entry: &Entry,
         size_format: SizeFormat,
+        size_digits: usize,
         colors: &ExtensionColors,
     ) -> Self {
         let (name, extension) = entry.split_name();
@@ -404,7 +414,7 @@ impl RowView {
         } else {
             format!(".{}", show_line_breaks(extension))
         };
-        let (size, modified) = size_and_modified(entry, size_format);
+        let (size, modified) = size_and_modified(entry, size_format, size_digits);
         Self {
             kind: RowKind::from_entry_kind(entry.kind),
             name: show_line_breaks(name),
@@ -455,12 +465,23 @@ fn extension_color(entry: &Entry, extension: &str, colors: &ExtensionColors) -> 
         .unwrap_or_default()
 }
 
-fn size_and_modified(entry: &Entry, size_format: SizeFormat) -> (String, String) {
+fn size_and_modified(
+    entry: &Entry,
+    size_format: SizeFormat,
+    size_digits: usize,
+) -> (String, String) {
     if entry.kind.is_broken_link() {
         return ("?".to_owned(), "?".to_owned());
     }
     let size = if entry.kind.is_dir_like() || entry.kind.is_special() {
         String::new()
+    } else if entry
+        .size
+        .checked_ilog10()
+        .map_or(1, |log| log as usize + 1)
+        > size_digits
+    {
+        SizeFormat::Human.format(entry.size)
     } else {
         size_format.format(entry.size)
     };
@@ -637,7 +658,7 @@ mod tests {
             modified: Some(timestamp()),
             ..dir("user")
         };
-        let row = RowView::parent(Some(&own_dir), SizeFormat::Plain, &no_colors());
+        let row = RowView::parent(Some(&own_dir), SizeFormat::Plain, 12, &no_colors());
         assert_eq!(
             (
                 row.marker,
@@ -652,20 +673,20 @@ mod tests {
             size: 1234,
             ..file("a.zip")
         };
-        let row = RowView::parent(Some(&own_file), SizeFormat::Plain, &zip_colors());
+        let row = RowView::parent(Some(&own_file), SizeFormat::Plain, 12, &zip_colors());
         assert_eq!(
             (row.marker, row.size.as_str(), row.extension_color.light),
             ("", "1234", Some(RED))
         );
 
         let own_link = link("tmp", Some(TargetKind::Dir));
-        let row = RowView::parent(Some(&own_link), SizeFormat::Plain, &no_colors());
+        let row = RowView::parent(Some(&own_link), SizeFormat::Plain, 12, &no_colors());
         assert_eq!((row.marker, row.kind), ("@", RowKind::Link));
     }
 
     #[test]
     fn parent_row_without_an_own_entry_is_blank() {
-        let row = RowView::parent(None, SizeFormat::Plain, &no_colors());
+        let row = RowView::parent(None, SizeFormat::Plain, 12, &no_colors());
 
         assert_eq!(
             (
@@ -680,23 +701,23 @@ mod tests {
 
     #[test]
     fn extension_column_has_a_leading_dot_or_is_empty() {
-        let row = RowView::from_entry(&file("a.tar.gz"), SizeFormat::Plain, &no_colors());
+        let row = RowView::from_entry(&file("a.tar.gz"), SizeFormat::Plain, 12, &no_colors());
         assert_eq!(
             (row.name.as_str(), row.extension.as_str()),
             ("a.tar", ".gz")
         );
 
-        let row = RowView::from_entry(&file("noext"), SizeFormat::Plain, &no_colors());
+        let row = RowView::from_entry(&file("noext"), SizeFormat::Plain, 12, &no_colors());
         assert_eq!(row.extension, "");
     }
 
     #[test]
     fn file_rows_take_the_extension_color_whatever_its_case() {
         for name in ["a.zip", "b.ZIP", "c.Zip"] {
-            let row = RowView::from_entry(&file(name), SizeFormat::Plain, &zip_colors());
+            let row = RowView::from_entry(&file(name), SizeFormat::Plain, 12, &zip_colors());
             assert_eq!(row.extension_color.light, Some(RED), "{name}");
         }
-        let row = RowView::from_entry(&file("zip"), SizeFormat::Plain, &zip_colors());
+        let row = RowView::from_entry(&file("zip"), SizeFormat::Plain, 12, &zip_colors());
         assert_eq!(row.extension_color, ExtensionColor::default());
     }
 
@@ -713,7 +734,7 @@ mod tests {
             special("p.zip", SpecialKind::Fifo),
         ];
         for entry in entries {
-            let row = RowView::from_entry(&entry, SizeFormat::Plain, &zip_colors());
+            let row = RowView::from_entry(&entry, SizeFormat::Plain, 12, &zip_colors());
             assert_eq!(
                 row.extension_color,
                 ExtensionColor::default(),
@@ -732,7 +753,7 @@ mod tests {
         let colors = extension_colors(&config.colors);
 
         let color =
-            |name| RowView::from_entry(&file(name), SizeFormat::Plain, &colors).extension_color;
+            |name| RowView::from_entry(&file(name), SizeFormat::Plain, 12, &colors).extension_color;
         assert_eq!(
             color("a.zip"),
             ExtensionColor {
@@ -784,7 +805,7 @@ mod tests {
             ),
         ];
         for (entry, expected) in cases {
-            let (size, _) = size_and_modified(&entry, SizeFormat::Plain);
+            let (size, _) = size_and_modified(&entry, SizeFormat::Plain, 12);
             assert_eq!(size, expected, "{:?}", entry.name);
         }
     }
@@ -797,9 +818,25 @@ mod tests {
         };
 
         assert_eq!(
-            size_and_modified(&broken, SizeFormat::Plain),
+            size_and_modified(&broken, SizeFormat::Plain, 12),
             ("?".to_owned(), "?".to_owned())
         );
+    }
+
+    #[test]
+    fn a_size_with_more_digits_than_the_column_is_human_readable() {
+        let size = |bytes, format| {
+            let entry = Entry {
+                size: bytes,
+                ..file("a")
+            };
+            size_and_modified(&entry, format, 5).0
+        };
+
+        assert_eq!(size(99_999, SizeFormat::Plain), "99999");
+        assert_eq!(size(100_000, SizeFormat::Plain), "98K");
+        assert_eq!(size(99_999, SizeFormat::Comma), "99,999");
+        assert_eq!(size(100_000, SizeFormat::Comma), "98K");
     }
 
     #[test]

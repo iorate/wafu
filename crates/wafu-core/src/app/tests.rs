@@ -3095,7 +3095,7 @@ fn size_format_applies_to_the_rows_and_the_marked_total_on_reload() {
     );
 
     harness.config("[filelist]\nsize_format = \"comma\"\n");
-    assert_eq!(harness.view().style.size_sample, "000,000,000,000");
+    assert_eq!(harness.view().style.size_sample, "000,000,000");
     assert_eq!(harness.view().left.rows[1].size, "1,234,567");
     assert_eq!(harness.view().left.rows[2].size, "512");
     assert!(
@@ -3105,6 +3105,26 @@ fn size_format_applies_to_the_rows_and_the_marked_total_on_reload() {
             .info
             .contains("1 marked (1,234,567 bytes)")
     );
+}
+
+#[test]
+fn column_widths_apply_to_the_samples_and_the_rows_on_reload() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(
+        Side::Left,
+        vec![Entry {
+            size: 1_234_567,
+            ..file("a")
+        }],
+    );
+
+    harness.config("[filelist]\nsize_digits = 5\nextension_chars = 2\nmin_name_chars = 3\n");
+
+    let style = &harness.view().style;
+    assert_eq!(style.size_sample, "00000");
+    assert_eq!(style.extension_sample, ".00");
+    assert_eq!(style.name_sample, "000");
+    assert_eq!(harness.view().left.rows[1].size, "1.2M");
 }
 
 #[test]

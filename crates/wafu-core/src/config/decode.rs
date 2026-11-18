@@ -5,8 +5,9 @@ use std::path::PathBuf;
 use toml::{Table, Value};
 
 use super::{
-    Bookmark, Color, Colors, Config, Diagnostic, DiagnosticKind, FONT_SIZE_MAX, FONT_SIZE_MIN,
-    Font, ImagePlacement, OpenAlternativeConfig, SizeFormat, SyntaxError, Theme,
+    Bookmark, COLUMN_CHARS_MAX, Color, Colors, Config, Diagnostic, DiagnosticKind, FONT_SIZE_MAX,
+    FONT_SIZE_MIN, Font, ImagePlacement, OpenAlternativeConfig, SIZE_DIGITS_MAX, SIZE_DIGITS_MIN,
+    SizeFormat, SyntaxError, Theme,
 };
 use crate::app::Os;
 use crate::command::{Command, Context};
@@ -244,6 +245,19 @@ impl<'a> Reader<'a> {
         }
     }
 
+    fn count(&mut self, key: &str, min: usize, max: usize) -> Option<usize> {
+        let count = match self.table.remove(key)? {
+            Value::Integer(value) => usize::try_from(value)
+                .ok()
+                .filter(|count| (min..=max).contains(count)),
+            _ => None,
+        };
+        if count.is_none() {
+            self.invalid(key, &format!("an integer from {min} to {max}"));
+        }
+        count
+    }
+
     fn color(&mut self, key: &str) -> Option<Color> {
         self.choice(key, "a color like #rrggbb", Color::parse)
     }
@@ -296,6 +310,15 @@ fn read_filelist(root: &mut Reader<'_>, config: &mut Config) {
         SizeFormat::from_name,
     ) {
         settings.size_format = format;
+    }
+    if let Some(digits) = filelist.count("size_digits", SIZE_DIGITS_MIN, SIZE_DIGITS_MAX) {
+        settings.size_digits = digits;
+    }
+    if let Some(chars) = filelist.count("extension_chars", 1, COLUMN_CHARS_MAX) {
+        settings.extension_chars = chars;
+    }
+    if let Some(chars) = filelist.count("min_name_chars", 1, COLUMN_CHARS_MAX) {
+        settings.min_name_chars = chars;
     }
     if let Some(max) = filelist.limit("max_history") {
         settings.max_history = max;
@@ -996,6 +1019,45 @@ pdf = "sumatrapdf {paths}"
         assert_eq!(read("1"), (1, 1, 0));
         for invalid in ["0", "\"\""] {
             assert_eq!(read(invalid), (100, 1000, 2), "{invalid}");
+        }
+    }
+
+    #[test]
+    fn column_widths_are_integers_within_their_ranges() {
+        let read = |text: &str| {
+            let (config, diagnostics) = parse(text, Os::Linux).unwrap();
+            let filelist = config.filelist;
+            (
+                (
+                    filelist.size_digits,
+                    filelist.extension_chars,
+                    filelist.min_name_chars,
+                ),
+                diagnostics,
+            )
+        };
+
+        assert_eq!(
+            read("[filelist]\nsize_digits = 5\nextension_chars = 1\nmin_name_chars = 1\n"),
+            ((5, 1, 1), Vec::new())
+        );
+        assert_eq!(
+            read("[filelist]\nsize_digits = 20\nextension_chars = 255\nmin_name_chars = 255\n"),
+            ((20, 255, 255), Vec::new())
+        );
+        let (widths, diagnostics) = read("[filelist]\nextension_chars = 0\nmin_name_chars = 256\n");
+        assert_eq!(widths, (9, 4, 8));
+        assert_eq!(diagnostics.len(), 2);
+        for invalid in ["4", "21", "\"12\""] {
+            let (widths, diagnostics) = read(&format!("[filelist]\nsize_digits = {invalid}\n"));
+            assert_eq!(widths, (9, 4, 8), "{invalid}");
+            assert_eq!(
+                diagnostics[0].kind,
+                DiagnosticKind::InvalidValue {
+                    expected: "an integer from 5 to 20".to_owned()
+                },
+                "{invalid}"
+            );
         }
     }
 

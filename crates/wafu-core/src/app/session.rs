@@ -298,6 +298,7 @@ impl App {
         let extension_colors = extension_colors(&config.colors);
         for pane in &mut self.panes {
             pane.set_size_format(config.filelist.size_format);
+            pane.set_size_digits(config.filelist.size_digits);
             pane.set_extension_colors(extension_colors.clone());
             pane.set_max_history(config.filelist.max_history);
         }

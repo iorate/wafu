@@ -22,6 +22,13 @@ const FONT_SIZE_DEFAULT: u16 = 12;
 const FONT_SIZE_MIN: u16 = 6;
 const FONT_SIZE_MAX: u16 = 72;
 const HUMAN_UNITS: [&str; 6] = ["K", "M", "G", "T", "P", "E"];
+// A size with more digits than the column holds is written human-readable,
+// which takes at most five characters; twenty digits hold any `u64`.
+const SIZE_DIGITS_MIN: usize = 5;
+const SIZE_DIGITS_MAX: usize = 20;
+// No file name is longer than 255 characters, and a column's width is
+// measured from a text of that many characters, so the count needs a bound.
+const COLUMN_CHARS_MAX: usize = 255;
 
 /// The configuration after every unusable item has been replaced by its
 /// default.
@@ -58,6 +65,12 @@ pub struct FileListConfig {
     pub require_marks: bool,
     pub search_matches_anywhere: bool,
     pub size_format: SizeFormat,
+    /// How many digits the size column holds in `Plain` and `Comma`.
+    pub size_digits: usize,
+    /// Characters of the extension column after the dot.
+    pub extension_chars: usize,
+    /// Characters the name column keeps in a narrow pane.
+    pub min_name_chars: usize,
     /// How many places each pane's history keeps.
     pub max_history: usize,
 }
@@ -82,14 +95,16 @@ impl SizeFormat {
         }
     }
 
-    /// A sample as wide as the widest size the file list should fit without
-    /// clipping, for sizing the column.
+    /// A sample as wide as the size column holding `digits` digits, for
+    /// sizing the column.
     #[must_use]
-    pub fn column_sample(self) -> &'static str {
+    pub fn column_sample(self, digits: usize) -> String {
         match self {
-            Self::Plain => "000000000000",
-            Self::Comma => "000,000,000,000",
-            Self::Human => "0000.0K",
+            Self::Plain => "0".repeat(digits),
+            Self::Comma => with_commas(&"0".repeat(digits)),
+            // The longest sizes are like `1023M`, and `M` is the widest unit
+            // in a proportional font.
+            Self::Human => "0000M".to_owned(),
         }
     }
 
@@ -99,17 +114,7 @@ impl SizeFormat {
     pub fn format(self, bytes: u64) -> String {
         match self {
             Self::Plain => bytes.to_string(),
-            Self::Comma => {
-                let digits = bytes.to_string();
-                let mut out = String::with_capacity(digits.len() + digits.len() / 3);
-                for (i, c) in digits.chars().enumerate() {
-                    if i > 0 && (digits.len() - i).is_multiple_of(3) {
-                        out.push(',');
-                    }
-                    out.push(c);
-                }
-                out
-            }
+            Self::Comma => with_commas(&bytes.to_string()),
             Self::Human => human_readable(bytes),
         }
     }
@@ -301,6 +306,9 @@ impl Config {
                 require_marks: true,
                 search_matches_anywhere: true,
                 size_format: SizeFormat::Plain,
+                size_digits: 9,
+                extension_chars: 4,
+                min_name_chars: 8,
                 max_history: 100,
             },
             preview: PreviewConfig {
@@ -544,6 +552,17 @@ fn default_editor(os: Os) -> CommandLine {
     CommandLine::parse(text, os).expect("the default editor should parse")
 }
 
+fn with_commas(digits: &str) -> String {
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
 fn human_readable(bytes: u64) -> String {
     if bytes < 1024 {
         return bytes.to_string();
@@ -591,6 +610,16 @@ mod tests {
         assert_eq!(Human.format(1_048_576), "1.0M");
         assert_eq!(Human.format(345 * 1024 * 1024), "345M");
         assert_eq!(Human.format(u64::MAX), "16E");
+    }
+
+    #[test]
+    fn size_column_samples_hold_the_digits_and_their_commas() {
+        use super::SizeFormat::{Comma, Human, Plain};
+
+        assert_eq!(Plain.column_sample(12), "000000000000");
+        assert_eq!(Comma.column_sample(6), "000,000");
+        assert_eq!(Comma.column_sample(7), "0,000,000");
+        assert_eq!(Human.column_sample(20), "0000M");
     }
 
     #[test]
