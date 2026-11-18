@@ -44,6 +44,7 @@ pub(super) fn parse_layers<'a>(
     let mut root = Reader::new(merged, String::new(), &mut diagnostics);
     read_filelist(&mut root, &mut config);
     read_preview(&mut root, &mut config);
+    read_log(&mut root, &mut config);
     read_programs(&mut root, &mut config, os);
     read_font(&mut root, &mut config);
     read_colors(&mut root, &mut config);
@@ -233,6 +234,20 @@ impl<'a> Reader<'a> {
         }
     }
 
+    fn limit(&mut self, key: &str) -> Option<usize> {
+        let limit = match self.table.remove(key)? {
+            Value::Integer(value) if value >= 1 => usize::try_from(value).ok(),
+            Value::Float(value) if value.is_infinite() && value.is_sign_positive() => {
+                Some(usize::MAX)
+            }
+            _ => None,
+        };
+        if limit.is_none() {
+            self.invalid(key, "an integer of 1 or more, or inf");
+        }
+        limit
+    }
+
     fn color(&mut self, key: &str) -> Option<Color> {
         self.choice(key, "a color like #rrggbb", Color::parse)
     }
@@ -286,6 +301,9 @@ fn read_filelist(root: &mut Reader<'_>, config: &mut Config) {
     ) {
         settings.size_format = format;
     }
+    if let Some(max) = filelist.limit("max_history") {
+        settings.max_history = max;
+    }
     filelist.finish();
 }
 
@@ -317,6 +335,16 @@ fn read_preview(root: &mut Reader<'_>, config: &mut Config) {
         image.finish();
     }
     preview.finish();
+}
+
+fn read_log(root: &mut Reader<'_>, config: &mut Config) {
+    let Some(mut log) = root.table("log") else {
+        return;
+    };
+    if let Some(max) = log.limit("max_lines") {
+        config.log.max_lines = max;
+    }
+    log.finish();
 }
 
 fn read_programs(root: &mut Reader<'_>, config: &mut Config, os: Os) {
@@ -955,6 +983,25 @@ pdf = "sumatrapdf {paths}"
         assert_eq!(read("2"), (70, 1));
         assert_eq!(read("nan"), (70, 1));
         assert_eq!(read("\"0.5\""), (70, 1));
+    }
+
+    #[test]
+    fn limits_are_integers_of_one_or_more_or_inf() {
+        let read = |value: &str| {
+            let text = format!("[filelist]\nmax_history = {value}\n[log]\nmax_lines = {value}\n");
+            let (config, diagnostics) = parse(&text, Os::Linux).unwrap();
+            (
+                config.filelist.max_history,
+                config.log.max_lines,
+                paths(&diagnostics).len(),
+            )
+        };
+
+        assert_eq!(read("1"), (1, 1, 0));
+        assert_eq!(read("inf"), (usize::MAX, usize::MAX, 0));
+        for invalid in ["0", "-inf", "1.5", "\"10\"", "\"\""] {
+            assert_eq!(read(invalid), (100, 1000, 2), "{invalid}");
+        }
     }
 
     #[test]

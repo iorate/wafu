@@ -1,30 +1,44 @@
 use std::path::{Path, PathBuf};
 
-const MAX_ITEMS: usize = 100;
-
 /// The places a pane has visited, browser style: a list and a position in it.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct History {
     items: Vec<PathBuf>,
     pos: usize,
+    max_items: usize,
 }
 
 impl History {
+    /// An empty history without a limit.
     #[must_use]
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            items: Vec::new(),
+            pos: 0,
+            max_items: usize::MAX,
+        }
     }
 
     /// Rebuilds a saved history. The position is clamped to the items and the
-    /// oldest items beyond the limit are dropped.
+    /// oldest items beyond `max_items` are dropped.
     #[must_use]
-    pub fn restore(mut items: Vec<PathBuf>, pos: usize) -> Self {
-        let excess = items.len().saturating_sub(MAX_ITEMS);
-        items.drain(..excess);
-        let pos = pos
-            .saturating_sub(excess)
-            .min(items.len().saturating_sub(1));
-        Self { items, pos }
+    pub fn restore(items: Vec<PathBuf>, pos: usize, max_items: usize) -> Self {
+        let pos = pos.min(items.len().saturating_sub(1));
+        let mut history = Self {
+            items,
+            pos,
+            max_items,
+        };
+        history.drop_excess();
+        history
+    }
+
+    /// Sets how many places are kept, `usize::MAX` for no limit. The oldest
+    /// places beyond it are dropped at once, and the position moves with the
+    /// places.
+    pub fn set_max_items(&mut self, max_items: usize) {
+        self.max_items = max_items;
+        self.drop_excess();
     }
 
     #[must_use]
@@ -62,7 +76,7 @@ impl History {
         }
         self.items.truncate(self.pos + 1);
         self.items.push(path);
-        if self.items.len() > MAX_ITEMS {
+        if self.items.len() > self.max_items {
             self.items.remove(0);
         }
         self.pos = self.items.len() - 1;
@@ -73,6 +87,18 @@ impl History {
         if pos < self.items.len() {
             self.pos = pos;
         }
+    }
+
+    fn drop_excess(&mut self) {
+        let excess = self.items.len().saturating_sub(self.max_items);
+        self.items.drain(..excess);
+        self.pos = self.pos.saturating_sub(excess);
+    }
+}
+
+impl Default for History {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -156,29 +182,42 @@ mod tests {
 
     #[test]
     fn restore_clamps_the_position_and_the_length() {
-        let history = History::restore(vec![PathBuf::from("/a"), PathBuf::from("/b")], 5);
+        let history = History::restore(
+            vec![PathBuf::from("/a"), PathBuf::from("/b")],
+            5,
+            usize::MAX,
+        );
         assert_eq!(history.pos(), 1);
-        assert_eq!(History::restore(Vec::new(), 3).pos(), 0);
+        assert_eq!(History::restore(Vec::new(), 3, usize::MAX).pos(), 0);
 
-        let items: Vec<PathBuf> = (0..MAX_ITEMS + 2)
-            .map(|i| PathBuf::from(format!("/{i}")))
-            .collect();
-        let history = History::restore(items, 1);
-        assert_eq!(history.items().len(), MAX_ITEMS);
-        assert_eq!(history.items()[0], PathBuf::from("/2"));
+        let history = History::restore(places(4), 1, 2);
+        assert_eq!(history.items(), [PathBuf::from("/2"), PathBuf::from("/3")]);
         assert_eq!(history.pos(), 0);
+    }
+
+    #[test]
+    fn lowering_the_limit_drops_the_oldest_and_shifts_the_position() {
+        let mut history = History::restore(places(5), 3, usize::MAX);
+
+        history.set_max_items(3);
+        assert_eq!(history.items(), &places(5)[2..]);
+        assert_eq!(history.pos(), 1);
     }
 
     #[test]
     fn the_oldest_item_is_dropped_past_the_limit() {
         let mut history = History::new();
-        for i in 0..=MAX_ITEMS {
-            history.visit(PathBuf::from(format!("/{i}")));
+        history.set_max_items(2);
+        for path in places(3) {
+            history.visit(path);
         }
 
-        assert_eq!(history.items().len(), MAX_ITEMS);
-        assert_eq!(history.items()[0], PathBuf::from("/1"));
-        assert_eq!(history.pos(), MAX_ITEMS - 1);
+        assert_eq!(history.items(), &places(3)[1..]);
+        assert_eq!(history.pos(), 1);
         assert_eq!(history.forward(), None);
+    }
+
+    fn places(count: usize) -> Vec<PathBuf> {
+        (0..count).map(|i| PathBuf::from(format!("/{i}"))).collect()
     }
 }

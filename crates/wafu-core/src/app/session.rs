@@ -299,7 +299,9 @@ impl App {
         for pane in &mut self.panes {
             pane.set_size_format(config.filelist.size_format);
             pane.set_extension_colors(extension_colors.clone());
+            pane.set_max_history(config.filelist.max_history);
         }
+        self.log.set_max_lines(config.log.max_lines);
         self.config = config;
         self.restyle();
     }
@@ -331,6 +333,7 @@ impl App {
         pane.restore_history(History::restore(
             state.history.clone(),
             state.history_pos.unwrap_or(usize::MAX),
+            self.config.filelist.max_history,
         ));
     }
 

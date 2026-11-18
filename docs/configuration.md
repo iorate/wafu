@@ -56,6 +56,7 @@ extract_creates_dir = true
 require_marks = true
 search_matches_anywhere = true
 size_format = "plain"
+max_history = 100
 
 [preview.text]
 hide_log = false
@@ -64,6 +65,9 @@ hide_log = false
 from_left = "other_pane"
 from_right = "both_panes"
 hide_log = false
+
+[log]
+max_lines = 1000
 
 [programs]
 # editor = "notepad {paths}" on Windows, "open -t {paths}" on macOS, "xdg-open {paths}" on Linux
@@ -118,6 +122,7 @@ There are no default bookmarks, external commands, [`open_alternative` programs]
 | `require_marks` | `copy`, `move`, `delete`, and `trash` act only on marked items, never on the cursor item alone. |
 | `search_matches_anywhere` | `search` finds the text anywhere in a name. When `false`, only at the start of a name. |
 | `size_format` | How sizes are written: `"plain"` (`1234567`), `"comma"` (`1,234,567`), or `"human"` (`1.2M`). |
+| `max_history` | How many places each pane's history keeps, for `history`, `history_back`, and `history_forward`: an integer of 1 or more, or `inf` to keep them all. |
 
 ## Preview
 
@@ -134,6 +139,12 @@ There are no default bookmarks, external commands, [`open_alternative` programs]
 | `from_left` | Where an image opened from the left pane is shown: `"other_pane"` (in place of the right pane, while the left pane stays) or `"both_panes"`. |
 | `from_right` | Where an image opened from the right pane is shown: `"other_pane"` (in place of the left pane, while the right pane stays) or `"both_panes"`. |
 | `hide_log` | Hide the log while an image takes the place of both panes. |
+
+## Log
+
+| Item | Meaning |
+|---|---|
+| `max_lines` | How many lines the log keeps: an integer of 1 or more, or `inf` to keep them all. |
 
 ## Programs
 
