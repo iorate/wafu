@@ -55,9 +55,18 @@ pub enum Msg {
         side: Side,
         rows: usize,
     },
-    /// The number of unwrapped lines that fit in the preview.
+    /// The number of rows that fit in the preview.
     PreviewRows {
         rows: usize,
+    },
+    /// How many rows lines of the log take, as `(line, rows)`, for the lines
+    /// the UI made or saw change height since it last reported.
+    LogLineRows {
+        reports: Vec<(usize, usize)>,
+    },
+    /// Same as `LogLineRows`, for the lines of a document preview.
+    PreviewLineRows {
+        reports: Vec<(usize, usize)>,
     },
     /// The number of rows that fit in the popup's list.
     PopupRows {
@@ -578,7 +587,9 @@ impl App {
             }
             Msg::InputChanged { field, text } => self.input_changed(field, text),
             Msg::ViewportRows { side, rows } => self.panes[side.index()].set_viewport_rows(rows),
-            Msg::PreviewRows { rows } => self.preview_rows = rows.max(1),
+            Msg::PreviewRows { rows } => self.set_preview_rows(rows),
+            Msg::LogLineRows { reports } => self.log.set_line_rows(&reports),
+            Msg::PreviewLineRows { reports } => self.set_preview_line_rows(&reports),
             Msg::PopupRows { rows } => self.set_popup_rows(rows),
             Msg::Io(event) => self.io_event(event, &mut effects),
         }
@@ -603,6 +614,9 @@ impl App {
             log: LogView {
                 lines: self.log.lines(),
                 scroll_top: self.log.scroll_top(),
+                end: self.log.end(),
+                ranges: self.log.ranges(),
+                generation: self.log.generation(),
             },
             status,
             popup,

@@ -13,15 +13,32 @@ export struct PreviewData {
 }
 
 export struct PreviewLine {
+    index: int,
     // The line number, or the offset in the hex dump; empty for a continued
     // line and for the note about truncation.
     number: string,
     text: string,
 }
 
+// A line of the document in whole rows, so that the area is cut between rows.
+component PreviewText inherits Text {
+    in property <length> row-height;
+    out property <int> rows: max(1, round(self.preferred-height / self.row-height));
+
+    height: self.rows * self.row-height;
+    // Works with the FemtoVG renderer too, though the documentation lists
+    // only Qt and software.
+    wrap: char-wrap;
+    font-family: Theme.preview-font-family;
+    font-size: Theme.preview-font-size;
+    color: Theme.colors.fg;
+}
+
 export component PreviewWidget inherits Rectangle {
     in property <PreviewData> data;
     in property <[PreviewLine]> lines;
+    in property <[PreviewLine]> before;
+    in property <[PreviewLine]> tail;
     // As many zeros as the widest line number or offset has digits; empty for no column.
     in property <string> number-sample;
     in property <image> picture;
@@ -30,12 +47,20 @@ export component PreviewWidget inherits Rectangle {
     callback rows-changed(rows: int);
     callback double-clicked();
     callback wheel(delta: length);
+    callback line-rows(index: int, rows: int);
 
-    // The height of one unwrapped line decides how many lines are asked for.
-    property <length> row-height: measure.preferred-height;
+    // A row is what a wrapped line grows by. A Text's preferred height is
+    // rounded up to a whole pixel, so the height of one line overstates it;
+    // the difference of ten rows keeps the error to a tenth of a pixel. It
+    // decides how many rows the area has.
+    property <length> row-height: (measure-eleven-lines.preferred-height - measure.preferred-height) / 10;
+    property <int> area-rows: max(1, floor((root.height - 8px) / root.row-height));
+    // Two characters in a hex dump, to match the gaps inside its rows.
+    property <length> number-spacing: root.number-sample == "" ? 0 : (root.data.hex-dump ? 2 : 1) * measure.preferred-width;
+    property <length> text-width: root.width - 8px - measure-number.preferred-width - root.number-spacing;
 
     function report() {
-        root.rows-changed(max(1, floor((root.height - 8px) / root.row-height)));
+        root.rows-changed(root.area-rows);
     }
 
     init => {
@@ -60,6 +85,13 @@ export component PreviewWidget inherits Rectangle {
         visible: false;
     }
 
+    measure-eleven-lines := Text {
+        text: "0\n0\n0\n0\n0\n0\n0\n0\n0\n0\n0";
+        font-family: Theme.preview-font-family;
+        font-size: Theme.preview-font-size;
+        visible: false;
+    }
+
     // The number column is as wide as the widest number or offset in the preview font.
     measure-number := Text {
         text: root.number-sample;
@@ -68,34 +100,71 @@ export component PreviewWidget inherits Rectangle {
         visible: false;
     }
 
-    // The lines wrap to the width; the ones past the bottom are cut off.
-    if root.data.kind == 0: VerticalLayout {
-        alignment: start;
-        padding: 4px;
+    // Each one is hidden on its own: a repeater under a parent that is not
+    // drawn may never make its elements.
+    for line in root.before: PreviewText {
+        visible: false;
+        width: root.text-width;
+        row-height: root.row-height;
+        text: line.text;
+        init => {
+            root.line-rows(line.index, self.rows);
+        }
+        changed rows => {
+            root.line-rows(line.index, self.rows);
+        }
+    }
 
-        for line in root.lines: HorizontalLayout {
-            // Two characters in a hex dump, to match the gaps inside its rows.
-            spacing: root.number-sample == "" ? 0 : (root.data.hex-dump ? 2 : 1) * measure.preferred-width;
+    for line in root.tail: PreviewText {
+        visible: false;
+        width: root.text-width;
+        row-height: root.row-height;
+        text: line.text;
+        init => {
+            root.line-rows(line.index, self.rows);
+        }
+        changed rows => {
+            root.line-rows(line.index, self.rows);
+        }
+    }
 
-            Text {
-                text: line.number;
-                width: measure-number.preferred-width;
-                horizontal-alignment: right;
-                vertical-alignment: top;
-                font-family: Theme.preview-font-family;
-                font-size: Theme.preview-font-size;
-                color: Theme.colors.line-number;
-            }
+    if root.data.kind == 0: Rectangle {
+        x: 4px;
+        y: 4px;
+        width: root.width - 8px;
+        height: root.area-rows * root.row-height;
+        clip: true;
 
-            Text {
-                text: line.text;
-                // Works with the FemtoVG renderer too, though the documentation
-                // lists only Qt and software.
-                wrap: char-wrap;
-                width: parent.width - measure-number.preferred-width - parent.spacing;
-                font-family: Theme.preview-font-family;
-                font-size: Theme.preview-font-size;
-                color: Theme.colors.fg;
+        VerticalLayout {
+            alignment: start;
+
+            for line in root.lines: HorizontalLayout {
+                // Not the number's: a Text's own minimum height is a rounded-up
+                // line, which is more than a row.
+                height: line-text.height;
+                spacing: root.number-spacing;
+
+                Text {
+                    text: line.number;
+                    width: measure-number.preferred-width;
+                    horizontal-alignment: right;
+                    vertical-alignment: top;
+                    font-family: Theme.preview-font-family;
+                    font-size: Theme.preview-font-size;
+                    color: Theme.colors.line-number;
+                }
+
+                line-text := PreviewText {
+                    width: root.text-width;
+                    row-height: root.row-height;
+                    text: line.text;
+                    init => {
+                        root.line-rows(line.index, self.rows);
+                    }
+                    changed rows => {
+                        root.line-rows(line.index, self.rows);
+                    }
+                }
             }
         }
     }

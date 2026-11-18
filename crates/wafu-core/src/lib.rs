@@ -24,6 +24,7 @@ mod pane;
 mod path;
 mod popup;
 mod preview;
+mod scroll;
 mod state;
 #[cfg(test)]
 mod test_support;
@@ -51,7 +52,7 @@ pub use pane::{DrivePurpose, RequestId};
 pub use preview::{Document, DocumentMode, ImageData, Line, PREVIEW_LIMIT};
 pub use state::{PaneState, StateError, StateFile, WindowState};
 pub use view::{
-    ColorSet, ExtensionColor, Fonts, InputField, ItemKind, LogView, PaneView, PopupItem, PopupView,
-    PreviewContent, PreviewLine, PreviewPlacement, PreviewView, ResolvedFont, RowKind, RowView,
-    SharedImage, Style, View,
+    ColorSet, ExtensionColor, Fonts, InputField, ItemKind, LineRanges, LogView, PaneView,
+    PopupItem, PopupView, PreviewContent, PreviewLine, PreviewPlacement, PreviewView, ResolvedFont,
+    RowKind, RowView, SharedImage, Style, View,
 };

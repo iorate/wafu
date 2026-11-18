@@ -10,17 +10,17 @@ use slint::{
     VecModel,
 };
 use wafu_core::{
-    App, Color, Colors, Effect, InputField, IoError, IoEvent, ItemKind, KeyInput, MenuAnchor,
-    MouseInput, Msg, PaneView, PopupView, PreviewContent, PreviewPlacement, PreviewView,
-    ResolvedFont, RowKind, RowView, SharedImage, Side, StateFile, Style, Theme as ConfigTheme,
-    View, WindowState,
+    App, Color, Colors, Effect, InputField, IoError, IoEvent, ItemKind, KeyInput, LineRanges,
+    LogView, MenuAnchor, MouseInput, Msg, PaneView, PopupView, PreviewContent, PreviewPlacement,
+    PreviewView, ResolvedFont, RowKind, RowView, SharedImage, Side, StateFile, Style,
+    Theme as ConfigTheme, View, WindowState,
 };
 use wafu_io::{Paths, Runtime};
 
 use crate::keys::{Modifiers, key_input};
 use crate::{
-    AppWindow, PaneData, PopupData, PopupField, PopupItem, PreviewData, PreviewLine, Row, Theme,
-    ThemeColors,
+    AppWindow, LogLine, PaneData, PopupData, PopupField, PopupItem, PreviewData, PreviewLine, Row,
+    Theme, ThemeColors,
 };
 
 const MAX_POPUP_FIELDS: usize = 2;
@@ -54,10 +54,15 @@ pub struct Ui {
     right_rows: Rc<VecModel<Row>>,
     left_marks: Rc<VecModel<bool>>,
     right_marks: Rc<VecModel<bool>>,
-    log_lines: Rc<VecModel<SharedString>>,
+    log_shown: Rc<VecModel<LogLine>>,
+    log_before: Rc<VecModel<LogLine>>,
+    log_tail: Rc<VecModel<LogLine>>,
     popup_items: Rc<VecModel<PopupItem>>,
     popup_fields: Rc<VecModel<PopupField>>,
     preview_lines: Rc<VecModel<PreviewLine>>,
+    preview_before: Rc<VecModel<PreviewLine>>,
+    preview_tail: Rc<VecModel<PreviewLine>>,
+    line_rows: RefCell<LineRowsQueue>,
     rendered: RefCell<Rendered>,
     wheel_remainder: RefCell<[f32; 5]>,
     // Where the last right click landed, in logical window coordinates.
@@ -102,10 +107,15 @@ impl Ui {
                 right_rows: Rc::new(VecModel::default()),
                 left_marks: Rc::new(VecModel::default()),
                 right_marks: Rc::new(VecModel::default()),
-                log_lines: Rc::new(VecModel::default()),
+                log_shown: Rc::new(VecModel::default()),
+                log_before: Rc::new(VecModel::default()),
+                log_tail: Rc::new(VecModel::default()),
                 popup_items: Rc::new(VecModel::default()),
                 popup_fields: Rc::new(VecModel::default()),
                 preview_lines: Rc::new(VecModel::default()),
+                preview_before: Rc::new(VecModel::default()),
+                preview_tail: Rc::new(VecModel::default()),
+                line_rows: RefCell::new(LineRowsQueue::default()),
                 rendered: RefCell::new(Rendered::default()),
                 wheel_remainder: RefCell::new([0.0; 5]),
                 last_pointer: Cell::new((0.0, 0.0)),
@@ -131,13 +141,21 @@ impl Ui {
         ui.window
             .set_right_marks(ModelRc::from(Rc::clone(&ui.right_marks)));
         ui.window
-            .set_log_lines(ModelRc::from(Rc::clone(&ui.log_lines)));
+            .set_log_shown(ModelRc::from(Rc::clone(&ui.log_shown)));
+        ui.window
+            .set_log_before(ModelRc::from(Rc::clone(&ui.log_before)));
+        ui.window
+            .set_log_tail(ModelRc::from(Rc::clone(&ui.log_tail)));
         ui.window
             .set_popup_items(ModelRc::from(Rc::clone(&ui.popup_items)));
         ui.window
             .set_popup_fields(ModelRc::from(Rc::clone(&ui.popup_fields)));
         ui.window
             .set_preview_lines(ModelRc::from(Rc::clone(&ui.preview_lines)));
+        ui.window
+            .set_preview_before(ModelRc::from(Rc::clone(&ui.preview_before)));
+        ui.window
+            .set_preview_tail(ModelRc::from(Rc::clone(&ui.preview_tail)));
         ui.window.set_menu_bar_visible(cfg!(target_os = "macos"));
 
         Self::connect(&ui);
@@ -312,6 +330,7 @@ impl Ui {
 
     fn connect(ui: &Rc<Self>) {
         Self::connect_window(ui);
+        Self::connect_log(ui);
         Self::connect_preview(ui);
         Self::connect_popup(ui);
         Self::connect_dividers(ui);
@@ -383,22 +402,6 @@ impl Ui {
         });
 
         let weak = Rc::downgrade(ui);
-        ui.window.on_log_wheel(move |delta| {
-            if let Some(ui) = Weak::upgrade(&weak)
-                && let Some(rows) = ui.wheel_rows(WHEEL_LOG, delta)
-            {
-                ui.dispatch(Msg::Mouse(MouseInput::LogWheel { rows }));
-            }
-        });
-
-        let weak = Rc::downgrade(ui);
-        ui.window.on_log_scroll_to(move |top| {
-            if let Some(ui) = Weak::upgrade(&weak) {
-                ui.dispatch(Msg::Mouse(MouseInput::LogScrollTo { top: top_of(top) }));
-            }
-        });
-
-        let weak = Rc::downgrade(ui);
         ui.window.on_input_edited(move |field, text| {
             if let Some(ui) = Weak::upgrade(&weak) {
                 ui.dispatch(Msg::InputChanged {
@@ -457,6 +460,31 @@ impl Ui {
             });
     }
 
+    fn connect_log(ui: &Rc<Self>) {
+        let weak = Rc::downgrade(ui);
+        ui.window.on_log_wheel(move |delta| {
+            if let Some(ui) = Weak::upgrade(&weak)
+                && let Some(rows) = ui.wheel_rows(WHEEL_LOG, delta)
+            {
+                ui.dispatch(Msg::Mouse(MouseInput::LogWheel { rows }));
+            }
+        });
+
+        let weak = Rc::downgrade(ui);
+        ui.window.on_log_scroll_to(move |top| {
+            if let Some(ui) = Weak::upgrade(&weak) {
+                ui.dispatch(Msg::Mouse(MouseInput::LogScrollTo { top: top_of(top) }));
+            }
+        });
+
+        let weak = Rc::downgrade(ui);
+        ui.window.on_log_line_rows(move |index, rows| {
+            if let Some(ui) = Weak::upgrade(&weak) {
+                ui.queue_line_rows(|queue| &mut queue.log, index, rows);
+            }
+        });
+    }
+
     fn connect_preview(ui: &Rc<Self>) {
         let weak = Rc::downgrade(ui);
         ui.window.on_preview_rows_changed(move |rows| {
@@ -480,6 +508,13 @@ impl Ui {
                 && let Some(rows) = ui.wheel_rows(WHEEL_PREVIEW, delta)
             {
                 ui.dispatch(Msg::Mouse(MouseInput::PreviewWheel { rows }));
+            }
+        });
+
+        let weak = Rc::downgrade(ui);
+        ui.window.on_preview_line_rows(move |index, rows| {
+            if let Some(ui) = Weak::upgrade(&weak) {
+                ui.queue_line_rows(|queue| &mut queue.preview, index, rows);
             }
         });
     }
@@ -540,6 +575,38 @@ impl Ui {
         });
     }
 
+    // Lines report their rows one at a time while Slint makes or lays them
+    // out, when the app may be borrowed for rendering; one message per area
+    // on the next turn of the event loop also spares a render per line.
+    fn queue_line_rows(
+        self: &Rc<Self>,
+        area: fn(&mut LineRowsQueue) -> &mut Vec<(usize, usize)>,
+        index: i32,
+        rows: i32,
+    ) {
+        let mut queue = self.line_rows.borrow_mut();
+        area(&mut queue).push((row_of(index), usize::try_from(rows).unwrap_or(1)));
+        if !queue.armed {
+            queue.armed = true;
+            let weak = Rc::downgrade(self);
+            slint::Timer::single_shot(Duration::ZERO, move || {
+                if let Some(ui) = weak.upgrade() {
+                    ui.flush_line_rows();
+                }
+            });
+        }
+    }
+
+    fn flush_line_rows(self: &Rc<Self>) {
+        let LineRowsQueue { log, preview, .. } = std::mem::take(&mut *self.line_rows.borrow_mut());
+        if !log.is_empty() {
+            self.dispatch(Msg::LogLineRows { reports: log });
+        }
+        if !preview.is_empty() {
+            self.dispatch(Msg::PreviewLineRows { reports: preview });
+        }
+    }
+
     // Wheel deltas arrive in pixels and in fractions of a notch; whole rows are
     // returned and the rest is carried over to the next event of the same area.
     fn wheel_rows(&self, index: usize, delta: f32) -> Option<i32> {
@@ -565,6 +632,10 @@ impl Ui {
             .set_log_rows(i32::try_from(view.log_rows).unwrap_or(i32::MAX));
         self.window
             .set_log_scroll_top(i32::try_from(view.log.scroll_top).unwrap_or(i32::MAX));
+        self.window
+            .set_log_line_count(i32::try_from(view.log.lines.len()).unwrap_or(i32::MAX));
+        self.window
+            .set_log_end(i32::try_from(view.log.end).unwrap_or(i32::MAX));
         self.window.set_hide_log(view.hide_log);
         self.window.set_status(view.status.as_str().into());
         // Replacing a model resets the list, which is too slow to do on every
@@ -600,15 +671,8 @@ impl Ui {
             update_marks(&self.right_marks, &rendered.right_marks, &view.right.marks);
             rendered.right_marks = Arc::clone(&view.right.marks);
         }
-        if !Arc::ptr_eq(&rendered.log, &view.log.lines) {
-            self.log_lines.set_vec(
-                view.log
-                    .lines
-                    .iter()
-                    .map(|line| SharedString::from(&**line))
-                    .collect::<Vec<_>>(),
-            );
-            rendered.log = Arc::clone(&view.log.lines);
+        if !Arc::ptr_eq(&rendered.log, &view.log.lines) || rendered.log_ranges != view.log.ranges {
+            self.render_log(&mut rendered, &view.log);
         }
         // A field keeps its own text while typing; it is only written back
         // when the core refused an edit or opened the popup with a value. It is
@@ -654,19 +718,57 @@ impl Ui {
         }
     }
 
+    fn render_log(&self, rendered: &mut Rendered, log: &LogView) {
+        let models = [
+            (&self.log_shown, log.ranges.shown.clone()),
+            (&self.log_before, log.ranges.before.clone()),
+            (&self.log_tail, log.ranges.tail.clone()),
+        ];
+        for (model, range) in models {
+            let lines = log_lines(&log.lines, range);
+            // Lines of another generation are made anew even if they read the
+            // same: an element left in place reports nothing, and after a
+            // renumbering or a clear the line it shows may have no rows under
+            // its index.
+            if rendered.log_generation == log.generation {
+                set_if_changed(model, lines);
+            } else {
+                model.set_vec(lines);
+            }
+        }
+        rendered.log = Arc::clone(&log.lines);
+        rendered.log_ranges = log.ranges.clone();
+        rendered.log_generation = log.generation;
+    }
+
     fn render_preview(&self, rendered: &mut Rendered, preview: Option<&PreviewView>) {
+        let none: &[wafu_core::PreviewLine] = &[];
+        // Lines of another generation are made anew even if they read the
+        // same: the core has forgotten their rows, and only a new element
+        // reports them.
+        let remeasure = lines_generation(rendered.preview.as_ref()) != lines_generation(preview);
         let (lines, digits, image, data) = match preview {
-            None => (Vec::new(), 0, None, PreviewData::default()),
+            None => ([none; 3], 0, None, PreviewData::default()),
             Some(preview) => {
                 let (kind, lines, digits, hex_dump, image, message) = match &preview.content {
                     PreviewContent::Lines {
                         lines,
+                        before,
+                        tail,
                         digits,
                         hex_dump,
-                    } => (0, lines.as_slice(), *digits, *hex_dump, None, ""),
-                    PreviewContent::Image(image) => (1, [].as_slice(), 0, false, image.clone(), ""),
+                        ..
+                    } => (
+                        0,
+                        [lines.as_slice(), before, tail],
+                        *digits,
+                        *hex_dump,
+                        None,
+                        "",
+                    ),
+                    PreviewContent::Image(image) => (1, [none; 3], 0, false, image.clone(), ""),
                     PreviewContent::Message(message) => {
-                        (2, [].as_slice(), 0, false, None, message.as_str())
+                        (2, [none; 3], 0, false, None, message.as_str())
                     }
                 };
                 let (covers_left, covers_right) = match preview.placement {
@@ -683,12 +785,7 @@ impl Ui {
                     message: message.into(),
                     marked: preview.marked,
                 };
-                (
-                    lines.iter().map(preview_line).collect(),
-                    digits,
-                    image,
-                    data,
-                )
+                (lines, digits, image, data)
             }
         };
         if rendered.image != image {
@@ -701,7 +798,19 @@ impl Ui {
         self.window.set_preview_has_image(rendered.image.is_some());
         self.window
             .set_preview_number_sample("0".repeat(digits).into());
-        self.preview_lines.set_vec(lines);
+        let models = [
+            &self.preview_lines,
+            &self.preview_before,
+            &self.preview_tail,
+        ];
+        for (model, lines) in models.into_iter().zip(lines) {
+            let lines = lines.iter().map(preview_line).collect();
+            if remeasure {
+                model.set_vec(lines);
+            } else {
+                set_if_changed(model, lines);
+            }
+        }
         self.window.set_preview(data);
     }
 
@@ -746,6 +855,8 @@ struct Rendered {
     left_marks: Arc<[bool]>,
     right_marks: Arc<[bool]>,
     log: Arc<[Arc<str>]>,
+    log_ranges: LineRanges,
+    log_generation: usize,
     popup: Option<PopupView>,
     preview: Option<PreviewView>,
     // The image last handed to Slint, so that it is converted only once.
@@ -762,6 +873,8 @@ impl Default for Rendered {
             left_marks: Arc::from([]),
             right_marks: Arc::from([]),
             log: Arc::from([]),
+            log_ranges: LineRanges::default(),
+            log_generation: 0,
             popup: None,
             preview: None,
             image: None,
@@ -769,6 +882,13 @@ impl Default for Rendered {
             title: String::new(),
         }
     }
+}
+
+#[derive(Default)]
+struct LineRowsQueue {
+    log: Vec<(usize, usize)>,
+    preview: Vec<(usize, usize)>,
+    armed: bool,
 }
 
 // Logical pixels, so that the window comes back the same apparent size when
@@ -849,8 +969,16 @@ fn show_shell_menu(_window: &AppWindow, _paths: &[PathBuf], _x: f32, _y: f32) ->
     None
 }
 
+fn lines_generation(preview: Option<&PreviewView>) -> Option<usize> {
+    match preview?.content {
+        PreviewContent::Lines { generation, .. } => Some(generation),
+        _ => None,
+    }
+}
+
 fn preview_line(line: &wafu_core::PreviewLine) -> PreviewLine {
     PreviewLine {
+        index: i32::try_from(line.index).unwrap_or(i32::MAX),
         number: line.number.as_str().into(),
         text: line.text.as_str().into(),
     }
@@ -895,6 +1023,23 @@ fn round(value: f32) -> i32 {
     #[allow(clippy::cast_possible_truncation)]
     let rounded = value.round() as i32;
     rounded
+}
+
+fn log_lines(lines: &[Arc<str>], range: std::ops::Range<usize>) -> Vec<LogLine> {
+    range
+        .map(|index| LogLine {
+            index: i32::try_from(index).unwrap_or(i32::MAX),
+            text: SharedString::from(&*lines[index]),
+        })
+        .collect()
+}
+
+// Replacing a model makes its elements anew, and each new line reports its
+// rows again, so a model is replaced only when what it holds changes.
+fn set_if_changed<T: Clone + PartialEq + 'static>(model: &VecModel<T>, rows: Vec<T>) {
+    if model.iter().ne(rows.iter().cloned()) {
+        model.set_vec(rows);
+    }
 }
 
 // Marks change one row at a time, so only the rows that differ are notified.

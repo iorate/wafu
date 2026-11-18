@@ -194,6 +194,7 @@ impl Document {
                     let line = &self.lines[index];
                     let continued = index > 0 && self.lines[index - 1].number == line.number;
                     PreviewLine {
+                        index,
                         number: if continued || line.number == 0 {
                             String::new()
                         } else {
@@ -207,6 +208,7 @@ impl Document {
                 .map(|index| {
                     if self.truncated && index == count - 1 {
                         PreviewLine {
+                            index,
                             number: String::new(),
                             text: truncated_note(),
                         }
@@ -214,6 +216,7 @@ impl Document {
                         let offset = index * BYTES_PER_LINE;
                         let end = (offset + BYTES_PER_LINE).min(self.raw.len());
                         PreviewLine {
+                            index,
                             number: format!("{offset:0OFFSET_DIGITS$x}"),
                             text: hex_line(&self.raw[offset..end]),
                         }

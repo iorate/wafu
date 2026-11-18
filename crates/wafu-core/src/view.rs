@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::ops::Range;
 use std::sync::Arc;
 
 use crate::app::{ColorScheme, Os};
@@ -111,7 +112,28 @@ pub struct ExtensionColor {
 pub struct LogView {
     /// Shared with the log; the same allocation is returned until the lines change.
     pub lines: Arc<[Arc<str>]>,
+    /// The line at the top of the area.
     pub scroll_top: usize,
+    /// The furthest the top can go: from it, the last lines fit in the area.
+    /// Zero when everything fits.
+    pub end: usize,
+    pub ranges: LineRanges,
+    /// Changes whenever the lines are renumbered or cleared: lines that read
+    /// the same as before may then lack their rows.
+    pub generation: usize,
+}
+
+/// The lines of a scrolled area, by index, that the UI lays out or only
+/// measures. Every one of them reports how many rows it takes.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct LineRanges {
+    /// Shown from the top of the area, as many lines as it has rows.
+    pub shown: Range<usize>,
+    /// Measured only: as many lines before the top as the area has rows.
+    pub before: Range<usize>,
+    /// Measured only: the last lines, as many as the area has rows, that are
+    /// neither shown nor among `before`.
+    pub tail: Range<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -218,13 +240,18 @@ pub enum PreviewPlacement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PreviewContent {
-    /// The visible lines of a document preview, from the scroll
-    /// position. Empty while the file is being read. `digits` is the width
-    /// of the line number column; zero when there are no numbers.
-    /// `hex_dump` is set when the lines are a hex dump, whose columns are
-    /// two characters apart.
+    /// The lines of a document preview: `lines` are shown from the top of the
+    /// area, and `before` and `tail` are only measured, as in [`LineRanges`].
+    /// Empty while the file is being read. `digits` is the width of the line
+    /// number column; zero when there are no numbers. `hex_dump` is set when
+    /// the lines are a hex dump, whose columns are two characters apart.
+    /// `generation` changes whenever the document is read or shown another
+    /// way, when lines that read the same have to be measured again.
     Lines {
+        generation: usize,
         lines: Vec<PreviewLine>,
+        before: Vec<PreviewLine>,
+        tail: Vec<PreviewLine>,
         digits: usize,
         hex_dump: bool,
     },
@@ -234,9 +261,11 @@ pub enum PreviewContent {
     Message(String),
 }
 
-/// One visible line of a document preview.
+/// One line of a document preview.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PreviewLine {
+    /// Counted from zero among the lines of the document as shown.
+    pub index: usize,
     /// The line number, or the offset of a hex dump line; empty for a
     /// continued line and for the note about truncation.
     pub number: String,

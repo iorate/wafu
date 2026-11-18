@@ -14,6 +14,7 @@ use crate::location::{Location, Passwords};
 use crate::pane::RequestId;
 use crate::popup::{InputKind, InputPopup, ListPopup, PasswordPurpose, Popup};
 use crate::preview::{Document, DocumentMode, ImageData, is_image_name};
+use crate::scroll::{self, LineRows};
 use crate::text::show_line_breaks;
 use crate::view::{PreviewContent, PreviewPlacement, PreviewView, SharedImage};
 
@@ -51,14 +52,16 @@ impl App {
         name: &OsStr,
         effects: &mut Vec<Effect>,
     ) {
-        self.preview = Some(Preview::Document(DocumentPreview {
+        self.preview = Some(Preview::Document(Box::new(DocumentPreview {
             name: name.to_string_lossy().into_owned(),
             source: self.preview_source(location, name),
             loading: None,
             document: None,
             mode: DocumentMode::Text,
             scroll_top: 0,
-        }));
+            rows: LineRows::default(),
+            generation: 0,
+        })));
         self.request_document(effects);
     }
 
@@ -86,22 +89,26 @@ impl App {
             }
             _ => {}
         }
-        // A page is that many unwrapped lines; how many screen rows a line
-        // takes is known only to the UI.
-        let rows = self.preview_rows;
+        let area = self.preview_rows;
         let Some(Preview::Document(preview)) = &mut self.preview else {
             return;
         };
-        match command {
-            Command::PreviewScrollUp => preview.scroll_by(-1),
-            Command::PreviewScrollDown => preview.scroll_by(1),
-            Command::PreviewPageUp => preview.scroll_by(-to_i64(rows)),
-            Command::PreviewPageDown => preview.scroll_by(to_i64(rows)),
-            Command::PreviewTop => preview.scroll_top = 0,
-            Command::PreviewBottom => preview.scroll_to_end(rows),
-            Command::PreviewToggleMode => preview.toggle_mode(),
-            _ => {}
-        }
+        let count = preview.line_count();
+        let rows = |index| preview.rows.get(index);
+        let top = preview.scroll_top;
+        preview.scroll_top = match command {
+            Command::PreviewScrollUp => scroll::move_by(top, -1, count, area, rows),
+            Command::PreviewScrollDown => scroll::move_by(top, 1, count, area, rows),
+            Command::PreviewPageUp => scroll::page_up(top, area, rows),
+            Command::PreviewPageDown => scroll::page_down(top, count, area, rows),
+            Command::PreviewTop => 0,
+            Command::PreviewBottom => scroll::end(count, area, rows),
+            Command::PreviewToggleMode => {
+                preview.toggle_mode();
+                return;
+            }
+            _ => top,
+        };
     }
 
     pub(super) fn preview_mouse(&mut self, input: MouseInput, effects: &mut Vec<Effect>) {
@@ -121,10 +128,17 @@ impl App {
             self.mouse(input, effects);
             return;
         }
+        let area = self.preview_rows;
         match &mut self.preview {
             Some(Preview::Document(preview)) => {
                 if let MouseInput::PreviewWheel { rows } = input {
-                    preview.scroll_by(i64::from(rows));
+                    preview.scroll_top = scroll::move_by(
+                        preview.scroll_top,
+                        i64::from(rows),
+                        preview.line_count(),
+                        area,
+                        |index| preview.rows.get(index),
+                    );
                 }
             }
             Some(Preview::Image(preview)) => {
@@ -223,8 +237,8 @@ impl App {
                 } else {
                     DocumentMode::Binary
                 };
-                preview.scroll_top = 0;
                 preview.document = Some(document);
+                preview.reset();
             }
             Err(ReadError::PasswordRequired { level, retry }) => {
                 let location = preview.source.location();
@@ -328,6 +342,23 @@ impl App {
         self.request_document(effects);
     }
 
+    pub(super) fn set_preview_rows(&mut self, rows: usize) {
+        self.preview_rows = rows.max(1);
+        if let Some(Preview::Document(preview)) = &mut self.preview {
+            preview.pull_back(self.preview_rows);
+        }
+    }
+
+    pub(super) fn set_preview_line_rows(&mut self, reports: &[(usize, usize)]) {
+        let Some(Preview::Document(preview)) = &mut self.preview else {
+            return;
+        };
+        for &(index, rows) in reports {
+            preview.rows.set(index, rows);
+        }
+        preview.pull_back(self.preview_rows);
+    }
+
     pub(super) fn preview_loading(&self) -> Option<(String, RequestId)> {
         match &self.preview {
             Some(Preview::Document(preview)) => preview
@@ -344,17 +375,23 @@ impl App {
     pub(super) fn preview_view(&self) -> Option<PreviewView> {
         Some(match self.preview.as_ref()? {
             Preview::Document(preview) => {
-                let (lines, digits) = match &preview.document {
-                    Some(document) => (
-                        document.lines(preview.mode, preview.scroll_top, self.preview_rows),
-                        document.digits(preview.mode),
-                    ),
-                    None => (Vec::new(), 0),
+                let ranges =
+                    scroll::ranges(preview.scroll_top, preview.line_count(), self.preview_rows);
+                let lines = |range: std::ops::Range<usize>| match &preview.document {
+                    Some(document) => document.lines(preview.mode, range.start, range.len()),
+                    None => Vec::new(),
                 };
+                let digits = preview
+                    .document
+                    .as_ref()
+                    .map_or(0, |document| document.digits(preview.mode));
                 PreviewView {
                     placement: PreviewPlacement::Full,
                     content: PreviewContent::Lines {
-                        lines,
+                        generation: preview.generation,
+                        lines: lines(ranges.shown),
+                        before: lines(ranges.before),
+                        tail: lines(ranges.tail),
                         digits,
                         hex_dump: preview.mode == DocumentMode::Binary,
                     },
@@ -395,11 +432,14 @@ impl App {
     fn open_encodings(&mut self) {
         // Not while a read is in flight: if it fails the preview closes, and
         // the list would be left open over the file list.
-        let Some(Preview::Document(DocumentPreview {
+        let Some(Preview::Document(preview)) = &self.preview else {
+            return;
+        };
+        let DocumentPreview {
             loading: None,
             document: Some(document),
             ..
-        })) = &self.preview
+        } = &**preview
         else {
             return;
         };
@@ -498,7 +538,7 @@ impl PreviewSource {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Preview {
-    Document(DocumentPreview),
+    Document(Box<DocumentPreview>),
     Image(ImagePreview),
 }
 
@@ -511,6 +551,8 @@ pub(crate) struct DocumentPreview {
     document: Option<Document>,
     mode: DocumentMode,
     scroll_top: usize,
+    rows: LineRows,
+    generation: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -532,15 +574,10 @@ impl DocumentPreview {
             .map_or(0, |document| document.line_count(self.mode))
     }
 
-    // The last line may come up to the top, so that a wrapped tail is never out of reach.
-    fn scroll_by(&mut self, delta: i64) {
-        let max = to_i64(self.line_count().saturating_sub(1));
-        let top = to_i64(self.scroll_top).saturating_add(delta).clamp(0, max);
-        self.scroll_top = usize::try_from(top).unwrap_or(0);
-    }
-
-    fn scroll_to_end(&mut self, rows: usize) {
-        self.scroll_top = self.line_count().saturating_sub(rows);
+    fn pull_back(&mut self, area: usize) {
+        self.scroll_top = scroll::pull_back(self.scroll_top, self.line_count(), area, |index| {
+            self.rows.get(index)
+        });
     }
 
     fn toggle_mode(&mut self) {
@@ -548,10 +585,14 @@ impl DocumentPreview {
             DocumentMode::Text => DocumentMode::Binary,
             DocumentMode::Binary => DocumentMode::Text,
         };
-        self.scroll_top = 0;
+        self.reset();
     }
-}
 
-fn to_i64(value: usize) -> i64 {
-    i64::try_from(value).unwrap_or(i64::MAX)
+    // The UI reports a line again only when it sees it change, so lines that
+    // read the same after this are told apart by the generation.
+    fn reset(&mut self) {
+        self.scroll_top = 0;
+        self.rows.clear();
+        self.generation += 1;
+    }
 }

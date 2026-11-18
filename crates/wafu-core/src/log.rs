@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
+use crate::scroll::{self, LineRows};
 use crate::text::show_line_breaks;
+use crate::view::LineRanges;
 
 const MAX_LINES: usize = 1000;
 
@@ -8,11 +10,12 @@ const MAX_LINES: usize = 1000;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Log {
     lines: Arc<[Arc<str>]>,
-    // The first visible line when not following the tail.
-    scroll_top: usize,
-    // Whether new lines keep the tail in view.
+    rows: LineRows,
+    top: usize,
+    // Whether the top stays at the end as lines come and sizes change.
     follow: bool,
     viewport_rows: usize,
+    generation: usize,
 }
 
 impl Log {
@@ -20,9 +23,11 @@ impl Log {
     pub fn new() -> Self {
         Self {
             lines: Arc::from([]),
-            scroll_top: 0,
+            rows: LineRows::default(),
+            top: 0,
             follow: true,
             viewport_rows: 1,
+            generation: 0,
         }
     }
 
@@ -30,14 +35,27 @@ impl Log {
         let mut kept = &self.lines[..];
         if kept.len() == MAX_LINES {
             kept = &kept[1..];
-            // Keep the same lines in view after the oldest one is dropped.
-            self.scroll_top = self.scroll_top.saturating_sub(1);
+            self.rows.drop_first();
+            self.top = self.top.saturating_sub(1);
+            self.generation += 1;
         }
         self.lines = kept
             .iter()
             .cloned()
             .chain([Arc::from(show_line_breaks(line))])
             .collect();
+        self.settle();
+    }
+
+    /// Takes how many rows lines take, by index, as the UI measured them.
+    /// Indices past the last line are ignored.
+    pub fn set_line_rows(&mut self, reports: &[(usize, usize)]) {
+        for &(index, rows) in reports {
+            if index < self.lines.len() {
+                self.rows.set(index, rows);
+            }
+        }
+        self.settle();
     }
 
     /// The lines in order. The same allocation is returned until a line is
@@ -47,14 +65,29 @@ impl Log {
         Arc::clone(&self.lines)
     }
 
-    /// The first visible line.
+    /// Changes whenever the lines are renumbered or cleared.
+    #[must_use]
+    pub fn generation(&self) -> usize {
+        self.generation
+    }
+
+    /// The line at the top of the area.
     #[must_use]
     pub fn scroll_top(&self) -> usize {
-        if self.follow {
-            self.max_top()
-        } else {
-            self.scroll_top.min(self.max_top())
-        }
+        self.top
+    }
+
+    /// The furthest the top can go.
+    #[must_use]
+    pub fn end(&self) -> usize {
+        scroll::end(self.lines.len(), self.viewport_rows, |index| {
+            self.rows.get(index)
+        })
+    }
+
+    #[must_use]
+    pub fn ranges(&self) -> LineRanges {
+        scroll::ranges(self.top, self.lines.len(), self.viewport_rows)
     }
 
     #[must_use]
@@ -64,9 +97,7 @@ impl Log {
 
     pub fn set_viewport_rows(&mut self, rows: usize) {
         self.viewport_rows = rows.max(1);
-        if !self.follow && self.scroll_top >= self.max_top() {
-            self.follow = true;
-        }
+        self.settle();
     }
 
     pub fn scroll_up(&mut self) {
@@ -78,37 +109,59 @@ impl Log {
     }
 
     pub fn page_up(&mut self) {
-        self.scroll_by(-i64::try_from(self.viewport_rows).unwrap_or(i64::MAX));
+        let top = scroll::page_up(self.top, self.viewport_rows, |index| self.rows.get(index));
+        self.move_to(top);
     }
 
     pub fn page_down(&mut self) {
-        self.scroll_by(i64::try_from(self.viewport_rows).unwrap_or(i64::MAX));
+        let top = scroll::page_down(self.top, self.lines.len(), self.viewport_rows, |index| {
+            self.rows.get(index)
+        });
+        self.move_to(top);
     }
 
     pub fn clear(&mut self) {
         self.lines = Arc::from([]);
-        self.scroll_top = 0;
+        self.rows.clear();
+        self.top = 0;
         self.follow = true;
+        self.generation += 1;
     }
 
     /// Scrolls by a number of lines; positive moves towards the tail.
     pub fn scroll_by(&mut self, delta: i64) {
-        let top = i64::try_from(self.scroll_top()).unwrap_or(i64::MAX);
-        self.scroll_to(usize::try_from(top.saturating_add(delta)).unwrap_or(0));
+        let top = scroll::move_by(
+            self.top,
+            delta,
+            self.lines.len(),
+            self.viewport_rows,
+            |index| self.rows.get(index),
+        );
+        self.move_to(top);
     }
 
-    /// Puts `top` at the first visible line. Reaching the tail resumes following it.
+    /// Puts `top` at the top of the area, no further than the end.
     pub fn scroll_to(&mut self, top: usize) {
-        if top >= self.max_top() {
-            self.follow = true;
-        } else {
-            self.follow = false;
-            self.scroll_top = top;
-        }
+        self.move_to(top.min(self.end()));
     }
 
-    fn max_top(&self) -> usize {
-        self.lines.len().saturating_sub(self.viewport_rows)
+    fn move_to(&mut self, top: usize) {
+        self.top = top;
+        self.follow = top == self.end();
+    }
+
+    fn settle(&mut self) {
+        let end = self.end();
+        if self.follow {
+            self.top = end;
+            return;
+        }
+        // An end found with unknown lines taken as one row lies before the
+        // real one: reaching it is not reaching the end.
+        if self.top >= end && (end..self.lines.len()).all(|index| self.rows.get(index).is_some()) {
+            self.top = end;
+            self.follow = true;
+        }
     }
 }
 
@@ -121,6 +174,28 @@ impl Default for Log {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn following_keeps_the_end_in_view_as_lines_wrap() {
+        let mut log = log_with(5, 3);
+        assert_eq!(log.scroll_top(), 2);
+
+        log.set_line_rows(&[(4, 2)]);
+
+        assert_eq!(log.scroll_top(), 3);
+    }
+
+    #[test]
+    fn rows_reported_past_the_last_line_are_ignored() {
+        let mut log = log_with(5, 3);
+
+        log.set_line_rows(&[(7, 5)]);
+        for i in 5..8 {
+            log.push(i.to_string());
+        }
+
+        assert_eq!(log.scroll_top(), 5);
+    }
 
     #[test]
     fn scrolling_up_stops_following_and_scrolling_to_the_bottom_resumes() {
@@ -139,15 +214,41 @@ mod tests {
     }
 
     #[test]
+    fn a_line_unwrapping_to_bring_the_end_to_the_top_resumes_following() {
+        let mut log = log_with(5, 3);
+        log.set_line_rows(&[(3, 1), (4, 3)]);
+        log.scroll_up();
+        assert_eq!(log.scroll_top(), 3);
+
+        log.set_line_rows(&[(4, 2)]);
+        log.push("f".to_owned());
+
+        assert_eq!(log.scroll_top(), 4);
+    }
+
+    #[test]
     fn growing_the_viewport_to_show_the_tail_resumes_following() {
         let mut log = log_with(10, 3);
-
+        log.set_line_rows(&(0..10).map(|index| (index, 1)).collect::<Vec<_>>());
         log.scroll_up();
-        log.set_viewport_rows(4);
-        assert_eq!(log.scroll_top(), 6);
+        log.scroll_up();
+
+        log.set_viewport_rows(6);
+        assert_eq!(log.scroll_top(), 4);
         log.push("k".to_owned());
 
-        assert_eq!(log.scroll_top(), 7);
+        assert_eq!(log.scroll_top(), 5);
+    }
+
+    #[test]
+    fn the_top_stays_while_the_lines_after_it_are_not_measured() {
+        let mut log = log_with(20, 3);
+        log.scroll_to(10);
+
+        log.set_viewport_rows(10);
+        log.push("u".to_owned());
+
+        assert_eq!(log.scroll_top(), 10);
     }
 
     #[test]
@@ -161,28 +262,14 @@ mod tests {
     }
 
     #[test]
-    fn scroll_up_stops_at_the_top() {
+    fn scrolling_to_past_the_end_stops_at_the_end_and_follows() {
         let mut log = log_with(5, 3);
+        log.scroll_to(0);
 
-        log.scroll_up();
-        log.scroll_up();
-        log.scroll_up();
+        log.scroll_to(100);
+        log.push("f".to_owned());
 
-        assert_eq!(log.scroll_top(), 0);
-    }
-
-    #[test]
-    fn page_moves_by_the_viewport() {
-        let mut log = log_with(10, 3);
-
-        log.page_up();
-        assert_eq!(log.scroll_top(), 4);
-        log.page_up();
-        assert_eq!(log.scroll_top(), 1);
-        log.page_down();
-        assert_eq!(log.scroll_top(), 4);
-        log.page_down();
-        assert_eq!(log.scroll_top(), 7);
+        assert_eq!(log.scroll_top(), 3);
     }
 
     #[test]
@@ -194,6 +281,31 @@ mod tests {
 
         assert_eq!(log.lines().len(), MAX_LINES);
         assert_eq!(&*log.lines()[0], "2");
+    }
+
+    #[test]
+    fn dropping_the_oldest_line_moves_the_measured_rows_with_the_lines() {
+        let mut log = log_with(MAX_LINES, 3);
+        log.set_line_rows(&[(MAX_LINES - 2, 3)]);
+        assert_eq!(log.scroll_top(), MAX_LINES - 1);
+
+        log.push("new".to_owned());
+
+        assert_eq!(log.scroll_top(), MAX_LINES - 2);
+    }
+
+    #[test]
+    fn the_generation_advances_when_lines_are_renumbered_or_cleared() {
+        let mut log = log_with(MAX_LINES - 1, 3);
+        let first = log.generation();
+
+        log.push("last".to_owned());
+        assert_eq!(log.generation(), first);
+        log.push("dropping".to_owned());
+        let dropped = log.generation();
+        assert_ne!(dropped, first);
+        log.clear();
+        assert_ne!(log.generation(), dropped);
     }
 
     #[test]
@@ -228,18 +340,18 @@ mod tests {
     }
 
     #[test]
-    fn clear_empties_and_follows() {
+    fn clear_empties_forgets_the_rows_and_follows() {
         let mut log = log_with(5, 3);
+        log.set_line_rows(&[(1, 3)]);
         log.scroll_up();
 
         log.clear();
 
         assert_eq!(log.lines().len(), 0);
         assert_eq!(log.scroll_top(), 0);
-        log.push("a".to_owned());
-        log.push("b".to_owned());
-        log.push("c".to_owned());
-        log.push("d".to_owned());
+        for line in ["a", "b", "c", "d"] {
+            log.push(line.to_owned());
+        }
         assert_eq!(log.scroll_top(), 1);
     }
 

@@ -10,7 +10,7 @@ use crate::pane::InFlight;
 use crate::state::{PaneState, StateFile};
 use crate::test_support::{
     CONFIG_PATH, HOME, Harness, STATE_PATH, config_file, config_source, config_text, dir, file,
-    path, shown, special, start_msg, start_msg_with,
+    path, rows_at, shown, special, start_msg, start_msg_with,
 };
 use crate::view::{ExtensionColor, InputField, ItemKind, RowKind};
 
@@ -1414,6 +1414,54 @@ fn log_keys_scroll_and_clear() {
     harness.edit("clear_log");
     harness.press("Enter");
     assert_eq!(harness.log(), Vec::<String>::new());
+}
+
+#[test]
+fn clearing_the_log_is_another_generation_of_lines() {
+    let mut harness = Harness::start("/a", "/tmp");
+    let before = harness.view().log.generation;
+
+    harness.press("F1");
+    harness.edit("clear_log");
+    harness.press("Enter");
+
+    assert_ne!(harness.view().log.generation, before);
+}
+
+#[test]
+fn a_long_line_while_following_settles_at_the_end_within_two_rounds_of_measuring() {
+    let mut harness = log_of_seven();
+    harness.measure(rows_at(40));
+
+    harness.press("BS");
+    harness.fail_load(Side::Left, &"x".repeat(150));
+
+    assert!(harness.measure(rows_at(40)) <= 2);
+    let view = harness.view();
+    assert_eq!(view.log.scroll_top, view.log.lines.len() - 2);
+}
+
+#[test]
+fn narrowing_the_log_settles_at_the_end_within_two_rounds_of_measuring() {
+    let mut harness = log_of_seven();
+    harness.press("BS");
+    harness.fail_load(Side::Left, &"x".repeat(150));
+    harness.measure(rows_at(40));
+
+    assert!(harness.measure(rows_at(20)) <= 2);
+
+    let view = harness.view();
+    assert_eq!(view.log.scroll_top, view.log.lines.len() - 1);
+}
+
+#[test]
+fn the_log_reports_its_end_for_the_scrollbar() {
+    let mut harness = log_of_seven();
+    harness.send(Msg::LogLineRows {
+        reports: vec![(6, 2)],
+    });
+
+    assert_eq!(harness.view().log.end, 2);
 }
 
 #[test]
@@ -3966,5 +4014,15 @@ fn back_to_b_with_the_history_open() -> Harness {
 fn theme_light_loaded() -> Harness {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.config("[colors]\ntheme = \"light\"\n");
+    harness
+}
+
+// Seven lines in the log, which shows six rows.
+fn log_of_seven() -> Harness {
+    let mut harness = Harness::start("/a/b/c/d/e/f/g/h", "/tmp");
+    for _ in 0..7 {
+        harness.press("BS");
+        harness.fail_load(Side::Left, "boom");
+    }
     harness
 }
