@@ -707,6 +707,8 @@ impl App {
             Command::LogScrollDown => self.log.scroll_down(),
             Command::LogPageUp => self.log.page_up(),
             Command::LogPageDown => self.log.page_down(),
+            Command::LogTop => self.log.top(),
+            Command::LogBottom => self.log.bottom(),
             Command::ClearLog => self.log.clear(),
             Command::CopyLog => self.copy_log(effects),
             Command::PreviewScrollUp

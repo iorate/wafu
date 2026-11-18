@@ -120,6 +120,14 @@ impl Log {
         self.move_to(top);
     }
 
+    pub fn top(&mut self) {
+        self.move_to(0);
+    }
+
+    pub fn bottom(&mut self) {
+        self.move_to(self.end());
+    }
+
     pub fn clear(&mut self) {
         self.lines = Arc::from([]);
         self.rows.clear();
@@ -270,6 +278,20 @@ mod tests {
         log.push("f".to_owned());
 
         assert_eq!(log.scroll_top(), 3);
+    }
+
+    #[test]
+    fn moving_to_the_top_stops_following_and_moving_to_the_bottom_resumes() {
+        let mut log = log_with(5, 3);
+
+        log.top();
+        log.push("f".to_owned());
+        assert_eq!(log.scroll_top(), 0);
+
+        log.bottom();
+        assert_eq!(log.scroll_top(), 3);
+        log.push("g".to_owned());
+        assert_eq!(log.scroll_top(), 4);
     }
 
     #[test]

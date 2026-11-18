@@ -78,6 +78,8 @@ const DEFAULT_FILELIST: &[(&str, &str)] = &[
     ("Shift+Down", "log_scroll_down"),
     ("Shift+PageUp", "log_page_up"),
     ("Shift+PageDown", "log_page_down"),
+    ("Shift+Home", "log_top"),
+    ("Shift+End", "log_bottom"),
 ];
 
 const DEFAULT_IMAGE: &[(&str, &str)] = &[
@@ -110,6 +112,8 @@ const DEFAULT_IMAGE: &[(&str, &str)] = &[
     ("Shift+Down", "log_scroll_down"),
     ("Shift+PageUp", "log_page_up"),
     ("Shift+PageDown", "log_page_down"),
+    ("Shift+Home", "log_top"),
+    ("Shift+End", "log_bottom"),
 ];
 
 const DEFAULT_TEXT: &[(&str, &str)] = &[
@@ -133,6 +137,8 @@ const DEFAULT_TEXT: &[(&str, &str)] = &[
     ("Shift+Down", "log_scroll_down"),
     ("Shift+PageUp", "log_page_up"),
     ("Shift+PageDown", "log_page_down"),
+    ("Shift+Home", "log_top"),
+    ("Shift+End", "log_bottom"),
 ];
 
 /// Key bindings per context.
