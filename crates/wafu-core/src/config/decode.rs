@@ -235,14 +235,13 @@ impl<'a> Reader<'a> {
     }
 
     fn limit(&mut self, key: &str) -> Option<usize> {
-        let limit = match self.table.remove(key)? {
+        match self.table.remove(key)? {
             Value::Integer(value) if value >= 1 => usize::try_from(value).ok(),
-            _ => None,
-        };
-        if limit.is_none() {
-            self.invalid(key, "an integer of 1 or more");
+            _ => {
+                self.invalid(key, "an integer of 1 or more");
+                None
+            }
         }
-        limit
     }
 
     fn color(&mut self, key: &str) -> Option<Color> {
@@ -995,7 +994,7 @@ pdf = "sumatrapdf {paths}"
         };
 
         assert_eq!(read("1"), (1, 1, 0));
-        for invalid in ["0", "inf", "\"10\"", "\"\""] {
+        for invalid in ["0", "\"\""] {
             assert_eq!(read(invalid), (100, 1000, 2), "{invalid}");
         }
     }

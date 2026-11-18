@@ -33,9 +33,8 @@ impl History {
         history
     }
 
-    /// Sets how many places are kept. The oldest
-    /// places beyond it are dropped at once, and the position moves with the
-    /// places.
+    /// Sets how many places are kept. The oldest places beyond it are dropped
+    /// at once, and the position moves with the places.
     pub fn set_max_items(&mut self, max_items: usize) {
         self.max_items = max_items;
         self.drop_excess();

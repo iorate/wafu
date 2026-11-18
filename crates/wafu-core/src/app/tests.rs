@@ -3436,6 +3436,27 @@ fn a_history_move_still_loading_follows_the_places_a_reload_drops() {
 }
 
 #[test]
+fn a_history_move_still_loading_becomes_a_visit_when_a_reload_drops_its_place() {
+    let mut harness = Harness::start_from(start_msg_with(
+        Os::Linux,
+        Some("/home/user"),
+        Some("/tmp"),
+        config_source(""),
+        Ok(Some(saved_history(&["/a", "/b", "/c"]))),
+    ));
+    harness.resolve(Side::Left, "/home/user", None);
+    harness.resolve(Side::Right, "/tmp", None);
+    harness.load(Side::Left, vec![]);
+    harness.load(Side::Right, vec![]);
+    harness.press("Ctrl+Shift+Left");
+
+    harness.config("[filelist]\nmax_history = 1\n");
+    harness.load(Side::Left, vec![]);
+
+    assert_eq!(harness.history(Side::Left), ["/c"]);
+}
+
+#[test]
 fn reloading_a_lower_max_lines_drops_the_oldest_log_lines() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.config("");
