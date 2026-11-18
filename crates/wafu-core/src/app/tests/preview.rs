@@ -8,7 +8,7 @@ use crate::operation::{
     ArchiveEntries, OperationEvent, OperationKind, OperationSpec, Outcome, Sources,
 };
 use crate::pane::InFlight;
-use crate::preview::{Document, TRUNCATED_NOTE};
+use crate::preview::Document;
 use crate::test_support::{
     Harness, LEFT, RIGHT, dir, executable, file, passwords, path, rows_at, shown, special,
 };
@@ -517,7 +517,7 @@ fn a_binary_file_opens_as_a_hex_dump_with_the_note() {
     let lines = harness.preview_lines();
     assert_eq!(lines.len(), 2);
     assert!(lines[0].starts_with("61 62 00"));
-    assert_eq!(lines[1], TRUNCATED_NOTE);
+    assert_eq!(lines[1], "--- truncated: showing the first 3 bytes ---");
     assert_eq!(harness.preview_numbers(), ["00000000", ""]);
 }
 

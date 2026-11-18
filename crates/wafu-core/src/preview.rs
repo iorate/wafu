@@ -5,10 +5,9 @@ use std::path::Path;
 use chardetng::{EncodingDetector, Iso2022JpDetection, Utf8Detection};
 use encoding_rs::Encoding;
 
+use crate::config::SizeFormat;
 use crate::text::{LINE_BREAK_SYMBOL, is_line_break};
 use crate::view::PreviewLine;
-
-pub(crate) const TRUNCATED_NOTE: &str = "--- truncated ---";
 
 const BINARY_PROBE: usize = 8 * 1024;
 const MAX_LINE_CHARS: usize = 1024;
@@ -133,7 +132,7 @@ impl Document {
         if truncated {
             lines.push(Line {
                 number: 0,
-                text: TRUNCATED_NOTE.to_owned(),
+                text: truncated_note(raw.len()),
             });
         }
         Self {
@@ -200,7 +199,7 @@ impl Document {
                         PreviewLine {
                             index,
                             number: String::new(),
-                            text: TRUNCATED_NOTE.to_owned(),
+                            text: truncated_note(self.raw.len()),
                         }
                     } else {
                         let offset = index * BYTES_PER_LINE;
@@ -228,6 +227,16 @@ pub fn is_image_name(name: &OsStr) -> bool {
                 .iter()
                 .any(|known| known.eq_ignore_ascii_case(extension))
         })
+}
+
+// A truncated document holds exactly as many bytes as the limit it was read
+// with.
+fn truncated_note(len: usize) -> String {
+    let len = u64::try_from(len).unwrap_or(u64::MAX);
+    format!(
+        "--- truncated: showing the first {} bytes ---",
+        SizeFormat::Comma.format(len)
+    )
 }
 
 // Splits at `\n`, `\r\n`, and `\r`, expands tabs, shows the other line breaks
@@ -505,18 +514,21 @@ mod tests {
 
     #[test]
     fn a_truncated_document_ends_with_the_note() {
-        let document = Document::decode(vec![b'a'; 20], true, None);
+        let document = Document::decode(vec![b'a'; 1000], true, None);
 
         assert_eq!(
             texts(&document),
-            ["a".repeat(20), TRUNCATED_NOTE.to_owned()]
+            [
+                "a".repeat(1000),
+                "--- truncated: showing the first 1,000 bytes ---".to_owned()
+            ]
         );
         assert_eq!(numbers(&document), [1, 0]);
         assert_eq!(document.digits(DocumentMode::Text), 1);
-        assert_eq!(document.line_count(DocumentMode::Binary), 3);
+        assert_eq!(document.line_count(DocumentMode::Binary), 64);
         assert_eq!(
-            shown(&document, DocumentMode::Binary, 2, 5),
-            [TRUNCATED_NOTE]
+            shown(&document, DocumentMode::Binary, 63, 5),
+            ["--- truncated: showing the first 1,000 bytes ---"]
         );
         assert_eq!(
             document.lines(DocumentMode::Text, 1, 1)[0].number,
