@@ -1,3 +1,4 @@
+import { ScrollBar } from "scrollbar.slint";
 import { Theme } from "theme.slint";
 
 export struct PreviewData {
@@ -8,6 +9,11 @@ export struct PreviewData {
     // 0: lines of text, 1: an image (or nothing), 2: a message
     kind: int,
     hex-dump: bool,
+    // Of the lines: the one at the top, how many there are, and the furthest
+    // the top can go.
+    scroll-top: int,
+    line-count: int,
+    end: int,
     message: string,
     marked: bool,
 }
@@ -47,6 +53,7 @@ export component PreviewWidget inherits Rectangle {
     callback rows-changed(rows: int);
     callback double-clicked();
     callback wheel(delta: length);
+    callback scroll-to(top: int);
     callback line-rows(index: int, rows: int);
 
     // A row is what a wrapped line grows by. A Text's preferred height is
@@ -57,7 +64,9 @@ export component PreviewWidget inherits Rectangle {
     property <int> area-rows: max(1, floor((root.height - 8px) / root.row-height));
     // Two characters in a hex dump, to match the gaps inside its rows.
     property <length> number-spacing: root.number-sample == "" ? 0 : (root.data.hex-dump ? 2 : 1) * measure.preferred-width;
-    property <length> text-width: root.width - 8px - measure-number.preferred-width - root.number-spacing;
+    // The lines keep this width whether or not the scrollbar is shown, so
+    // that the scrollbar never changes how many rows they take.
+    property <length> text-width: root.width - 8px - Theme.scrollbar-gutter - measure-number.preferred-width - root.number-spacing;
 
     function report() {
         root.rows-changed(root.area-rows);
@@ -208,6 +217,25 @@ export component PreviewWidget inherits Rectangle {
         scroll-event(event) => {
             root.wheel(event.delta-y);
             accept
+        }
+    }
+
+    if root.data.kind == 0: ScrollBar {
+        x: parent.width - self.width;
+        y: 4px;
+        height: max(0px, parent.height - 8px);
+        // In lines, the thumb as long as the lines shown at the end, so that
+        // it reaches the bottom just there and keeps its length while scrolling.
+        top: root.data.scroll-top;
+        rows: root.data.line-count;
+        visible-rows: root.data.line-count - root.data.end;
+
+        scroll-to(top) => {
+            root.scroll-to(top);
+        }
+
+        wheel(delta) => {
+            root.wheel(delta);
         }
     }
 }

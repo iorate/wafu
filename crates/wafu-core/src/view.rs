@@ -247,11 +247,16 @@ pub enum PreviewContent {
     /// the lines are a hex dump, whose columns are two characters apart.
     /// `generation` changes whenever the document is read or shown another
     /// way, when lines that read the same have to be measured again.
+    /// `scroll_top` is the line at the top of the area out of `line_count`,
+    /// and `end` the furthest the top can go, as in [`LogView`].
     Lines {
         generation: usize,
         lines: Vec<PreviewLine>,
         before: Vec<PreviewLine>,
         tail: Vec<PreviewLine>,
+        scroll_top: usize,
+        line_count: usize,
+        end: usize,
         digits: usize,
         hex_dump: bool,
     },

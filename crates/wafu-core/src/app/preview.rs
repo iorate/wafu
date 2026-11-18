@@ -102,7 +102,7 @@ impl App {
             Command::PreviewPageUp => scroll::page_up(top, area, rows),
             Command::PreviewPageDown => scroll::page_down(top, count, area, rows),
             Command::PreviewTop => 0,
-            Command::PreviewBottom => scroll::end(count, area, rows),
+            Command::PreviewBottom => preview.end(area),
             Command::PreviewToggleMode => {
                 preview.toggle_mode();
                 return;
@@ -130,8 +130,8 @@ impl App {
         }
         let area = self.preview_rows;
         match &mut self.preview {
-            Some(Preview::Document(preview)) => {
-                if let MouseInput::PreviewWheel { rows } = input {
+            Some(Preview::Document(preview)) => match input {
+                MouseInput::PreviewWheel { rows } => {
                     preview.scroll_top = scroll::move_by(
                         preview.scroll_top,
                         i64::from(rows),
@@ -140,7 +140,11 @@ impl App {
                         |index| preview.rows.get(index),
                     );
                 }
-            }
+                MouseInput::PreviewScrollTo { top } => {
+                    preview.scroll_top = top.min(preview.end(area));
+                }
+                _ => {}
+            },
             Some(Preview::Image(preview)) => {
                 let shown = match preview.placement {
                     PreviewPlacement::Full => return,
@@ -392,6 +396,9 @@ impl App {
                         lines: lines(ranges.shown),
                         before: lines(ranges.before),
                         tail: lines(ranges.tail),
+                        scroll_top: preview.scroll_top,
+                        line_count: preview.line_count(),
+                        end: preview.end(self.preview_rows),
                         digits,
                         hex_dump: preview.mode == DocumentMode::Binary,
                     },
@@ -572,6 +579,10 @@ impl DocumentPreview {
         self.document
             .as_ref()
             .map_or(0, |document| document.line_count(self.mode))
+    }
+
+    fn end(&self, area: usize) -> usize {
+        scroll::end(self.line_count(), area, |index| self.rows.get(index))
     }
 
     fn pull_back(&mut self, area: usize) {
