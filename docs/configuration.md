@@ -122,7 +122,7 @@ There are no default bookmarks, external commands, [`open_alternative` programs]
 | `require_marks` | `copy`, `move`, `delete`, and `trash` act only on marked items, never on the cursor item alone. |
 | `search_matches_anywhere` | `search` finds the text anywhere in a name. When `false`, only at the start of a name. |
 | `size_format` | How sizes are written: `"plain"` (`1234567`), `"comma"` (`1,234,567`), or `"human"` (`1.2M`). |
-| `max_history` | How many places each pane's history keeps, for `history`, `history_back`, and `history_forward`: an integer of 1 or more, or `inf` to keep them all. |
+| `max_history` | How many places each pane's history keeps, for `history`, `history_back`, and `history_forward`: an integer of 1 or more. |
 
 ## Preview
 
@@ -144,7 +144,7 @@ There are no default bookmarks, external commands, [`open_alternative` programs]
 
 | Item | Meaning |
 |---|---|
-| `max_lines` | How many lines the log keeps: an integer of 1 or more, or `inf` to keep them all. |
+| `max_lines` | How many lines the log keeps: an integer of 1 or more. |
 
 ## Programs
 

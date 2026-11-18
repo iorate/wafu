@@ -33,7 +33,7 @@ impl History {
         history
     }
 
-    /// Sets how many places are kept, `usize::MAX` for no limit. The oldest
+    /// Sets how many places are kept. The oldest
     /// places beyond it are dropped at once, and the position moves with the
     /// places.
     pub fn set_max_items(&mut self, max_items: usize) {

@@ -237,13 +237,10 @@ impl<'a> Reader<'a> {
     fn limit(&mut self, key: &str) -> Option<usize> {
         let limit = match self.table.remove(key)? {
             Value::Integer(value) if value >= 1 => usize::try_from(value).ok(),
-            Value::Float(value) if value.is_infinite() && value.is_sign_positive() => {
-                Some(usize::MAX)
-            }
             _ => None,
         };
         if limit.is_none() {
-            self.invalid(key, "an integer of 1 or more, or inf");
+            self.invalid(key, "an integer of 1 or more");
         }
         limit
     }
@@ -986,7 +983,7 @@ pdf = "sumatrapdf {paths}"
     }
 
     #[test]
-    fn limits_are_integers_of_one_or_more_or_inf() {
+    fn limits_are_integers_of_one_or_more() {
         let read = |value: &str| {
             let text = format!("[filelist]\nmax_history = {value}\n[log]\nmax_lines = {value}\n");
             let (config, diagnostics) = parse(&text, Os::Linux).unwrap();
@@ -998,8 +995,7 @@ pdf = "sumatrapdf {paths}"
         };
 
         assert_eq!(read("1"), (1, 1, 0));
-        assert_eq!(read("inf"), (usize::MAX, usize::MAX, 0));
-        for invalid in ["0", "-inf", "1.5", "\"10\"", "\"\""] {
+        for invalid in ["0", "inf", "\"10\"", "\"\""] {
             assert_eq!(read(invalid), (100, 1000, 2), "{invalid}");
         }
     }

@@ -58,7 +58,7 @@ pub struct FileListConfig {
     pub require_marks: bool,
     pub search_matches_anywhere: bool,
     pub size_format: SizeFormat,
-    /// How many places each pane's history keeps, `usize::MAX` for no limit.
+    /// How many places each pane's history keeps.
     pub max_history: usize,
 }
 
@@ -146,7 +146,7 @@ pub enum ImagePlacement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LogConfig {
-    /// How many lines the log keeps, `usize::MAX` for no limit.
+    /// How many lines the log keeps.
     pub max_lines: usize,
 }
 

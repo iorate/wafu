@@ -32,7 +32,7 @@ impl Log {
         }
     }
 
-    /// Sets how many lines are kept, `usize::MAX` for no limit. The oldest
+    /// Sets how many lines are kept. The oldest
     /// lines beyond it are dropped at once.
     pub fn set_max_lines(&mut self, max_lines: usize) {
         self.max_lines = max_lines;
