@@ -299,6 +299,8 @@ fn read_filelist(root: &mut Reader<'_>, config: &mut Config) {
             "search_matches_anywhere",
             &mut settings.search_matches_anywhere,
         ),
+        ("time_shows_full_year", &mut settings.time_format.full_year),
+        ("time_shows_seconds", &mut settings.time_format.seconds),
     ] {
         if let Some(value) = filelist.bool(key) {
             *setting = value;
@@ -810,7 +812,7 @@ mod tests {
     use std::ffi::OsString;
 
     use super::*;
-    use crate::config::{ImagePreviewConfig, PreviewConfig, TextPreviewConfig};
+    use crate::config::{ImagePreviewConfig, PreviewConfig, TextPreviewConfig, TimeFormat};
     use crate::external::{CommandLineError, Expansion};
 
     const EXAMPLE: &str = r##"
@@ -820,6 +822,8 @@ new_text_creates_file = false
 extract_creates_dir = false
 require_marks = false
 size_format = "human"          # plain / comma / human
+time_shows_full_year = false
+time_shows_seconds = false
 
 [preview.text]
 hide_log = true
@@ -890,6 +894,13 @@ pdf = "sumatrapdf {paths}"
         assert_eq!(diagnostics, Vec::new());
         assert!(!config.filelist.new_text_creates_file);
         assert_eq!(config.filelist.size_format, SizeFormat::Human);
+        assert_eq!(
+            config.filelist.time_format,
+            TimeFormat {
+                full_year: false,
+                seconds: false,
+            }
+        );
         assert_eq!(
             config.programs.editor,
             CommandLine::parse("notepad {paths}", Os::Linux).unwrap()

@@ -44,6 +44,7 @@ export component AppWindow inherits Window {
     in property <int> left-scroll-top;
     in property <int> right-scroll-top;
     in property <string> size-sample;
+    in property <string> time-sample;
     in property <string> extension-sample;
     in property <string> name-sample;
     in property <int> split-percent: 50;
@@ -301,6 +302,7 @@ export component AppWindow inherits Window {
                     marks: root.left-marks;
                     scroll-top: root.left-scroll-top;
                     size-sample: root.size-sample;
+                    time-sample: root.time-sample;
                     extension-sample: root.extension-sample;
                     name-sample: root.name-sample;
                     window-active: root.window-active;
@@ -341,6 +343,7 @@ export component AppWindow inherits Window {
                     marks: root.right-marks;
                     scroll-top: root.right-scroll-top;
                     size-sample: root.size-sample;
+                    time-sample: root.time-sample;
                     extension-sample: root.extension-sample;
                     name-sample: root.name-sample;
                     window-active: root.window-active;

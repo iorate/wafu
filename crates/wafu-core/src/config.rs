@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 use crate::app::{ConfigContent, ConfigFile, Os};
+use crate::entry::LocalDateTime;
 use crate::error::IoError;
 use crate::external::{CommandLine, CommandLineError};
 use crate::keymap::KeyMap;
@@ -67,6 +68,7 @@ pub struct FileListConfig {
     pub size_format: SizeFormat,
     /// How many digits the size column holds in `Plain` and `Comma`.
     pub size_digits: usize,
+    pub time_format: TimeFormat,
     /// Characters of the extension column after the dot.
     pub extension_chars: usize,
     /// Characters the name column keeps in a narrow pane.
@@ -119,6 +121,57 @@ impl SizeFormat {
             Self::Comma => with_commas(&bytes.to_string()),
             Self::Human => human_readable(bytes),
         }
+    }
+}
+
+/// How a modification time is written in the file list's time column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TimeFormat {
+    /// Whether the year has all its digits, not only the last two.
+    pub full_year: bool,
+    pub seconds: bool,
+}
+
+impl Default for TimeFormat {
+    fn default() -> Self {
+        Self {
+            full_year: true,
+            seconds: true,
+        }
+    }
+}
+
+impl TimeFormat {
+    /// A sample as wide as the time column, for sizing the column.
+    #[must_use]
+    pub fn column_sample(self) -> String {
+        self.format(LocalDateTime {
+            year: 0,
+            month: 0,
+            day: 0,
+            hour: 0,
+            minute: 0,
+            second: 0,
+        })
+    }
+
+    /// Writes `time` in this format.
+    #[must_use]
+    pub fn format(self, time: LocalDateTime) -> String {
+        let year = if self.full_year {
+            format!("{:04}", time.year)
+        } else {
+            format!("{:02}", time.year.rem_euclid(100))
+        };
+        let seconds = if self.seconds {
+            format!(":{:02}", time.second)
+        } else {
+            String::new()
+        };
+        format!(
+            "{year}/{:02}/{:02} {:02}:{:02}{seconds}",
+            time.month, time.day, time.hour, time.minute
+        )
     }
 }
 
@@ -321,6 +374,7 @@ impl Config {
                 search_matches_anywhere: true,
                 size_format: SizeFormat::Plain,
                 size_digits: 9,
+                time_format: TimeFormat::default(),
                 extension_chars: 4,
                 min_name_chars: 8,
                 max_history: 100,
@@ -646,6 +700,24 @@ mod tests {
         assert_eq!(Comma.column_sample(6), "000,000");
         assert_eq!(Comma.column_sample(7), "0,000,000");
         assert_eq!(Human.column_sample(20), "0000M");
+    }
+
+    #[test]
+    fn time_formats_drop_the_century_and_the_seconds() {
+        let time = LocalDateTime {
+            year: 2006,
+            month: 1,
+            day: 2,
+            hour: 3,
+            minute: 4,
+            second: 5,
+        };
+        let format = |full_year, seconds| TimeFormat { full_year, seconds }.format(time);
+
+        assert_eq!(format(true, true), "2006/01/02 03:04:05");
+        assert_eq!(format(false, true), "06/01/02 03:04:05");
+        assert_eq!(format(true, false), "2006/01/02 03:04");
+        assert_eq!(format(false, false), "06/01/02 03:04");
     }
 
     #[test]
