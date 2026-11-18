@@ -229,6 +229,7 @@ impl App {
             dir: dir.clone(),
             pattern,
             show_hidden: self.active_pane().show_hidden(),
+            max_results: self.config.filelist.max_find_results,
         });
         self.start_operation(OperationKind::Find, dir, names, sources, None, effects);
     }

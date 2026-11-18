@@ -323,6 +323,9 @@ fn read_filelist(root: &mut Reader<'_>, config: &mut Config) {
     if let Some(max) = filelist.limit("max_history") {
         settings.max_history = max;
     }
+    if let Some(max) = filelist.limit("max_find_results") {
+        settings.max_find_results = max;
+    }
     filelist.finish();
 }
 
@@ -1007,18 +1010,21 @@ pdf = "sumatrapdf {paths}"
     #[test]
     fn limits_are_integers_of_one_or_more() {
         let read = |value: &str| {
-            let text = format!("[filelist]\nmax_history = {value}\n[log]\nmax_lines = {value}\n");
+            let text = format!(
+                "[filelist]\nmax_history = {value}\nmax_find_results = {value}\n[log]\nmax_lines = {value}\n"
+            );
             let (config, diagnostics) = parse(&text, Os::Linux).unwrap();
             (
                 config.filelist.max_history,
+                config.filelist.max_find_results,
                 config.log.max_lines,
                 paths(&diagnostics).len(),
             )
         };
 
-        assert_eq!(read("1"), (1, 1, 0));
+        assert_eq!(read("1"), (1, 1, 1, 0));
         for invalid in ["0", "\"\""] {
-            assert_eq!(read(invalid), (100, 1000, 2), "{invalid}");
+            assert_eq!(read(invalid), (100, 10_000, 1000, 3), "{invalid}");
         }
     }
 

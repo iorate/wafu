@@ -73,6 +73,8 @@ pub struct FileListConfig {
     pub min_name_chars: usize,
     /// How many places each pane's history keeps.
     pub max_history: usize,
+    /// How many matches a find collects before it stops.
+    pub max_find_results: usize,
 }
 
 /// How a size in bytes is written in the file list and the information line.
@@ -310,6 +312,7 @@ impl Config {
                 extension_chars: 4,
                 min_name_chars: 8,
                 max_history: 100,
+                max_find_results: 10_000,
             },
             preview: PreviewConfig {
                 text: TextPreviewConfig { hide_log: false },
