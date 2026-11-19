@@ -1388,7 +1388,7 @@ fn palette_filters_commands_and_runs_the_selected_one() {
     let items = harness.popup_items();
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].label, "clear_marks");
-    assert_eq!(items[0].detail, "");
+    assert_eq!(items[0].detail, "`");
     harness.press("Enter");
 
     assert_eq!(harness.popup(), None);
