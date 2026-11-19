@@ -85,6 +85,12 @@ impl Listing {
         self.visible.iter().map(|&index| &self.entries[index])
     }
 
+    /// Every entry in the order read, hidden and filtered ones included.
+    #[must_use]
+    pub fn entries(&self) -> &[Entry] {
+        &self.entries
+    }
+
     /// The location itself, when the I/O layer could read it.
     #[must_use]
     pub fn own(&self) -> Option<&Entry> {

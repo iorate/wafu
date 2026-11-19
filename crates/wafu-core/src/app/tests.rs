@@ -1,4 +1,6 @@
+use std::ffi::OsStr;
 use std::path::{MAIN_SEPARATOR, Path, PathBuf};
+use std::time::Duration;
 
 use super::*;
 use crate::config::{Color, Theme};
@@ -7,7 +9,7 @@ use crate::entry::{
 };
 use crate::listing::{SortKey, SortSpec};
 use crate::pane::InFlight;
-use crate::state::{PaneState, StateFile};
+use crate::state::{CompareState, PaneState, StateFile};
 use crate::test_support::{
     CONFIG_PATH, HOME, Harness, STATE_PATH, config_file, config_source, config_text, dir, file,
     path, rows_at, shown, special, start_msg, start_msg_with,
@@ -800,6 +802,101 @@ fn mark_glob_with_an_invalid_pattern_is_logged_and_keeps_the_marks() {
     assert_eq!(harness.log().len(), 1);
     assert!(harness.log()[0].starts_with("Cannot use pattern \"[\": "));
     assert_eq!(harness.marks(Side::Left), ["a.png"]);
+}
+
+#[test]
+fn mark_compare_adds_marks_by_the_picked_condition_and_opens_on_it_next_time() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(
+        Side::Right,
+        vec![modified("kept", 0), modified("old", 0), modified("same", 0)],
+    );
+    harness.load(
+        Side::Left,
+        vec![
+            modified("kept", 0),
+            modified("missing", 0),
+            modified("old", 10_000),
+            modified("same", 0),
+        ],
+    );
+    harness.press("Down");
+    harness.press("Space");
+
+    harness.press("W");
+    let popup = harness.view().popup.unwrap();
+    assert_eq!(popup.title, "Compare");
+    assert_eq!(popup.cursor, Some(0));
+    harness.press("N");
+
+    assert_eq!(harness.popup(), None);
+    assert_eq!(harness.marks(Side::Left), ["kept", "missing", "old"]);
+    assert_eq!(harness.cursor_name(Side::Left), "missing");
+    assert_eq!(harness.log(), Vec::<String>::new());
+
+    harness.press("W");
+    assert_eq!(harness.view().popup.unwrap().cursor, Some(1));
+    assert_eq!(harness.popup_items()[1].label, "Missing or newer *");
+}
+
+#[test]
+fn mark_compare_matches_the_other_pane_s_hidden_and_filtered_entries_but_marks_only_shown_ones() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    let hidden = Entry {
+        hidden: true,
+        ..file(".h.txt")
+    };
+    harness.load(Side::Right, vec![hidden.clone(), file("b.txt")]);
+    harness.load(
+        Side::Left,
+        vec![hidden, file("a.txt"), file("b.txt"), file("c.png")],
+    );
+    harness.press("Right");
+    harness.press(":");
+    harness.edit("*.png");
+    harness.press("Enter");
+    harness.press("Left");
+    harness.press(".");
+    harness.press(":");
+    harness.edit("*.txt");
+    harness.press("Enter");
+
+    harness.press("W");
+    harness.press("M");
+
+    assert_eq!(harness.marks(Side::Left), ["a.txt"]);
+    assert!(
+        !harness
+            .app()
+            .pane(Side::Left)
+            .is_marked(OsStr::new("c.png"))
+    );
+}
+
+#[test]
+fn mark_compare_uses_the_configured_tolerance() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.config("[filelist]\ncompare_tolerance_ms = 0\n");
+    harness.load(Side::Right, vec![modified("a", 0)]);
+    harness.load(Side::Left, vec![modified("a", 1)]);
+
+    harness.press("W");
+    harness.press("N");
+
+    assert_eq!(harness.marks(Side::Left), ["a"]);
+}
+
+#[test]
+fn mark_compare_without_a_location_on_the_other_pane_is_logged() {
+    let mut harness = right_pane_without_a_place();
+
+    harness.press("W");
+
+    assert_eq!(harness.popup(), None);
+    assert_eq!(
+        harness.log(),
+        ["Cannot compare: the other pane has no location"]
+    );
 }
 
 #[test]
@@ -3271,6 +3368,7 @@ fn start_prefers_the_saved_display_state_and_falls_back_to_the_defaults() {
             sort: Some("no such key".to_owned()),
             ..PaneState::default()
         },
+        compare: CompareState::default(),
         window: None,
         split_percent: Some(95),
         log_rows: Some(0),
@@ -3307,6 +3405,39 @@ fn start_prefers_the_saved_display_state_and_falls_back_to_the_defaults() {
     assert_eq!(view.split_percent, 90);
     assert_eq!(view.log_rows, 1);
     assert_eq!(harness.log(), Vec::<String>::new());
+}
+
+#[test]
+fn start_restores_the_compare_settings() {
+    let mut harness = start_with_compare(CompareState {
+        condition: Some("different".to_owned()),
+        include_dirs: Some(false),
+        ignore_case: Some(false),
+    });
+
+    harness.press("W");
+
+    let popup = harness.view().popup.unwrap();
+    assert_eq!(popup.cursor, Some(2));
+    let items = harness.popup_items();
+    assert_eq!(items[4].kind, ItemKind::Check(false));
+    assert_eq!(items[5].kind, ItemKind::Check(false));
+}
+
+#[test]
+fn start_takes_the_default_compare_settings_for_missing_and_unknown_ones() {
+    let mut harness = start_with_compare(CompareState {
+        condition: Some("bogus".to_owned()),
+        include_dirs: None,
+        ignore_case: None,
+    });
+
+    harness.press("W");
+
+    assert_eq!(harness.view().popup.unwrap().cursor, Some(0));
+    let items = harness.popup_items();
+    assert_eq!(items[4].kind, ItemKind::Check(true));
+    assert_eq!(items[5].kind, ItemKind::Check(true));
 }
 
 #[test]
@@ -3642,6 +3773,9 @@ fn quit_saves_the_state() {
     harness.press("Space");
     harness.press("S");
     harness.press("S");
+    harness.press("W");
+    harness.press("C");
+    harness.press("D");
     harness.press("Alt+Right");
     harness.press("Alt+Up");
     harness.take_effects();
@@ -3668,6 +3802,11 @@ fn quit_saves_the_state() {
             show_hidden: Some(false),
             history: vec![PathBuf::from("/tmp")],
             history_pos: Some(0),
+        },
+        compare: CompareState {
+            condition: Some("different".to_owned()),
+            include_dirs: Some(true),
+            ignore_case: Some(false),
         },
         window: None,
         split_percent: Some(55),
@@ -4052,6 +4191,36 @@ fn right_pane_without_a_place() -> Harness {
     harness.press("Esc");
     harness.take_effects();
     harness
+}
+
+fn start_with_compare(compare: CompareState) -> Harness {
+    let state = StateFile {
+        compare,
+        ..StateFile::default()
+    };
+    let mut harness = Harness::start_from(start_msg_with(
+        Os::Linux,
+        Some("/home/user"),
+        Some("/tmp"),
+        config_source(""),
+        Ok(Some(state)),
+    ));
+    harness.resolve(Side::Left, "/home/user", None);
+    harness.resolve(Side::Right, "/tmp", None);
+    harness.load(Side::Left, vec![]);
+    harness.load(Side::Right, vec![]);
+    harness
+}
+
+fn modified(name: &str, ms: u64) -> Entry {
+    let base = timestamp();
+    Entry {
+        modified: Some(Timestamp {
+            at: base.at + Duration::from_millis(ms),
+            ..base
+        }),
+        ..file(name)
+    }
 }
 
 fn timestamp() -> Timestamp {

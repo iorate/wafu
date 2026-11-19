@@ -39,6 +39,7 @@ const NAMES: &[(Command, &str)] = &[
     (Command::InvertMarks, "invert_marks"),
     (Command::InvertMarksAll, "invert_marks_all"),
     (Command::MarkGlob, "mark_glob"),
+    (Command::MarkCompare, "mark_compare"),
     (Command::NextMark, "next_mark"),
     (Command::PrevMark, "prev_mark"),
     (Command::ClearMarks, "clear_marks"),
@@ -141,6 +142,7 @@ pub enum Command {
     InvertMarks,
     InvertMarksAll,
     MarkGlob,
+    MarkCompare,
     NextMark,
     PrevMark,
     ClearMarks,
@@ -386,6 +388,7 @@ impl Command {
             | Self::OpenWithOs
             | Self::CopyPath
             | Self::CopyName
+            | Self::MarkCompare
             | Self::External(_)
             | Self::Nop => Target::Files,
         }

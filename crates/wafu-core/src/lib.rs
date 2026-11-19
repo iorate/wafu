@@ -8,6 +8,7 @@
 
 mod app;
 mod command;
+mod compare;
 mod config;
 mod entry;
 mod error;
@@ -52,7 +53,7 @@ pub use operation::{
 };
 pub use pane::{DrivePurpose, RequestId};
 pub use preview::{Document, DocumentMode, ImageData, Line};
-pub use state::{PaneState, StateError, StateFile, WindowState};
+pub use state::{CompareState, PaneState, StateError, StateFile, WindowState};
 pub use view::{
     ColorSet, ExtensionColor, Fonts, InputField, ItemKind, LineRanges, LogView, PaneView,
     PopupItem, PopupView, PreviewContent, PreviewLine, PreviewPlacement, PreviewView, ResolvedFont,
