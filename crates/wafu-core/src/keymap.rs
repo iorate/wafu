@@ -43,6 +43,7 @@ const DEFAULT_FILELIST: &[(&str, &str)] = &[
     ("W", "mark_compare"),
     ("Ctrl+:", "next_mark"),
     ("Ctrl+*", "prev_mark"),
+    ("`", "clear_marks"),
     ("C", "copy"),
     ("M", "move"),
     ("D", "delete"),
@@ -99,6 +100,7 @@ const DEFAULT_IMAGE: &[(&str, &str)] = &[
     ("@", "mark_glob"),
     ("Ctrl+:", "next_mark"),
     ("Ctrl+*", "prev_mark"),
+    ("`", "clear_marks"),
     ("F", "search"),
     ("Enter", "close_preview"),
     ("Esc", "close_preview"),
@@ -243,9 +245,8 @@ mod tests {
 
     use super::*;
 
-    const UNBOUND: [Command; 8] = [
+    const UNBOUND: [Command; 7] = [
         Command::SwapPanes,
-        Command::ClearMarks,
         Command::NewFile,
         Command::CopyPath,
         Command::CopyName,
