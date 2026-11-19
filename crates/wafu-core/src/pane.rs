@@ -481,6 +481,12 @@ impl Pane {
         self.rebuild_mark_flags();
     }
 
+    /// Adds marks on the named entries, keeping the marks already there.
+    pub fn add_marks(&mut self, names: impl IntoIterator<Item = OsString>) {
+        self.marks.extend(names);
+        self.rebuild_mark_flags();
+    }
+
     /// Moves to the next marked row, wrapping around.
     pub fn next_mark(&mut self) {
         if let Some(row) = self.find_row_from(self.cursor + 1, Self::row_is_marked) {

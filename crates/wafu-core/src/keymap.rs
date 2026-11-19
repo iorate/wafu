@@ -40,6 +40,7 @@ const DEFAULT_FILELIST: &[(&str, &str)] = &[
     ("A", "invert_marks"),
     ("Shift+A", "invert_marks_all"),
     ("@", "mark_glob"),
+    ("W", "mark_compare"),
     ("Ctrl+:", "next_mark"),
     ("Ctrl+*", "prev_mark"),
     ("C", "copy"),

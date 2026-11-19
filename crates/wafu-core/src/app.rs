@@ -6,6 +6,7 @@ use std::sync::Arc;
 use encoding_rs::Encoding;
 
 use crate::command::Command;
+use crate::compare::CompareSpec;
 use crate::config::Config;
 use crate::entry::Directory;
 use crate::error::{AppError, IoError};
@@ -477,6 +478,8 @@ impl Side {
 pub struct App {
     panes: [Pane; 2],
     active: Side,
+    // One for the app, since a comparison spans both panes.
+    compare: CompareSpec,
     config: Config,
     config_path: PathBuf,
     // What the OS reported; `None` until it does.
@@ -517,6 +520,7 @@ impl App {
                 Pane::new(Location::new(PathBuf::new())),
             ],
             active: Side::Left,
+            compare: CompareSpec::default(),
             color_scheme: None,
             style: Arc::new(Style::from_config(&config, Os::Linux, None)),
             config,
@@ -691,6 +695,7 @@ impl App {
             Command::InvertMarks => pane.invert_marks(false),
             Command::InvertMarksAll => pane.invert_marks(true),
             Command::MarkGlob => self.open_input(InputKind::MarkGlob),
+            Command::MarkCompare => self.open_compare(),
             Command::NextMark => pane.next_mark(),
             Command::PrevMark => pane.prev_mark(),
             Command::ClearMarks => pane.clear_marks(),

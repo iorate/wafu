@@ -9,6 +9,7 @@ use thiserror::Error;
 pub struct StateFile {
     pub left: PaneState,
     pub right: PaneState,
+    pub compare: CompareState,
     pub window: Option<WindowState>,
     pub split_percent: Option<u8>,
     pub log_rows: Option<usize>,
@@ -26,6 +27,16 @@ pub struct PaneState {
     pub show_hidden: Option<bool>,
     pub history: Vec<PathBuf>,
     pub history_pos: Option<usize>,
+}
+
+/// What `mark_compare` last used.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CompareState {
+    /// The condition by name (`missing`, `newer`, or `different`).
+    pub condition: Option<String>,
+    pub include_dirs: Option<bool>,
+    pub ignore_case: Option<bool>,
 }
 
 /// The window's place on the screen in logical pixels. The position is
@@ -77,6 +88,11 @@ mod tests {
                 history_pos: Some(1),
             },
             right: PaneState::default(),
+            compare: CompareState {
+                condition: Some("newer".to_owned()),
+                include_dirs: Some(false),
+                ignore_case: Some(true),
+            },
             window: Some(WindowState {
                 x: Some(-10),
                 y: Some(20),

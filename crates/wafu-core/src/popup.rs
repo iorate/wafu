@@ -5,6 +5,7 @@ use encoding_rs::Encoding;
 
 use crate::app::{Os, Side};
 use crate::command::{Command, Context};
+use crate::compare::{CompareCondition, CompareSpec};
 use crate::config::Bookmark;
 use crate::history::History;
 use crate::key::{Key, KeyBase, NamedKey};
@@ -32,6 +33,35 @@ const SORT_ROWS: [(SortRow, &str, Option<char>); 10] = [
     ),
     (
         SortRow::Flag(SortFlag::IgnoreCase),
+        "Case-insensitive",
+        Some('C'),
+    ),
+];
+
+const COMPARE_ROWS: [(CompareRow, &str, Option<char>); 6] = [
+    (
+        CompareRow::Condition(CompareCondition::Missing),
+        "Missing",
+        Some('M'),
+    ),
+    (
+        CompareRow::Condition(CompareCondition::Newer),
+        "Missing or newer",
+        Some('N'),
+    ),
+    (
+        CompareRow::Condition(CompareCondition::Different),
+        "Missing or different",
+        Some('D'),
+    ),
+    (CompareRow::Separator, "", None),
+    (
+        CompareRow::Flag(CompareFlag::IncludeDirs),
+        "Include directories",
+        Some('I'),
+    ),
+    (
+        CompareRow::Flag(CompareFlag::IgnoreCase),
         "Case-insensitive",
         Some('C'),
     ),
@@ -81,6 +111,7 @@ const CONFLICT_ROWS: [(ConflictRow, &str, Option<char>); 7] = [
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Popup {
     Sort(SortPopup),
+    Compare(ComparePopup),
     Input(InputPopup),
     Search(SearchPopup),
     Palette(PalettePopup),
@@ -93,6 +124,7 @@ impl Popup {
     pub(crate) fn list_rows(&self) -> usize {
         match self {
             Self::Sort(popup) => popup.rows(),
+            Self::Compare(popup) => popup.rows(),
             Self::Palette(popup) => popup.rows(),
             Self::List(popup) => popup.rows(),
             Self::Choice(popup) => popup.rows(),
@@ -104,6 +136,7 @@ impl Popup {
     pub(crate) fn list_cursor(&self) -> usize {
         match self {
             Self::Sort(popup) => popup.cursor(),
+            Self::Compare(popup) => popup.cursor(),
             Self::Palette(popup) => popup.cursor(),
             Self::List(popup) => popup.cursor(),
             Self::Choice(popup) => popup.cursor(),
@@ -118,6 +151,14 @@ impl Popup {
 pub struct SortPopup {
     pub draft: SortSpec,
     /// Row in [`SortPopup::items`]: the sort keys, a separator, then the three toggles.
+    pub cursor: usize,
+}
+
+/// Edits a copy of the compare settings; nothing is applied until confirmed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComparePopup {
+    pub draft: CompareSpec,
+    /// Row in [`ComparePopup::items`]: the conditions, a separator, then the two toggles.
     pub cursor: usize,
 }
 
@@ -359,6 +400,53 @@ impl SortPopup {
             SortFlag::Descending => &mut self.draft.descending,
             SortFlag::DirsFirst => &mut self.draft.dirs_first,
             SortFlag::IgnoreCase => &mut self.draft.ignore_case,
+        }
+    }
+}
+
+impl ComparePopup {
+    #[must_use]
+    pub fn new(compare: CompareSpec) -> Self {
+        Self {
+            draft: compare,
+            cursor: COMPARE_ROWS
+                .iter()
+                .position(|(row, _, _)| *row == CompareRow::Condition(compare.condition))
+                .unwrap_or(0),
+        }
+    }
+
+    #[must_use]
+    pub fn items(&self) -> Vec<PopupItem> {
+        COMPARE_ROWS
+            .iter()
+            .enumerate()
+            .map(|(index, &(row, label, key))| match row {
+                CompareRow::Separator => PopupItem::separator(),
+                _ => PopupItem {
+                    label: if row == CompareRow::Condition(self.draft.condition) {
+                        format!("{label} *")
+                    } else {
+                        label.to_owned()
+                    },
+                    detail: key.map(String::from).unwrap_or_default(),
+                    kind: self.kind(index),
+                },
+            })
+            .collect()
+    }
+
+    fn flag(&self, flag: CompareFlag) -> bool {
+        match flag {
+            CompareFlag::IncludeDirs => self.draft.include_dirs,
+            CompareFlag::IgnoreCase => self.draft.ignore_case,
+        }
+    }
+
+    fn flag_mut(&mut self, flag: CompareFlag) -> &mut bool {
+        match flag {
+            CompareFlag::IncludeDirs => &mut self.draft.include_dirs,
+            CompareFlag::IgnoreCase => &mut self.draft.ignore_case,
         }
     }
 }
@@ -892,6 +980,19 @@ enum SortFlag {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CompareRow {
+    Condition(CompareCondition),
+    Separator,
+    Flag(CompareFlag),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CompareFlag {
+    IncludeDirs,
+    IgnoreCase,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ConflictRow {
     Separator,
     Choice(ConflictChoice),
@@ -943,6 +1044,55 @@ impl Menu for SortPopup {
     }
 
     fn confirm(&mut self) -> Response<SortSpec> {
+        Response::Pick(self.draft)
+    }
+}
+
+impl Menu for ComparePopup {
+    type Pick = CompareSpec;
+
+    fn rows(&self) -> usize {
+        COMPARE_ROWS.len()
+    }
+
+    fn kind(&self, row: usize) -> ItemKind {
+        match COMPARE_ROWS[row].0 {
+            CompareRow::Condition(_) => ItemKind::Choice,
+            CompareRow::Separator => ItemKind::Separator,
+            CompareRow::Flag(flag) => ItemKind::Check(self.flag(flag)),
+        }
+    }
+
+    fn cursor(&self) -> usize {
+        self.cursor
+    }
+
+    fn set_cursor(&mut self, row: usize) {
+        self.cursor = row;
+    }
+
+    fn row_for_key(&self, key: char) -> Option<usize> {
+        COMPARE_ROWS.iter().position(|(_, _, row_key)| {
+            row_key.is_some_and(|row_key| row_key.eq_ignore_ascii_case(&key))
+        })
+    }
+
+    fn run(&mut self, row: usize) -> Response<CompareSpec> {
+        match COMPARE_ROWS[row].0 {
+            CompareRow::Condition(condition) => {
+                self.draft.condition = condition;
+                Response::Pick(self.draft)
+            }
+            CompareRow::Separator => Response::Stay,
+            CompareRow::Flag(flag) => {
+                let flag = self.flag_mut(flag);
+                *flag = !*flag;
+                Response::Stay
+            }
+        }
+    }
+
+    fn confirm(&mut self) -> Response<CompareSpec> {
         Response::Pick(self.draft)
     }
 }
@@ -1231,6 +1381,49 @@ mod tests {
         assert_eq!(
             menu_input(&mut popup, key("Enter")),
             Response::Pick(toggled)
+        );
+    }
+
+    #[test]
+    fn compare_popup_opens_on_the_remembered_condition() {
+        let popup = ComparePopup::new(CompareSpec {
+            condition: CompareCondition::Newer,
+            include_dirs: false,
+            ignore_case: true,
+        });
+
+        assert_eq!(popup.cursor, 1);
+        let items = popup.items();
+        let rows: Vec<(&str, &str, ItemKind)> = items
+            .iter()
+            .map(|i| (i.label.as_str(), i.detail.as_str(), i.kind))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("Missing", "M", ItemKind::Choice),
+                ("Missing or newer *", "N", ItemKind::Choice),
+                ("Missing or different", "D", ItemKind::Choice),
+                ("", "", ItemKind::Separator),
+                ("Include directories", "I", ItemKind::Check(false)),
+                ("Case-insensitive", "C", ItemKind::Check(true)),
+            ]
+        );
+    }
+
+    #[test]
+    fn compare_popup_letters_flip_toggles_and_pick_a_condition_with_them() {
+        let mut popup = ComparePopup::new(CompareSpec::default());
+
+        assert_eq!(menu_input(&mut popup, key("I")), Response::Stay);
+        assert_eq!(menu_input(&mut popup, key("C")), Response::Stay);
+        assert_eq!(
+            menu_input(&mut popup, key("D")),
+            Response::Pick(CompareSpec {
+                condition: CompareCondition::Different,
+                include_dirs: false,
+                ignore_case: false,
+            })
         );
     }
 

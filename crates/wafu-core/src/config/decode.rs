@@ -245,6 +245,16 @@ impl<'a> Reader<'a> {
         }
     }
 
+    fn non_negative(&mut self, key: &str) -> Option<u64> {
+        match self.table.remove(key)? {
+            Value::Integer(value) if value >= 0 => u64::try_from(value).ok(),
+            _ => {
+                self.invalid(key, "an integer of 0 or more");
+                None
+            }
+        }
+    }
+
     fn count(&mut self, key: &str, min: usize, max: usize) -> Option<usize> {
         let count = match self.table.remove(key)? {
             Value::Integer(value) => usize::try_from(value)
@@ -327,6 +337,9 @@ fn read_filelist(root: &mut Reader<'_>, config: &mut Config) {
     }
     if let Some(max) = filelist.limit("max_find_results") {
         settings.max_find_results = max;
+    }
+    if let Some(ms) = filelist.non_negative("compare_tolerance_ms") {
+        settings.compare_tolerance_ms = ms;
     }
     filelist.finish();
 }
@@ -1054,6 +1067,23 @@ pdf = "sumatrapdf {paths}"
                 (100, 10_000, 16 * 1024 * 1024, 64 * 1024 * 1024, 1000, 5),
                 "{invalid}"
             );
+        }
+    }
+
+    #[test]
+    fn compare_tolerance_is_an_integer_of_zero_or_more() {
+        let read = |value: &str| {
+            let text = format!("[filelist]\ncompare_tolerance_ms = {value}\n");
+            let (config, diagnostics) = parse(&text, Os::Linux).unwrap();
+            (
+                config.filelist.compare_tolerance_ms,
+                paths(&diagnostics).len(),
+            )
+        };
+
+        assert_eq!(read("0"), (0, 0));
+        for invalid in ["-1", "\"\""] {
+            assert_eq!(read(invalid), (2000, 1), "{invalid}");
         }
     }
 

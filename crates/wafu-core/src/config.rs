@@ -77,6 +77,9 @@ pub struct FileListConfig {
     pub max_history: usize,
     /// How many matches a find collects before it stops.
     pub max_find_results: usize,
+    /// How far apart two modification times may be, in milliseconds, for
+    /// `mark_compare` to take them as the same.
+    pub compare_tolerance_ms: u64,
 }
 
 /// How a size in bytes is written in the file list's size column.
@@ -379,6 +382,8 @@ impl Config {
                 min_name_chars: 8,
                 max_history: 100,
                 max_find_results: 10_000,
+                // FAT and zip keep times in steps of two seconds.
+                compare_tolerance_ms: 2000,
             },
             preview: PreviewConfig {
                 text: TextPreviewConfig {

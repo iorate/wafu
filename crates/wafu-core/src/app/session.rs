@@ -6,6 +6,7 @@ use super::{
     SpawnName, Start,
 };
 use crate::command::Command;
+use crate::compare::{CompareCondition, CompareSpec};
 use crate::config::{Config, parse_config};
 use crate::entry::Entry;
 use crate::error::{AppError, IoError};
@@ -15,7 +16,7 @@ use crate::listing::{SortKey, SortSpec};
 use crate::location::Location;
 use crate::pane::Pane;
 use crate::popup::{InputKind, InputPopup, Popup};
-use crate::state::{PaneState, StateFile};
+use crate::state::{CompareState, PaneState, StateFile};
 use crate::view::{Style, extension_colors};
 
 impl App {
@@ -68,6 +69,7 @@ impl App {
                 self.log
                     .set_viewport_rows(rows.clamp(super::LOG_ROWS_MIN, super::LOG_ROWS_MAX));
             }
+            self.compare = restore_compare(&state.compare);
         }
         effects.push(Effect::WatchConfig(self.config_path.clone()));
         effects.push(Effect::WatchColorScheme);
@@ -139,6 +141,11 @@ impl App {
         StateFile {
             left: pane_state(Side::Left),
             right: pane_state(Side::Right),
+            compare: CompareState {
+                condition: Some(self.compare.condition.name().to_owned()),
+                include_dirs: Some(self.compare.include_dirs),
+                ignore_case: Some(self.compare.ignore_case),
+            },
             window: None,
             split_percent: Some(self.split_percent),
             log_rows: Some(self.log.viewport_rows()),
@@ -390,5 +397,18 @@ impl App {
             args: line.expand(expansion),
             cwd: expansion.dir.clone(),
         });
+    }
+}
+
+fn restore_compare(state: &CompareState) -> CompareSpec {
+    let default = CompareSpec::default();
+    CompareSpec {
+        condition: state
+            .condition
+            .as_deref()
+            .and_then(CompareCondition::from_name)
+            .unwrap_or(default.condition),
+        include_dirs: state.include_dirs.unwrap_or(default.include_dirs),
+        ignore_case: state.ignore_case.unwrap_or(default.ignore_case),
     }
 }

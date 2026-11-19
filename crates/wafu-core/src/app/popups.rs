@@ -1,7 +1,9 @@
 use std::mem::{Discriminant, discriminant};
+use std::time::Duration;
 
 use super::{App, Effect, MouseInput, Side};
 use crate::command::Command;
+use crate::compare::{CompareSpec, names_to_mark};
 use crate::error::AppError;
 use crate::filter::Filter;
 use crate::key::{Key, KeyBase, NamedKey};
@@ -10,9 +12,9 @@ use crate::operation::{OperationKind, Reply};
 use crate::pane::HistoryMove;
 use crate::path::resolve_input;
 use crate::popup::{
-    ChoiceKind, ConflictChoice, ConflictPopup, InputKind, InputPopup, ListItem, ListPopup,
-    ListTarget, MenuInput, PalettePopup, PasswordPurpose, Popup, Response, SearchPopup, SortPopup,
-    menu_input,
+    ChoiceKind, ComparePopup, ConflictChoice, ConflictPopup, InputKind, InputPopup, ListItem,
+    ListPopup, ListTarget, MenuInput, PalettePopup, PasswordPurpose, Popup, Response, SearchPopup,
+    SortPopup, menu_input,
 };
 use crate::text::show_line_breaks;
 use crate::view::{InputField, ItemKind, PopupItem, PopupView};
@@ -21,6 +23,21 @@ impl App {
     pub(super) fn open_sort(&mut self) {
         let sort = self.active_pane().sort();
         self.popup = Some(Popup::Sort(SortPopup::new(sort)));
+    }
+
+    pub(super) fn open_compare(&mut self) {
+        if self
+            .pane(self.active.other())
+            .location()
+            .base
+            .as_os_str()
+            .is_empty()
+        {
+            self.log
+                .push(AppError::NoOtherLocation { verb: "compare" }.to_string());
+            return;
+        }
+        self.popup = Some(Popup::Compare(ComparePopup::new(self.compare)));
     }
 
     pub(super) fn open_input(&mut self, kind: InputKind) {
@@ -178,6 +195,7 @@ impl App {
             }
             Some(
                 Popup::Sort(_)
+                | Popup::Compare(_)
                 | Popup::List(_)
                 | Popup::Choice(_)
                 | Popup::Conflict(_)
@@ -220,7 +238,7 @@ impl App {
                 _ => None,
             },
             Popup::List(popup) => popup.selected().and_then(|item| item.source.clone()),
-            Popup::Sort(_) | Popup::Choice(_) | Popup::Conflict(_) => None,
+            Popup::Sort(_) | Popup::Compare(_) | Popup::Choice(_) | Popup::Conflict(_) => None,
         };
         let label = view
             .and_then(|view| Some(view.items.as_ref()?.get(view.cursor?)?.label.clone()))
@@ -235,6 +253,12 @@ impl App {
         let view = match popup {
             Popup::Sort(popup) => PopupView {
                 title: "Sort".to_owned(),
+                items: Some(popup.items()),
+                cursor: Some(popup.cursor),
+                ..PopupView::default()
+            },
+            Popup::Compare(popup) => PopupView {
+                title: "Compare".to_owned(),
                 items: Some(popup.items()),
                 cursor: Some(popup.cursor),
                 ..PopupView::default()
@@ -501,6 +525,11 @@ impl App {
                 Response::Pick(sort) => self.active_pane_mut().set_sort(sort),
                 Response::Close => {}
             },
+            Popup::Compare(mut popup) => match menu_input(&mut popup, input) {
+                Response::Stay => self.popup = Some(Popup::Compare(popup)),
+                Response::Pick(compare) => self.mark_compared(compare),
+                Response::Close => {}
+            },
             Popup::Choice(mut popup) => {
                 let response = menu_input(&mut popup, input);
                 if response == Response::Stay {
@@ -540,6 +569,19 @@ impl App {
             },
             Popup::Input(_) | Popup::Search(_) => self.popup = Some(popup),
         }
+    }
+
+    fn mark_compared(&mut self, compare: CompareSpec) {
+        self.compare = compare;
+        let tolerance = Duration::from_millis(self.config.filelist.compare_tolerance_ms);
+        let names = names_to_mark(
+            self.active_pane().listing().visible_entries(),
+            // A copy collides with what is there whether it is shown or not.
+            self.pane(self.active.other()).listing().entries(),
+            compare,
+            tolerance,
+        );
+        self.active_pane_mut().add_marks(names);
     }
 
     fn answer_conflict(

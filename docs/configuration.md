@@ -63,6 +63,7 @@ extension_chars = 4
 min_name_chars = 8
 max_history = 100
 max_find_results = 10000
+compare_tolerance_ms = 2000
 
 [preview.text]
 hide_log = false
@@ -137,6 +138,7 @@ There are no default bookmarks, external commands, [`open_alternative` programs]
 | `min_name_chars` | How many characters of a name a narrow pane still shows before cutting off the other columns: an integer from 1 to 255. |
 | `max_history` | How many places each pane's history keeps, for `history`, `history_back`, and `history_forward`: an integer of 1 or more. |
 | `max_find_results` | How many matches `find` collects before it stops: an integer of 1 or more. |
+| `compare_tolerance_ms` | How many milliseconds apart two modification times may be for `mark_compare` to take them as the same: an integer of 0 or more. `0` compares them exactly. |
 
 ## Preview
 
