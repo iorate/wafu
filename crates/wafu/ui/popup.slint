@@ -162,7 +162,7 @@ component PopupInput {
                     // Esc goes to the core. With one field Tab and the unmodified
                     // arrows and page keys do too; with more Tab and the unmodified
                     // arrows move between the fields, which is the UI's business
-                    // alone. The modified ones stay with the field.
+                    // alone.
                     key-pressed(event) => {
                         if event.text == Key.Escape {
                             root.key-input(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt, event.modifiers.meta);
