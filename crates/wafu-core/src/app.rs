@@ -120,6 +120,9 @@ pub enum MouseInput {
     PopupDoubleClick { row: usize },
     /// Wheel movement over the popup's list, in rows.
     PopupWheel { rows: i32 },
+    /// The scrollbar of the popup's wrapped list was dragged; same as
+    /// `ScrollTo`, in items.
+    PopupScrollTo { top: usize },
 }
 
 /// What the application starts from. The pane paths need not exist yet; the
@@ -826,7 +829,8 @@ impl App {
             | MouseInput::PreviewDoubleClick
             | MouseInput::PopupClick { .. }
             | MouseInput::PopupDoubleClick { .. }
-            | MouseInput::PopupWheel { .. } => {}
+            | MouseInput::PopupWheel { .. }
+            | MouseInput::PopupScrollTo { .. } => {}
         }
     }
 

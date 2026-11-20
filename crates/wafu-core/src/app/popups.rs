@@ -172,6 +172,12 @@ impl App {
                 self.scroll_popup(rows);
                 return;
             }
+            MouseInput::PopupScrollTo { top } => {
+                if let Some(Popup::Rename(popup)) = &mut self.popup {
+                    popup.scroll_to(top, self.popup_rows);
+                }
+                return;
+            }
             _ => return,
         };
         if let Some(popup) = self.popup.take() {
@@ -288,6 +294,7 @@ impl App {
                 shown: lines(view.shown),
                 before: lines(view.before),
                 tail: lines(view.tail),
+                ..view
             }),
             items: view.items.map(|items| {
                 items

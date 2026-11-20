@@ -365,7 +365,8 @@ pub enum ListTarget {
 }
 
 /// Renames entries of one directory at once by one rule, with the list of
-/// what each becomes. The targets are fixed when it opens.
+/// the targets whose name changes and what each becomes. The targets are
+/// fixed when it opens.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenamePopup {
     pub mode: RenameMode,
@@ -377,7 +378,7 @@ pub struct RenamePopup {
     pub siblings: bool,
     pub fields: Vec<InputField>,
     pub plan: RenamePlan,
-    /// The item at the top of the list.
+    /// The item at the top of the list, counted among the items it lists.
     pub top: usize,
     rows: LineRows,
 }
@@ -988,7 +989,29 @@ impl RenamePopup {
             RenameMode::Template => RenameInput::Template(text(0)),
         };
         let existing = self.siblings.then_some(listing);
-        self.plan = RenamePlan::new(&self.targets, input, existing, os);
+        let old = std::mem::replace(
+            &mut self.plan,
+            RenamePlan::new(&self.targets, input, existing, os),
+        );
+        // The UI measures only the items it is handed anew, so a count kept
+        // where another item or name now takes the index could stand for an
+        // item that never reports.
+        let mut old = renamed(&old.names);
+        let mut new = renamed(&self.plan.names);
+        let mut index = 0;
+        loop {
+            let (before, after) = (old.next(), new.next());
+            if before.is_none() && after.is_none() {
+                break;
+            }
+            if before != after {
+                self.rows.forget(index);
+            }
+            index += 1;
+        }
+        // Past the last item nothing is shown or measured, so nothing would
+        // bring the top back.
+        self.top = self.top.min(self.count().saturating_sub(1));
     }
 
     pub fn set_text(&mut self, field: usize, text: String) {
@@ -999,26 +1022,30 @@ impl RenamePopup {
 
     /// Takes how many rows items take, by index, as the UI measured them.
     pub fn set_line_rows(&mut self, lines: &[(usize, usize)], area: usize) {
+        let count = self.count();
         for &(index, rows) in lines {
-            if index < self.targets.len() {
+            if index < count {
                 self.rows.set(index, rows);
             }
         }
-        self.top = scroll::pull_back(self.top, self.targets.len(), area, |index| {
-            self.rows.get(index)
-        });
+        self.top = scroll::pull_back(self.top, count, area, |index| self.rows.get(index));
     }
 
     /// Scrolls by a number of items; positive moves towards the end.
     pub fn scroll_by(&mut self, delta: i64, area: usize) {
-        self.top = scroll::move_by(self.top, delta, self.targets.len(), area, |index| {
+        self.top = scroll::move_by(self.top, delta, self.count(), area, |index| {
             self.rows.get(index)
         });
     }
 
+    /// Puts `top` at the top of the list, or the end if it lies beyond.
+    pub fn scroll_to(&mut self, top: usize, area: usize) {
+        self.top = top.min(self.end(area));
+    }
+
     /// Scrolls for an arrow, page, Home, or End key; other keys do nothing.
     pub fn scroll_key(&mut self, key: KeyBase, area: usize) {
-        let count = self.targets.len();
+        let count = self.count();
         let rows = |index| self.rows.get(index);
         self.top = match key {
             KeyBase::Named(NamedKey::Up) => scroll::move_by(self.top, -1, count, area, rows),
@@ -1055,24 +1082,33 @@ impl RenamePopup {
     /// display order.
     #[must_use]
     pub fn pairs(&self) -> Vec<(String, String)> {
-        self.targets
-            .iter()
-            .zip(&self.plan.names)
-            .filter_map(|(target, new)| {
-                Some((target.name.to_string_lossy().into_owned(), new.clone()?))
+        renamed(&self.plan.names)
+            .map(|(target, new)| {
+                (
+                    self.targets[target].name.to_string_lossy().into_owned(),
+                    new.to_owned(),
+                )
             })
             .collect()
     }
 
-    /// The items to lay out or measure with the top at `self.top`.
+    /// The items to lay out or measure with the top at `self.top`: the
+    /// targets whose name changes, in display order.
     #[must_use]
     pub fn lines(&self, area: usize) -> PopupLines {
-        let ranges = scroll::ranges(self.top, self.targets.len(), area);
+        let count = self.count();
+        let ranges = scroll::ranges(self.top, count, area);
         let lines = |range: Range<usize>| {
-            range
-                .map(|index| PopupLine {
+            renamed(&self.plan.names)
+                .enumerate()
+                .skip(range.start)
+                .take(range.len())
+                .map(|(index, (target, new))| PopupLine {
                     index,
-                    text: self.label(index),
+                    text: format!(
+                        "{} \u{2192} {new}",
+                        self.targets[target].name.to_string_lossy()
+                    ),
                 })
                 .collect()
         };
@@ -1080,15 +1116,18 @@ impl RenamePopup {
             shown: lines(ranges.shown),
             before: lines(ranges.before),
             tail: lines(ranges.tail),
+            scroll_top: self.top,
+            count,
+            end: self.end(area),
         }
     }
 
-    fn label(&self, index: usize) -> String {
-        let old = self.targets[index].name.to_string_lossy();
-        match self.plan.names.get(index).and_then(Option::as_deref) {
-            Some(new) => format!("{old} \u{2192} {new}"),
-            None => old.into_owned(),
-        }
+    fn count(&self) -> usize {
+        renamed(&self.plan.names).count()
+    }
+
+    fn end(&self, area: usize) -> usize {
+        scroll::end(self.count(), area, |index| self.rows.get(index))
     }
 }
 
@@ -1541,6 +1580,13 @@ fn matches(context: Context, os: Os, externals: &[String], query: &str) -> Vec<C
         .filter(|(name, _)| name.to_lowercase().contains(&query))
         .map(|(_, command)| command)
         .collect()
+}
+
+fn renamed(names: &[Option<String>]) -> impl Iterator<Item = (usize, &str)> {
+    names
+        .iter()
+        .enumerate()
+        .filter_map(|(index, name)| Some((index, name.as_deref()?)))
 }
 
 #[cfg(test)]

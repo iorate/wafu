@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::app::{Effect, Msg, Side};
+use crate::app::{Effect, MouseInput, Msg, Side};
 use crate::entry::Entry;
 use crate::error::IoError;
 use crate::location::Location;
@@ -34,7 +34,6 @@ fn rename_replace_opens_on_the_marks_with_two_empty_fields_and_the_hint() {
         popup.note.as_deref(),
         Some("Replaces every occurrence, ignoring case")
     );
-    assert_eq!(shown_items(&harness), ["a", "c"]);
 }
 
 #[test]
@@ -118,14 +117,15 @@ fn a_batch_rename_on_the_parent_row_renames_the_directory_itself_whatever_its_li
 }
 
 #[test]
-fn the_list_shows_what_each_target_becomes_and_the_note_the_first_error() {
+fn the_list_shows_only_the_targets_that_change_and_the_note_the_first_error() {
     let mut harness = marked(&["a1", "b1", "c"], &["a1", "b1"]);
     harness.press("Shift+R");
 
     harness.edit("a1");
     harness.edit_field(1, "c");
 
-    assert_eq!(shown_items(&harness), ["a1 \u{2192} c", "b1"]);
+    assert_eq!(shown_items(&harness), ["a1 \u{2192} c"]);
+    assert_eq!(harness.view().popup.unwrap().lines.unwrap().count, 1);
     assert_eq!(
         harness.view().popup.unwrap().note.as_deref(),
         Some("a1 \u{2192} c: already exists")
@@ -357,6 +357,16 @@ fn the_wheel_scrolls_the_list() {
 }
 
 #[test]
+fn the_scrollbar_puts_an_item_at_the_top_up_to_the_end() {
+    let mut harness = long_list(20);
+
+    harness.send(Msg::Mouse(MouseInput::PopupScrollTo { top: 7 }));
+    assert_eq!(top(&harness), 7);
+    harness.send(Msg::Mouse(MouseInput::PopupScrollTo { top: 100 }));
+    assert_eq!(top(&harness), 15);
+}
+
+#[test]
 fn the_top_item_stays_as_the_list_changes_and_comes_back_once_the_end_unwraps() {
     let mut harness = long_list(20);
     let tail: Vec<(usize, usize)> = (15..20).map(|index| (index, 2)).collect();
@@ -376,6 +386,33 @@ fn the_top_item_stays_as_the_list_changes_and_comes_back_once_the_end_unwraps() 
         lines: unwrapped,
     });
     assert_eq!(top(&harness), 15);
+}
+
+#[test]
+fn a_list_that_shrinks_past_the_top_brings_it_back_to_its_last_item() {
+    let mut harness = replacing_all(20);
+    harness.press("Alt+End");
+    assert_eq!(top(&harness), 15);
+
+    harness.edit("f0");
+
+    assert_eq!(top(&harness), 9);
+}
+
+#[test]
+fn rows_measured_for_the_item_that_had_an_index_do_not_pull_the_top_back() {
+    let mut harness = replacing_all(20);
+    harness.press("Alt+End");
+    // `f10` to `f19` take the indices of `f00` to `f09`.
+    harness.edit("f1");
+    assert_eq!(top(&harness), 9);
+
+    harness.send(Msg::PopupLineRows {
+        area: Some(5),
+        lines: Vec::new(),
+    });
+
+    assert_eq!(top(&harness), 9);
 }
 
 #[test]
@@ -422,13 +459,31 @@ fn renaming() -> Harness {
     harness
 }
 
-// A template popup on `count` files, its list five rows high and every item
-// measured at one row.
+// A template popup on `count` files that renames them all, its list five rows
+// high and every item measured at one row.
 fn long_list(count: usize) -> Harness {
     let names: Vec<String> = (0..count).map(|index| format!("f{index:02}")).collect();
     let names: Vec<&str> = names.iter().map(String::as_str).collect();
     let mut harness = marked(&names, &names);
     harness.press("Alt+R");
+    harness.edit("x{name}");
+    harness.send(Msg::PopupLineRows {
+        area: Some(5),
+        lines: (0..count).map(|index| (index, 1)).collect(),
+    });
+    harness.take_effects();
+    harness
+}
+
+// A replace popup on `count` files that renames them all, its list five rows
+// high and every item measured at one row.
+fn replacing_all(count: usize) -> Harness {
+    let names: Vec<String> = (0..count).map(|index| format!("f{index:02}")).collect();
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    let mut harness = marked(&names, &names);
+    harness.press("Shift+R");
+    harness.edit("f");
+    harness.edit_field(1, "g");
     harness.send(Msg::PopupLineRows {
         area: Some(5),
         lines: (0..count).map(|index| (index, 1)).collect(),

@@ -617,6 +617,13 @@ impl Ui {
                 ui.queue_line_rows(|queue| &mut queue.popup, index, rows);
             }
         });
+
+        let weak = Rc::downgrade(ui);
+        ui.window.on_popup_lines_scroll_to(move |top| {
+            if let Some(ui) = Weak::upgrade(&weak) {
+                ui.dispatch(Msg::Mouse(MouseInput::PopupScrollTo { top: top_of(top) }));
+            }
+        });
     }
 
     fn connect_dividers(ui: &Rc<Self>) {
@@ -1262,6 +1269,9 @@ fn popup_data(popup: Option<&PopupView>) -> PopupData {
                 .and_then(|cursor| i32::try_from(cursor).ok())
                 .unwrap_or(-1),
             scroll_top: i32::try_from(popup.scroll_top).unwrap_or(i32::MAX),
+            line_top: line_scroll(popup, |lines| lines.scroll_top),
+            line_count: line_scroll(popup, |lines| lines.count),
+            line_end: line_scroll(popup, |lines| lines.end),
             progress: popup.progress,
             generation: i32::try_from(popup.generation).unwrap_or(i32::MAX),
         },
@@ -1275,10 +1285,17 @@ fn popup_data(popup: Option<&PopupView>) -> PopupData {
             has_lines: false,
             cursor: -1,
             scroll_top: 0,
+            line_top: 0,
+            line_count: 0,
+            line_end: 0,
             progress: false,
             generation: 0,
         },
     }
+}
+
+fn line_scroll(popup: &PopupView, value: fn(&PopupLines) -> usize) -> i32 {
+    i32::try_from(popup.lines.as_ref().map_or(0, value)).unwrap_or(i32::MAX)
 }
 
 fn popup_fields(popup: Option<&PopupView>) -> Vec<PopupField> {

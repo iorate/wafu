@@ -206,6 +206,11 @@ pub struct PopupLines {
     pub shown: Vec<PopupLine>,
     pub before: Vec<PopupLine>,
     pub tail: Vec<PopupLine>,
+    /// The item at the top of the list out of `count`, and the furthest the
+    /// top can go, as in [`LogView`].
+    pub scroll_top: usize,
+    pub count: usize,
+    pub end: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

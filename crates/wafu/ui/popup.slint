@@ -1,4 +1,5 @@
 import { CheckBox, ListView, Palette } from "std-widgets.slint";
+import { ScrollBar } from "scrollbar.slint";
 import { Theme } from "theme.slint";
 
 export struct PopupItem {
@@ -19,6 +20,9 @@ export struct PopupData {
     has-lines: bool,
     cursor: int,
     scroll-top: int,
+    line-top: int,
+    line-count: int,
+    line-end: int,
     // Reports work going on in the background and may be shown late.
     progress: bool,
     generation: int,
@@ -251,6 +255,7 @@ export component PopupOverlay {
     callback wheel(delta: length);
     callback lines-rows-changed(rows: int);
     callback line-rows(index: int, rows: int);
+    callback lines-scroll-to(top: int);
 
     // Wrapped text keeps the margin that one line has in a row.
     property <length> row-margin: Theme.popup-row-height - one-line.preferred-height;
@@ -259,7 +264,8 @@ export component PopupOverlay {
     property <bool> wraps-message: !data.progress;
     property <length> message-height: data.message == "" ? 0px : !root.wraps-message ? Theme.popup-row-height : wrapped-message.preferred-height + root.row-margin;
     property <length> note-height: data.note == "" ? 0px : wrapped-note.preferred-height + root.row-margin;
-    property <length> fixed-height: (1 + fields.length) * Theme.popup-row-height + root.message-height + root.note-height + fields.length * 6px + 16px;
+    property <length> separator-height: data.has-lines ? Theme.line-width + 8px : 0px;
+    property <length> fixed-height: (1 + fields.length) * Theme.popup-row-height + root.message-height + root.note-height + root.separator-height + fields.length * 6px + 16px;
     property <int> max-rows: max(1, min(12, floor((root.height - 40px - fixed-height) / Theme.popup-row-height)));
     property <int> list-rows: fields.length > 0 ? max-rows : min(items.length, max-rows);
     // The field with the focus, counted from the top. It goes back to the
@@ -309,7 +315,9 @@ export component PopupOverlay {
     // What a row adds to a wrapped item. A Text's preferred height is rounded
     // up to a whole pixel, so ten rows' difference is taken.
     property <length> line-row-pitch: (eleven-lines.preferred-height - one-line.preferred-height) / 10;
-    property <length> line-width: panel.width - 16px - 8px;
+    // Kept whether or not the scrollbar is shown, so that the scrollbar never
+    // changes how many rows the items take.
+    property <length> line-width: panel.width - 16px - 8px - Theme.scrollbar-gutter;
 
     eleven-lines := PopupText {
         visible: false;
@@ -447,6 +455,16 @@ export component PopupOverlay {
             }
 
             if data.has-lines: Rectangle {
+                height: root.separator-height;
+
+                Rectangle {
+                    y: (parent.height - self.height) / 2;
+                    height: Theme.line-width;
+                    background: Palette.border;
+                }
+            }
+
+            if data.has-lines: Rectangle {
                 property <int> rows: root.list-rows;
 
                 height: root.list-rows * Theme.popup-row-height;
@@ -463,7 +481,7 @@ export component PopupOverlay {
 
                 VerticalLayout {
                     padding-left: 4px;
-                    padding-right: 4px;
+                    padding-right: 4px + Theme.scrollbar-gutter;
                     alignment: start;
 
                     for line in root.lines-shown: PopupLineText {
@@ -484,6 +502,22 @@ export component PopupOverlay {
                     scroll-event(event) => {
                         root.wheel(event.delta-y);
                         accept
+                    }
+                }
+
+                ScrollBar {
+                    x: parent.width - self.width;
+                    height: parent.height;
+                    top: root.data.line-top;
+                    rows: root.data.line-count;
+                    visible-rows: root.data.line-count - root.data.line-end;
+
+                    scroll-to(top) => {
+                        root.lines-scroll-to(top);
+                    }
+
+                    wheel(delta) => {
+                        root.wheel(delta);
                     }
                 }
             }
