@@ -3133,6 +3133,112 @@ fn listing_drives_during_a_reload_reads_again_once_the_list_arrives() {
     assert_eq!(harness.popup_labels(), ["C:\\"]);
 }
 
+#[test]
+fn browse_opens_the_dialog_at_the_directory_of_the_active_pane() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.press("Tab");
+    harness.take_effects();
+
+    harness.press("T");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::PickDirectory {
+            dir: PathBuf::from("/tmp"),
+            request: harness.latest_browse(),
+        }]
+    );
+}
+
+#[test]
+fn a_directory_picked_in_the_dialog_is_resolved_without_climbing() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.press("T");
+    harness.take_effects();
+
+    let picked = PathBuf::from("/tmp").join("docs");
+    harness.pick(Some(picked.clone()));
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Resolve {
+            side: Side::Left,
+            path: picked,
+            climb: false,
+            request: harness.latest_resolve(Side::Left),
+        }]
+    );
+}
+
+#[test]
+fn a_cancelled_dialog_does_nothing_and_logs_nothing() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.press("T");
+    harness.take_effects();
+
+    harness.pick(None);
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert!(harness.app().pane(Side::Left).loading().is_none());
+    assert_eq!(harness.log(), Vec::<String>::new());
+}
+
+#[test]
+fn keys_are_ignored_while_the_dialog_is_open_and_no_popup_shows() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a"), file("b")]);
+    harness.press("T");
+    harness.take_effects();
+
+    harness.press("Down");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.view().left.cursor, Some(0));
+    assert!(harness.view().popup.is_none());
+}
+
+#[test]
+fn a_change_while_the_dialog_is_open_is_read_once_it_closes() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.press("T");
+    harness.changed(Side::Left);
+    harness.take_effects();
+
+    harness.pick(None);
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::ReadDir {
+            side: Side::Left,
+            ..
+        }]
+    ));
+}
+
+#[test]
+fn escape_while_the_dialog_is_open_frees_the_app_and_drops_the_later_pick() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a"), file("b")]);
+    harness.press("T");
+    harness.take_effects();
+
+    let stale = harness.latest_browse();
+
+    harness.press("Esc");
+    harness.press("Down");
+
+    assert_eq!(harness.view().left.cursor, Some(1));
+
+    harness.press("T");
+    harness.take_effects();
+    harness.send(Msg::Io(IoEvent::DirectoryPicked {
+        request: stale,
+        path: Some(PathBuf::from("/tmp")),
+    }));
+
+    assert_eq!(harness.take_effects(), vec![]);
+}
+
 #[cfg(windows)]
 #[test]
 fn drive_switching_wraps_and_remembers_the_last_place_on_each_drive() {

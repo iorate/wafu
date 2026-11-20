@@ -31,6 +31,7 @@ pub(crate) struct Harness {
     resolves: [Option<RequestId>; 2],
     preview_request: Option<RequestId>,
     drives_request: Option<RequestId>,
+    browse_request: Option<RequestId>,
 }
 
 impl Harness {
@@ -95,6 +96,7 @@ impl Harness {
             resolves: [None, None],
             preview_request: None,
             drives_request: None,
+            browse_request: None,
         };
         harness.send(msg);
         harness
@@ -114,6 +116,7 @@ impl Harness {
                     self.preview_request = Some(*request);
                 }
                 Effect::ListDrives { request, .. } => self.drives_request = Some(*request),
+                Effect::PickDirectory { request, .. } => self.browse_request = Some(*request),
                 _ => {}
             }
         }
@@ -426,6 +429,11 @@ impl Harness {
         }));
     }
 
+    pub(crate) fn pick(&mut self, path: Option<PathBuf>) {
+        let request = self.latest_browse();
+        self.send(Msg::Io(IoEvent::DirectoryPicked { request, path }));
+    }
+
     // Reports a change in the directory a side is showing.
     pub(crate) fn changed(&mut self, side: Side) {
         let path = self.app.pane(side).location().base.clone();
@@ -443,6 +451,11 @@ impl Harness {
     pub(crate) fn latest_drives(&self) -> RequestId {
         self.drives_request
             .expect("a ListDrives request should have been issued")
+    }
+
+    pub(crate) fn latest_browse(&self) -> RequestId {
+        self.browse_request
+            .expect("a PickDirectory request should have been issued")
     }
 
     pub(crate) fn take_effects(&mut self) -> Vec<Effect> {

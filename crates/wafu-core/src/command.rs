@@ -11,6 +11,7 @@ const NAMES: &[(Command, &str)] = &[
     (Command::GoRoot, "go_root"),
     (Command::GoHome, "go_home"),
     (Command::GoToPath, "go_to_path"),
+    (Command::Browse, "browse"),
     (Command::Find, "find"),
     (Command::Bookmarks, "bookmarks"),
     (Command::History, "history"),
@@ -112,6 +113,7 @@ pub enum Command {
     GoRoot,
     GoHome,
     GoToPath,
+    Browse,
     Find,
     Bookmarks,
     History,
@@ -352,6 +354,7 @@ impl Command {
             | Self::GoRoot
             | Self::GoHome
             | Self::GoToPath
+            | Self::Browse
             | Self::Find
             | Self::Bookmarks
             | Self::History

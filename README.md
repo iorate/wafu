@@ -37,6 +37,8 @@ sudo apt install libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libxkbcom
 cargo install --locked wafu
 ```
 
+The directory dialog of `browse` needs an XDG Desktop Portal backend with a file chooser (GTK, GNOME, or KDE) or, failing that, `zenity`.
+
 ## Configuration
 
 Settings, colors, bookmarks, external commands, and key bindings live in a TOML file. See [docs/configuration.md](https://github.com/iorate/wafu/blob/main/docs/configuration.md).

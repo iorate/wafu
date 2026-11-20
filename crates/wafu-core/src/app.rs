@@ -264,6 +264,12 @@ pub enum Effect {
         paths: Vec<PathBuf>,
         anchor: MenuAnchor,
     },
+    /// Opens the OS's dialog for picking a directory, starting at `dir`; it
+    /// reports through `IoEvent::DirectoryPicked`.
+    PickDirectory {
+        dir: PathBuf,
+        request: RequestId,
+    },
 }
 
 /// Where a context menu opens.
@@ -436,6 +442,12 @@ pub enum IoEvent {
     /// The shell menu was closed, or could not be shown.
     ShellMenuClosed {
         error: Option<IoError>,
+    },
+    /// The directory dialog was closed. `path` is `None` when it was
+    /// cancelled or could not be shown, which cannot be told apart.
+    DirectoryPicked {
+        request: RequestId,
+        path: Option<PathBuf>,
     },
 }
 
@@ -732,6 +744,7 @@ impl App {
             Command::GoToPath => self.open_input(InputKind::GoToPath {
                 dir: self.active_pane().location().base.clone(),
             }),
+            Command::Browse => self.browse(effects),
             Command::Find => self.open_find(),
             Command::Bookmarks => self.open_bookmarks(),
             Command::History => self.open_history(),
@@ -887,6 +900,9 @@ impl App {
                     self.log
                         .push(AppError::ShellMenuFailed { source }.to_string());
                 }
+            }
+            IoEvent::DirectoryPicked { request, path } => {
+                self.directory_picked(request, path, effects);
             }
         }
     }

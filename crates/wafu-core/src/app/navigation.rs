@@ -17,7 +17,10 @@ impl App {
             matches!(
                 pane.loading(),
                 Some(
-                    InFlight::Resolve { .. } | InFlight::Navigate { .. } | InFlight::Drives { .. }
+                    InFlight::Resolve { .. }
+                        | InFlight::Navigate { .. }
+                        | InFlight::Drives { .. }
+                        | InFlight::Browse { .. }
                 )
             )
         })
@@ -27,7 +30,7 @@ impl App {
         match self.earliest_navigation()?.1 {
             InFlight::Resolve { path, .. } => Some(path.display().to_string()),
             InFlight::Navigate { target, .. } => Some(target.to_string()),
-            InFlight::Refresh { .. } | InFlight::Drives { .. } => None,
+            InFlight::Refresh { .. } | InFlight::Drives { .. } | InFlight::Browse { .. } => None,
         }
     }
 
@@ -116,7 +119,12 @@ impl App {
         let pane = &self.panes[side.index()];
         if !matches!(
             pane.loading(),
-            Some(InFlight::Navigate { .. } | InFlight::Resolve { .. } | InFlight::Drives { .. })
+            Some(
+                InFlight::Navigate { .. }
+                    | InFlight::Resolve { .. }
+                    | InFlight::Drives { .. }
+                    | InFlight::Browse { .. }
+            )
         ) {
             Self::rewatch(side, pane, effects);
         }
@@ -152,8 +160,8 @@ impl App {
         let Some((side, in_flight)) = self.earliest_navigation() else {
             return;
         };
-        if matches!(in_flight, InFlight::Drives { .. }) {
-            self.stop_listing_drives(side, effects);
+        if matches!(in_flight, InFlight::Drives { .. } | InFlight::Browse { .. }) {
+            self.stop_waiting(side, effects);
             return;
         }
         let pane = &mut self.panes[side.index()];
@@ -223,7 +231,8 @@ impl App {
                     return;
                 }
             },
-            Some(InFlight::Resolve { .. } | InFlight::Drives { .. }) | None => return,
+            Some(InFlight::Resolve { .. } | InFlight::Drives { .. } | InFlight::Browse { .. })
+            | None => return,
         }
         let pane = &mut self.panes[side.index()];
         if pane.reload_pending() {
@@ -393,7 +402,7 @@ impl App {
                 }
             }
             Some(InFlight::Resolve { .. }) => {}
-            Some(InFlight::Drives { .. }) => {
+            Some(InFlight::Drives { .. } | InFlight::Browse { .. }) => {
                 if pane.location().base == path {
                     pane.set_reload_pending(true);
                 }
@@ -659,10 +668,7 @@ impl App {
             return;
         }
         let side = self.active;
-        let pane = &mut self.panes[side.index()];
-        let reload = pane.reload_pending() || pane.loading().is_some();
-        Self::cancel_loading(pane, effects);
-        pane.set_reload_pending(reload);
+        Self::cancel_loading_keeping_reload(&mut self.panes[side.index()], effects);
         let request = self.next_request_id();
         effects.push(Effect::ListDrives { request });
         self.panes[side.index()].set_loading(Some(InFlight::Drives { request, purpose }));
@@ -685,7 +691,7 @@ impl App {
         letters.sort_unstable();
         letters.dedup();
         if purpose == DrivePurpose::Show {
-            self.stop_listing_drives(side, effects);
+            self.stop_waiting(side, effects);
             self.open_drives(&letters);
             return;
         }
@@ -706,7 +712,7 @@ impl App {
             Some(letter) if self.drive_of_active() != Some(letter) => {
                 self.switch_drive(letter, effects);
             }
-            _ => self.stop_listing_drives(side, effects),
+            _ => self.stop_waiting(side, effects),
         }
     }
 
@@ -727,6 +733,35 @@ impl App {
         drive_letter(&self.active_pane().location().base)
     }
 
+    // Not every OS keeps input from the window while its dialog is open, so
+    // the wait holds input off as a move does, and the pane that asked is
+    // still the active one when the answer arrives.
+    pub(super) fn browse(&mut self, effects: &mut Vec<Effect>) {
+        let side = self.active;
+        let pane = &mut self.panes[side.index()];
+        let dir = pane.location().dir().to_path_buf();
+        Self::cancel_loading_keeping_reload(pane, effects);
+        let request = self.next_request_id();
+        effects.push(Effect::PickDirectory { dir, request });
+        self.panes[side.index()].set_loading(Some(InFlight::Browse { request }));
+    }
+
+    pub(super) fn directory_picked(
+        &mut self,
+        request: RequestId,
+        path: Option<PathBuf>,
+        effects: &mut Vec<Effect>,
+    ) {
+        let side = self.active;
+        if self.active_pane().loading() != Some(&InFlight::Browse { request }) {
+            return;
+        }
+        match path {
+            Some(path) => self.resolve(side, path, false, None, effects),
+            None => self.stop_waiting(side, effects),
+        }
+    }
+
     pub(super) fn next_request_id(&mut self) -> RequestId {
         let request = RequestId(self.next_request);
         self.next_request += 1;
@@ -740,7 +775,8 @@ impl App {
                 Some(
                     in_flight @ (InFlight::Resolve { .. }
                     | InFlight::Navigate { .. }
-                    | InFlight::Drives { .. }),
+                    | InFlight::Drives { .. }
+                    | InFlight::Browse { .. }),
                 ) => Some((side, in_flight)),
                 _ => None,
             })
@@ -749,7 +785,7 @@ impl App {
 
     fn cancel_loading(pane: &mut Pane, effects: &mut Vec<Effect>) {
         match pane.take_loading() {
-            Some(InFlight::Drives { .. }) | None => {}
+            Some(InFlight::Drives { .. } | InFlight::Browse { .. }) | None => {}
             Some(in_flight) => effects.push(Effect::CancelRead {
                 request: in_flight.request(),
             }),
@@ -757,7 +793,13 @@ impl App {
         pane.set_reload_pending(false);
     }
 
-    fn stop_listing_drives(&mut self, side: Side, effects: &mut Vec<Effect>) {
+    fn cancel_loading_keeping_reload(pane: &mut Pane, effects: &mut Vec<Effect>) {
+        let reload = pane.reload_pending() || pane.loading().is_some();
+        Self::cancel_loading(pane, effects);
+        pane.set_reload_pending(reload);
+    }
+
+    fn stop_waiting(&mut self, side: Side, effects: &mut Vec<Effect>) {
         let pane = &mut self.panes[side.index()];
         pane.set_loading(None);
         if pane.reload_pending() {
