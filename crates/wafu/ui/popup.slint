@@ -170,7 +170,8 @@ component PopupInput {
                             root.key-input(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt, event.modifiers.meta);
                             return accept;
                         }
-                        let tab = (event.text == Key.Tab && plain) || (event.text == Key.Backtab && !event.modifiers.control && !event.modifiers.alt && !event.modifiers.meta);
+                        // Shift+Tab arrives as Backtab or as Tab with Shift, depending on the platform.
+                        let tab = (event.text == Key.Tab || event.text == Key.Backtab) && !event.modifiers.control && !event.modifiers.alt && !event.modifiers.meta;
                         let arrow = plain && (event.text == Key.UpArrow || event.text == Key.DownArrow);
                         let page = plain && (event.text == Key.PageUp || event.text == Key.PageDown);
                         if event.text == Key.Tab || event.text == Key.Backtab || arrow {
