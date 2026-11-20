@@ -108,8 +108,7 @@ impl App {
 
     // The popup is taken out first and put back unless the key closed it.
     pub(super) fn popup_key(&mut self, key: Key, effects: &mut Vec<Effect>) {
-        // As in the file list, a key with a modifier is another key, and a
-        // popup has none of those.
+        // As in the file list, a key with a modifier is another key.
         if key.modified() {
             return;
         }

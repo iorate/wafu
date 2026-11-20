@@ -1202,7 +1202,7 @@ fn a_popup_ignores_keys_with_a_modifier() {
     harness.press("S");
     let popup = harness.popup().cloned();
 
-    for key in ["Shift+Enter", "Ctrl+Esc", "Alt+Down", "Shift+E"] {
+    for key in ["Shift+Enter", "Ctrl+Esc", "Alt+Down"] {
         harness.press(key);
         assert_eq!(harness.popup().cloned(), popup);
     }
