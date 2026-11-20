@@ -2007,6 +2007,16 @@ fn the_popup_list_keeps_the_cursor_in_view() {
 }
 
 #[test]
+fn page_down_in_a_popup_list_moves_by_the_visible_rows() {
+    let mut harness = many_bookmarks();
+
+    harness.press("PageDown");
+
+    let popup = harness.view().popup.unwrap();
+    assert_eq!((popup.scroll_top, popup.cursor), (1, Some(5)));
+}
+
+#[test]
 fn filtering_the_palette_scrolls_back_to_the_top() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.send(Msg::PopupRows { rows: 5 });

@@ -520,18 +520,18 @@ impl App {
     // `Menu` only changes its own popup.
     fn menu(&mut self, popup: Popup, input: MenuInput, effects: &mut Vec<Effect>) {
         match popup {
-            Popup::Sort(mut popup) => match menu_input(&mut popup, input) {
+            Popup::Sort(mut popup) => match menu_input(&mut popup, input, self.popup_rows) {
                 Response::Stay => self.popup = Some(Popup::Sort(popup)),
                 Response::Pick(sort) => self.active_pane_mut().set_sort(sort),
                 Response::Close => {}
             },
-            Popup::Compare(mut popup) => match menu_input(&mut popup, input) {
+            Popup::Compare(mut popup) => match menu_input(&mut popup, input, self.popup_rows) {
                 Response::Stay => self.popup = Some(Popup::Compare(popup)),
                 Response::Pick(compare) => self.mark_compared(compare),
                 Response::Close => {}
             },
             Popup::Choice(mut popup) => {
-                let response = menu_input(&mut popup, input);
+                let response = menu_input(&mut popup, input, self.popup_rows);
                 if response == Response::Stay {
                     self.popup = Some(Popup::Choice(popup));
                     return;
@@ -552,17 +552,17 @@ impl App {
                     }
                 }
             }
-            Popup::Conflict(mut popup) => match menu_input(&mut popup, input) {
+            Popup::Conflict(mut popup) => match menu_input(&mut popup, input, self.popup_rows) {
                 Response::Stay => self.popup = Some(Popup::Conflict(popup)),
                 Response::Pick(choice) => self.answer_conflict(popup, choice, effects),
                 Response::Close => self.reply(Reply::Cancel, effects),
             },
-            Popup::List(mut popup) => match menu_input(&mut popup, input) {
+            Popup::List(mut popup) => match menu_input(&mut popup, input, self.popup_rows) {
                 Response::Stay => self.popup = Some(Popup::List(popup)),
                 Response::Pick(item) => self.pick_list_item(item, effects),
                 Response::Close => {}
             },
-            Popup::Palette(mut popup) => match menu_input(&mut popup, input) {
+            Popup::Palette(mut popup) => match menu_input(&mut popup, input, self.popup_rows) {
                 Response::Stay => self.popup = Some(Popup::Palette(popup)),
                 Response::Pick(command) => self.run_command(command, effects),
                 Response::Close => {}
