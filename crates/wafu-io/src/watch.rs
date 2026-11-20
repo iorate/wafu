@@ -7,11 +7,9 @@ use std::sync::{Arc, Mutex, Weak};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
-#[cfg(target_os = "macos")]
-use icu_normalizer::ComposingNormalizer;
 use notify::event::{AccessKind, AccessMode, ModifyKind};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher as _};
-use wafu_core::{ConfigContent, ConfigFile, IoError, IoEvent, Side, read_config_chain};
+use wafu_core::{ConfigContent, ConfigFile, IoError, IoEvent, Side, nfc, read_config_chain};
 
 use crate::config::read_text;
 use crate::runtime::{OnEvent, lock};
@@ -475,26 +473,19 @@ fn names_entry(event: &Event, name: Option<&OsStr>) -> bool {
 }
 
 // The OS reports a name as spelled on disk, while the watched path comes from
-// input or a bookmark: the case may differ on either system, and APFS may
-// keep the name decomposed.
-#[cfg(target_os = "macos")]
+// input or a bookmark: the name on disk may be decomposed, and on Windows and
+// macOS the case may differ. Taking two names for one only reads once more.
 fn same_name(reported: &OsStr, watched: &OsStr) -> bool {
     let fold = |name: &OsStr| {
-        ComposingNormalizer::new_nfc()
-            .normalize(&name.to_string_lossy())
-            .to_lowercase()
+        let name = name.to_string_lossy();
+        let name = nfc(&name);
+        if cfg!(any(windows, target_os = "macos")) {
+            name.to_lowercase()
+        } else {
+            name.into_owned()
+        }
     };
     fold(reported) == fold(watched)
-}
-
-#[cfg(windows)]
-fn same_name(reported: &OsStr, watched: &OsStr) -> bool {
-    reported.to_string_lossy().to_lowercase() == watched.to_string_lossy().to_lowercase()
-}
-
-#[cfg(not(any(windows, target_os = "macos")))]
-fn same_name(reported: &OsStr, watched: &OsStr) -> bool {
-    reported == watched
 }
 
 // Opening or reading the directory is reported as an access on Linux, and the
@@ -738,29 +729,20 @@ pub(crate) mod tests {
         ));
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
     fn same_name_ignores_normalization() {
         assert!(same_name(
             OsStr::new("\u{304b}\u{3099}"),
             OsStr::new("\u{304c}")
         ));
-        assert!(same_name(
-            OsStr::new("\u{30ac}.ZIP"),
-            OsStr::new("\u{30ab}\u{3099}.zip")
-        ));
     }
 
     #[cfg(not(any(windows, target_os = "macos")))]
     #[test]
-    fn same_name_compares_bytes() {
+    fn same_name_tells_the_case_apart() {
         assert!(!same_name(
             OsStr::new("Archive.zip"),
             OsStr::new("archive.ZIP")
-        ));
-        assert!(!same_name(
-            OsStr::new("\u{304b}\u{3099}"),
-            OsStr::new("\u{304c}")
         ));
     }
 

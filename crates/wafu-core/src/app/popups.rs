@@ -16,7 +16,7 @@ use crate::popup::{
     ListPopup, ListTarget, MenuInput, PalettePopup, PasswordPurpose, Popup, Response, SearchPopup,
     SortPopup, menu_input,
 };
-use crate::text::show_line_breaks;
+use crate::text::{same_name, show_line_breaks};
 use crate::view::{InputField, ItemKind, PopupItem, PopupView};
 
 impl App {
@@ -475,7 +475,7 @@ impl App {
                 let name = text;
                 let same = dest
                     .file_name()
-                    .is_some_and(|current| current.to_string_lossy() == name);
+                    .is_some_and(|current| same_name(&current.to_string_lossy(), &name));
                 if name.is_empty() || same {
                     self.popup = Some(Popup::Conflict(ConflictPopup::new(source, dest, all)));
                 } else {

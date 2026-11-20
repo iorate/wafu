@@ -421,6 +421,22 @@ fn rename_in_a_conflict_to_an_empty_name_goes_back() {
     assert_eq!(harness.take_effects(), vec![]);
 }
 
+#[test]
+fn rename_in_a_conflict_to_the_same_name_composed_differently_goes_back() {
+    let mut harness = copying();
+    harness.operation(OperationEvent::Conflict {
+        source: path(LEFT, "a"),
+        dest: path(RIGHT, "\u{304b}\u{3099}"),
+    });
+    harness.press("R");
+    harness.edit("\u{304c}");
+
+    harness.press("Enter");
+
+    assert_eq!(harness.view().popup.unwrap().title, "File exists");
+    assert_eq!(harness.take_effects(), vec![]);
+}
+
 #[cfg(unix)]
 #[test]
 fn rename_in_a_conflict_left_unchanged_on_a_non_utf8_name_goes_back() {
@@ -924,6 +940,20 @@ fn rename_to_the_same_name_does_nothing() {
 
     harness.press("R");
     harness.edit("a.tar.gz");
+    harness.press("Enter");
+
+    assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
+fn rename_to_the_same_name_composed_differently_does_nothing() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("\u{304b}\u{3099}")]);
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("R");
+    harness.edit("\u{304c}");
     harness.press("Enter");
 
     assert_eq!(harness.take_effects(), vec![]);
