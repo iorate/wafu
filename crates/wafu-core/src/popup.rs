@@ -1242,33 +1242,56 @@ impl Menu for PalettePopup {
     }
 }
 
-pub(crate) fn menu_input<M: Menu>(menu: &mut M, input: MenuInput) -> Response<M::Pick> {
+pub(crate) fn menu_input<M: Menu>(
+    menu: &mut M,
+    input: MenuInput,
+    page: usize,
+) -> Response<M::Pick> {
     match input {
-        MenuInput::Key(key) => match key.base {
-            KeyBase::Named(NamedKey::Escape) => Response::Close,
-            KeyBase::Named(NamedKey::Enter) => match menu.kind(menu.cursor()) {
-                ItemKind::Check(_) => menu.confirm(),
-                _ => menu.run(menu.cursor()),
-            },
-            KeyBase::Named(NamedKey::Space)
-                if matches!(menu.kind(menu.cursor()), ItemKind::Check(_)) =>
-            {
-                menu.run(menu.cursor())
+        MenuInput::Key(key) => {
+            let plain = !key.ctrl && !key.shift && !key.alt;
+            match key.base {
+                KeyBase::Named(NamedKey::Escape) => Response::Close,
+                KeyBase::Named(NamedKey::Enter) => match menu.kind(menu.cursor()) {
+                    ItemKind::Check(_) => menu.confirm(),
+                    _ => menu.run(menu.cursor()),
+                },
+                KeyBase::Named(NamedKey::Space)
+                    if matches!(menu.kind(menu.cursor()), ItemKind::Check(_)) =>
+                {
+                    menu.run(menu.cursor())
+                }
+                KeyBase::Named(NamedKey::Up) => {
+                    menu.cursor_up();
+                    Response::Stay
+                }
+                KeyBase::Named(NamedKey::Down) => {
+                    menu.cursor_down();
+                    Response::Stay
+                }
+                KeyBase::Named(NamedKey::PageUp) if plain => {
+                    move_cursor(menu, menu.cursor().saturating_sub(page), false);
+                    Response::Stay
+                }
+                KeyBase::Named(NamedKey::PageDown) if plain => {
+                    move_cursor(menu, menu.cursor().saturating_add(page), true);
+                    Response::Stay
+                }
+                KeyBase::Named(NamedKey::Home) if plain => {
+                    move_cursor(menu, 0, false);
+                    Response::Stay
+                }
+                KeyBase::Named(NamedKey::End) if plain => {
+                    move_cursor(menu, usize::MAX, true);
+                    Response::Stay
+                }
+                KeyBase::Char(c) if !key.ctrl && !key.alt => match menu.row_for_key(c) {
+                    Some(row) => menu.run(row),
+                    None => Response::Stay,
+                },
+                _ => Response::Stay,
             }
-            KeyBase::Named(NamedKey::Up) => {
-                menu.cursor_up();
-                Response::Stay
-            }
-            KeyBase::Named(NamedKey::Down) => {
-                menu.cursor_down();
-                Response::Stay
-            }
-            KeyBase::Char(c) if !key.ctrl && !key.alt => match menu.row_for_key(c) {
-                Some(row) => menu.run(row),
-                None => Response::Stay,
-            },
-            _ => Response::Stay,
-        },
+        }
         MenuInput::Click { row } => {
             if selectable(menu, row) {
                 menu.set_cursor(row);
@@ -1288,6 +1311,24 @@ pub(crate) fn menu_input<M: Menu>(menu: &mut M, input: MenuInput) -> Response<M:
 
 fn selectable<M: Menu>(menu: &M, row: usize) -> bool {
     row < menu.rows() && menu.kind(row) != ItemKind::Separator
+}
+
+fn move_cursor<M: Menu>(menu: &mut M, target: usize, forward: bool) {
+    let rows = menu.rows();
+    let target = target.min(rows.saturating_sub(1));
+    let row = if forward {
+        (target..rows)
+            .chain((0..target).rev())
+            .find(|&row| selectable(menu, row))
+    } else {
+        (0..=target)
+            .rev()
+            .chain(target + 1..rows)
+            .find(|&row| selectable(menu, row))
+    };
+    if let Some(row) = row {
+        menu.set_cursor(row);
+    }
 }
 
 fn matches(context: Context, os: Os, externals: &[String], query: &str) -> Vec<Command> {
@@ -1313,6 +1354,8 @@ fn matches(context: Context, os: Os, externals: &[String], query: &str) -> Vec<C
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const PAGE: usize = 3;
 
     #[test]
     fn sort_popup_opens_on_the_current_key() {
@@ -1349,9 +1392,9 @@ mod tests {
     fn sort_popup_letters_flip_toggles_and_pick_a_key_with_them() {
         let mut popup = SortPopup::new(SortSpec::default());
 
-        assert_eq!(menu_input(&mut popup, key("D")), Response::Stay);
-        assert_eq!(menu_input(&mut popup, key("G")), Response::Stay);
-        assert_eq!(menu_input(&mut popup, key("C")), Response::Stay);
+        assert_eq!(menu_input(&mut popup, key("D"), PAGE), Response::Stay);
+        assert_eq!(menu_input(&mut popup, key("G"), PAGE), Response::Stay);
+        assert_eq!(menu_input(&mut popup, key("C"), PAGE), Response::Stay);
         let toggled = SortSpec {
             descending: true,
             dirs_first: false,
@@ -1360,7 +1403,7 @@ mod tests {
         };
         assert_eq!(popup.draft, toggled);
         assert_eq!(
-            menu_input(&mut popup, key("E")),
+            menu_input(&mut popup, key("E"), PAGE),
             Response::Pick(SortSpec {
                 key: SortKey::Extension,
                 ..toggled
@@ -1373,13 +1416,13 @@ mod tests {
         let mut popup = SortPopup::new(SortSpec::default());
         popup.cursor = 7;
 
-        assert_eq!(menu_input(&mut popup, key("Space")), Response::Stay);
+        assert_eq!(menu_input(&mut popup, key("Space"), PAGE), Response::Stay);
         let toggled = SortSpec {
             descending: true,
             ..SortSpec::default()
         };
         assert_eq!(
-            menu_input(&mut popup, key("Enter")),
+            menu_input(&mut popup, key("Enter"), PAGE),
             Response::Pick(toggled)
         );
     }
@@ -1415,10 +1458,10 @@ mod tests {
     fn compare_popup_letters_flip_toggles_and_pick_a_condition_with_them() {
         let mut popup = ComparePopup::new(CompareSpec::default());
 
-        assert_eq!(menu_input(&mut popup, key("I")), Response::Stay);
-        assert_eq!(menu_input(&mut popup, key("C")), Response::Stay);
+        assert_eq!(menu_input(&mut popup, key("I"), PAGE), Response::Stay);
+        assert_eq!(menu_input(&mut popup, key("C"), PAGE), Response::Stay);
         assert_eq!(
-            menu_input(&mut popup, key("D")),
+            menu_input(&mut popup, key("D"), PAGE),
             Response::Pick(CompareSpec {
                 condition: CompareCondition::Different,
                 include_dirs: false,
@@ -1490,10 +1533,79 @@ mod tests {
     fn menu_input_moves_the_cursor_with_up_and_down() {
         let mut popup = conflict_popup();
 
-        assert_eq!(menu_input(&mut popup, key("Down")), Response::Stay);
+        assert_eq!(menu_input(&mut popup, key("Down"), PAGE), Response::Stay);
         assert_eq!(popup.cursor, 2);
-        assert_eq!(menu_input(&mut popup, key("Up")), Response::Stay);
+        assert_eq!(menu_input(&mut popup, key("Up"), PAGE), Response::Stay);
         assert_eq!(popup.cursor, 1);
+    }
+
+    #[test]
+    fn menu_input_moves_the_cursor_by_a_page_without_wrapping() {
+        let mut popup = conflict_popup();
+
+        assert_eq!(
+            menu_input(&mut popup, key("PageDown"), PAGE),
+            Response::Stay
+        );
+        assert_eq!(popup.cursor, 4);
+        menu_input(&mut popup, key("PageDown"), PAGE);
+        assert_eq!(popup.cursor, 6);
+        menu_input(&mut popup, key("PageDown"), PAGE);
+        assert_eq!(popup.cursor, 6);
+        assert_eq!(menu_input(&mut popup, key("PageUp"), PAGE), Response::Stay);
+        assert_eq!(popup.cursor, 3);
+        menu_input(&mut popup, key("PageUp"), PAGE);
+        assert_eq!(popup.cursor, 1);
+        menu_input(&mut popup, key("PageUp"), PAGE);
+        assert_eq!(popup.cursor, 1);
+    }
+
+    #[test]
+    fn menu_input_moves_the_cursor_to_the_ends_with_home_and_end() {
+        let mut popup = conflict_popup();
+
+        assert_eq!(menu_input(&mut popup, key("End"), PAGE), Response::Stay);
+        assert_eq!(popup.cursor, 6);
+        assert_eq!(menu_input(&mut popup, key("Home"), PAGE), Response::Stay);
+        assert_eq!(popup.cursor, 1);
+    }
+
+    #[test]
+    fn menu_input_passes_a_separator_in_the_direction_of_a_page_move() {
+        let mut popup = SortPopup::new(SortSpec::default());
+
+        popup.cursor = 3;
+        menu_input(&mut popup, key("PageDown"), PAGE);
+        assert_eq!(popup.cursor, 7);
+        popup.cursor = 9;
+        menu_input(&mut popup, key("PageUp"), PAGE);
+        assert_eq!(popup.cursor, 5);
+    }
+
+    #[test]
+    fn menu_input_page_keys_leave_an_empty_list_alone() {
+        let mut popup = PalettePopup::new(Context::FileList, Os::Linux, Vec::new());
+        popup.set_query("no such command".to_owned());
+
+        assert_eq!(
+            menu_input(&mut popup, key("PageDown"), PAGE),
+            Response::Stay
+        );
+    }
+
+    #[test]
+    fn menu_input_ignores_page_home_and_end_with_modifiers() {
+        let mut popup = conflict_popup();
+
+        for text in ["Shift+PageDown", "Alt+PageDown", "Ctrl+End", "Alt+End"] {
+            menu_input(&mut popup, key(text), PAGE);
+            assert_eq!(popup.cursor, 1);
+        }
+        popup.cursor = 6;
+        for text in ["Shift+PageUp", "Alt+PageUp", "Ctrl+Home", "Alt+Home"] {
+            menu_input(&mut popup, key(text), PAGE);
+            assert_eq!(popup.cursor, 6);
+        }
     }
 
     #[test]
@@ -1502,11 +1614,11 @@ mod tests {
 
         popup.cursor = 2;
         assert_eq!(
-            menu_input(&mut popup, key("Enter")),
+            menu_input(&mut popup, key("Enter"), PAGE),
             Response::Pick(ConflictChoice::Skip)
         );
         popup.cursor = 6;
-        assert_eq!(menu_input(&mut popup, key("Enter")), Response::Stay);
+        assert_eq!(menu_input(&mut popup, key("Enter"), PAGE), Response::Stay);
         assert!(!popup.all);
     }
 
@@ -1514,10 +1626,10 @@ mod tests {
     fn menu_input_space_toggles_a_check_row_only() {
         let mut popup = conflict_popup();
 
-        assert_eq!(menu_input(&mut popup, key("Space")), Response::Stay);
+        assert_eq!(menu_input(&mut popup, key("Space"), PAGE), Response::Stay);
         assert_eq!(popup, conflict_popup());
         popup.cursor = 6;
-        assert_eq!(menu_input(&mut popup, key("Space")), Response::Stay);
+        assert_eq!(menu_input(&mut popup, key("Space"), PAGE), Response::Stay);
         assert!(popup.all);
     }
 
@@ -1525,11 +1637,11 @@ mod tests {
     fn menu_input_letters_run_their_row_without_moving_the_cursor() {
         let mut popup = conflict_popup();
 
-        assert_eq!(menu_input(&mut popup, key("A")), Response::Stay);
+        assert_eq!(menu_input(&mut popup, key("A"), PAGE), Response::Stay);
         assert_eq!((popup.cursor, popup.all), (1, true));
-        assert_eq!(menu_input(&mut popup, key("X")), Response::Stay);
+        assert_eq!(menu_input(&mut popup, key("X"), PAGE), Response::Stay);
         assert_eq!(
-            menu_input(&mut popup, key("Shift+O")),
+            menu_input(&mut popup, key("Shift+O"), PAGE),
             Response::Pick(ConflictChoice::Overwrite)
         );
     }
@@ -1538,15 +1650,15 @@ mod tests {
     fn menu_input_ignores_letters_with_ctrl_or_alt() {
         let mut popup = conflict_popup();
 
-        assert_eq!(menu_input(&mut popup, key("Ctrl+O")), Response::Stay);
-        assert_eq!(menu_input(&mut popup, key("Alt+O")), Response::Stay);
+        assert_eq!(menu_input(&mut popup, key("Ctrl+O"), PAGE), Response::Stay);
+        assert_eq!(menu_input(&mut popup, key("Alt+O"), PAGE), Response::Stay);
     }
 
     #[test]
     fn menu_input_closes_on_escape() {
         let mut popup = conflict_popup();
 
-        assert_eq!(menu_input(&mut popup, key("Esc")), Response::Close);
+        assert_eq!(menu_input(&mut popup, key("Esc"), PAGE), Response::Close);
     }
 
     #[test]
@@ -1554,31 +1666,31 @@ mod tests {
         let mut popup = ConflictPopup::new(PathBuf::from("/a/x"), PathBuf::from("/b/x"), false);
 
         assert_eq!(
-            menu_input(&mut popup, MenuInput::Click { row: 6 }),
+            menu_input(&mut popup, MenuInput::Click { row: 6 }, PAGE),
             Response::Stay
         );
         assert_eq!((popup.cursor, popup.all), (6, false));
         assert_eq!(
-            menu_input(&mut popup, MenuInput::Click { row: 5 }),
+            menu_input(&mut popup, MenuInput::Click { row: 5 }, PAGE),
             Response::Stay
         );
         assert_eq!(popup.cursor, 6);
         assert_eq!(
-            menu_input(&mut popup, MenuInput::DoubleClick { row: 5 }),
+            menu_input(&mut popup, MenuInput::DoubleClick { row: 5 }, PAGE),
             Response::Stay
         );
         assert_eq!(
-            menu_input(&mut popup, MenuInput::Click { row: 7 }),
+            menu_input(&mut popup, MenuInput::Click { row: 7 }, PAGE),
             Response::Stay
         );
         assert_eq!(popup.cursor, 6);
         assert_eq!(
-            menu_input(&mut popup, MenuInput::DoubleClick { row: 6 }),
+            menu_input(&mut popup, MenuInput::DoubleClick { row: 6 }, PAGE),
             Response::Stay
         );
         assert!(popup.all);
         assert_eq!(
-            menu_input(&mut popup, MenuInput::DoubleClick { row: 3 }),
+            menu_input(&mut popup, MenuInput::DoubleClick { row: 3 }, PAGE),
             Response::Pick(ConflictChoice::Rename)
         );
         assert_eq!(popup.cursor, 3);
@@ -1731,7 +1843,7 @@ mod tests {
         assert_eq!(popup.cursor, 1);
         assert!(!popup.filters());
         assert_eq!(
-            menu_input(&mut popup, key("C")),
+            menu_input(&mut popup, key("C"), PAGE),
             Response::Pick(popup.items[0].clone())
         );
         assert_eq!(popup.empty_message(), "No drives");
@@ -1753,14 +1865,14 @@ mod tests {
         assert_eq!(popup.cursor, 1);
         assert_eq!(popup.selected().unwrap().label, shown("/Downloads"));
         assert_eq!(
-            menu_input(&mut popup, key("Enter")),
+            menu_input(&mut popup, key("Enter"), PAGE),
             Response::Pick(popup.items[2].clone())
         );
 
         popup.set_query("mus".to_owned());
         assert_eq!(labels(&popup), [shown("/Music")]);
         assert_eq!(
-            menu_input(&mut popup, MenuInput::DoubleClick { row: 0 }),
+            menu_input(&mut popup, MenuInput::DoubleClick { row: 0 }, PAGE),
             Response::Pick(popup.items[0].clone())
         );
 
@@ -1785,7 +1897,7 @@ mod tests {
         popup.cursor_down();
 
         assert_eq!(popup.selected(), None);
-        assert_eq!(menu_input(&mut popup, key("Enter")), Response::Close);
+        assert_eq!(menu_input(&mut popup, key("Enter"), PAGE), Response::Close);
     }
 
     #[test]
@@ -1817,7 +1929,7 @@ mod tests {
     fn list_popup_closes_on_enter_when_empty() {
         let mut popup = ListPopup::bookmarks(&[], Path::new("/home/user"));
 
-        assert_eq!(menu_input(&mut popup, key("Enter")), Response::Close);
+        assert_eq!(menu_input(&mut popup, key("Enter"), PAGE), Response::Close);
     }
 
     #[test]
