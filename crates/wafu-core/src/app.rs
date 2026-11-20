@@ -580,7 +580,7 @@ impl App {
                         self.popup_key(key, &mut effects);
                     } else if self.navigating() {
                         // A move in progress is modal: only Esc, which cancels it, gets through.
-                        if key.base == KeyBase::Named(NamedKey::Escape) {
+                        if key.base == KeyBase::Named(NamedKey::Escape) && !key.modified() {
                             self.cancel_navigation(&mut effects);
                         }
                     } else {

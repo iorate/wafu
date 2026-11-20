@@ -550,6 +550,18 @@ fn escape_cancels_a_move_and_stays_put() {
 }
 
 #[test]
+fn escape_with_a_modifier_does_not_cancel_a_move() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a")]);
+    harness.press("BS");
+    harness.take_effects();
+
+    harness.press("Shift+Esc");
+
+    assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
 fn escape_with_both_panes_moving_cancels_only_the_earliest_move() {
     let mut harness = Harness::start_both_pending(Os::Linux, "/home/user", "/tmp");
     let left = harness.latest_request(Side::Left);
@@ -1185,6 +1197,18 @@ fn sort_popup_toggles_stay_open_until_enter_on_the_current_key() {
 }
 
 #[test]
+fn a_popup_ignores_keys_with_a_modifier() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.press("S");
+    let popup = harness.popup().cloned();
+
+    for key in ["Shift+Enter", "Ctrl+Esc", "Alt+Down", "Shift+E"] {
+        harness.press(key);
+        assert_eq!(harness.popup().cloned(), popup);
+    }
+}
+
+#[test]
 fn sort_popup_escape_discards_and_keys_do_not_reach_the_list() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a"), file("b")]);
@@ -1290,19 +1314,6 @@ fn search_arrows_move_between_matches_and_enter_keeps_the_cursor() {
 
     assert_eq!(harness.popup(), None);
     assert_eq!(harness.cursor_name(Side::Left), "a2");
-}
-
-#[test]
-fn search_arrows_with_a_modifier_do_nothing() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-    harness.load(Side::Left, vec![file("a1"), file("a2"), file("b")]);
-
-    harness.press("F");
-    harness.edit("a");
-    harness.press("Shift+Down");
-    harness.press("Alt+Up");
-
-    assert_eq!(harness.cursor_name(Side::Left), "a1");
 }
 
 #[test]
@@ -2043,16 +2054,6 @@ fn the_page_keys_keep_the_popup_list_in_range_at_its_ends() {
     harness.press("Home");
     harness.popup_wheel(10);
     harness.press("PageUp");
-    let popup = harness.view().popup.unwrap();
-    assert_eq!((popup.scroll_top, popup.cursor), (0, Some(0)));
-}
-
-#[test]
-fn the_page_keys_with_a_modifier_leave_the_popup_list_alone() {
-    let mut harness = many_bookmarks();
-
-    harness.press("Shift+PageDown");
-
     let popup = harness.view().popup.unwrap();
     assert_eq!((popup.scroll_top, popup.cursor), (0, Some(0)));
 }
@@ -3034,7 +3035,7 @@ fn drives_popup_lists_the_letters_and_picks_by_letter() {
     assert_eq!(popup.fields, []);
     assert_eq!(harness.popup_labels(), ["C:\\", "D:\\"]);
 
-    harness.press("Shift+D");
+    harness.press("D");
     assert_eq!(harness.popup(), None);
     assert_eq!(
         harness.take_effects(),

@@ -84,6 +84,12 @@ impl Key {
             alt: input.alt,
         })
     }
+
+    /// Whether Ctrl, Shift, or Alt is held.
+    #[must_use]
+    pub fn modified(&self) -> bool {
+        self.ctrl || self.shift || self.alt
+    }
 }
 
 impl FromStr for Key {

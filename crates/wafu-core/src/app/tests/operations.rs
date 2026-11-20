@@ -137,6 +137,7 @@ fn an_operation_blocks_everything_but_cancel_and_new_window() {
     harness.press("Q");
     harness.press("Enter");
     harness.press("Down");
+    harness.press("Shift+Esc");
     harness.click(Side::Left, 1);
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(harness.cursor_name(Side::Left), "c");

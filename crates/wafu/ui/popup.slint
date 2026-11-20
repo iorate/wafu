@@ -159,22 +159,24 @@ component PopupInput {
                         root.accepted();
                     }
 
-                    // Esc goes to the core. With one field Tab and the unmodified
-                    // arrows and page keys do too; with more Tab and the unmodified
-                    // arrows move between the fields, which is the UI's business
-                    // alone.
+                    // Esc goes to the core, and so does Enter with a modifier,
+                    // which would otherwise accept the field. With one field Tab
+                    // and the unmodified arrows and page keys go there too; with
+                    // more, Tab, Shift+Tab and the unmodified arrows move between
+                    // the fields, which is the UI's business alone.
                     key-pressed(event) => {
-                        if event.text == Key.Escape {
+                        let plain = !event.modifiers.control && !event.modifiers.shift && !event.modifiers.alt && !event.modifiers.meta;
+                        if event.text == Key.Escape || (event.text == Key.Return && !plain) {
                             root.key-input(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt, event.modifiers.meta);
                             return accept;
                         }
-                        let plain = !event.modifiers.control && !event.modifiers.shift && !event.modifiers.alt && !event.modifiers.meta;
+                        let tab = (event.text == Key.Tab && plain) || (event.text == Key.Backtab && !event.modifiers.control && !event.modifiers.alt && !event.modifiers.meta);
                         let arrow = plain && (event.text == Key.UpArrow || event.text == Key.DownArrow);
                         let page = plain && (event.text == Key.PageUp || event.text == Key.PageDown);
                         if event.text == Key.Tab || event.text == Key.Backtab || arrow {
                             if root.single {
                                 root.key-input(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt, event.modifiers.meta);
-                            } else {
+                            } else if tab || arrow {
                                 root.move-focus();
                             }
                             return accept;
