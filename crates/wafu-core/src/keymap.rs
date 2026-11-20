@@ -50,6 +50,7 @@ const DEFAULT_FILELIST: &[(&str, &str)] = &[
     ("Shift+D", "trash"),
     ("R", "rename"),
     ("K", "mkdir"),
+    ("N", "new_file"),
     ("E", "edit"),
     ("Shift+E", "new_text"),
     ("X", "run_file"),
@@ -59,6 +60,8 @@ const DEFAULT_FILELIST: &[(&str, &str)] = &[
     ("Shift+U", "enter_as_archive"),
     ("I", "calculate_size_on_disk"),
     ("Shift+I", "calculate_size"),
+    ("Y", "copy_name"),
+    ("Shift+Y", "copy_path"),
     ("\\", "shell_menu"),
     ("S", "sort"),
     ("F", "search"),
@@ -245,11 +248,8 @@ mod tests {
 
     use super::*;
 
-    const UNBOUND: [Command; 7] = [
+    const UNBOUND: [Command; 4] = [
         Command::SwapPanes,
-        Command::NewFile,
-        Command::CopyPath,
-        Command::CopyName,
         Command::ClearLog,
         Command::CopyLog,
         Command::Nop,
