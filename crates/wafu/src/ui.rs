@@ -12,7 +12,7 @@ use slint::{
 use wafu_core::{
     App, Color, Colors, Effect, InputField, IoError, IoEvent, ItemKind, KeyInput, LineRanges,
     LogView, MenuAnchor, MouseInput, Msg, PaneView, PopupView, PreviewContent, PreviewPlacement,
-    PreviewView, ResolvedFont, RowKind, RowView, SharedImage, Side, StateFile, Style,
+    PreviewView, RequestId, ResolvedFont, RowKind, RowView, SharedImage, Side, StateFile, Style,
     Theme as ConfigTheme, View, WindowState,
 };
 use wafu_io::{Paths, Runtime};
@@ -173,6 +173,7 @@ impl Ui {
         for effect in effects {
             match effect {
                 Effect::ShellMenu { paths, anchor } => self.shell_menu(paths, anchor),
+                Effect::PickDirectory { dir, request } => self.pick_directory(dir, request),
                 // The OS may show a dialog for the operation, and only the
                 // window knows its handle for owning it.
                 Effect::StartOperation(spec) => {
@@ -233,6 +234,38 @@ impl Ui {
                 let error = show_shell_menu(&ui.window, &paths, x, y);
                 ui.dispatch(Msg::Io(IoEvent::ShellMenuClosed { error }));
             }
+        });
+    }
+
+    // The asynchronous dialog, since the blocking one stops the UI thread
+    // inside libdbus on Linux until the portal answers, is reported to hang
+    // on Windows, and on macOS runs a nested modal loop inside winit's event
+    // handler, which crashes when a file is dragged over the window.
+    fn pick_directory(self: &Rc<Self>, dir: PathBuf, request: RequestId) {
+        let weak = Rc::downgrade(self);
+        // On macOS the dialog opens when `pick_folder` is called, not when its
+        // future is awaited, and runs a modal loop of its own when it cannot
+        // attach a sheet, so it is opened from the event loop like the shell
+        // menu.
+        self.run_after_render(move || {
+            let Some(ui) = weak.upgrade() else {
+                return;
+            };
+            // A handle taken before the window exists stays unusable, so it
+            // is taken afresh for each dialog. The parent is always given:
+            // without one Windows may open the dialog behind the window, and
+            // on macOS it is what the sheet attaches to.
+            let picking = rfd::AsyncFileDialog::new()
+                .set_directory(&dir)
+                .set_parent(&ui.window.window().window_handle())
+                .pick_folder();
+            let weak = Rc::downgrade(&ui);
+            let _ = slint::spawn_local(async move {
+                let path = picking.await.map(|handle| handle.path().to_path_buf());
+                if let Some(ui) = weak.upgrade() {
+                    ui.dispatch(Msg::Io(IoEvent::DirectoryPicked { request, path }));
+                }
+            });
         });
     }
 

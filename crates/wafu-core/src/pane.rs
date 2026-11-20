@@ -81,6 +81,9 @@ pub enum InFlight {
         request: RequestId,
         purpose: DrivePurpose,
     },
+    /// The OS's directory dialog is open, and the pane moves to the directory
+    /// picked in it.
+    Browse { request: RequestId },
 }
 
 impl InFlight {
@@ -90,7 +93,8 @@ impl InFlight {
             Self::Resolve { request, .. }
             | Self::Navigate { request, .. }
             | Self::Refresh { request, .. }
-            | Self::Drives { request, .. } => *request,
+            | Self::Drives { request, .. }
+            | Self::Browse { request } => *request,
         }
     }
 }

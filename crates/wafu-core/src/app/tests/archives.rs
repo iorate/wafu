@@ -668,6 +668,21 @@ fn go_root_inside_a_nested_archive_goes_to_its_own_root() {
 }
 
 #[test]
+fn browse_inside_an_archive_starts_at_the_directory_holding_it() {
+    let mut harness = inside();
+
+    harness.press("T");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::PickDirectory {
+            dir: PathBuf::from(LEFT),
+            request: harness.latest_browse(),
+        }]
+    );
+}
+
+#[test]
 fn commands_that_change_things_are_refused_on_the_parent_row_of_a_nested_archive_root() {
     let mut harness = nested();
 

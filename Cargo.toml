@@ -33,6 +33,9 @@ image = { version = "0.25.10", default-features = false, features = ["bmp", "gif
 notify = "8.2.2"
 open = "5.4.4"
 raw-window-handle = "0.6.2"
+# The default xdg-portal backend on Linux needs no GTK development packages to
+# build, which the gtk3 backend would.
+rfd = "0.18.0"
 same-file = "1.0.6"
 serde = "1.0.229"
 shlex = "2.0.1"
