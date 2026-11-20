@@ -122,7 +122,22 @@ impl App {
                     None => popup,
                 }));
             }
-            Some(popup) => self.menu(popup, MenuInput::Key(key), effects),
+            Some(popup) => {
+                // A page key moves the view with the cursor, as in the file
+                // list, so that the cursor keeps its place on the screen.
+                if !key.ctrl && !key.shift && !key.alt {
+                    match key.base {
+                        KeyBase::Named(NamedKey::PageUp) => {
+                            self.popup_top = self.popup_top.saturating_sub(self.popup_rows);
+                        }
+                        KeyBase::Named(NamedKey::PageDown) => {
+                            self.popup_top = self.popup_top.saturating_add(self.popup_rows);
+                        }
+                        _ => {}
+                    }
+                }
+                self.menu(popup, MenuInput::Key(key), effects);
+            }
             None => {}
         }
     }

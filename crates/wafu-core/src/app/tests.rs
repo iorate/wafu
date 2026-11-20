@@ -2007,12 +2007,25 @@ fn the_popup_list_keeps_the_cursor_in_view() {
 }
 
 #[test]
-fn page_down_in_a_popup_list_moves_by_the_visible_rows() {
+fn the_page_keys_move_the_popup_list_and_its_cursor_by_the_visible_rows() {
     let mut harness = many_bookmarks();
+    harness.press("Down");
 
     harness.press("PageDown");
+    let popup = harness.view().popup.unwrap();
+    assert_eq!((popup.scroll_top, popup.cursor), (5, Some(6)));
+    harness.press("PageDown");
+    harness.press("PageDown");
+    harness.press("PageDown");
+    let popup = harness.view().popup.unwrap();
+    assert_eq!((popup.scroll_top, popup.cursor), (15, Some(19)));
 
-    assert_eq!(harness.view().popup.unwrap().cursor, Some(5));
+    harness.press("PageUp");
+    let popup = harness.view().popup.unwrap();
+    assert_eq!((popup.scroll_top, popup.cursor), (10, Some(14)));
+    harness.press("Shift+PageUp");
+    let popup = harness.view().popup.unwrap();
+    assert_eq!((popup.scroll_top, popup.cursor), (10, Some(14)));
 }
 
 #[test]
