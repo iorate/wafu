@@ -706,6 +706,7 @@ fn first_source(spec: &OperationSpec) -> PathBuf {
         Sources::Paths(paths) => paths.first().cloned().unwrap_or_default(),
         Sources::Entries(entries) => entries.archive.clone(),
         Sources::Find(query) => query.dir.clone(),
+        Sources::Renames(renames) => renames.dir.clone(),
     }
 }
 

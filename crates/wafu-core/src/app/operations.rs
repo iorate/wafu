@@ -348,6 +348,7 @@ impl App {
                 )));
             }
             OperationEvent::TempDir(path) => operation.temp_dir = Some(path),
+            OperationEvent::CycleBroken { .. } => {}
             OperationEvent::Finished(outcome) => self.finished(&outcome, effects),
         }
     }
@@ -866,7 +867,7 @@ impl App {
                 archive: Some(entries.path.clone()),
             }
             .shared_levels(self.active_pane().location()),
-            Sources::Paths(_) | Sources::Find(_) => 0,
+            Sources::Paths(_) | Sources::Find(_) | Sources::Renames(_) => 0,
         };
         effects.push(Effect::StartOperation(OperationSpec {
             kind,

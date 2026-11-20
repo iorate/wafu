@@ -13,6 +13,7 @@ use crate::trash::trash;
 
 mod archives;
 mod find;
+mod rename;
 
 const CHUNK_SIZE: usize = 64 * 1024;
 #[cfg(windows)]
@@ -71,7 +72,7 @@ impl Worker<'_> {
                 _ => {}
             },
             Sources::Find(query) => return self.find(query),
-            Sources::Entries(_) => {}
+            Sources::Entries(_) | Sources::Renames(_) => {}
         }
         match self.run_all(spec) {
             Ok(()) => Outcome::Completed {
@@ -98,7 +99,9 @@ impl Worker<'_> {
             (Sources::Entries(entries), OperationKind::Extract { into_dir }) => {
                 self.extract_nested_archives(entries, spec, into_dir)
             }
+            (Sources::Renames(renames), OperationKind::Rename) => self.rename_all(renames),
             (Sources::Find(query), _) => Err(failure(&query.dir, "unsupported operation")),
+            (Sources::Renames(renames), _) => Err(failure(&renames.dir, "unsupported operation")),
             (Sources::Entries(entries), _) => {
                 let dest = spec
                     .dest
@@ -132,7 +135,8 @@ impl Worker<'_> {
                 | OperationKind::ExtractToTemp
                 | OperationKind::CalculateSize
                 | OperationKind::CalculateSizeOnDisk
-                | OperationKind::Find => {
+                | OperationKind::Find
+                | OperationKind::Rename => {
                     return Err(failure(source, "unsupported operation"));
                 }
             };
@@ -502,6 +506,11 @@ impl Worker<'_> {
     // The start of every item: a chance to stop, and a progress report.
     fn begin(&mut self, path: &Path) -> Result<(), Stop> {
         self.check_cancel()?;
+        self.report_progress(path);
+        Ok(())
+    }
+
+    fn report_progress(&mut self, path: &Path) {
         let now = Instant::now();
         let due = self
             .last_progress
@@ -513,7 +522,6 @@ impl Worker<'_> {
                 done: self.done,
             });
         }
-        Ok(())
     }
 
     fn check_cancel(&self) -> Result<(), Stop> {

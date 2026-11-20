@@ -28,6 +28,8 @@ pub enum Sources {
     Entries(ArchiveEntries),
     /// The directory a [`OperationKind::Find`] searches and what it looks for.
     Find(FindQuery),
+    /// What a [`OperationKind::Rename`] renames.
+    Renames(Renames),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,6 +52,14 @@ pub struct ArchiveOutput {
     pub name: OsString,
     /// `None` writes without encryption.
     pub password: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Renames {
+    pub dir: PathBuf,
+    /// `(old name, new name)` of each entry of `dir` whose name changes, in
+    /// display order.
+    pub pairs: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,6 +97,9 @@ pub enum OperationKind {
     /// Collects the entries below a directory that match a pattern, without
     /// following links.
     Find,
+    /// Renames entries of one directory, in an order that frees each new name
+    /// before it is taken.
+    Rename,
 }
 
 /// What the I/O layer reports while an operation runs.
@@ -98,8 +111,19 @@ pub enum OperationEvent {
         done: usize,
     },
     /// `sources[index]` was handled completely, with nothing skipped under it.
+    /// For [`Sources::Renames`], `index` is into `pairs`.
     ItemDone {
         index: usize,
+    },
+    /// A rename failed partway through renaming the items at `cycle` (indices
+    /// into `pairs`), each of which takes the old name of another: the item at
+    /// `left` is under the temporary name `temp`, and the others in `cycle` may
+    /// or may not have been renamed. Reported just before
+    /// [`Outcome::Failed`], and only once something in the cycle was renamed.
+    CycleBroken {
+        cycle: Vec<usize>,
+        left: usize,
+        temp: String,
     },
     /// One entry could not be written and was left out; the operation goes on.
     Skipped {
@@ -189,6 +213,7 @@ impl OperationKind {
             Self::Compress => "compress",
             Self::CalculateSize | Self::CalculateSizeOnDisk => "calculate size of",
             Self::Find => "search",
+            Self::Rename => "rename",
         }
     }
 
@@ -205,6 +230,7 @@ impl OperationKind {
             Self::CalculateSize => "Calculating size",
             Self::CalculateSizeOnDisk => "Calculating size on disk",
             Self::Find => "Finding",
+            Self::Rename => "Renaming",
         }
     }
 
@@ -226,6 +252,7 @@ impl OperationKind {
             Self::Compress => "Compressed",
             Self::CalculateSize | Self::CalculateSizeOnDisk => "Calculated",
             Self::Find => "Found",
+            Self::Rename => "Renamed",
         }
     }
 
@@ -239,6 +266,7 @@ impl OperationKind {
             Self::Compress => "Compress",
             Self::CalculateSize | Self::CalculateSizeOnDisk => "Size calculation",
             Self::Find => "Find",
+            Self::Rename => "Rename",
         }
     }
 }

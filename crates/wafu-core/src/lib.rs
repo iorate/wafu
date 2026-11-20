@@ -7,6 +7,7 @@
 #![forbid(unsafe_code)]
 
 mod app;
+mod batch_rename;
 mod command;
 mod compare;
 mod config;
@@ -36,6 +37,7 @@ pub use app::{
     App, Change, ColorScheme, ConfigContent, ConfigFile, ConfigSource, Effect, IoEvent, MenuAnchor,
     MouseInput, Msg, Os, PreviewSource, ReadError, Resolved, Side, SpawnKind, SpawnName, Start,
 };
+pub use batch_rename::{RenameInput, RenamePlan};
 pub use command::Command;
 pub use config::{
     CONFIG_TEMPLATE, Color, Colors, SizeFormat, Theme, byte_count, read_config_chain,
@@ -49,7 +51,7 @@ pub use key::KeyInput;
 pub use location::{ArchiveFormat, ArchivePath, Location, OuterArchive, Passwords};
 pub use operation::{
     ArchiveEntries, ArchiveOutput, FindQuery, OperationEvent, OperationKind, OperationSpec,
-    Outcome, Reply, Sources,
+    Outcome, Renames, Reply, Sources,
 };
 pub use pane::{DrivePurpose, RequestId};
 pub use preview::{Document, DocumentMode, ImageData, Line};

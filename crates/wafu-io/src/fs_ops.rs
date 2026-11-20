@@ -6,12 +6,15 @@ use std::path::Path;
 use wafu_core::nfc;
 
 pub(crate) fn rename(from: &Path, to: &Path) -> io::Result<()> {
-    if fs::symlink_metadata(to).is_ok()
-        && !(differ_only_in_case(from, to) && same_file::is_same_file(from, to).unwrap_or(false))
-    {
+    if is_taken(from, to) {
         return Err(already_exists());
     }
     fs::rename(from, to)
+}
+
+pub(crate) fn is_taken(from: &Path, to: &Path) -> bool {
+    fs::symlink_metadata(to).is_ok()
+        && !(differ_only_in_case(from, to) && same_file::is_same_file(from, to).unwrap_or(false))
 }
 
 pub(crate) fn mkdir(path: &Path) -> io::Result<()> {
@@ -60,6 +63,10 @@ pub(crate) fn set_clipboard(
     result
 }
 
+pub(crate) fn already_exists() -> io::Error {
+    io::Error::new(io::ErrorKind::AlreadyExists, "already exists")
+}
+
 fn differ_only_in_case(a: &Path, b: &Path) -> bool {
     a.parent() == b.parent()
         && match (
@@ -70,10 +77,6 @@ fn differ_only_in_case(a: &Path, b: &Path) -> bool {
             (Some(a), Some(b)) => nfc(a).to_lowercase() == nfc(b).to_lowercase(),
             _ => false,
         }
-}
-
-fn already_exists() -> io::Error {
-    io::Error::new(io::ErrorKind::AlreadyExists, "already exists")
 }
 
 #[cfg(test)]
