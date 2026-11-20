@@ -1261,11 +1261,11 @@ pub(crate) fn menu_input<M: Menu>(
                 {
                     menu.run(menu.cursor())
                 }
-                KeyBase::Named(NamedKey::Up) => {
+                KeyBase::Named(NamedKey::Up) if plain => {
                     menu.cursor_up();
                     Response::Stay
                 }
-                KeyBase::Named(NamedKey::Down) => {
+                KeyBase::Named(NamedKey::Down) if plain => {
                     menu.cursor_down();
                     Response::Stay
                 }
@@ -1594,10 +1594,18 @@ mod tests {
     }
 
     #[test]
-    fn menu_input_ignores_page_home_and_end_with_modifiers() {
+    fn menu_input_ignores_cursor_keys_with_modifiers() {
         let mut popup = conflict_popup();
 
-        for text in ["Shift+PageDown", "Alt+PageDown", "Ctrl+End", "Alt+End"] {
+        for text in [
+            "Shift+Down",
+            "Alt+Down",
+            "Ctrl+Up",
+            "Shift+PageDown",
+            "Alt+PageDown",
+            "Ctrl+End",
+            "Alt+End",
+        ] {
             menu_input(&mut popup, key(text), PAGE);
             assert_eq!(popup.cursor, 1);
         }
