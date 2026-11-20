@@ -488,6 +488,9 @@ impl Ui {
                 if let Some(ui) = weak.upgrade()
                     && let Some(input) = key_input(&text, modifiers)
                 {
+                    if input.alt {
+                        eprintln!("probe: {input:?}");
+                    }
                     ui.dispatch(Msg::Key(input));
                 }
             });

@@ -170,6 +170,11 @@ component PopupInput {
                             root.key-input(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt, event.modifiers.meta);
                             return accept;
                         }
+                        let alt = event.modifiers.alt && !event.modifiers.control && !event.modifiers.shift && !event.modifiers.meta;
+                        if alt && (event.text == Key.UpArrow || event.text == Key.DownArrow || event.text == Key.PageUp || event.text == Key.PageDown || event.text == Key.Home || event.text == Key.End) {
+                            root.key-input(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt, event.modifiers.meta);
+                            return accept;
+                        }
                         // Shift+Tab arrives as Backtab or as Tab with Shift, depending on the platform.
                         let tab = (event.text == Key.Tab || event.text == Key.Backtab) && !event.modifiers.control && !event.modifiers.alt && !event.modifiers.meta;
                         let arrow = plain && (event.text == Key.UpArrow || event.text == Key.DownArrow);
