@@ -269,7 +269,7 @@ impl App {
         }
         if self.popup.is_some() {
             self.popup_key(key, effects);
-        } else if key.base == KeyBase::Named(NamedKey::Escape) {
+        } else if key.base == KeyBase::Named(NamedKey::Escape) && !key.modified() {
             self.cancel_operation(effects);
         }
     }

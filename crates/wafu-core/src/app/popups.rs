@@ -108,6 +108,10 @@ impl App {
 
     // The popup is taken out first and put back unless the key closed it.
     pub(super) fn popup_key(&mut self, key: Key, effects: &mut Vec<Effect>) {
+        // As in the file list, a key with a modifier is another key.
+        if key.modified() {
+            return;
+        }
         match self.popup.take() {
             Some(Popup::Input(popup)) => self.input_popup_key(popup, key, effects),
             Some(Popup::Search(popup)) => self.search_popup_key(popup, key),
@@ -123,22 +127,19 @@ impl App {
                 }));
             }
             Some(popup) => {
-                let page = !key.ctrl
-                    && !key.shift
-                    && !key.alt
-                    && matches!(
-                        key.base,
-                        KeyBase::Named(NamedKey::PageUp | NamedKey::PageDown)
-                    );
                 // As in the file list, so that the cursor keeps its place on
                 // the screen.
-                if page {
-                    self.popup_top = if key.base == KeyBase::Named(NamedKey::PageUp) {
-                        self.popup_top.saturating_sub(self.popup_rows)
-                    } else {
-                        self.popup_top.saturating_add(self.popup_rows)
-                    };
-                }
+                let page = match key.base {
+                    KeyBase::Named(NamedKey::PageUp) => {
+                        self.popup_top = self.popup_top.saturating_sub(self.popup_rows);
+                        true
+                    }
+                    KeyBase::Named(NamedKey::PageDown) => {
+                        self.popup_top = self.popup_top.saturating_add(self.popup_rows);
+                        true
+                    }
+                    _ => false,
+                };
                 self.menu(popup, MenuInput::Key(key), effects);
                 // The follow-up leaves the view alone while the cursor stays
                 // where it is, as it does at either end of the list.
@@ -641,17 +642,16 @@ impl App {
     fn search_popup_key(&mut self, popup: SearchPopup, key: Key) {
         let anywhere = self.config.filelist.search_matches_anywhere;
         let pane = &mut self.panes[self.active.index()];
-        let plain = !key.ctrl && !key.shift && !key.alt;
         match key.base {
             KeyBase::Named(NamedKey::Escape) => {
                 pane.restore_position(popup.origin_cursor, popup.origin_scroll_top);
                 return;
             }
             KeyBase::Named(NamedKey::Enter) => return,
-            KeyBase::Named(NamedKey::Down) if plain && !popup.query.is_empty() => {
+            KeyBase::Named(NamedKey::Down) if !popup.query.is_empty() => {
                 pane.search_next(&popup.query, anywhere);
             }
-            KeyBase::Named(NamedKey::Up) if plain && !popup.query.is_empty() => {
+            KeyBase::Named(NamedKey::Up) if !popup.query.is_empty() => {
                 pane.search_prev(&popup.query, anywhere);
             }
             _ => {}
