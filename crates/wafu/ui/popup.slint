@@ -265,9 +265,15 @@ export component PopupOverlay {
     property <length> message-height: data.message == "" ? 0px : !root.wraps-message ? Theme.popup-row-height : wrapped-message.preferred-height + root.row-margin;
     property <length> note-height: data.note == "" ? 0px : wrapped-note.preferred-height + root.row-margin;
     property <length> separator-height: data.has-lines ? Theme.line-width + 8px : 0px;
-    property <length> fixed-height: (1 + fields.length) * Theme.popup-row-height + root.message-height + root.note-height + root.separator-height + fields.length * 6px + 16px;
+    // Above a list of lines the note changes as the fields are typed in, so
+    // the popup is sized for a note of one row, and what a longer note takes
+    // comes out of that list: the popup keeps its height while typing.
+    property <length> note-overflow: data.has-lines ? max(0px, root.note-height - Theme.popup-row-height) : 0px;
+    property <length> fixed-height: (1 + fields.length) * Theme.popup-row-height + root.message-height + root.note-height - root.note-overflow + root.separator-height + fields.length * 6px + 16px;
     property <int> max-rows: max(1, min(12, floor((root.height - 40px - fixed-height) / Theme.popup-row-height)));
     property <int> list-rows: fields.length > 0 ? max-rows : min(items.length, max-rows);
+    property <length> lines-height: max(Theme.popup-row-height, root.max-rows * Theme.popup-row-height - root.note-overflow);
+    property <int> lines-rows: floor(root.lines-height / Theme.popup-row-height);
     // The field with the focus, counted from the top. It goes back to the
     // first field each time a popup opens or another takes its place.
     property <int> focused-field: 0;
@@ -465,10 +471,9 @@ export component PopupOverlay {
             }
 
             if data.has-lines: Rectangle {
-                property <int> rows: root.list-rows;
+                property <int> rows: root.lines-rows;
 
-                height: root.list-rows * Theme.popup-row-height;
-                clip: true;
+                height: root.lines-height;
 
                 // `changed` does not run at creation.
                 init => {
@@ -479,20 +484,26 @@ export component PopupOverlay {
                     root.lines-rows-changed(self.rows);
                 }
 
-                VerticalLayout {
-                    padding-left: 4px;
-                    padding-right: 4px + Theme.scrollbar-gutter;
-                    alignment: start;
+                Rectangle {
+                    y: 0;
+                    height: root.lines-rows * Theme.popup-row-height;
+                    clip: true;
 
-                    for line in root.lines-shown: PopupLineText {
-                        width: root.line-width;
-                        natural-row-pitch: root.line-row-pitch;
-                        text: line.text;
-                        init => {
-                            root.line-rows(line.index, self.rows);
-                        }
-                        changed rows => {
-                            root.line-rows(line.index, self.rows);
+                    VerticalLayout {
+                        padding-left: 4px;
+                        padding-right: 4px + Theme.scrollbar-gutter;
+                        alignment: start;
+
+                        for line in root.lines-shown: PopupLineText {
+                            width: root.line-width;
+                            natural-row-pitch: root.line-row-pitch;
+                            text: line.text;
+                            init => {
+                                root.line-rows(line.index, self.rows);
+                            }
+                            changed rows => {
+                                root.line-rows(line.index, self.rows);
+                            }
                         }
                     }
                 }
@@ -507,7 +518,8 @@ export component PopupOverlay {
 
                 ScrollBar {
                     x: parent.width - self.width;
-                    height: parent.height;
+                    y: 0;
+                    height: root.lines-rows * Theme.popup-row-height;
                     top: root.data.line-top;
                     rows: root.data.line-count;
                     visible-rows: root.data.line-count - root.data.line-end;

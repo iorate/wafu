@@ -53,7 +53,10 @@ fn rename_template_opens_on_the_cursor_entry_without_marks_with_the_name_selecte
             ..InputField::new("{name}{ext}".to_owned())
         }]
     );
-    assert_eq!(popup.note.as_deref(), Some("{name} {ext} {001}"));
+    assert_eq!(
+        popup.note.as_deref(),
+        Some("{name}: name, {ext}: extension, {001}: number")
+    );
 }
 
 #[cfg(unix)]
@@ -166,7 +169,7 @@ fn the_note_follows_the_listing_as_it_is_read_again() {
 
     assert_eq!(
         harness.view().popup.unwrap().note.as_deref(),
-        Some("{name} {ext} {001}")
+        Some("{name}: name, {ext}: extension, {001}: number")
     );
 }
 
