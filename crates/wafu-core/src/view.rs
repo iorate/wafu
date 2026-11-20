@@ -198,18 +198,20 @@ impl InputField {
     }
 }
 
-/// The items of [`PopupView::lines`] that the UI lays out or only measures,
-/// as in [`LineRanges`]. Every one of them reports how many rows it takes.
+/// The list of [`PopupView::lines`]: the items that the UI lays out or only
+/// measures, as in [`LineRanges`], each of which reports how many rows it
+/// takes, and where the list is scrolled to.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct PopupLines {
     /// Shown from the top of the list.
     pub shown: Vec<PopupLine>,
     pub before: Vec<PopupLine>,
     pub tail: Vec<PopupLine>,
-    /// The item at the top of the list out of `count`, and the furthest the
-    /// top can go, as in [`LogView`].
+    /// The item at the top of the list.
     pub scroll_top: usize,
+    /// How many items the list has.
     pub count: usize,
+    /// The furthest the top can go, as in [`LogView`].
     pub end: usize,
 }
 
