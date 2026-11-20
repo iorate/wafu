@@ -641,16 +641,17 @@ impl App {
     fn search_popup_key(&mut self, popup: SearchPopup, key: Key) {
         let anywhere = self.config.filelist.search_matches_anywhere;
         let pane = &mut self.panes[self.active.index()];
+        let plain = !key.ctrl && !key.shift && !key.alt;
         match key.base {
             KeyBase::Named(NamedKey::Escape) => {
                 pane.restore_position(popup.origin_cursor, popup.origin_scroll_top);
                 return;
             }
             KeyBase::Named(NamedKey::Enter) => return,
-            KeyBase::Named(NamedKey::Down) if !popup.query.is_empty() => {
+            KeyBase::Named(NamedKey::Down) if plain && !popup.query.is_empty() => {
                 pane.search_next(&popup.query, anywhere);
             }
-            KeyBase::Named(NamedKey::Up) if !popup.query.is_empty() => {
+            KeyBase::Named(NamedKey::Up) if plain && !popup.query.is_empty() => {
                 pane.search_prev(&popup.query, anywhere);
             }
             _ => {}

@@ -159,15 +159,19 @@ component PopupInput {
                         root.accepted();
                     }
 
-                    // Esc goes to the core. With one field the arrows, Tab and the
-                    // unmodified page keys do too; with more the arrows and Tab move
-                    // between the fields, which is the UI's business alone.
+                    // Esc goes to the core. With one field Tab and the unmodified
+                    // arrows and page keys do too; with more Tab and the unmodified
+                    // arrows move between the fields, which is the UI's business
+                    // alone.
                     key-pressed(event) => {
                         if event.text == Key.Escape {
                             root.key-input(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt, event.modifiers.meta);
                             return accept;
                         }
-                        if event.text == Key.UpArrow || event.text == Key.DownArrow || event.text == Key.Tab || event.text == Key.Backtab {
+                        let plain = !event.modifiers.control && !event.modifiers.shift && !event.modifiers.alt && !event.modifiers.meta;
+                        let arrow = plain && (event.text == Key.UpArrow || event.text == Key.DownArrow);
+                        let page = plain && (event.text == Key.PageUp || event.text == Key.PageDown);
+                        if event.text == Key.Tab || event.text == Key.Backtab || arrow {
                             if root.single {
                                 root.key-input(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt, event.modifiers.meta);
                             } else {
@@ -175,7 +179,7 @@ component PopupInput {
                             }
                             return accept;
                         }
-                        if root.single && (event.text == Key.PageUp || event.text == Key.PageDown) && !event.modifiers.control && !event.modifiers.shift && !event.modifiers.alt && !event.modifiers.meta {
+                        if root.single && page {
                             root.key-input(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt, event.modifiers.meta);
                             return accept;
                         }
