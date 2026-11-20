@@ -422,6 +422,10 @@ mod tests {
             "Find cancelled"
         );
         assert_eq!(
+            line(OperationKind::Rename, &Outcome::Cancelled, &three),
+            "Rename cancelled"
+        );
+        assert_eq!(
             line(
                 OperationKind::Copy,
                 &Outcome::Failed {

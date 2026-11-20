@@ -11,12 +11,12 @@ use crate::key::{Key, KeyBase, NamedKey};
 use crate::location::{ArchiveFormat, Location, Passwords};
 use crate::operation::{
     ArchiveEntries, ArchiveOutput, FindQuery, OperationEvent, OperationKind, OperationSpec,
-    Outcome, OutcomeLine, Reply, Sources,
+    Outcome, OutcomeLine, Renames, Reply, Sources,
 };
 use crate::pane::HistoryMove;
 use crate::popup::{
     ChoiceKind, ChoicePopup, ConflictPopup, InputKind, InputPopup, ListPopup, PasswordPurpose,
-    Popup,
+    Popup, RenameMode, RenamePopup,
 };
 use crate::text::same_name;
 use crate::view::PopupView;
@@ -51,6 +51,8 @@ impl App {
                 self.start_removal(OperationKind::Trash, location.base, names, effects);
             }
             Command::Rename => self.open_rename(),
+            Command::RenameReplace => self.open_batch_rename(RenameMode::Replace),
+            Command::RenameTemplate => self.open_batch_rename(RenameMode::Template),
             Command::Mkdir => self.open_input(InputKind::Mkdir {
                 dir: self.active_pane().location().base.clone(),
             }),
@@ -321,6 +323,13 @@ impl App {
                 {
                     self.panes[operation.side.index()].unmark(name);
                 }
+                if let Some(done) = operation
+                    .renames
+                    .as_mut()
+                    .and_then(|renames| renames.done.get_mut(index))
+                {
+                    *done = true;
+                }
             }
             OperationEvent::Skipped { path, error } => {
                 if let Some(temp) = &mut operation.temp {
@@ -348,7 +357,18 @@ impl App {
                 )));
             }
             OperationEvent::TempDir(path) => operation.temp_dir = Some(path),
-            OperationEvent::CycleBroken { .. } => {}
+            // The marks are kept by name, and the names in the cycle have
+            // moved round, so a mark left there could be on another item.
+            OperationEvent::CycleBroken { cycle, left, temp } => {
+                for name in cycle.iter().filter_map(|&index| operation.names.get(index)) {
+                    self.panes[operation.side.index()].unmark(name);
+                }
+                if let Some(renames) = &mut operation.renames
+                    && let Some((old, _)) = renames.pairs.get(left)
+                {
+                    renames.left = Some((old.clone(), temp));
+                }
+            }
             OperationEvent::Finished(outcome) => self.finished(&outcome, effects),
         }
     }
@@ -388,6 +408,69 @@ impl App {
             original: entry.name,
         };
         self.popup = Some(Popup::Input(InputPopup::single(kind, text, selection)));
+    }
+
+    fn open_batch_rename(&mut self, mode: RenameMode) {
+        let pane = self.active_pane();
+        let Some(targets) = pane.targets() else {
+            return;
+        };
+        let siblings = targets.location == *pane.location();
+        let dir = targets.location.base;
+        // A name that is not UTF-8 would not survive being put together again
+        // as text.
+        if let Some(target) = targets
+            .entries
+            .iter()
+            .find(|entry| entry.name.to_str().is_none())
+        {
+            let path = dir.join(&target.name);
+            self.log.push(AppError::NotUtf8 { path }.to_string());
+            return;
+        }
+        let popup = RenamePopup::new(
+            mode,
+            dir,
+            targets.entries,
+            siblings,
+            pane.listing().entries(),
+            self.os,
+        );
+        self.popup = Some(Popup::Rename(popup));
+    }
+
+    pub(super) fn confirm_batch_rename(&mut self, popup: RenamePopup, effects: &mut Vec<Effect>) {
+        let pairs = popup.pairs();
+        if popup.plan.error.is_some() || pairs.is_empty() {
+            self.popup = Some(Popup::Rename(popup));
+            return;
+        }
+        let pane = &mut self.panes[self.active.index()];
+        for (target, new) in popup.targets.iter().zip(&popup.plan.names) {
+            if new.is_none() {
+                pane.unmark(&target.name);
+            }
+        }
+        let names = pairs.iter().map(|(old, _)| OsString::from(old)).collect();
+        let sources = Sources::Renames(Renames {
+            dir: popup.dir.clone(),
+            pairs: pairs.clone(),
+        });
+        self.start_operation(
+            OperationKind::Rename,
+            popup.dir,
+            names,
+            sources,
+            None,
+            effects,
+        );
+        if let Some(operation) = &mut self.operation {
+            operation.renames = Some(RenameProgress {
+                done: vec![false; pairs.len()],
+                pairs,
+                left: None,
+            });
+        }
     }
 
     pub(super) fn confirm_name(&mut self, kind: InputKind, text: &str, effects: &mut Vec<Effect>) {
@@ -465,7 +548,7 @@ impl App {
                     from.file_name().unwrap_or_default().to_string_lossy(),
                     to.file_name().unwrap_or_default().to_string_lossy()
                 ));
-                self.follow_renamed(&from, &to, effects);
+                self.follow_renamed(&[(from.clone(), to.clone())], effects);
                 if let Some(dir) = to.parent() {
                     self.show_created(dir, to.file_name().map(OsString::from), effects);
                 }
@@ -721,7 +804,7 @@ impl App {
     }
 
     // The location a command works in: that of what it acts on, or the pane's
-    // for one that makes something new there. Commands that open or rename look
+    // for one that makes something new there. Commands that open or `rename` look
     // at the cursor alone, since following the marks would launch one
     // application per marked file; the rest take the marks, else the cursor.
     // Mistakes there are guarded by `require_marks` and the delete confirmation.
@@ -760,14 +843,17 @@ impl App {
     }
 
     // A pane showing what was renamed follows it to its new name.
-    fn follow_renamed(&mut self, from: &Path, to: &Path, effects: &mut Vec<Effect>) {
+    fn follow_renamed(&mut self, renamed: &[(PathBuf, PathBuf)], effects: &mut Vec<Effect>) {
         for side in [Side::Left, Side::Right] {
             let pane = &self.panes[side.index()];
-            if pane.location().base != from {
+            let Some((_, to)) = renamed
+                .iter()
+                .find(|(from, _)| pane.location().base == *from)
+            else {
                 continue;
-            }
+            };
             let target = Location {
-                base: to.to_path_buf(),
+                base: to.clone(),
                 archive: pane.location().archive.clone(),
             };
             let cursor = pane.cursor_entry().map(|entry| entry.name.clone());
@@ -888,6 +974,7 @@ impl App {
             temp,
             temp_dir: None,
             remembered_levels,
+            renames: None,
         });
     }
 
@@ -919,12 +1006,16 @@ impl App {
                 .as_ref()
                 .is_some_and(|temp| !temp.entry_skipped);
         let line = || {
-            OutcomeLine {
+            let line = OutcomeLine {
                 kind: operation.kind,
                 outcome,
                 targets: &operation.names,
             }
-            .to_string()
+            .to_string();
+            match &operation.renames {
+                Some(renames) => renames.line(outcome, line),
+                None => line,
+            }
         };
         if let Outcome::Found { paths, truncated } = outcome {
             if *truncated {
@@ -936,6 +1027,9 @@ impl App {
             )));
         } else if !launch {
             self.log.push(line());
+        }
+        if let Some(renames) = &operation.renames {
+            self.follow_batch_rename(operation.side, &operation.source_dir, renames, effects);
         }
         // A size calculation or a find changes nothing to read again.
         if !matches!(
@@ -994,6 +1088,36 @@ impl App {
         }
     }
 
+    // After a batch rename, whether it ran to the end or not: the cursor
+    // stays on the item it was on, and a pane showing a renamed directory
+    // follows it, as after `rename`.
+    fn follow_batch_rename(
+        &mut self,
+        side: Side,
+        dir: &Path,
+        progress: &RenameProgress,
+        effects: &mut Vec<Effect>,
+    ) {
+        let renamed: Vec<&(String, String)> = progress
+            .pairs
+            .iter()
+            .zip(&progress.done)
+            .filter_map(|(pair, &done)| done.then_some(pair))
+            .collect();
+        let pane = &mut self.panes[side.index()];
+        if pane.location().base == dir
+            && let Some(cursor) = pane.cursor_entry()
+            && let Some((_, new)) = renamed.iter().find(|(old, _)| cursor.name == **old)
+        {
+            pane.set_pending_cursor(Some(OsString::from(new)));
+        }
+        let paths: Vec<(PathBuf, PathBuf)> = renamed
+            .iter()
+            .map(|(old, new)| (dir.join(old), dir.join(new)))
+            .collect();
+        self.follow_renamed(&paths, effects);
+    }
+
     fn created_line(&self, path: &Path) -> String {
         let relative = [self.active, self.active.other()]
             .into_iter()
@@ -1041,6 +1165,7 @@ pub(crate) struct Operation {
     // sources is kept by the pane, whose location has them too. An archive
     // unpacked by an extract is past them.
     remembered_levels: usize,
+    renames: Option<RenameProgress>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1070,12 +1195,34 @@ enum TempAction {
     Spawn { name: SpawnName, line: CommandLine },
 }
 
+// What a batch rename was started on, and what of it is known to be done.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RenameProgress {
+    pairs: Vec<(String, String)>,
+    done: Vec<bool>,
+    // The old name of the item a failure left under a temporary name, and that name.
+    left: Option<(String, String)>,
+}
+
+impl RenameProgress {
+    fn line(&self, outcome: &Outcome, line: String) -> String {
+        match (outcome, self.pairs.as_slice(), &self.left) {
+            (Outcome::Completed { .. }, [(old, new)], _) => format!("Renamed {old} to {new}"),
+            (Outcome::Failed { .. }, _, Some((old, temp))) => {
+                format!("{line} ({old} left as {temp})")
+            }
+            _ => line,
+        }
+    }
+}
+
 fn source_paths(dir: &Path, names: &[OsString]) -> Sources {
     Sources::Paths(names.iter().map(|name| dir.join(name)).collect())
 }
 
 // The commands that require_marks keeps from acting on the cursor row alone:
-// those that move or remove what they act on.
+// those that move or remove what they act on. The batch renames are not among
+// them, since their list shows what is about to happen before Enter.
 fn requires_marks(command: &Command) -> bool {
     matches!(
         command,

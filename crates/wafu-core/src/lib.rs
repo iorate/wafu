@@ -37,7 +37,6 @@ pub use app::{
     App, Change, ColorScheme, ConfigContent, ConfigFile, ConfigSource, Effect, IoEvent, MenuAnchor,
     MouseInput, Msg, Os, PreviewSource, ReadError, Resolved, Side, SpawnKind, SpawnName, Start,
 };
-pub use batch_rename::{RenameInput, RenamePlan};
 pub use command::Command;
 pub use config::{
     CONFIG_TEMPLATE, Color, Colors, SizeFormat, Theme, byte_count, read_config_chain,
@@ -59,6 +58,6 @@ pub use state::{CompareState, PaneState, StateError, StateFile, WindowState};
 pub use text::nfc;
 pub use view::{
     ColorSet, ExtensionColor, Fonts, InputField, ItemKind, LineRanges, LogView, PaneView,
-    PopupItem, PopupView, PreviewContent, PreviewLine, PreviewPlacement, PreviewView, ResolvedFont,
-    RowKind, RowView, SharedImage, Style, View,
+    PopupItem, PopupLine, PopupLines, PopupView, PreviewContent, PreviewLine, PreviewPlacement,
+    PreviewView, ResolvedFont, RowKind, RowView, SharedImage, Style, View,
 };

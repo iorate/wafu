@@ -91,6 +91,8 @@ pub enum AppError {
     NoOtherLocation { verb: &'static str },
     #[error("Cannot rename {}: {source}", path.display())]
     RenameFailed { path: PathBuf, source: IoError },
+    #[error("Cannot rename {}: the name is not valid UTF-8", path.display())]
+    NotUtf8 { path: PathBuf },
     #[error("Cannot create {}: {source}", path.display())]
     CreateFailed { path: PathBuf, source: IoError },
     #[error("Cannot copy to the clipboard: {source}")]

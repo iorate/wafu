@@ -71,6 +71,13 @@ pub enum Msg {
     PopupRows {
         rows: usize,
     },
+    /// The number of rows that fit in the popup's wrapped list, when it
+    /// changed, and how many rows each of its items takes, as in
+    /// `PreviewRows`.
+    PopupLineRows {
+        area: Option<usize>,
+        lines: Vec<(usize, usize)>,
+    },
     Io(IoEvent),
 }
 
@@ -609,6 +616,7 @@ impl App {
             Msg::PreviewRows { area, lines } => self.set_preview_rows(area, &lines),
             Msg::LogLineRows { reports } => self.log.set_line_rows(&reports),
             Msg::PopupRows { rows } => self.set_popup_rows(rows),
+            Msg::PopupLineRows { area, lines } => self.set_popup_line_rows(area, &lines),
             Msg::Io(event) => self.io_event(event, &mut effects),
         }
         // Whatever moved the cursor, the image preview follows it.
@@ -765,6 +773,8 @@ impl App {
             | Command::Delete
             | Command::Trash
             | Command::Rename
+            | Command::RenameReplace
+            | Command::RenameTemplate
             | Command::Mkdir
             | Command::NewFile
             | Command::NewText
@@ -843,7 +853,10 @@ impl App {
                 side,
                 request,
                 result,
-            } => self.dir_loaded(side, request, result, effects),
+            } => {
+                self.dir_loaded(side, request, result, effects);
+                self.replan_rename();
+            }
             IoEvent::Resolved {
                 side,
                 request,

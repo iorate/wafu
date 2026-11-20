@@ -17,7 +17,7 @@ use crate::popup::{
     SortPopup, menu_input,
 };
 use crate::text::{same_name, show_line_breaks};
-use crate::view::{InputField, ItemKind, PopupItem, PopupView};
+use crate::view::{InputField, ItemKind, PopupItem, PopupLine, PopupLines, PopupView};
 
 impl App {
     pub(super) fn open_sort(&mut self) {
@@ -108,12 +108,25 @@ impl App {
 
     // The popup is taken out first and put back unless the key closed it.
     pub(super) fn popup_key(&mut self, key: Key, effects: &mut Vec<Effect>) {
-        // As in the file list, a key with a modifier is another key.
+        // As in the file list, a key with a modifier is another key. Alt
+        // alone scrolls a list that never takes the focus from the field.
         if key.modified() {
+            if key.alt
+                && !key.ctrl
+                && !key.shift
+                && let Some(Popup::Rename(popup)) = &mut self.popup
+            {
+                popup.scroll_key(key.base, self.popup_rows);
+            }
             return;
         }
         match self.popup.take() {
             Some(Popup::Input(popup)) => self.input_popup_key(popup, key, effects),
+            Some(Popup::Rename(popup)) => match key.base {
+                KeyBase::Named(NamedKey::Escape) => {}
+                KeyBase::Named(NamedKey::Enter) => self.confirm_batch_rename(popup, effects),
+                _ => self.popup = Some(Popup::Rename(popup)),
+            },
             Some(Popup::Search(popup)) => self.search_popup_key(popup, key),
             Some(Popup::List(popup)) if key.base == KeyBase::Named(NamedKey::Tab) => {
                 self.popup = Some(Popup::List(match popup.history_side() {
@@ -171,6 +184,25 @@ impl App {
         self.show_popup_cursor();
     }
 
+    pub(super) fn set_popup_line_rows(&mut self, area: Option<usize>, lines: &[(usize, usize)]) {
+        if let Some(area) = area {
+            self.popup_rows = area.max(1);
+        }
+        // Only after both are in: a pull-back against a new area and the rows
+        // of the old width goes too far, and nothing moves the top forward again.
+        if let Some(Popup::Rename(popup)) = &mut self.popup {
+            popup.set_line_rows(lines, self.popup_rows);
+        }
+    }
+
+    // The pane's listing was read again, so a name in the way may have come
+    // or gone.
+    pub(super) fn replan_rename(&mut self) {
+        if let Some(Popup::Rename(popup)) = &mut self.popup {
+            popup.replan(self.panes[self.active.index()].listing().entries(), self.os);
+        }
+    }
+
     pub(super) fn popup_shape(&self) -> Option<(Discriminant<Popup>, usize, usize)> {
         self.popup
             .as_ref()
@@ -194,6 +226,10 @@ impl App {
     pub(super) fn input_changed(&mut self, field: usize, text: String) {
         match &mut self.popup {
             Some(Popup::Input(popup)) => popup.set_text(field, text),
+            Some(Popup::Rename(popup)) => {
+                popup.set_text(field, text);
+                popup.replan(self.panes[self.active.index()].listing().entries(), self.os);
+            }
             Some(Popup::Palette(popup)) if field == 0 => {
                 popup.set_query(text);
                 // Neither the cursor nor the row count need change with the
@@ -235,8 +271,24 @@ impl App {
             Some(popup) => self.open_popup_view(popup),
             None => self.operation_view().or_else(|| self.loading_view())?,
         };
+        let lines = |lines: Vec<PopupLine>| {
+            lines
+                .into_iter()
+                .map(|line| PopupLine {
+                    text: show_line_breaks(line.text),
+                    ..line
+                })
+                .collect()
+        };
         Some(PopupView {
+            title: show_line_breaks(view.title),
             message: view.message.map(show_line_breaks),
+            note: view.note.map(show_line_breaks),
+            lines: view.lines.map(|view| PopupLines {
+                shown: lines(view.shown),
+                before: lines(view.before),
+                tail: lines(view.tail),
+            }),
             items: view.items.map(|items| {
                 items
                     .into_iter()
@@ -252,7 +304,7 @@ impl App {
 
     pub(super) fn popup_status(&self, view: Option<&PopupView>) -> Option<String> {
         let source = match self.popup.as_ref()? {
-            Popup::Input(_) | Popup::Search(_) => return None,
+            Popup::Input(_) | Popup::Search(_) | Popup::Rename(_) => return None,
             Popup::Palette(popup) => match popup.selected() {
                 Some(Command::External(name)) => self
                     .config
@@ -353,6 +405,13 @@ impl App {
                 cursor: Some(popup.cursor),
                 ..PopupView::default()
             },
+            Popup::Rename(popup) => PopupView {
+                title: popup.title(),
+                fields: popup.fields.clone(),
+                note: Some(popup.note()),
+                lines: Some(popup.lines(self.popup_rows)),
+                ..PopupView::default()
+            },
         };
         PopupView {
             scroll_top: self.popup_top,
@@ -378,9 +437,13 @@ impl App {
     }
 
     fn scroll_popup(&mut self, rows: i32) {
-        let Some(popup) = &self.popup else {
+        let Some(popup) = &mut self.popup else {
             return;
         };
+        if let Popup::Rename(popup) = popup {
+            popup.scroll_by(i64::from(rows), self.popup_rows);
+            return;
+        }
         let top = i64::try_from(self.popup_top).unwrap_or(i64::MAX) + i64::from(rows);
         self.popup_top = usize::try_from(top)
             .unwrap_or(0)
@@ -591,7 +654,7 @@ impl App {
                 Response::Pick(command) => self.run_command(command, effects),
                 Response::Close => {}
             },
-            Popup::Input(_) | Popup::Search(_) => self.popup = Some(popup),
+            Popup::Input(_) | Popup::Search(_) | Popup::Rename(_) => self.popup = Some(popup),
         }
     }
 

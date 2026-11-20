@@ -1,12 +1,15 @@
 use std::ffi::{OsStr, OsString};
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use encoding_rs::Encoding;
 
 use crate::app::{Os, Side};
+use crate::batch_rename::{RenameInput, RenamePlan};
 use crate::command::{Command, Context};
 use crate::compare::{CompareCondition, CompareSpec};
 use crate::config::Bookmark;
+use crate::entry::Entry;
 use crate::history::History;
 use crate::key::{Key, KeyBase, NamedKey};
 use crate::listing::{SortKey, SortSpec};
@@ -14,8 +17,9 @@ use crate::location::{ArchiveFormat, Location, Passwords};
 use crate::pane::HistoryMove;
 use crate::path::expand_tilde;
 use crate::preview::ENCODINGS;
+use crate::scroll::{self, LineRows};
 use crate::text::nfc;
-use crate::view::{InputField, ItemKind, PopupItem};
+use crate::view::{InputField, ItemKind, PopupItem, PopupLine, PopupLines};
 
 const SORT_ROWS: [(SortRow, &str, Option<char>); 10] = [
     (SortRow::Key(SortKey::None), "None", Some('N')),
@@ -107,6 +111,10 @@ const CONFLICT_ROWS: [(ConflictRow, &str, Option<char>); 7] = [
     (ConflictRow::ApplyToAll, "Apply to all", Some('A')),
 ];
 
+const REPLACE_HINT: &str = "Replaces every occurrence, ignoring case";
+const TEMPLATE_HINT: &str = "{name} {ext} {001}";
+const INITIAL_TEMPLATE: &str = "{name}{ext}";
+
 /// A modal that takes all keys while it is open.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Popup {
@@ -118,6 +126,7 @@ pub enum Popup {
     List(ListPopup),
     Choice(ChoicePopup),
     Conflict(ConflictPopup),
+    Rename(RenamePopup),
 }
 
 impl Popup {
@@ -129,7 +138,7 @@ impl Popup {
             Self::List(popup) => popup.rows(),
             Self::Choice(popup) => popup.rows(),
             Self::Conflict(popup) => popup.rows(),
-            Self::Input(_) | Self::Search(_) => 0,
+            Self::Input(_) | Self::Search(_) | Self::Rename(_) => 0,
         }
     }
 
@@ -141,7 +150,7 @@ impl Popup {
             Self::List(popup) => popup.cursor(),
             Self::Choice(popup) => popup.cursor(),
             Self::Conflict(popup) => popup.cursor(),
-            Self::Input(_) | Self::Search(_) => 0,
+            Self::Input(_) | Self::Search(_) | Self::Rename(_) => 0,
         }
     }
 }
@@ -353,6 +362,32 @@ pub enum ListTarget {
     Drive(char),
     /// The encoding to decode the previewed document with; `None` detects it.
     Encoding(Option<&'static Encoding>),
+}
+
+/// Renames entries of one directory at once by one rule, with the list of
+/// what each becomes. The targets are fixed when it opens.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenamePopup {
+    pub mode: RenameMode,
+    pub dir: PathBuf,
+    /// In display order.
+    pub targets: Vec<Entry>,
+    /// Whether the pane's listing holds the targets' siblings; it does not
+    /// when the target is the pane's own directory.
+    pub siblings: bool,
+    pub fields: Vec<InputField>,
+    pub plan: RenamePlan,
+    /// The item at the top of the list.
+    pub top: usize,
+    rows: LineRows,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenameMode {
+    /// `Find` and `Replace`.
+    Replace,
+    /// One template of the whole name.
+    Template,
 }
 
 impl SortPopup {
@@ -894,6 +929,166 @@ impl PalettePopup {
     #[must_use]
     pub fn selected(&self) -> Option<Command> {
         self.matches.get(self.cursor).cloned()
+    }
+}
+
+impl RenamePopup {
+    /// Opens on `targets` of `dir`; `listing` is the pane's whole listing.
+    #[must_use]
+    pub fn new(
+        mode: RenameMode,
+        dir: PathBuf,
+        targets: Vec<Entry>,
+        siblings: bool,
+        listing: &[Entry],
+        os: Os,
+    ) -> Self {
+        let fields = match mode {
+            RenameMode::Replace => vec![
+                InputField {
+                    label: "Find",
+                    ..InputField::new(String::new())
+                },
+                InputField {
+                    label: "Replace",
+                    ..InputField::new(String::new())
+                },
+            ],
+            // Typing replaces the name and keeps the extension, as in `rename`.
+            RenameMode::Template => vec![InputField {
+                select: Some((0, "{name}".len())),
+                ..InputField::new(INITIAL_TEMPLATE.to_owned())
+            }],
+        };
+        let mut popup = Self {
+            mode,
+            dir,
+            targets,
+            siblings,
+            fields,
+            plan: RenamePlan {
+                names: Vec::new(),
+                error: None,
+            },
+            top: 0,
+            rows: LineRows::default(),
+        };
+        popup.replan(listing, os);
+        popup
+    }
+
+    /// Makes the plan again from the fields, against the pane's whole listing.
+    pub fn replan(&mut self, listing: &[Entry], os: Os) {
+        let text = |field: usize| self.fields.get(field).map_or("", |field| &field.text);
+        let input = match self.mode {
+            RenameMode::Replace => RenameInput::Replace {
+                find: text(0),
+                replace: text(1),
+            },
+            RenameMode::Template => RenameInput::Template(text(0)),
+        };
+        let existing = self.siblings.then_some(listing);
+        self.plan = RenamePlan::new(&self.targets, input, existing, os);
+    }
+
+    pub fn set_text(&mut self, field: usize, text: String) {
+        if let Some(field) = self.fields.get_mut(field) {
+            field.text = text;
+        }
+    }
+
+    /// Takes how many rows items take, by index, as the UI measured them.
+    pub fn set_line_rows(&mut self, lines: &[(usize, usize)], area: usize) {
+        for &(index, rows) in lines {
+            if index < self.targets.len() {
+                self.rows.set(index, rows);
+            }
+        }
+        self.top = scroll::pull_back(self.top, self.targets.len(), area, |index| {
+            self.rows.get(index)
+        });
+    }
+
+    /// Scrolls by a number of items; positive moves towards the end.
+    pub fn scroll_by(&mut self, delta: i64, area: usize) {
+        self.top = scroll::move_by(self.top, delta, self.targets.len(), area, |index| {
+            self.rows.get(index)
+        });
+    }
+
+    /// Scrolls for an arrow, page, Home, or End key; other keys do nothing.
+    pub fn scroll_key(&mut self, key: KeyBase, area: usize) {
+        let count = self.targets.len();
+        let rows = |index| self.rows.get(index);
+        self.top = match key {
+            KeyBase::Named(NamedKey::Up) => scroll::move_by(self.top, -1, count, area, rows),
+            KeyBase::Named(NamedKey::Down) => scroll::move_by(self.top, 1, count, area, rows),
+            KeyBase::Named(NamedKey::PageUp) => scroll::page_up(self.top, area, rows),
+            KeyBase::Named(NamedKey::PageDown) => scroll::page_down(self.top, count, area, rows),
+            KeyBase::Named(NamedKey::Home) => 0,
+            KeyBase::Named(NamedKey::End) => scroll::end(count, area, rows),
+            _ => self.top,
+        };
+    }
+
+    #[must_use]
+    pub fn title(&self) -> String {
+        match self.targets.as_slice() {
+            [target] => format!("Rename {}", target.name.to_string_lossy()),
+            targets => format!("Rename {} items", targets.len()),
+        }
+    }
+
+    /// The first error, or else the hint about what to type.
+    #[must_use]
+    pub fn note(&self) -> String {
+        self.plan.error.clone().unwrap_or_else(|| {
+            match self.mode {
+                RenameMode::Replace => REPLACE_HINT,
+                RenameMode::Template => TEMPLATE_HINT,
+            }
+            .to_owned()
+        })
+    }
+
+    /// The `(old name, new name)` of each target whose name changes, in
+    /// display order.
+    #[must_use]
+    pub fn pairs(&self) -> Vec<(String, String)> {
+        self.targets
+            .iter()
+            .zip(&self.plan.names)
+            .filter_map(|(target, new)| {
+                Some((target.name.to_string_lossy().into_owned(), new.clone()?))
+            })
+            .collect()
+    }
+
+    /// The items to lay out or measure with the top at `self.top`.
+    #[must_use]
+    pub fn lines(&self, area: usize) -> PopupLines {
+        let ranges = scroll::ranges(self.top, self.targets.len(), area);
+        let lines = |range: Range<usize>| {
+            range
+                .map(|index| PopupLine {
+                    index,
+                    text: self.label(index),
+                })
+                .collect()
+        };
+        PopupLines {
+            shown: lines(ranges.shown),
+            before: lines(ranges.before),
+            tail: lines(ranges.tail),
+        }
+    }
+
+    fn label(&self, index: usize) -> String {
+        let old = self.targets[index].name.to_string_lossy();
+        match self.plan.names.get(index).and_then(Option::as_deref) {
+            Some(new) => format!("{old} \u{2192} {new}"),
+            None => old.into_owned(),
+        }
     }
 }
 

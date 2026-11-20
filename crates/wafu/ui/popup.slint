@@ -16,6 +16,8 @@ export struct PopupData {
     note: string,
     has-input: bool,
     has-list: bool,
+    // A list that only shows its items, each wrapped to whole rows.
+    has-lines: bool,
     cursor: int,
     scroll-top: int,
     // Reports work going on in the background and may be shown late.
@@ -33,6 +35,12 @@ export struct PopupField {
     select-end: int,
 }
 
+// An item of the list that only shows its items.
+export struct PopupLine {
+    index: int,
+    text: string,
+}
+
 component PopupText inherits Text {
     font-family: Theme.popup-font-family;
     font-size: Theme.popup-font-size;
@@ -42,6 +50,24 @@ component PopupText inherits Text {
 // secondary text is its foreground made translucent.
 component PopupDimText inherits PopupText {
     opacity: 0.7;
+}
+
+// An item in whole rows, the rows of a wrapped item as far apart as the
+// items, so that the list is cut between rows.
+component PopupLineText inherits Text {
+    // How far apart the font puts the rows of a wrapped item, which the
+    // spacing is relative to.
+    in property <length> natural-row-pitch;
+    out property <int> rows: max(1, round(self.preferred-height / Theme.popup-row-height));
+
+    height: self.rows * Theme.popup-row-height;
+    font-family: Theme.popup-font-family;
+    font-size: Theme.popup-font-size;
+    // Works with the FemtoVG renderer too, though the documentation lists
+    // only Qt and software.
+    wrap: char-wrap;
+    line-height-factor: Theme.popup-row-height / self.natural-row-pitch;
+    vertical-alignment: top;
 }
 
 component PopupInput {
@@ -163,7 +189,12 @@ component PopupInput {
                     // which would otherwise accept the field. With one field Tab
                     // and the unmodified arrows and page keys go there too; with
                     // more, Tab, Shift+Tab and the unmodified arrows move between
-                    // the fields, which is the UI's business alone.
+                    // the fields, which is the UI's business alone. The arrows,
+                    // page keys, Home, and End with Alt alone go to the core
+                    // whatever the fields, to scroll a list while the focus
+                    // stays here: of these, the field itself only uses
+                    // Option+Up and Option+Down on macOS, which Cmd+Up and
+                    // Cmd+Down do as well.
                     key-pressed(event) => {
                         let plain = !event.modifiers.control && !event.modifiers.shift && !event.modifiers.alt && !event.modifiers.meta;
                         if event.text == Key.Escape || (event.text == Key.Return && !plain) {
@@ -205,6 +236,9 @@ export component PopupOverlay {
     in property <PopupData> data;
     in property <[PopupItem]> items;
     in property <[PopupField]> fields;
+    in property <[PopupLine]> lines-shown;
+    in property <[PopupLine]> lines-before;
+    in property <[PopupLine]> lines-tail;
     in-out property <string> text;
     in-out property <string> text-2;
 
@@ -215,6 +249,8 @@ export component PopupOverlay {
     callback row-clicked(row: int);
     callback row-double-clicked(row: int);
     callback wheel(delta: length);
+    callback lines-rows-changed(rows: int);
+    callback line-rows(index: int, rows: int);
 
     // Wrapped text keeps the margin that one line has in a row.
     property <length> row-margin: Theme.popup-row-height - one-line.preferred-height;
@@ -268,6 +304,44 @@ export component PopupOverlay {
     one-line := PopupText {
         visible: false;
         text: " ";
+    }
+
+    // What a row adds to a wrapped item. A Text's preferred height is rounded
+    // up to a whole pixel, so ten rows' difference is taken.
+    property <length> line-row-pitch: (eleven-lines.preferred-height - one-line.preferred-height) / 10;
+    property <length> line-width: panel.width - 16px - 8px;
+
+    eleven-lines := PopupText {
+        visible: false;
+        text: " \n \n \n \n \n \n \n \n \n \n ";
+    }
+
+    // Each one is hidden on its own: a repeater under a parent that is not
+    // drawn may never make its elements.
+    for line in root.lines-before: PopupLineText {
+        visible: false;
+        width: root.line-width;
+        natural-row-pitch: root.line-row-pitch;
+        text: line.text;
+        init => {
+            root.line-rows(line.index, self.rows);
+        }
+        changed rows => {
+            root.line-rows(line.index, self.rows);
+        }
+    }
+
+    for line in root.lines-tail: PopupLineText {
+        visible: false;
+        width: root.line-width;
+        natural-row-pitch: root.line-row-pitch;
+        text: line.text;
+        init => {
+            root.line-rows(line.index, self.rows);
+        }
+        changed rows => {
+            root.line-rows(line.index, self.rows);
+        }
     }
 
     // The message and the note are measured at the width they are shown at:
@@ -368,6 +442,48 @@ export component PopupOverlay {
                 overflow: elide;
                 height: root.note-height;
                 vertical-alignment: center;
+            }
+
+            if data.has-lines: Rectangle {
+                property <int> rows: root.list-rows;
+
+                height: root.list-rows * Theme.popup-row-height;
+                clip: true;
+
+                // `changed` does not run at creation.
+                init => {
+                    root.lines-rows-changed(self.rows);
+                }
+
+                changed rows => {
+                    root.lines-rows-changed(self.rows);
+                }
+
+                VerticalLayout {
+                    padding-left: 4px;
+                    padding-right: 4px;
+                    alignment: start;
+
+                    for line in root.lines-shown: PopupLineText {
+                        width: root.line-width;
+                        natural-row-pitch: root.line-row-pitch;
+                        text: line.text;
+                        init => {
+                            root.line-rows(line.index, self.rows);
+                        }
+                        changed rows => {
+                            root.line-rows(line.index, self.rows);
+                        }
+                    }
+                }
+
+                // The core owns the scroll position; a click does nothing here.
+                TouchArea {
+                    scroll-event(event) => {
+                        root.wheel(event.delta-y);
+                        accept
+                    }
+                }
             }
 
             if data.has-list: Rectangle {
