@@ -2014,18 +2014,34 @@ fn the_page_keys_move_the_popup_list_and_its_cursor_by_the_visible_rows() {
     harness.press("PageDown");
     let popup = harness.view().popup.unwrap();
     assert_eq!((popup.scroll_top, popup.cursor), (5, Some(6)));
-    harness.press("PageDown");
-    harness.press("PageDown");
+    harness.press("PageUp");
+    let popup = harness.view().popup.unwrap();
+    assert_eq!((popup.scroll_top, popup.cursor), (0, Some(1)));
+}
+
+#[test]
+fn the_page_keys_keep_the_popup_list_in_range_at_its_ends() {
+    let mut harness = many_bookmarks();
+
+    harness.press("End");
     harness.press("PageDown");
     let popup = harness.view().popup.unwrap();
     assert_eq!((popup.scroll_top, popup.cursor), (15, Some(19)));
-
+    harness.press("Home");
+    harness.popup_wheel(10);
     harness.press("PageUp");
     let popup = harness.view().popup.unwrap();
-    assert_eq!((popup.scroll_top, popup.cursor), (10, Some(14)));
-    harness.press("Shift+PageUp");
+    assert_eq!((popup.scroll_top, popup.cursor), (0, Some(0)));
+}
+
+#[test]
+fn the_page_keys_with_a_modifier_leave_the_popup_list_alone() {
+    let mut harness = many_bookmarks();
+
+    harness.press("Shift+PageDown");
+
     let popup = harness.view().popup.unwrap();
-    assert_eq!((popup.scroll_top, popup.cursor), (10, Some(14)));
+    assert_eq!((popup.scroll_top, popup.cursor), (0, Some(0)));
 }
 
 #[test]

@@ -123,20 +123,28 @@ impl App {
                 }));
             }
             Some(popup) => {
-                // A page key moves the view with the cursor, as in the file
-                // list, so that the cursor keeps its place on the screen.
-                if !key.ctrl && !key.shift && !key.alt {
-                    match key.base {
-                        KeyBase::Named(NamedKey::PageUp) => {
-                            self.popup_top = self.popup_top.saturating_sub(self.popup_rows);
-                        }
-                        KeyBase::Named(NamedKey::PageDown) => {
-                            self.popup_top = self.popup_top.saturating_add(self.popup_rows);
-                        }
-                        _ => {}
-                    }
+                let page = !key.ctrl
+                    && !key.shift
+                    && !key.alt
+                    && matches!(
+                        key.base,
+                        KeyBase::Named(NamedKey::PageUp | NamedKey::PageDown)
+                    );
+                // As in the file list, so that the cursor keeps its place on
+                // the screen.
+                if page {
+                    self.popup_top = if key.base == KeyBase::Named(NamedKey::PageUp) {
+                        self.popup_top.saturating_sub(self.popup_rows)
+                    } else {
+                        self.popup_top.saturating_add(self.popup_rows)
+                    };
                 }
                 self.menu(popup, MenuInput::Key(key), effects);
+                // The follow-up leaves the view alone while the cursor stays
+                // where it is, as it does at either end of the list.
+                if page {
+                    self.show_popup_cursor();
+                }
             }
             None => {}
         }
