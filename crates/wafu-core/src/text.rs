@@ -6,17 +6,14 @@ pub(crate) const LINE_BREAK_SYMBOL: &str = "\u{21B5}";
 
 /// Composes `text` (NFC).
 // macOS stores file names decomposed (NFD) while input methods produce composed
-// text (NFC), so both sides are composed before a typed name is compared with
-// one on disk.
+// text (NFC), so both sides are composed before any name comparison.
 #[must_use]
 pub fn nfc(text: &str) -> Cow<'_, str> {
     ComposingNormalizer::new_nfc().normalize(text)
 }
 
-/// Whether two names are the same once composed. The case counts.
-// Whether the file system tells the case apart is not known here.
-#[must_use]
-pub fn same_name(a: &str, b: &str) -> bool {
+// The case counts: whether the file system tells it apart is not known here.
+pub(crate) fn same_name(a: &str, b: &str) -> bool {
     nfc(a) == nfc(b)
 }
 

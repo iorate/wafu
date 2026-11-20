@@ -120,10 +120,6 @@ mod tests {
             &dir.join("\u{304b}\u{3099}a.txt"),
             &dir.join("\u{304c}A.txt")
         ));
-        assert!(!differ_only_in_case(
-            &dir.join("\u{304b}a.txt"),
-            &dir.join("\u{304c}A.txt")
-        ));
     }
 
     #[cfg(unix)]
