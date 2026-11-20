@@ -3,6 +3,8 @@ use std::fs::{self, OpenOptions};
 use std::io;
 use std::path::Path;
 
+use wafu_core::nfc;
+
 pub(crate) fn rename(from: &Path, to: &Path) -> io::Result<()> {
     if fs::symlink_metadata(to).is_ok()
         && !(differ_only_in_case(from, to) && same_file::is_same_file(from, to).unwrap_or(false))
@@ -64,7 +66,8 @@ fn differ_only_in_case(a: &Path, b: &Path) -> bool {
             a.file_name().and_then(OsStr::to_str),
             b.file_name().and_then(OsStr::to_str),
         ) {
-            (Some(a), Some(b)) => a.to_lowercase() == b.to_lowercase(),
+            // A typed name is composed, while the one on disk may not be.
+            (Some(a), Some(b)) => nfc(a).to_lowercase() == nfc(b).to_lowercase(),
             _ => false,
         }
 }
@@ -108,6 +111,19 @@ mod tests {
             .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
         assert_eq!(names, ["A.txt"]);
+    }
+
+    #[test]
+    fn differ_only_in_case_ignores_normalization() {
+        let dir = Path::new("d");
+        assert!(differ_only_in_case(
+            &dir.join("\u{304b}\u{3099}a.txt"),
+            &dir.join("\u{304c}A.txt")
+        ));
+        assert!(!differ_only_in_case(
+            &dir.join("\u{304b}a.txt"),
+            &dir.join("\u{304c}A.txt")
+        ));
     }
 
     #[cfg(unix)]

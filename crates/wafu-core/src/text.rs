@@ -4,10 +4,20 @@ use icu_normalizer::ComposingNormalizer;
 
 pub(crate) const LINE_BREAK_SYMBOL: &str = "\u{21B5}";
 
+/// Composes `text` (NFC).
 // macOS stores file names decomposed (NFD) while input methods produce composed
-// text (NFC), so both sides are composed before any name comparison.
-pub(crate) fn nfc(text: &str) -> Cow<'_, str> {
+// text (NFC), so both sides are composed before a typed name is compared with
+// one on disk.
+#[must_use]
+pub fn nfc(text: &str) -> Cow<'_, str> {
     ComposingNormalizer::new_nfc().normalize(text)
+}
+
+/// Whether two names are the same once composed. The case counts.
+// Whether the file system tells the case apart is not known here.
+#[must_use]
+pub fn same_name(a: &str, b: &str) -> bool {
+    nfc(a) == nfc(b)
 }
 
 // The text layout forces a line break after these characters, so a single-row
@@ -33,6 +43,13 @@ pub(crate) fn is_line_break(c: char) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn same_name_ignores_normalization_but_not_case() {
+        assert!(same_name("\u{304b}\u{3099}.txt", "\u{304c}.txt"));
+        assert!(!same_name("\u{304b}.txt", "\u{304c}.txt"));
+        assert!(!same_name("a.txt", "A.txt"));
+    }
 
     #[test]
     fn show_line_breaks_replaces_each_line_break_with_the_symbol() {

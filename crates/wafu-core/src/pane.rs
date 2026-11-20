@@ -11,7 +11,7 @@ use crate::history::History;
 use crate::listing::{Listing, SortSpec};
 use crate::location::{Location, Passwords};
 use crate::path::drive_letter;
-use crate::text::nfc;
+use crate::text::{nfc, same_name};
 use crate::view::{ExtensionColors, RowView};
 
 /// A unique number for an asynchronous request, used to discard stale replies.
@@ -792,9 +792,21 @@ impl Pane {
 
     fn row_of(&self, name: &OsString) -> Option<usize> {
         let offset = usize::from(self.has_parent());
+        // A typed name may be composed differently from the one on disk. The
+        // exact name comes first because a file system may hold both forms,
+        // and a reload must not move the cursor from one to the other.
         self.listing
             .visible_entries()
             .position(|entry| entry.name == *name)
+            .or_else(|| {
+                let name = name.to_str()?;
+                self.listing.visible_entries().position(|entry| {
+                    entry
+                        .name
+                        .to_str()
+                        .is_some_and(|entry| same_name(entry, name))
+                })
+            })
             .map(|index| index + offset)
     }
 
@@ -886,6 +898,26 @@ mod tests {
 
         assert_eq!(pane.cursor(), 0);
         assert_eq!(cursor_name(&pane), "b");
+    }
+
+    #[test]
+    fn set_directory_follows_a_pending_name_composed_differently() {
+        let mut pane = pane_with("/", &[]);
+
+        pane.set_pending_cursor(Some(OsString::from("\u{304c}")));
+        pane.set_directory(entries(&["a", "\u{304b}\u{3099}", "z"]));
+
+        assert_eq!(cursor_name(&pane), "\u{304b}\u{3099}");
+    }
+
+    #[test]
+    fn set_directory_prefers_the_exact_name_to_one_composed_differently() {
+        let mut pane = pane_with("/", &[]);
+
+        pane.set_pending_cursor(Some(OsString::from("\u{304c}")));
+        pane.set_directory(entries(&["\u{304b}\u{3099}", "\u{304c}"]));
+
+        assert_eq!(cursor_name(&pane), "\u{304c}");
     }
 
     #[test]

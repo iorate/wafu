@@ -18,6 +18,7 @@ use crate::popup::{
     ChoiceKind, ChoicePopup, ConflictPopup, InputKind, InputPopup, ListPopup, PasswordPurpose,
     Popup,
 };
+use crate::text::same_name;
 use crate::view::PopupView;
 
 const DEFAULT_ARCHIVE_STEM: &str = "archive";
@@ -413,7 +414,9 @@ impl App {
         let path = base.join(text);
         match kind {
             InputKind::Rename { original, .. } => {
-                if original.to_string_lossy() != text {
+                // A name that only differs in normalization is the same entry
+                // on some file systems, so it is never renamed to one.
+                if !same_name(&original.to_string_lossy(), text) {
                     effects.push(Effect::Rename {
                         from: base.join(&original),
                         to: path,
