@@ -9,8 +9,6 @@ use super::{Stop, Worker, fail};
 use crate::fs_ops::{already_exists, is_taken, rename};
 
 impl Worker<'_> {
-    // Nothing is renamed unless every item can be: the old names are all
-    // there, and each new name is free or the old name of another item.
     pub(super) fn rename_all(&mut self, renames: &Renames) -> Result<(), Stop> {
         let blockers = blockers(&renames.pairs);
         check(renames, &blockers)?;
@@ -33,10 +31,8 @@ impl Worker<'_> {
         Ok(())
     }
 
-    // The first item steps aside to a temporary name, which frees the name
-    // the last one takes, and so on back round to the first. A cancellation
-    // waits for the end, as stopping in between would leave the first item
-    // under the temporary name.
+    // A cancellation waits for the end of the cycle, as stopping in between
+    // would leave the first item under the temporary name.
     fn rename_cycle(
         &mut self,
         renames: &Renames,
@@ -89,8 +85,6 @@ enum Step {
     Cycle(Vec<usize>),
 }
 
-// For each item, the other item whose old name it takes, which has to be
-// renamed first.
 fn blockers(pairs: &[(String, String)]) -> Vec<Option<usize>> {
     let olds: HashMap<Cow<'_, str>, usize> = pairs
         .iter()
@@ -122,9 +116,6 @@ fn check(renames: &Renames, blockers: &[Option<usize>]) -> Result<(), Stop> {
     Ok(())
 }
 
-// Following the blockers from an item ends at one that takes a free name, or
-// comes back round to an item already passed, which closes a cycle. The items
-// are renamed from the end back to the start.
 fn plan(blockers: &[Option<usize>]) -> Vec<Step> {
     let mut reached_from: Vec<Option<usize>> = vec![None; blockers.len()];
     let mut steps = Vec::new();
@@ -154,8 +145,10 @@ fn plan(blockers: &[Option<usize>]) -> Vec<Step> {
     steps
 }
 
-// Lowercased, as on a file system that ignores case, a new name that differs
-// from the temporary one only in case would collide with it.
+// The temporary name stays off the new names, so that an item left under it
+// after a failure does not sit where a rename not yet done wants to go. They
+// are lowercased because a file system that ignores case sees names that
+// differ only in case as the same.
 fn new_names(renames: &Renames) -> HashSet<String> {
     renames
         .pairs
@@ -298,7 +291,12 @@ mod tests {
         let dir = files(&["a", "c", "wafu-rename-0.tmp"]);
         let renames = Renames {
             dir: dir.path().to_path_buf(),
-            pairs: pairs(&[("a", "b"), ("b", "a"), ("c", "wafu-rename-1.tmp")]),
+            pairs: pairs(&[
+                ("a", "b"),
+                ("b", "c"),
+                ("c", "a"),
+                ("d", "wafu-rename-1.tmp"),
+            ]),
         };
         let events = Mutex::new(Vec::new());
         let report = |event| events.lock().unwrap().push(event);
@@ -306,23 +304,25 @@ mod tests {
         let nested = NestedArchives::default();
         let mut worker = worker(&nested, &replies, &report);
 
-        // `b` is missing, which the check before the start would catch.
-        let result = worker.rename_cycle(&renames, &new_names(&renames), &[0, 1]);
+        // `b` is missing, which the check before the start would catch. `c`
+        // is renamed to `a` before `b` fails.
+        let result = worker.rename_cycle(&renames, &new_names(&renames), &[0, 1, 2]);
 
         let Err(Stop::Failed { path, .. }) = result else {
             panic!("expected a failure");
         };
         assert_eq!(path, dir.path().join("b"));
         assert_eq!(content(&dir, "wafu-rename-2.tmp"), "a");
+        assert_eq!(content(&dir, "a"), "c");
+        let events = events.into_inner().unwrap();
+        assert_eq!(items_done(&events), []);
         assert_eq!(
             events
-                .into_inner()
-                .unwrap()
                 .into_iter()
                 .filter(|event| matches!(event, OperationEvent::CycleBroken { .. }))
                 .collect::<Vec<_>>(),
             [OperationEvent::CycleBroken {
-                cycle: vec![0, 1],
+                cycle: vec![0, 1, 2],
                 left: 0,
                 temp: "wafu-rename-2.tmp".to_owned(),
             }]
@@ -359,7 +359,8 @@ mod tests {
     fn a_failure_stops_with_the_items_before_it_left_renamed() {
         let dir = files(&["a", "b", "c"]);
 
-        // A name with a NUL is refused by every file system.
+        // The standard library refuses a path with a NUL before it reaches
+        // the file system, so renaming to it fails.
         let (outcome, events) = run(&dir, &[("a", "x"), ("b", "y\0"), ("c", "z")], |_| None);
 
         let Outcome::Failed { path, .. } = outcome else {
@@ -409,7 +410,6 @@ mod tests {
         assert_eq!(content(&dir, "a"), "b");
     }
 
-    // Runs a rename in `dir`, sending the reply `react` gives to an event.
     fn run(
         dir: &TempDir,
         renames: &[(&str, &str)],
@@ -459,7 +459,7 @@ mod tests {
         }
     }
 
-    // A temporary directory with the named files, each holding its own name.
+    // Each file holds its own name.
     fn files(names: &[&str]) -> TempDir {
         let dir = TempDir::new().unwrap();
         for name in names {

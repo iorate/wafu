@@ -185,9 +185,7 @@ pub enum Command {
     Delete,
     Trash,
     Rename,
-    /// Renames the targets by replacing text in their names.
     RenameReplace,
-    /// Renames the targets after a template of their names.
     RenameTemplate,
     Mkdir,
     NewFile,

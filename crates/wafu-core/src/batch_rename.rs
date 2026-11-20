@@ -88,7 +88,7 @@ enum TemplateError {
 
 fn replace_in(name: &str, find: &str, replace: &str) -> String {
     let name = nfc(name);
-    let needle: String = nfc(find).chars().flat_map(char::to_lowercase).collect();
+    let needle = lowercase(&nfc(find));
     if needle.is_empty() {
         return name.into_owned();
     }
@@ -106,10 +106,9 @@ fn replace_in(name: &str, find: &str, replace: &str) -> String {
     nfc(&renamed).into_owned()
 }
 
-// The length in `text` of a match of `needle` at its start. Each character is
-// lowercased on its own, and a match must end where a character of `text`
-// ends: lowercasing changes the length of some characters (`İ`), so positions
-// in the lowercased text do not point into `text`.
+// Each character is lowercased on its own, and a match must end where a
+// character of `text` ends: lowercasing changes the length of some characters
+// (`İ`), so positions in the lowercased text do not point into `text`.
 fn match_len(text: &str, needle: &str) -> Option<usize> {
     let mut rest = needle;
     for (index, c) in text.char_indices() {
@@ -121,6 +120,10 @@ fn match_len(text: &str, needle: &str) -> Option<usize> {
         }
     }
     None
+}
+
+fn lowercase(text: &str) -> String {
+    text.chars().flat_map(char::to_lowercase).collect()
 }
 
 fn parse_template(text: &str) -> Result<Vec<Piece>, TemplateError> {
@@ -229,7 +232,7 @@ fn first_error(
             "invalid name"
         } else if new.contains('/') || (os == Os::Windows && new.contains('\\')) {
             "contains a separator"
-        } else if !taken.insert(new.to_lowercase()) {
+        } else if !taken.insert(lowercase(new)) {
             // Creating `A` and `a` at once fails halfway on a file system that
             // ignores case, so they are refused everywhere.
             "duplicate name"
@@ -447,6 +450,11 @@ mod tests {
                 [file("e\u{301}.txt"), file("\u{e9}.jpg")],
                 "{name}",
                 "\u{e9}.jpg \u{2192} \u{e9}: duplicate name",
+            ),
+            (
+                [file("a\u{3a3}.txt"), file("a\u{3c3}.jpg")],
+                "{name}",
+                "a\u{3c3}.jpg \u{2192} a\u{3c3}: duplicate name",
             ),
         ];
         for (targets, template, expected) in cases {

@@ -1195,7 +1195,6 @@ enum TempAction {
     Spawn { name: SpawnName, line: CommandLine },
 }
 
-// What a batch rename was started on, and what of it is known to be done.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RenameProgress {
     pairs: Vec<(String, String)>,

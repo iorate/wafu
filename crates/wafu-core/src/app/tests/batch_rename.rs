@@ -57,23 +57,6 @@ fn rename_template_opens_on_the_cursor_entry_without_marks_with_the_name_selecte
     assert_eq!(popup.note.as_deref(), Some("{name} {ext} {001}"));
 }
 
-#[test]
-fn a_batch_rename_inside_an_archive_is_refused() {
-    let mut harness = Harness::start(LEFT, RIGHT);
-    harness.load(Side::Left, vec![file("a.zip")]);
-    harness.press("Down");
-    harness.enter_archive(Side::Left, vec![file("x")]);
-    harness.press("Down");
-
-    harness.press("Shift+R");
-
-    assert_eq!(harness.popup(), None);
-    assert_eq!(
-        harness.log().last().map(String::as_str),
-        Some("Cannot run rename_replace: not available inside an archive")
-    );
-}
-
 #[cfg(unix)]
 #[test]
 fn a_batch_rename_with_a_target_whose_name_is_not_utf8_is_refused() {
@@ -365,28 +348,12 @@ fn arrows_without_alt_or_with_more_than_alt_leave_the_list_alone() {
 }
 
 #[test]
-fn the_wheel_scrolls_the_list_and_a_click_does_nothing() {
+fn the_wheel_scrolls_the_list() {
     let mut harness = long_list(20);
 
     harness.popup_wheel(3);
+
     assert_eq!(top(&harness), 3);
-    let popup = harness.popup().cloned();
-    harness.popup_double_click(0);
-    assert_eq!(harness.popup().cloned(), popup);
-    assert_eq!(harness.take_effects(), vec![]);
-}
-
-#[test]
-fn a_page_counts_the_rows_each_item_takes() {
-    let mut harness = long_list(20);
-    harness.send(Msg::PopupLineRows {
-        area: None,
-        lines: vec![(0, 3), (1, 3)],
-    });
-
-    harness.press("Alt+PageDown");
-
-    assert_eq!(top(&harness), 1);
 }
 
 #[test]

@@ -16,7 +16,6 @@ export struct PopupData {
     note: string,
     has-input: bool,
     has-list: bool,
-    // A list that only shows its items, each wrapped to whole rows.
     has-lines: bool,
     cursor: int,
     scroll-top: int,
@@ -35,7 +34,6 @@ export struct PopupField {
     select-end: int,
 }
 
-// An item of the list that only shows its items.
 export struct PopupLine {
     index: int,
     text: string,
@@ -75,6 +73,7 @@ component PopupInput {
     in property <bool> labelled;
     in property <length> label-width;
     in property <bool> single;
+    in property <bool> has-lines;
     // Which field holds the focus is the overlay's state; the field follows it,
     // since an element inside `if` cannot be reached from outside.
     in property <bool> active;
@@ -189,12 +188,13 @@ component PopupInput {
                     // which would otherwise accept the field. With one field Tab
                     // and the unmodified arrows and page keys go there too; with
                     // more, Tab, Shift+Tab and the unmodified arrows move between
-                    // the fields, which is the UI's business alone. The arrows,
-                    // page keys, Home, and End with Alt alone go to the core
-                    // whatever the fields, to scroll a list while the focus
-                    // stays here: of these, the field itself only uses
-                    // Option+Up and Option+Down on macOS, which Cmd+Up and
-                    // Cmd+Down do as well.
+                    // the fields, which is the UI's business alone. When the
+                    // popup shows a list of lines, the arrows, page keys, Home,
+                    // and End with Alt alone go to the core whatever the
+                    // fields, to scroll that list while the focus stays here:
+                    // of these, the field itself only uses Option+Up and
+                    // Option+Down on macOS, which Cmd+Up and Cmd+Down do as
+                    // well. Without such a list the field keeps them.
                     key-pressed(event) => {
                         let plain = !event.modifiers.control && !event.modifiers.shift && !event.modifiers.alt && !event.modifiers.meta;
                         if event.text == Key.Escape || (event.text == Key.Return && !plain) {
@@ -202,7 +202,7 @@ component PopupInput {
                             return accept;
                         }
                         let alt = event.modifiers.alt && !event.modifiers.control && !event.modifiers.shift && !event.modifiers.meta;
-                        if alt && (event.text == Key.UpArrow || event.text == Key.DownArrow || event.text == Key.PageUp || event.text == Key.PageDown || event.text == Key.Home || event.text == Key.End) {
+                        if root.has-lines && alt && (event.text == Key.UpArrow || event.text == Key.DownArrow || event.text == Key.PageUp || event.text == Key.PageDown || event.text == Key.Home || event.text == Key.End) {
                             root.key-input(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt, event.modifiers.meta);
                             return accept;
                         }
@@ -395,6 +395,7 @@ export component PopupOverlay {
                 labelled: root.fields.length >= 2;
                 label-width: max(first-label.preferred-width, second-label.preferred-width);
                 single: root.fields.length == 1;
+                has-lines: root.data.has-lines;
                 active: root.focused-field == 0;
                 generation: root.data.generation;
                 open: root.data.visible;
@@ -418,6 +419,7 @@ export component PopupOverlay {
                 labelled: true;
                 label-width: max(first-label.preferred-width, second-label.preferred-width);
                 single: false;
+                has-lines: root.data.has-lines;
                 active: root.focused-field == 1;
                 generation: root.data.generation;
                 open: root.data.visible;
