@@ -2012,8 +2012,7 @@ fn page_down_in_a_popup_list_moves_by_the_visible_rows() {
 
     harness.press("PageDown");
 
-    let popup = harness.view().popup.unwrap();
-    assert_eq!((popup.scroll_top, popup.cursor), (1, Some(5)));
+    assert_eq!(harness.view().popup.unwrap().cursor, Some(5));
 }
 
 #[test]

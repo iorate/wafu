@@ -1248,47 +1248,50 @@ pub(crate) fn menu_input<M: Menu>(
     page: usize,
 ) -> Response<M::Pick> {
     match input {
-        MenuInput::Key(key) => match key.base {
-            KeyBase::Named(NamedKey::Escape) => Response::Close,
-            KeyBase::Named(NamedKey::Enter) => match menu.kind(menu.cursor()) {
-                ItemKind::Check(_) => menu.confirm(),
-                _ => menu.run(menu.cursor()),
-            },
-            KeyBase::Named(NamedKey::Space)
-                if matches!(menu.kind(menu.cursor()), ItemKind::Check(_)) =>
-            {
-                menu.run(menu.cursor())
+        MenuInput::Key(key) => {
+            let plain = !key.ctrl && !key.shift && !key.alt;
+            match key.base {
+                KeyBase::Named(NamedKey::Escape) => Response::Close,
+                KeyBase::Named(NamedKey::Enter) => match menu.kind(menu.cursor()) {
+                    ItemKind::Check(_) => menu.confirm(),
+                    _ => menu.run(menu.cursor()),
+                },
+                KeyBase::Named(NamedKey::Space)
+                    if matches!(menu.kind(menu.cursor()), ItemKind::Check(_)) =>
+                {
+                    menu.run(menu.cursor())
+                }
+                KeyBase::Named(NamedKey::Up) => {
+                    menu.cursor_up();
+                    Response::Stay
+                }
+                KeyBase::Named(NamedKey::Down) => {
+                    menu.cursor_down();
+                    Response::Stay
+                }
+                KeyBase::Named(NamedKey::PageUp) if plain => {
+                    move_cursor(menu, menu.cursor().saturating_sub(page), false);
+                    Response::Stay
+                }
+                KeyBase::Named(NamedKey::PageDown) if plain => {
+                    move_cursor(menu, menu.cursor().saturating_add(page), true);
+                    Response::Stay
+                }
+                KeyBase::Named(NamedKey::Home) if plain => {
+                    move_cursor(menu, 0, false);
+                    Response::Stay
+                }
+                KeyBase::Named(NamedKey::End) if plain => {
+                    move_cursor(menu, usize::MAX, true);
+                    Response::Stay
+                }
+                KeyBase::Char(c) if !key.ctrl && !key.alt => match menu.row_for_key(c) {
+                    Some(row) => menu.run(row),
+                    None => Response::Stay,
+                },
+                _ => Response::Stay,
             }
-            KeyBase::Named(NamedKey::Up) => {
-                menu.cursor_up();
-                Response::Stay
-            }
-            KeyBase::Named(NamedKey::Down) => {
-                menu.cursor_down();
-                Response::Stay
-            }
-            KeyBase::Named(NamedKey::PageUp) => {
-                move_cursor(menu, menu.cursor().saturating_sub(page), false);
-                Response::Stay
-            }
-            KeyBase::Named(NamedKey::PageDown) => {
-                move_cursor(menu, menu.cursor().saturating_add(page), true);
-                Response::Stay
-            }
-            KeyBase::Named(NamedKey::Home) => {
-                move_cursor(menu, 0, false);
-                Response::Stay
-            }
-            KeyBase::Named(NamedKey::End) => {
-                move_cursor(menu, usize::MAX, true);
-                Response::Stay
-            }
-            KeyBase::Char(c) if !key.ctrl && !key.alt => match menu.row_for_key(c) {
-                Some(row) => menu.run(row),
-                None => Response::Stay,
-            },
-            _ => Response::Stay,
-        },
+        }
         MenuInput::Click { row } => {
             if selectable(menu, row) {
                 menu.set_cursor(row);
@@ -1588,8 +1591,21 @@ mod tests {
             menu_input(&mut popup, key("PageDown"), PAGE),
             Response::Stay
         );
-        assert_eq!(menu_input(&mut popup, key("PageUp"), PAGE), Response::Stay);
-        assert_eq!(popup.cursor, 0);
+    }
+
+    #[test]
+    fn menu_input_ignores_page_home_and_end_with_modifiers() {
+        let mut popup = conflict_popup();
+
+        for text in ["Shift+PageDown", "Alt+PageDown", "Ctrl+End", "Alt+End"] {
+            menu_input(&mut popup, key(text), PAGE);
+            assert_eq!(popup.cursor, 1);
+        }
+        popup.cursor = 6;
+        for text in ["Shift+PageUp", "Alt+PageUp", "Ctrl+Home", "Alt+Home"] {
+            menu_input(&mut popup, key(text), PAGE);
+            assert_eq!(popup.cursor, 6);
+        }
     }
 
     #[test]

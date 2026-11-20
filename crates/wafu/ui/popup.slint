@@ -160,8 +160,8 @@ component PopupInput {
                     }
 
                     // Esc goes to the core. With one field the arrows, Tab and the
-                    // page keys do too; with more the arrows and Tab move between
-                    // the fields, which is the UI's business alone.
+                    // unmodified page keys do too; with more the arrows and Tab move
+                    // between the fields, which is the UI's business alone.
                     key-pressed(event) => {
                         if event.text == Key.Escape {
                             root.key-input(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt, event.modifiers.meta);
@@ -175,7 +175,7 @@ component PopupInput {
                             }
                             return accept;
                         }
-                        if root.single && (event.text == Key.PageUp || event.text == Key.PageDown) {
+                        if root.single && (event.text == Key.PageUp || event.text == Key.PageDown) && !event.modifiers.control && !event.modifiers.shift && !event.modifiers.alt && !event.modifiers.meta {
                             root.key-input(event.text, event.modifiers.control, event.modifiers.shift, event.modifiers.alt, event.modifiers.meta);
                             return accept;
                         }
