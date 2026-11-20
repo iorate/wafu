@@ -2,4 +2,4 @@
 wafu: patch
 ---
 
-Up and Down no longer move the cursor of a popup list while Ctrl, Shift, or Alt is held; in a popup with one input field they are left to the field.
+In popups, Up and Down held with Ctrl, Shift, or Alt are left to the input field: they no longer move the list cursor, step between search matches, or switch fields.

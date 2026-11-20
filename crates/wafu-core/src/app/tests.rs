@@ -1293,6 +1293,19 @@ fn search_arrows_move_between_matches_and_enter_keeps_the_cursor() {
 }
 
 #[test]
+fn search_arrows_with_a_modifier_do_nothing() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.load(Side::Left, vec![file("a1"), file("a2"), file("b")]);
+
+    harness.press("F");
+    harness.edit("a");
+    harness.press("Shift+Down");
+    harness.press("Alt+Up");
+
+    assert_eq!(harness.cursor_name(Side::Left), "a1");
+}
+
+#[test]
 fn search_escape_restores_the_cursor_and_scroll() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a"), file("b"), file("c"), file("d")]);
