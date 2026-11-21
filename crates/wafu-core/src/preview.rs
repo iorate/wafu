@@ -154,7 +154,7 @@ impl Document {
         }
     }
 
-    /// How many digits the widest line number or offset has; zero when none is shown.
+    /// How many digits the widest line number or offset has.
     #[must_use]
     pub fn digits(&self, mode: DocumentMode) -> usize {
         match mode {
