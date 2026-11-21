@@ -511,6 +511,7 @@ pub struct App {
     popup: Option<Popup>,
     popup_top: usize,
     popup_rows: usize,
+    popup_rows_reported: bool,
     popup_generation: usize,
     preview: Option<preview::Preview>,
     // What the UI last reported; kept across previews so that a new one
@@ -551,6 +552,7 @@ impl App {
             popup: None,
             popup_top: 0,
             popup_rows: POPUP_ROWS_DEFAULT,
+            popup_rows_reported: false,
             popup_generation: 0,
             preview: None,
             preview_rows: 1,

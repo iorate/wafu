@@ -534,14 +534,22 @@ export component PopupOverlay {
 
             if data.has-list: Rectangle {
                 property <int> top: root.data.scroll-top;
+                property <int> generation: root.data.generation;
 
                 height: root.list-rows * Theme.popup-row-height;
                 clip: true;
 
-                // The list is made anew with each popup, and `changed` does
-                // not run at creation.
+                // `changed` does not run at creation.
                 init => {
                     list.content-y = -self.top * Theme.popup-row-height;
+                    root.list-rows-changed(floor(list.visible-height / Theme.popup-row-height));
+                }
+
+                // The core places each popup anew once it knows the rows of its
+                // list. A popup that takes the place of another with a list
+                // keeps this element, and a list of the same height would
+                // report nothing.
+                changed generation => {
                     root.list-rows-changed(floor(list.visible-height / Theme.popup-row-height));
                 }
 

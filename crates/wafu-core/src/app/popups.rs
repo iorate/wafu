@@ -186,7 +186,18 @@ impl App {
     }
 
     pub(super) fn set_popup_rows(&mut self, rows: usize) {
-        self.popup_rows = rows.max(1);
+        // A list that is going away reports no rows, which says nothing about
+        // the list of the next popup.
+        if rows == 0 {
+            return;
+        }
+        self.popup_rows = rows;
+        // The popup was placed with the rows of the list before it, and
+        // keeping the cursor in view would leave it wherever that put it.
+        if !self.popup_rows_reported {
+            self.popup_rows_reported = true;
+            self.popup_top = 0;
+        }
         self.show_popup_cursor();
     }
 
@@ -225,6 +236,7 @@ impl App {
         // generation to start it afresh.
         if before.map(|(kind, _, _)| kind) != after.map(|(kind, _, _)| kind) {
             self.popup_top = 0;
+            self.popup_rows_reported = false;
             self.popup_generation = self.popup_generation.wrapping_add(1);
         }
         self.show_popup_cursor();
