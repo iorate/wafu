@@ -1,12 +1,15 @@
 use std::ffi::{OsStr, OsString};
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use encoding_rs::Encoding;
 
 use crate::app::{Os, Side};
+use crate::batch_rename::{RenameInput, RenamePlan};
 use crate::command::{Command, Context};
 use crate::compare::{CompareCondition, CompareSpec};
 use crate::config::Bookmark;
+use crate::entry::Entry;
 use crate::history::History;
 use crate::key::{Key, KeyBase, NamedKey};
 use crate::listing::{SortKey, SortSpec};
@@ -14,8 +17,9 @@ use crate::location::{ArchiveFormat, Location, Passwords};
 use crate::pane::HistoryMove;
 use crate::path::expand_tilde;
 use crate::preview::ENCODINGS;
+use crate::scroll::{self, LineRows};
 use crate::text::nfc;
-use crate::view::{InputField, ItemKind, PopupItem};
+use crate::view::{InputField, ItemKind, PopupItem, PopupLine, PopupLines};
 
 const SORT_ROWS: [(SortRow, &str, Option<char>); 10] = [
     (SortRow::Key(SortKey::None), "None", Some('N')),
@@ -107,6 +111,10 @@ const CONFLICT_ROWS: [(ConflictRow, &str, Option<char>); 7] = [
     (ConflictRow::ApplyToAll, "Apply to all", Some('A')),
 ];
 
+const REPLACE_HINT: &str = "Replaces every occurrence, ignoring case";
+const TEMPLATE_HINT: &str = "Placeholders: {name}, {ext}, {001} (counter from 001)";
+const INITIAL_TEMPLATE: &str = "{name}{ext}";
+
 /// A modal that takes all keys while it is open.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Popup {
@@ -118,6 +126,7 @@ pub enum Popup {
     List(ListPopup),
     Choice(ChoicePopup),
     Conflict(ConflictPopup),
+    Rename(RenamePopup),
 }
 
 impl Popup {
@@ -129,7 +138,7 @@ impl Popup {
             Self::List(popup) => popup.rows(),
             Self::Choice(popup) => popup.rows(),
             Self::Conflict(popup) => popup.rows(),
-            Self::Input(_) | Self::Search(_) => 0,
+            Self::Input(_) | Self::Search(_) | Self::Rename(_) => 0,
         }
     }
 
@@ -141,7 +150,7 @@ impl Popup {
             Self::List(popup) => popup.cursor(),
             Self::Choice(popup) => popup.cursor(),
             Self::Conflict(popup) => popup.cursor(),
-            Self::Input(_) | Self::Search(_) => 0,
+            Self::Input(_) | Self::Search(_) | Self::Rename(_) => 0,
         }
     }
 }
@@ -353,6 +362,33 @@ pub enum ListTarget {
     Drive(char),
     /// The encoding to decode the previewed document with; `None` detects it.
     Encoding(Option<&'static Encoding>),
+}
+
+/// Renames entries of one directory at once by one rule, with the list of
+/// the targets whose name changes and what each becomes. The targets are
+/// fixed when it opens.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenamePopup {
+    mode: RenameMode,
+    pub dir: PathBuf,
+    /// In display order.
+    pub targets: Vec<Entry>,
+    // The pane's listing does not hold the targets' siblings when the target
+    // is the pane's own directory.
+    siblings: bool,
+    pub fields: Vec<InputField>,
+    pub plan: RenamePlan,
+    // Counted among the items the list shows, not among the targets.
+    top: usize,
+    rows: LineRows,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenameMode {
+    /// `Find` and `Replace`.
+    Replace,
+    /// One template of the whole name.
+    Template,
 }
 
 impl SortPopup {
@@ -897,6 +933,204 @@ impl PalettePopup {
     }
 }
 
+impl RenamePopup {
+    /// Opens on `targets` of `dir`; `listing` is the pane's whole listing.
+    #[must_use]
+    pub fn new(
+        mode: RenameMode,
+        dir: PathBuf,
+        targets: Vec<Entry>,
+        siblings: bool,
+        listing: &[Entry],
+        os: Os,
+    ) -> Self {
+        let fields = match mode {
+            RenameMode::Replace => vec![
+                InputField {
+                    label: "Find",
+                    ..InputField::new(String::new())
+                },
+                InputField {
+                    label: "Replace",
+                    ..InputField::new(String::new())
+                },
+            ],
+            // Typing replaces the name and keeps the extension, as in `rename`.
+            RenameMode::Template => vec![InputField {
+                select: Some((0, "{name}".len())),
+                ..InputField::new(INITIAL_TEMPLATE.to_owned())
+            }],
+        };
+        let mut popup = Self {
+            mode,
+            dir,
+            targets,
+            siblings,
+            fields,
+            plan: RenamePlan {
+                names: Vec::new(),
+                error: None,
+            },
+            top: 0,
+            rows: LineRows::default(),
+        };
+        popup.replan(listing, os);
+        popup
+    }
+
+    /// Makes the plan again from the fields, against the pane's whole listing.
+    pub fn replan(&mut self, listing: &[Entry], os: Os) {
+        let text = |field: usize| self.fields.get(field).map_or("", |field| &field.text);
+        let input = match self.mode {
+            RenameMode::Replace => RenameInput::Replace {
+                find: text(0),
+                replace: text(1),
+            },
+            RenameMode::Template => RenameInput::Template(text(0)),
+        };
+        let existing = self.siblings.then_some(listing);
+        let old = std::mem::replace(
+            &mut self.plan,
+            RenamePlan::new(&self.targets, input, existing, os),
+        );
+        // The UI measures only the items it is handed anew, so a count kept
+        // where another item or name now takes the index could stand for an
+        // item that never reports.
+        let mut old = renamed(&old.names);
+        let mut new = renamed(&self.plan.names);
+        let mut index = 0;
+        loop {
+            let (before, after) = (old.next(), new.next());
+            if before.is_none() && after.is_none() {
+                break;
+            }
+            if before != after {
+                self.rows.forget(index);
+            }
+            index += 1;
+        }
+        // Past the last item nothing is shown or measured, so nothing would
+        // bring the top back.
+        self.top = self.top.min(self.count().saturating_sub(1));
+    }
+
+    pub fn set_text(&mut self, field: usize, text: String) {
+        if let Some(field) = self.fields.get_mut(field) {
+            field.text = text;
+        }
+    }
+
+    /// Takes how many rows items take, by index, as the UI measured them.
+    pub fn set_line_rows(&mut self, lines: &[(usize, usize)], area: usize) {
+        let count = self.count();
+        for &(index, rows) in lines {
+            if index < count {
+                self.rows.set(index, rows);
+            }
+        }
+        self.top = scroll::pull_back(self.top, count, area, |index| self.rows.get(index));
+    }
+
+    /// Scrolls by a number of items; positive moves towards the end.
+    pub fn scroll_by(&mut self, delta: i64, area: usize) {
+        self.top = scroll::move_by(self.top, delta, self.count(), area, |index| {
+            self.rows.get(index)
+        });
+    }
+
+    /// Puts `top` at the top of the list, or the end if it lies beyond.
+    pub fn scroll_to(&mut self, top: usize, area: usize) {
+        self.top = top.min(self.end(area));
+    }
+
+    /// Scrolls for an arrow, page, Home, or End key; other keys do nothing.
+    pub fn scroll_key(&mut self, key: KeyBase, area: usize) {
+        let count = self.count();
+        let rows = |index| self.rows.get(index);
+        self.top = match key {
+            KeyBase::Named(NamedKey::Up) => scroll::move_by(self.top, -1, count, area, rows),
+            KeyBase::Named(NamedKey::Down) => scroll::move_by(self.top, 1, count, area, rows),
+            KeyBase::Named(NamedKey::PageUp) => scroll::page_up(self.top, area, rows),
+            KeyBase::Named(NamedKey::PageDown) => scroll::page_down(self.top, count, area, rows),
+            KeyBase::Named(NamedKey::Home) => 0,
+            KeyBase::Named(NamedKey::End) => scroll::end(count, area, rows),
+            _ => self.top,
+        };
+    }
+
+    #[must_use]
+    pub fn title(&self) -> String {
+        match self.targets.as_slice() {
+            [target] => format!("Rename {}", target.name.to_string_lossy()),
+            targets => format!("Rename {} items", targets.len()),
+        }
+    }
+
+    /// The first error, or else the hint about what to type.
+    #[must_use]
+    pub fn note(&self) -> String {
+        self.plan.error.clone().unwrap_or_else(|| {
+            match self.mode {
+                RenameMode::Replace => REPLACE_HINT,
+                RenameMode::Template => TEMPLATE_HINT,
+            }
+            .to_owned()
+        })
+    }
+
+    /// The `(old name, new name)` of each target whose name changes, in
+    /// display order.
+    #[must_use]
+    pub fn pairs(&self) -> Vec<(String, String)> {
+        renamed(&self.plan.names)
+            .map(|(target, new)| {
+                (
+                    self.targets[target].name.to_string_lossy().into_owned(),
+                    new.to_owned(),
+                )
+            })
+            .collect()
+    }
+
+    /// The items to lay out or measure with the top at `self.top`: the
+    /// targets whose name changes, in display order.
+    #[must_use]
+    pub fn lines(&self, area: usize) -> PopupLines {
+        let count = self.count();
+        let ranges = scroll::ranges(self.top, count, area);
+        let lines = |range: Range<usize>| {
+            renamed(&self.plan.names)
+                .enumerate()
+                .skip(range.start)
+                .take(range.len())
+                .map(|(index, (target, new))| PopupLine {
+                    index,
+                    text: format!(
+                        "{} \u{2192} {new}",
+                        self.targets[target].name.to_string_lossy()
+                    ),
+                })
+                .collect()
+        };
+        PopupLines {
+            shown: lines(ranges.shown),
+            before: lines(ranges.before),
+            tail: lines(ranges.tail),
+            scroll_top: self.top,
+            count,
+            end: self.end(area),
+        }
+    }
+
+    fn count(&self) -> usize {
+        renamed(&self.plan.names).count()
+    }
+
+    fn end(&self, area: usize) -> usize {
+        scroll::end(self.count(), area, |index| self.rows.get(index))
+    }
+}
+
 /// The part of a file name to select when editing it: everything but the
 /// extension, or nothing special when there is none.
 #[must_use]
@@ -1346,6 +1580,13 @@ fn matches(context: Context, os: Os, externals: &[String], query: &str) -> Vec<C
         .filter(|(name, _)| name.to_lowercase().contains(&query))
         .map(|(_, command)| command)
         .collect()
+}
+
+fn renamed(names: &[Option<String>]) -> impl Iterator<Item = (usize, &str)> {
+    names
+        .iter()
+        .enumerate()
+        .filter_map(|(index, name)| Some((index, name.as_deref()?)))
 }
 
 #[cfg(test)]

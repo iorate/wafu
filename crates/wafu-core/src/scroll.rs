@@ -20,6 +20,10 @@ impl LineRows {
         self.rows.insert(index, rows.max(1));
     }
 
+    pub(crate) fn forget(&mut self, index: usize) {
+        self.rows.remove(&index);
+    }
+
     pub(crate) fn clear(&mut self) {
         self.rows.clear();
     }

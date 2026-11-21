@@ -115,6 +115,13 @@ impl Entry {
         };
         format!("{kind}{bits}")
     }
+
+    // `None` for a name ending in a dot (`a.`) too: with no extension to keep,
+    // the name is taken whole.
+    pub(crate) fn stem_len(&self) -> Option<usize> {
+        let (stem, extension) = self.split_name();
+        (!extension.is_empty()).then_some(stem.len())
+    }
 }
 
 impl EntryKind {

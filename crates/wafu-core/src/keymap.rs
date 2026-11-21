@@ -50,6 +50,8 @@ const DEFAULT_FILELIST: &[(&str, &str)] = &[
     ("D", "delete"),
     ("Shift+D", "trash"),
     ("R", "rename"),
+    ("Shift+R", "rename_replace"),
+    ("Alt+R", "rename_template"),
     ("K", "mkdir"),
     ("N", "new_file"),
     ("E", "edit"),

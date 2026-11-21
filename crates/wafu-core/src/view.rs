@@ -158,6 +158,9 @@ pub struct PopupView {
     pub items: Option<Vec<PopupItem>>,
     /// The selected item, if the popup has a list.
     pub cursor: Option<usize>,
+    /// A list in place of `items` that only shows its items, each wrapped to
+    /// as many rows as it takes.
+    pub lines: Option<PopupLines>,
     /// The first visible row of the list.
     pub scroll_top: usize,
     /// Reports work going on in the background; the UI may delay showing it.
@@ -193,6 +196,30 @@ impl InputField {
             select: None,
         }
     }
+}
+
+/// The list of [`PopupView::lines`]: the items that the UI lays out or only
+/// measures, as in [`LineRanges`], each of which reports how many rows it
+/// takes, and where the list is scrolled to.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PopupLines {
+    /// Shown from the top of the list.
+    pub shown: Vec<PopupLine>,
+    pub before: Vec<PopupLine>,
+    pub tail: Vec<PopupLine>,
+    /// The item at the top of the list.
+    pub scroll_top: usize,
+    /// How many items the list has.
+    pub count: usize,
+    /// The furthest the top can go, as in [`LogView`].
+    pub end: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PopupLine {
+    /// Counted from zero among all the items.
+    pub index: usize,
+    pub text: String,
 }
 
 /// One row of a popup's list.

@@ -722,7 +722,9 @@ fn commands_that_change_things_are_refused_inside_an_archive() {
     harness.press("Down");
     harness.press("Down");
 
-    for key in ["M", "D", "Shift+D", "R", "K", "Shift+E", "P"] {
+    for key in [
+        "M", "D", "Shift+D", "R", "Shift+R", "Alt+R", "K", "Shift+E", "P",
+    ] {
         harness.press(key);
     }
     harness.press("F1");
@@ -738,6 +740,8 @@ fn commands_that_change_things_are_refused_inside_an_archive() {
             "Cannot run delete: not available inside an archive",
             "Cannot run trash: not available inside an archive",
             "Cannot run rename: not available inside an archive",
+            "Cannot run rename_replace: not available inside an archive",
+            "Cannot run rename_template: not available inside an archive",
             "Cannot run mkdir: not available inside an archive",
             "Cannot run new_text: not available inside an archive",
             "Cannot run compress: not available inside an archive",

@@ -71,6 +71,13 @@ pub enum Msg {
     PopupRows {
         rows: usize,
     },
+    /// The number of rows that fit in the popup's wrapped list, when it
+    /// changed, and how many rows each of its items takes, as in
+    /// `PreviewRows`.
+    PopupLineRows {
+        area: Option<usize>,
+        lines: Vec<(usize, usize)>,
+    },
     Io(IoEvent),
 }
 
@@ -113,6 +120,9 @@ pub enum MouseInput {
     PopupDoubleClick { row: usize },
     /// Wheel movement over the popup's list, in rows.
     PopupWheel { rows: i32 },
+    /// The scrollbar of the popup's wrapped list was dragged; same as
+    /// `ScrollTo`, in items.
+    PopupScrollTo { top: usize },
 }
 
 /// What the application starts from. The pane paths need not exist yet; the
@@ -609,6 +619,7 @@ impl App {
             Msg::PreviewRows { area, lines } => self.set_preview_rows(area, &lines),
             Msg::LogLineRows { reports } => self.log.set_line_rows(&reports),
             Msg::PopupRows { rows } => self.set_popup_rows(rows),
+            Msg::PopupLineRows { area, lines } => self.set_popup_line_rows(area, &lines),
             Msg::Io(event) => self.io_event(event, &mut effects),
         }
         // Whatever moved the cursor, the image preview follows it.
@@ -765,6 +776,8 @@ impl App {
             | Command::Delete
             | Command::Trash
             | Command::Rename
+            | Command::RenameReplace
+            | Command::RenameTemplate
             | Command::Mkdir
             | Command::NewFile
             | Command::NewText
@@ -816,7 +829,8 @@ impl App {
             | MouseInput::PreviewDoubleClick
             | MouseInput::PopupClick { .. }
             | MouseInput::PopupDoubleClick { .. }
-            | MouseInput::PopupWheel { .. } => {}
+            | MouseInput::PopupWheel { .. }
+            | MouseInput::PopupScrollTo { .. } => {}
         }
     }
 
@@ -843,7 +857,11 @@ impl App {
                 side,
                 request,
                 result,
-            } => self.dir_loaded(side, request, result, effects),
+            } => {
+                if self.dir_loaded(side, request, result, effects) && side == self.active {
+                    self.replan_rename();
+                }
+            }
             IoEvent::Resolved {
                 side,
                 request,

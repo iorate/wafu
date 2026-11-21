@@ -176,12 +176,12 @@ impl App {
         request: RequestId,
         result: Result<Directory, ReadError>,
         effects: &mut Vec<Effect>,
-    ) {
+    ) -> bool {
         let pane = &mut self.panes[side.index()];
         if pane.loading().map(InFlight::request) != Some(request) {
-            return;
+            return false;
         }
-        match pane.take_loading() {
+        let replaced = match pane.take_loading() {
             Some(InFlight::Navigate {
                 target,
                 cursor,
@@ -189,7 +189,10 @@ impl App {
                 passwords,
                 ..
             }) => match result {
-                Ok(directory) => pane.enter(target, cursor, directory, history, passwords),
+                Ok(directory) => {
+                    pane.enter(target, cursor, directory, history, passwords);
+                    true
+                }
                 Err(ReadError::PasswordRequired { level, retry }) => {
                     Self::rewatch(side, pane, effects);
                     pane.set_reload_pending(false);
@@ -200,7 +203,7 @@ impl App {
                         history,
                     };
                     self.ask_listing_password(side, Some(navigation), passwords, level, retry);
-                    return;
+                    return false;
                 }
                 Err(ReadError::Failed(source)) => {
                     self.log.push(
@@ -213,32 +216,35 @@ impl App {
                     Self::rewatch(side, pane, effects);
                     pane.set_reload_pending(false);
                     self.refresh(side, effects);
-                    return;
+                    return false;
                 }
             },
             Some(InFlight::Refresh { passwords, .. }) => match result {
                 Ok(directory) => {
                     pane.set_directory(directory);
                     pane.set_archive_passwords(passwords);
+                    true
                 }
                 Err(ReadError::PasswordRequired { level, retry }) => {
                     self.ask_listing_password(side, None, passwords, level, retry);
+                    false
                 }
                 Err(ReadError::Failed(source)) => {
                     // The place may be gone; let the I/O layer find out.
                     let path = pane.location().base.clone();
                     self.resolve(side, path, true, Some(source), effects);
-                    return;
+                    return false;
                 }
             },
             Some(InFlight::Resolve { .. } | InFlight::Drives { .. } | InFlight::Browse { .. })
-            | None => return,
-        }
+            | None => return false,
+        };
         let pane = &mut self.panes[side.index()];
         if pane.reload_pending() {
             pane.set_reload_pending(false);
             self.refresh(side, effects);
         }
+        replaced
     }
 
     // `passwords` are those the read was made with. A wrong password the

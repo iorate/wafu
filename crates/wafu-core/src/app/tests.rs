@@ -17,6 +17,7 @@ use crate::test_support::{
 use crate::view::{ExtensionColor, InputField, ItemKind, RowKind};
 
 mod archives;
+mod batch_rename;
 mod operations;
 mod preview;
 

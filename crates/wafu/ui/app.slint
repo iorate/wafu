@@ -1,11 +1,11 @@
 import { Palette } from "std-widgets.slint";
 import { PaneData, PaneWidget, Row } from "pane.slint";
-import { PopupData, PopupField, PopupItem, PopupOverlay } from "popup.slint";
+import { PopupData, PopupField, PopupItem, PopupLine, PopupOverlay } from "popup.slint";
 import { PreviewData, PreviewLine, PreviewWidget } from "preview.slint";
 import { ScrollBar } from "scrollbar.slint";
 import { Theme, ThemeColors } from "theme.slint";
 
-export { PaneData, PopupData, PopupField, PopupItem, PreviewData, PreviewLine, Row, Theme, ThemeColors }
+export { PaneData, PopupData, PopupField, PopupItem, PopupLine, PreviewData, PreviewLine, Row, Theme, ThemeColors }
 
 export struct LogLine {
     index: int,
@@ -61,6 +61,11 @@ export component AppWindow inherits Window {
     in property <[PopupField]> popup-fields;
     in-out property <string> popup-text;
     in-out property <string> popup-text-2;
+    // The items of the popup's list that only shows them: those shown from
+    // its top, and those only measured.
+    in property <[PopupLine]> popup-lines-shown;
+    in property <[PopupLine]> popup-lines-before;
+    in property <[PopupLine]> popup-lines-tail;
     in property <PreviewData> preview;
     in property <[PreviewLine]> preview-lines;
     in property <[PreviewLine]> preview-before;
@@ -102,6 +107,9 @@ export component AppWindow inherits Window {
     callback popup-row-clicked(row: int);
     callback popup-row-double-clicked(row: int);
     callback popup-wheel(delta: length);
+    callback popup-lines-rows-changed(rows: int);
+    callback popup-line-rows(index: int, rows: int);
+    callback popup-lines-scroll-to(top: int);
 
     // A progress popup is held back for a moment so that a quick read does not
     // flash an overlay.
@@ -512,6 +520,9 @@ export component AppWindow inherits Window {
         data: root.popup;
         items: root.popup-items;
         fields: root.popup-fields;
+        lines-shown: root.popup-lines-shown;
+        lines-before: root.popup-lines-before;
+        lines-tail: root.popup-lines-tail;
         text <=> root.popup-text;
         text-2 <=> root.popup-text-2;
         key-input(text, control, shift, alt, meta) => {
@@ -534,6 +545,15 @@ export component AppWindow inherits Window {
         }
         wheel(delta) => {
             root.popup-wheel(delta);
+        }
+        lines-rows-changed(rows) => {
+            root.popup-lines-rows-changed(rows);
+        }
+        line-rows(index, rows) => {
+            root.popup-line-rows(index, rows);
+        }
+        lines-scroll-to(top) => {
+            root.popup-lines-scroll-to(top);
         }
     }
 }

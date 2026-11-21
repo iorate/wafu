@@ -11,16 +11,16 @@ use slint::{
 };
 use wafu_core::{
     App, Color, Colors, Effect, InputField, IoError, IoEvent, ItemKind, KeyInput, LineRanges,
-    LogView, MenuAnchor, MouseInput, Msg, PaneView, PopupView, PreviewContent, PreviewPlacement,
-    PreviewView, RequestId, ResolvedFont, RowKind, RowView, SharedImage, Side, StateFile, Style,
-    Theme as ConfigTheme, View, WindowState,
+    LogView, MenuAnchor, MouseInput, Msg, PaneView, PopupLines, PopupView, PreviewContent,
+    PreviewPlacement, PreviewView, RequestId, ResolvedFont, RowKind, RowView, SharedImage, Side,
+    StateFile, Style, Theme as ConfigTheme, View, WindowState,
 };
 use wafu_io::{Paths, Runtime};
 
 use crate::keys::{Modifiers, key_input};
 use crate::{
-    AppWindow, LogLine, PaneData, PopupData, PopupField, PopupItem, PreviewData, PreviewLine, Row,
-    Theme, ThemeColors,
+    AppWindow, LogLine, PaneData, PopupData, PopupField, PopupItem, PopupLine, PreviewData,
+    PreviewLine, Row, Theme, ThemeColors,
 };
 
 const MAX_POPUP_FIELDS: usize = 2;
@@ -59,6 +59,9 @@ pub struct Ui {
     log_tail: Rc<VecModel<LogLine>>,
     popup_items: Rc<VecModel<PopupItem>>,
     popup_fields: Rc<VecModel<PopupField>>,
+    popup_lines_shown: Rc<VecModel<PopupLine>>,
+    popup_lines_before: Rc<VecModel<PopupLine>>,
+    popup_lines_tail: Rc<VecModel<PopupLine>>,
     preview_lines: Rc<VecModel<PreviewLine>>,
     preview_before: Rc<VecModel<PreviewLine>>,
     preview_tail: Rc<VecModel<PreviewLine>>,
@@ -112,6 +115,9 @@ impl Ui {
                 log_tail: Rc::new(VecModel::default()),
                 popup_items: Rc::new(VecModel::default()),
                 popup_fields: Rc::new(VecModel::default()),
+                popup_lines_shown: Rc::new(VecModel::default()),
+                popup_lines_before: Rc::new(VecModel::default()),
+                popup_lines_tail: Rc::new(VecModel::default()),
                 preview_lines: Rc::new(VecModel::default()),
                 preview_before: Rc::new(VecModel::default()),
                 preview_tail: Rc::new(VecModel::default()),
@@ -150,6 +156,12 @@ impl Ui {
             .set_popup_items(ModelRc::from(Rc::clone(&ui.popup_items)));
         ui.window
             .set_popup_fields(ModelRc::from(Rc::clone(&ui.popup_fields)));
+        ui.window
+            .set_popup_lines_shown(ModelRc::from(Rc::clone(&ui.popup_lines_shown)));
+        ui.window
+            .set_popup_lines_before(ModelRc::from(Rc::clone(&ui.popup_lines_before)));
+        ui.window
+            .set_popup_lines_tail(ModelRc::from(Rc::clone(&ui.popup_lines_tail)));
         ui.window
             .set_preview_lines(ModelRc::from(Rc::clone(&ui.preview_lines)));
         ui.window
@@ -591,6 +603,27 @@ impl Ui {
                 ui.dispatch(Msg::Mouse(MouseInput::PopupWheel { rows }));
             }
         });
+
+        let weak = Rc::downgrade(ui);
+        ui.window.on_popup_lines_rows_changed(move |rows| {
+            if let Some(ui) = Weak::upgrade(&weak) {
+                ui.queue_popup_rows(usize::try_from(rows).unwrap_or(1));
+            }
+        });
+
+        let weak = Rc::downgrade(ui);
+        ui.window.on_popup_line_rows(move |index, rows| {
+            if let Some(ui) = Weak::upgrade(&weak) {
+                ui.queue_line_rows(|queue| &mut queue.popup, index, rows);
+            }
+        });
+
+        let weak = Rc::downgrade(ui);
+        ui.window.on_popup_lines_scroll_to(move |top| {
+            if let Some(ui) = Weak::upgrade(&weak) {
+                ui.dispatch(Msg::Mouse(MouseInput::PopupScrollTo { top: top_of(top) }));
+            }
+        });
     }
 
     fn connect_dividers(ui: &Rc<Self>) {
@@ -635,6 +668,12 @@ impl Ui {
         self.arm_line_rows();
     }
 
+    // Held back for the same reason as the rows of the preview.
+    fn queue_popup_rows(self: &Rc<Self>, rows: usize) {
+        self.line_rows.borrow_mut().popup_area = Some(rows);
+        self.arm_line_rows();
+    }
+
     fn arm_line_rows(self: &Rc<Self>) {
         let mut queue = self.line_rows.borrow_mut();
         if !queue.armed {
@@ -653,6 +692,8 @@ impl Ui {
             log,
             preview,
             preview_area,
+            popup,
+            popup_area,
             ..
         } = std::mem::take(&mut *self.line_rows.borrow_mut());
         if !log.is_empty() {
@@ -662,6 +703,12 @@ impl Ui {
             self.dispatch(Msg::PreviewRows {
                 area: preview_area,
                 lines: preview,
+            });
+        }
+        if popup_area.is_some() || !popup.is_empty() {
+            self.dispatch(Msg::PopupLineRows {
+                area: popup_area,
+                lines: popup,
             });
         }
     }
@@ -773,6 +820,7 @@ impl Ui {
                 self.popup_items
                     .set_vec(items.iter().map(popup_item).collect::<Vec<_>>());
             }
+            self.render_popup_lines(rendered.popup.as_ref(), view.popup.as_ref());
             rendered.popup.clone_from(&view.popup);
         }
     }
@@ -798,6 +846,29 @@ impl Ui {
         rendered.log = Arc::clone(&log.lines);
         rendered.log_ranges = log.ranges.clone();
         rendered.log_generation = log.generation;
+    }
+
+    fn render_popup_lines(&self, before: Option<&PopupView>, after: Option<&PopupView>) {
+        // Items of another popup are made anew even if they read the same: the
+        // core starts it without their rows, and only a new element reports them.
+        let remeasure = before.map(|popup| popup.generation) != after.map(|popup| popup.generation);
+        let empty = PopupLines::default();
+        let lines = after
+            .and_then(|popup| popup.lines.as_ref())
+            .unwrap_or(&empty);
+        let models = [
+            (&self.popup_lines_shown, &lines.shown),
+            (&self.popup_lines_before, &lines.before),
+            (&self.popup_lines_tail, &lines.tail),
+        ];
+        for (model, lines) in models {
+            let lines = lines.iter().map(popup_line).collect();
+            if remeasure {
+                model.set_vec(lines);
+            } else {
+                set_if_changed(model, lines);
+            }
+        }
     }
 
     fn render_preview(&self, rendered: &mut Rendered, preview: Option<&PreviewView>) {
@@ -967,6 +1038,8 @@ struct LineRowsQueue {
     log: Vec<(usize, usize)>,
     preview: Vec<(usize, usize)>,
     preview_area: Option<usize>,
+    popup: Vec<(usize, usize)>,
+    popup_area: Option<usize>,
     armed: bool,
 }
 
@@ -1190,11 +1263,15 @@ fn popup_data(popup: Option<&PopupView>) -> PopupData {
             note: popup.note.as_deref().unwrap_or_default().into(),
             has_input: !popup.fields.is_empty(),
             has_list: popup.items.is_some(),
+            has_lines: popup.lines.is_some(),
             cursor: popup
                 .cursor
                 .and_then(|cursor| i32::try_from(cursor).ok())
                 .unwrap_or(-1),
             scroll_top: i32::try_from(popup.scroll_top).unwrap_or(i32::MAX),
+            line_top: line_scroll(popup, |lines| lines.scroll_top),
+            line_count: line_scroll(popup, |lines| lines.count),
+            line_end: line_scroll(popup, |lines| lines.end),
             progress: popup.progress,
             generation: i32::try_from(popup.generation).unwrap_or(i32::MAX),
         },
@@ -1205,12 +1282,20 @@ fn popup_data(popup: Option<&PopupView>) -> PopupData {
             note: SharedString::default(),
             has_input: false,
             has_list: false,
+            has_lines: false,
             cursor: -1,
             scroll_top: 0,
+            line_top: 0,
+            line_count: 0,
+            line_end: 0,
             progress: false,
             generation: 0,
         },
     }
+}
+
+fn line_scroll(popup: &PopupView, value: fn(&PopupLines) -> usize) -> i32 {
+    i32::try_from(popup.lines.as_ref().map_or(0, value)).unwrap_or(i32::MAX)
 }
 
 fn popup_fields(popup: Option<&PopupView>) -> Vec<PopupField> {
@@ -1237,6 +1322,13 @@ fn popup_field(field: &InputField) -> PopupField {
         select_all: field.select.is_none(),
         select_start: i32::try_from(start).unwrap_or(0),
         select_end: i32::try_from(end).unwrap_or(0),
+    }
+}
+
+fn popup_line(line: &wafu_core::PopupLine) -> PopupLine {
+    PopupLine {
+        index: i32::try_from(line.index).unwrap_or(i32::MAX),
+        text: line.text.as_str().into(),
     }
 }
 

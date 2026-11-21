@@ -7,6 +7,7 @@
 #![forbid(unsafe_code)]
 
 mod app;
+mod batch_rename;
 mod command;
 mod compare;
 mod config;
@@ -49,7 +50,7 @@ pub use key::KeyInput;
 pub use location::{ArchiveFormat, ArchivePath, Location, OuterArchive, Passwords};
 pub use operation::{
     ArchiveEntries, ArchiveOutput, FindQuery, OperationEvent, OperationKind, OperationSpec,
-    Outcome, Reply, Sources,
+    Outcome, Renames, Reply, Sources,
 };
 pub use pane::{DrivePurpose, RequestId};
 pub use preview::{Document, DocumentMode, ImageData, Line};
@@ -57,6 +58,6 @@ pub use state::{CompareState, PaneState, StateError, StateFile, WindowState};
 pub use text::nfc;
 pub use view::{
     ColorSet, ExtensionColor, Fonts, InputField, ItemKind, LineRanges, LogView, PaneView,
-    PopupItem, PopupView, PreviewContent, PreviewLine, PreviewPlacement, PreviewView, ResolvedFont,
-    RowKind, RowView, SharedImage, Style, View,
+    PopupItem, PopupLine, PopupLines, PopupView, PreviewContent, PreviewLine, PreviewPlacement,
+    PreviewView, ResolvedFont, RowKind, RowView, SharedImage, Style, View,
 };

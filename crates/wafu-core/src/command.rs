@@ -76,6 +76,8 @@ const NAMES: &[(Command, &str)] = &[
     (Command::Delete, "delete"),
     (Command::Trash, "trash"),
     (Command::Rename, "rename"),
+    (Command::RenameReplace, "rename_replace"),
+    (Command::RenameTemplate, "rename_template"),
     (Command::Mkdir, "mkdir"),
     (Command::NewFile, "new_file"),
     (Command::NewText, "new_text"),
@@ -183,6 +185,8 @@ pub enum Command {
     Delete,
     Trash,
     Rename,
+    RenameReplace,
+    RenameTemplate,
     Mkdir,
     NewFile,
     NewText,
@@ -377,6 +381,8 @@ impl Command {
             | Self::Delete
             | Self::Trash
             | Self::Rename
+            | Self::RenameReplace
+            | Self::RenameTemplate
             | Self::Mkdir
             | Self::NewFile
             | Self::NewText
