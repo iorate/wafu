@@ -14,7 +14,9 @@ pub(crate) fn rename(from: &Path, to: &Path) -> io::Result<()> {
 
 pub(crate) fn is_taken(from: &Path, to: &Path) -> bool {
     fs::symlink_metadata(to).is_ok()
-        && !(differ_only_in_case(from, to) && same_file::is_same_file(from, to).unwrap_or(false))
+        && !(differ_only_in_case(from, to)
+            && same_file::is_same_file(from, to).unwrap_or(false)
+            && is_alone(from, to))
 }
 
 pub(crate) fn mkdir(path: &Path) -> io::Result<()> {
@@ -79,6 +81,29 @@ fn differ_only_in_case(a: &Path, b: &Path) -> bool {
         }
 }
 
+// Being the same file does not make `to` the entry `from`: a link and its
+// target, or two hard links, are the same file under separate entries, and
+// renaming one onto the other loses an entry.
+fn is_alone(from: &Path, to: &Path) -> bool {
+    let (Some(dir), Some(from_name), Some(to_name)) = (
+        to.parent(),
+        from.file_name(),
+        to.file_name().and_then(OsStr::to_str),
+    ) else {
+        return false;
+    };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return false;
+    };
+    let to_name = nfc(to_name);
+    // A file system that ignores normalization but not case finds a decomposed
+    // entry under the composed name.
+    !entries.flatten().any(|entry| {
+        let name = entry.file_name();
+        name != from_name && name.to_str().is_some_and(|name| nfc(name) == to_name)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs::File;
@@ -86,6 +111,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+    use crate::watch::tests::symlink;
 
     #[test]
     fn rename_refuses_an_existing_name() {
@@ -114,6 +140,32 @@ mod tests {
             .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
         assert_eq!(names, ["A.txt"]);
+    }
+
+    #[test]
+    fn rename_refuses_a_link_onto_its_target_named_in_another_case() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("A"), "data").unwrap();
+        if dir.path().join("a").exists() || !symlink(Path::new("A"), &dir.path().join("a")) {
+            return;
+        }
+
+        let error = rename(&dir.path().join("a"), &dir.path().join("A")).unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+    }
+
+    #[test]
+    fn rename_refuses_a_hard_link_named_in_another_case() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("A"), "data").unwrap();
+        if fs::hard_link(dir.path().join("A"), dir.path().join("a")).is_err() {
+            return;
+        }
+
+        let error = rename(&dir.path().join("a"), &dir.path().join("A")).unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
     }
 
     #[test]
