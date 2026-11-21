@@ -451,6 +451,10 @@ impl App {
                 pane.unmark(&target.name);
             }
         }
+        let cursor = pane
+            .cursor_entry()
+            .filter(|_| pane.location().base == popup.dir)
+            .and_then(|entry| pairs.iter().position(|(old, _)| entry.name == **old));
         let names = pairs.iter().map(|(old, _)| OsString::from(old)).collect();
         let sources = Sources::Renames(Renames {
             dir: popup.dir.clone(),
@@ -468,6 +472,7 @@ impl App {
             operation.renames = Some(RenameProgress {
                 done: vec![false; pairs.len()],
                 pairs,
+                cursor,
                 left: None,
             });
         }
@@ -1106,9 +1111,10 @@ impl App {
             .collect();
         let pane = &mut self.panes[side.index()];
         if pane.location().base == dir
-            && let Some(cursor) = pane.cursor_entry()
-            && let Some((_, new)) = renamed.iter().find(|(old, _)| cursor.name == **old)
+            && let Some(cursor) = progress.cursor
+            && progress.done[cursor]
         {
+            let (_, new) = &progress.pairs[cursor];
             pane.set_pending_cursor(Some(OsString::from(new)));
         }
         let paths: Vec<(PathBuf, PathBuf)> = renamed
@@ -1199,6 +1205,10 @@ enum TempAction {
 struct RenameProgress {
     pairs: Vec<(String, String)>,
     done: Vec<bool>,
+    // The pair of the item the cursor was on at Enter. Reading the cursor
+    // when the operation ends could find another item: reloads during it
+    // move the cursor by name, and an old name can be taken by another item.
+    cursor: Option<usize>,
     // The old name of the item a failure left under a temporary name, and that name.
     left: Option<(String, String)>,
 }
@@ -1248,8 +1258,7 @@ fn allowed_in_archive(command: &Command) -> bool {
 
 // Everything but the extension, so that typing replaces the name and keeps the extension.
 fn rename_selection(entry: &Entry) -> Option<(usize, usize)> {
-    let (stem, extension) = entry.split_name();
-    (!extension.is_empty()).then_some((0, stem.len()))
+    entry.stem_len().map(|len| (0, len))
 }
 
 // The first path component of `path` below `base`, which is where the cursor

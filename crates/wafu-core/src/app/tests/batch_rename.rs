@@ -300,6 +300,26 @@ fn the_cursor_follows_its_item_to_the_new_name_even_when_the_rest_fails() {
 }
 
 #[test]
+fn the_cursor_follows_the_item_it_was_on_at_enter_through_reloads_in_a_chain() {
+    let mut harness = marked(&["1", "2", "3"], &["1", "2", "3"]);
+    harness.press("Up");
+    assert_eq!(harness.cursor_name(Side::Left), "2");
+    harness.press("Alt+R");
+    harness.edit("{2}");
+    harness.press("Enter");
+
+    harness.operation(OperationEvent::ItemDone { index: 2 });
+    harness.load(Side::Left, vec![file("1"), file("2"), file("4")]);
+    harness.operation(OperationEvent::ItemDone { index: 1 });
+    harness.load(Side::Left, vec![file("1"), file("3"), file("4")]);
+    harness.operation(OperationEvent::ItemDone { index: 0 });
+    harness.finish(Outcome::Completed { skipped: 0 });
+    harness.load(Side::Left, vec![file("2"), file("3"), file("4")]);
+
+    assert_eq!(harness.cursor_name(Side::Left), "3");
+}
+
+#[test]
 fn a_pane_showing_a_renamed_directory_follows_it() {
     let shown_dir = path(LEFT, "d1");
     let mut harness = Harness::start(LEFT, shown_dir.to_str().unwrap());
@@ -416,6 +436,21 @@ fn rows_measured_for_the_item_that_had_an_index_do_not_pull_the_top_back() {
     });
 
     assert_eq!(top(&harness), 9);
+}
+
+#[test]
+fn an_area_reported_without_a_rename_popup_does_not_change_the_page_of_another_list() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.press("F1");
+    harness.send(Msg::PopupRows { rows: 12 });
+
+    harness.send(Msg::PopupLineRows {
+        area: Some(3),
+        lines: Vec::new(),
+    });
+    harness.press("PageDown");
+
+    assert_eq!(harness.view().popup.unwrap().cursor, Some(12));
 }
 
 #[test]

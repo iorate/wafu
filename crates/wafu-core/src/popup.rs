@@ -369,17 +369,16 @@ pub enum ListTarget {
 /// fixed when it opens.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenamePopup {
-    pub mode: RenameMode,
+    mode: RenameMode,
     pub dir: PathBuf,
     /// In display order.
     pub targets: Vec<Entry>,
-    /// Whether the pane's listing holds the targets' siblings; it does not
-    /// when the target is the pane's own directory.
-    pub siblings: bool,
+    // The pane's listing does not hold the targets' siblings when the target
+    // is the pane's own directory.
+    siblings: bool,
     pub fields: Vec<InputField>,
     pub plan: RenamePlan,
-    /// The item at the top of the list, counted among the items it lists.
-    pub top: usize,
+    top: usize,
     rows: LineRows,
 }
 

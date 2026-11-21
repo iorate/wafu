@@ -858,8 +858,9 @@ impl App {
                 request,
                 result,
             } => {
-                self.dir_loaded(side, request, result, effects);
-                self.replan_rename();
+                if self.dir_loaded(side, request, result, effects) && side == self.active {
+                    self.replan_rename();
+                }
             }
             IoEvent::Resolved {
                 side,

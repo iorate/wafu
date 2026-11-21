@@ -56,15 +56,13 @@ component PopupDimText inherits PopupText {
 
 // An item in whole rows, the rows of a wrapped item as far apart as the
 // items, so that the list is cut between rows.
-component PopupLineText inherits Text {
+component PopupLineText inherits PopupText {
     // How far apart the font puts the rows of a wrapped item, which the
     // spacing is relative to.
     in property <length> natural-row-pitch;
     out property <int> rows: max(1, round(self.preferred-height / Theme.popup-row-height));
 
     height: self.rows * Theme.popup-row-height;
-    font-family: Theme.popup-font-family;
-    font-size: Theme.popup-font-size;
     // Works with the FemtoVG renderer too, though the documentation lists
     // only Qt and software.
     wrap: char-wrap;
@@ -480,8 +478,12 @@ export component PopupOverlay {
                     root.lines-rows-changed(self.rows);
                 }
 
+                // The rows change as the popup closes too, when the report
+                // would be taken for the next popup's.
                 changed rows => {
-                    root.lines-rows-changed(self.rows);
+                    if root.data.has-lines {
+                        root.lines-rows-changed(self.rows);
+                    }
                 }
 
                 Rectangle {
@@ -544,6 +546,7 @@ export component PopupOverlay {
                 // not run at creation.
                 init => {
                     list.content-y = -self.top * Theme.popup-row-height;
+                    root.list-rows-changed(floor(list.visible-height / Theme.popup-row-height));
                 }
 
                 changed top => {

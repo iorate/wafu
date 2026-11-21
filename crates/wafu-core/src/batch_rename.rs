@@ -176,13 +176,9 @@ fn placeholder(inside: &str) -> Result<Piece, TemplateError> {
 
 fn apply_template(template: &[Piece], target: &Entry, index: usize) -> String {
     let name = target.name.to_string_lossy();
-    // Split the same way `rename` chooses what to select: a name it selects
-    // whole (a directory, `.gitignore`, `a.`) has no extension.
-    let (stem, extension) = target.split_name();
-    let (stem, extension) = if extension.is_empty() {
-        (name.as_ref(), "")
-    } else {
-        (&name[..stem.len()], &name[stem.len()..])
+    let (stem, extension) = match target.stem_len() {
+        Some(len) => name.split_at(len),
+        None => (name.as_ref(), ""),
     };
     let mut renamed = String::new();
     for piece in template {

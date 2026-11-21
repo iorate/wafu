@@ -191,14 +191,15 @@ impl App {
     }
 
     pub(super) fn set_popup_line_rows(&mut self, area: Option<usize>, lines: &[(usize, usize)]) {
+        let Some(Popup::Rename(popup)) = &mut self.popup else {
+            return;
+        };
         if let Some(area) = area {
             self.popup_rows = area.max(1);
         }
         // Only after both are in: a pull-back against a new area and the rows
         // of the old width goes too far, and nothing moves the top forward again.
-        if let Some(Popup::Rename(popup)) = &mut self.popup {
-            popup.set_line_rows(lines, self.popup_rows);
-        }
+        popup.set_line_rows(lines, self.popup_rows);
     }
 
     // The pane's listing was read again, so a name in the way may have come
