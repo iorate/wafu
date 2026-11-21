@@ -149,7 +149,7 @@ impl Document {
         match mode {
             DocumentMode::Text => self.lines.len(),
             DocumentMode::Binary => {
-                self.raw.len().div_ceil(BYTES_PER_LINE) + usize::from(self.truncated)
+                self.raw.len().div_ceil(BYTES_PER_LINE).max(1) + usize::from(self.truncated)
             }
         }
     }
@@ -165,10 +165,10 @@ impl Document {
                 .map(|line| line.number)
                 .find(|&number| number != 0)
                 .map_or(0, |number| number.to_string().len()),
-            DocumentMode::Binary => self.raw.len().checked_sub(1).map_or(0, |last| {
-                let offset = last / BYTES_PER_LINE * BYTES_PER_LINE;
+            DocumentMode::Binary => {
+                let offset = self.raw.len().saturating_sub(1) / BYTES_PER_LINE * BYTES_PER_LINE;
                 format!("{offset:x}").len().max(MIN_OFFSET_DIGITS)
-            }),
+            }
         }
     }
 
@@ -244,7 +244,8 @@ fn truncated_note(len: usize) -> String {
 
 // Splits at `\n`, `\r\n`, and `\r`, expands tabs, shows the other line breaks
 // as a symbol, and cuts lines that would be taller than a screen once wrapped.
-// A trailing newline does not add a line.
+// A trailing newline does not add a line. Empty text is one empty line, as
+// in an editor, so that an empty file does not look like one still being read.
 fn split_lines(text: &str) -> Vec<Line> {
     let mut lines = Vec::new();
     let mut line = String::new();
@@ -293,7 +294,7 @@ fn split_lines(text: &str) -> Vec<Line> {
             cut = true;
         }
     }
-    if !line.is_empty() {
+    if !line.is_empty() || lines.is_empty() {
         lines.push(Line { number, text: line });
     }
     lines
@@ -476,11 +477,8 @@ mod tests {
     }
 
     #[test]
-    fn empty_input_has_no_lines_and_a_trailing_newline_adds_none() {
-        assert_eq!(
-            texts(&Document::decode(Vec::new(), false, None)),
-            Vec::<String>::new()
-        );
+    fn empty_input_is_one_empty_line_and_a_trailing_newline_adds_none() {
+        assert_eq!(texts(&Document::decode(Vec::new(), false, None)), [""]);
         assert_eq!(texts(&Document::decode(b"\n".to_vec(), false, None)), [""]);
         assert_eq!(
             texts(&Document::decode(b"a\n\n".to_vec(), false, None)),
@@ -549,7 +547,7 @@ mod tests {
         assert_eq!(digits("a\n".repeat(10), false), 2);
         assert_eq!(digits("a\n".repeat(10), true), 2);
         assert_eq!(digits("x".repeat(MAX_LINE_CHARS * 10), false), 1);
-        assert_eq!(digits(String::new(), false), 0);
+        assert_eq!(digits(String::new(), false), 1);
     }
 
     #[test]
@@ -572,8 +570,10 @@ mod tests {
     fn offsets_have_six_digits_or_as_many_as_the_last_one_needs() {
         let document = |len| Document::decode(vec![0; len], false, None);
 
-        assert_eq!(document(0).digits(DocumentMode::Binary), 0);
-        assert_eq!(document(1).digits(DocumentMode::Binary), 6);
+        let empty = document(0);
+        assert_eq!(empty.digits(DocumentMode::Binary), 6);
+        assert_eq!(empty.line_count(DocumentMode::Binary), 1);
+        assert_eq!(empty.lines(DocumentMode::Binary, 0, 1)[0].number, "000000");
         assert_eq!(document(0x0100_0000).digits(DocumentMode::Binary), 6);
         let longer = document(0x0100_0001);
         assert_eq!(longer.digits(DocumentMode::Binary), 7);
