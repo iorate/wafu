@@ -13,7 +13,7 @@ const BINARY_PROBE: usize = 8 * 1024;
 const MAX_LINE_CHARS: usize = 1024;
 const TAB_STOP: usize = 8;
 const BYTES_PER_LINE: usize = 16;
-const OFFSET_DIGITS: usize = 8;
+const MIN_OFFSET_DIGITS: usize = 6;
 const IMAGE_EXTENSIONS: [&str; 7] = ["png", "jpg", "jpeg", "gif", "bmp", "webp", "ico"];
 
 // `replacement` and `x-user-defined` are left out: neither is a text encoding
@@ -165,7 +165,10 @@ impl Document {
                 .map(|line| line.number)
                 .find(|&number| number != 0)
                 .map_or(0, |number| number.to_string().len()),
-            DocumentMode::Binary => OFFSET_DIGITS,
+            DocumentMode::Binary => self.raw.len().checked_sub(1).map_or(0, |last| {
+                let offset = last / BYTES_PER_LINE * BYTES_PER_LINE;
+                format!("{offset:x}").len().max(MIN_OFFSET_DIGITS)
+            }),
         }
     }
 
@@ -193,25 +196,28 @@ impl Document {
                     }
                 })
                 .collect(),
-            DocumentMode::Binary => (top.min(end)..end)
-                .map(|index| {
-                    if self.truncated && index == count - 1 {
-                        PreviewLine {
-                            index,
-                            number: String::new(),
-                            text: truncated_note(self.raw.len()),
+            DocumentMode::Binary => {
+                let digits = self.digits(mode);
+                (top.min(end)..end)
+                    .map(|index| {
+                        if self.truncated && index == count - 1 {
+                            PreviewLine {
+                                index,
+                                number: String::new(),
+                                text: truncated_note(self.raw.len()),
+                            }
+                        } else {
+                            let offset = index * BYTES_PER_LINE;
+                            let end = (offset + BYTES_PER_LINE).min(self.raw.len());
+                            PreviewLine {
+                                index,
+                                number: format!("{offset:0digits$x}"),
+                                text: hex_line(&self.raw[offset..end]),
+                            }
                         }
-                    } else {
-                        let offset = index * BYTES_PER_LINE;
-                        let end = (offset + BYTES_PER_LINE).min(self.raw.len());
-                        PreviewLine {
-                            index,
-                            number: format!("{offset:0OFFSET_DIGITS$x}"),
-                            text: hex_line(&self.raw[offset..end]),
-                        }
-                    }
-                })
-                .collect(),
+                    })
+                    .collect()
+            }
         }
     }
 }
@@ -558,9 +564,23 @@ mod tests {
                 "61 62 63                                          abc",
             ]
         );
-        assert_eq!(document.digits(DocumentMode::Binary), OFFSET_DIGITS);
         assert_eq!(document.lines(DocumentMode::Binary, 1, 1).len(), 1);
         assert_eq!(document.lines(DocumentMode::Binary, 5, 1).len(), 0);
+    }
+
+    #[test]
+    fn offsets_have_six_digits_or_as_many_as_the_last_one_needs() {
+        let document = |len| Document::decode(vec![0; len], false, None);
+
+        assert_eq!(document(0).digits(DocumentMode::Binary), 0);
+        assert_eq!(document(1).digits(DocumentMode::Binary), 6);
+        assert_eq!(document(0x0100_0000).digits(DocumentMode::Binary), 6);
+        let longer = document(0x0100_0001);
+        assert_eq!(longer.digits(DocumentMode::Binary), 7);
+        assert_eq!(
+            longer.lines(DocumentMode::Binary, 0, 1)[0].number,
+            "0000000"
+        );
     }
 
     #[test]
