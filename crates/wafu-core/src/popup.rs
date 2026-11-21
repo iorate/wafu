@@ -112,7 +112,7 @@ const CONFLICT_ROWS: [(ConflictRow, &str, Option<char>); 7] = [
 ];
 
 const REPLACE_HINT: &str = "Replaces every occurrence, ignoring case";
-const TEMPLATE_HINT: &str = "{name}: name, {ext}: extension, {001}: number";
+const TEMPLATE_HINT: &str = "Placeholders: {name}, {ext}, {001} (counter from 001)";
 const INITIAL_TEMPLATE: &str = "{name}{ext}";
 
 /// A modal that takes all keys while it is open.

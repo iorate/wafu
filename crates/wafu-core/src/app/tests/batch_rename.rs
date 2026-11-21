@@ -55,7 +55,7 @@ fn rename_template_opens_on_the_cursor_entry_without_marks_with_the_name_selecte
     );
     assert_eq!(
         popup.note.as_deref(),
-        Some("{name}: name, {ext}: extension, {001}: number")
+        Some("Placeholders: {name}, {ext}, {001} (counter from 001)")
     );
 }
 
@@ -169,7 +169,7 @@ fn the_note_follows_the_listing_as_it_is_read_again() {
 
     assert_eq!(
         harness.view().popup.unwrap().note.as_deref(),
-        Some("{name}: name, {ext}: extension, {001}: number")
+        Some("Placeholders: {name}, {ext}, {001} (counter from 001)")
     );
 }
 
