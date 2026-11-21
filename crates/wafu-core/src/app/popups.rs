@@ -1,4 +1,5 @@
 use std::mem::{Discriminant, discriminant};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use super::{App, Effect, MouseInput, Side};
@@ -16,7 +17,7 @@ use crate::popup::{
     ListPopup, ListTarget, MenuInput, PalettePopup, PasswordPurpose, Popup, Response, SearchPopup,
     SortPopup, menu_input,
 };
-use crate::text::{same_name, show_line_breaks};
+use crate::text::{name_problem, same_name, show_line_breaks};
 use crate::view::{InputField, ItemKind, PopupItem, PopupLine, PopupLines, PopupView};
 
 impl App {
@@ -579,15 +580,7 @@ impl App {
                 return;
             }
             InputKind::ConflictRename { source, dest, all } => {
-                let name = text;
-                let same = dest
-                    .file_name()
-                    .is_some_and(|current| same_name(&current.to_string_lossy(), &name));
-                if name.is_empty() || same {
-                    self.popup = Some(Popup::Conflict(ConflictPopup::new(source, dest, all)));
-                } else {
-                    self.reply(Reply::Rename(name.into()), effects);
-                }
+                self.confirm_conflict_rename(source, dest, all, text, effects);
                 return;
             }
             InputKind::Filter | InputKind::MarkGlob | InputKind::Find { .. } => {}
@@ -620,6 +613,32 @@ impl App {
                 }
             }
             _ => {}
+        }
+    }
+
+    fn confirm_conflict_rename(
+        &mut self,
+        source: PathBuf,
+        dest: PathBuf,
+        all: bool,
+        name: String,
+        effects: &mut Vec<Effect>,
+    ) {
+        let same = dest
+            .file_name()
+            .is_some_and(|current| same_name(&current.to_string_lossy(), &name));
+        if name.is_empty() || same {
+            self.popup = Some(Popup::Conflict(ConflictPopup::new(source, dest, all)));
+        } else if let Some(reason) = name_problem(&name, self.os) {
+            let error = AppError::BadNewName {
+                path: source.clone(),
+                name,
+                reason,
+            };
+            self.log.push(error.to_string());
+            self.popup = Some(Popup::Conflict(ConflictPopup::new(source, dest, all)));
+        } else {
+            self.reply(Reply::Rename(name.into()), effects);
         }
     }
 

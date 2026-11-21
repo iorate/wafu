@@ -438,6 +438,25 @@ fn rename_in_a_conflict_to_the_same_name_composed_differently_goes_back() {
     assert_eq!(harness.take_effects(), vec![]);
 }
 
+#[test]
+fn rename_in_a_conflict_to_a_path_goes_back_with_an_error() {
+    let mut harness = conflicting();
+    harness.press("R");
+    harness.edit("../b");
+
+    harness.press("Enter");
+
+    assert_eq!(harness.view().popup.unwrap().title, "File exists");
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log().last().unwrap(),
+        &format!(
+            "Cannot rename {} to ../b: contains a separator",
+            path(LEFT, "a").display()
+        )
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn rename_in_a_conflict_left_unchanged_on_a_non_utf8_name_goes_back() {
@@ -972,6 +991,27 @@ fn rename_to_an_empty_name_does_nothing() {
     harness.press("Enter");
 
     assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
+fn rename_to_a_path_is_an_error() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("a")]);
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("R");
+    harness.edit("b/c");
+    harness.press("Enter");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log().last().unwrap(),
+        &format!(
+            "Cannot rename {} to b/c: contains a separator",
+            path(LEFT, "a").display()
+        )
+    );
 }
 
 #[test]
