@@ -1,5 +1,67 @@
 # wafu
 
+## 0.4.0
+
+### Minor Changes
+
+- Bind `N` to `new_file`, `Y` to `copy_name`, and `Shift+Y` to `copy_path` in the file list by default.
+
+- Popups now act on a key only when Ctrl, Shift, and Alt are all up, as the file list does. Held with a modifier, Enter, Esc, Space, Tab, the arrows, and the letter or digit of a row do nothing, and Esc does not cancel a file operation or a move; in an input field the arrows are left to the field. Shift+Tab still moves between the fields of a popup.
+
+- Enter on a checkbox in the sort popup now applies the sort settings as they are and closes the popup instead of flipping the checkbox. In the conflict popup, Enter on "Apply to all" no longer flips it; use Space or its key.
+
+- Popups are wider, and their messages and notes wrap instead of being cut off. While a popup with a list is open, the status bar shows the full text of the selected row.
+
+- The file list is narrower by default: the size column holds 9 digits and writes larger sizes like `1.2G`, the extension column holds 4 characters, and the gap between columns follows the font size. New `[filelist]` settings `size_digits`, `extension_chars`, and `min_name_chars` set the widths of the size, extension, and name columns.
+
+- In the bookmarks popup, the status bar shows the path of the selected bookmark after its name; in the command palette, it shows the command line of the selected external command. Both appear as written in the configuration.
+
+- Bind `` ` `` to `clear_marks` in the file list and the image preview by default.
+
+- Add the `mark_compare` command (`W`), which marks the files in the active pane that are missing from the other pane, or also the newer or different ones. The new `filelist.compare_tolerance_ms` option sets how far apart two modification times may be and still count as the same.
+
+- Filter and glob-mark patterns can exclude names with `~`, as in `*~*.bak`. A literal `~` is now written `\~` or `[~]`, `\` is an escape on Windows too, and spaces around a pattern are no longer trimmed.
+
+- New `[filelist]` settings `time_shows_full_year` and `time_shows_seconds` narrow the file list's time column: when `false`, the year is written with its last two digits and the seconds are left out. The status bar still shows the full time.
+
+- The number of places each pane keeps in its history and the number of lines the log keeps can now be set with `max_history` under `[filelist]` and `max_lines` under the new `[log]` table.
+
+- Sizes outside the file list's size column are now always written exactly, with thousands separators, as in `1,234 bytes`; `size_format` applies only to that column. `calculate_size` and `calculate_size_on_disk` also log an approximation and list directories first, as in `Size of docs: 48,318,382,080 bytes (45GB) in 3 directories and 12 files`, and counts of one now read `1 item`, `1 byte`, and `1 match`.
+
+- Add the `find` command (`Shift+F`), which searches below the pane's directory for entries matching a glob and goes to the one picked from the list. A glob without a slash matches names at any depth; one with a slash matches the path from the directory searched.
+
+- Add the `browse` command (`T`), which opens the directory dialog of the OS and moves the active pane to the directory picked in it.
+
+- Long lines in the log now wrap instead of being cut off at the right edge. The log scrolls one entry at a time, and its scrollbar counts entries, however many lines each wraps to.
+
+- The number of matches `find` collects before it stops can now be set with `max_find_results` under `[filelist]`.
+
+- Add `max_bytes` to `[preview.text]` and `[preview.image]` to set how many bytes of a file the text preview reads and how large an image the image preview opens. The note after a cut file and the error for an image that is too large state the limit in bytes.
+
+- PageUp and PageDown now move the cursor by a page in every popup list, and Home and End jump to the first and last row in the lists without a filter field.
+
+- Add `rename_replace` (Shift+R) and `rename_template` (Alt+R), which rename the marked items, or the item under the cursor, by replacing text in their names or from a template such as `photo_{001}{ext}`, showing the new names before Enter. In that popup, Alt with Up, Down, PageUp, PageDown, Home, or End scrolls the list.
+
+- Add a scrollbar to the text viewer, which shows the position in the document and scrolls it by dragging. Lines in the viewer wrap slightly earlier to leave room for it.
+
+- Add the `log_top` and `log_bottom` commands (`Shift+Home` and `Shift+End`), which jump to the oldest and the newest lines of the log.
+
+### Patch Changes
+
+- `rename`, and renaming in a copy or move conflict, now refuse a name that is `.` or `..` or contains a path separator, instead of moving the item to another directory.
+
+- Treat names that differ only in Unicode normalization (NFC and NFD) as the same name: the cursor lands on an entry reached by a typed path, `rename` does nothing when the name is retyped, and a case-only rename of a decomposed name works.
+
+- The offset column of the binary preview is six digits wide instead of eight, and widens only when the preview shows more than 16 MiB.
+
+- Fix the cursor of a long popup list sometimes showing in the middle of the list, not at its bottom edge, right after the popup opens.
+
+- Keep at least eight characters of a file name visible in a narrow pane; the other columns are cut off at the pane's edge instead.
+
+- The text viewer no longer scrolls past the end of the file, and the End key and paging now account for wrapped lines: End shows the last line in full, and paging neither skips nor repeats lines.
+
+- Renaming an item to a name that differs only in case no longer replaces another item of that name. On a case-sensitive file system, renaming a symbolic link onto its target lost the target, and renaming a hard link onto another reported success without doing anything; both now fail with "already exists".
+
 ## 0.3.0
 
 ### Minor Changes
