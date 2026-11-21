@@ -5,7 +5,7 @@ use thiserror::Error;
 
 use crate::app::Os;
 use crate::entry::Entry;
-use crate::text::nfc;
+use crate::text::{name_problem, nfc};
 
 /// What the new names of a batch rename are made from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -224,10 +224,8 @@ fn first_error(
     renamed.into_iter().find_map(|(target, new)| {
         let reason = if new.is_empty() {
             "empty name"
-        } else if new == "." || new == ".." {
-            "invalid name"
-        } else if new.contains('/') || (os == Os::Windows && new.contains('\\')) {
-            "contains a separator"
+        } else if let Some(problem) = name_problem(new, os) {
+            problem
         } else if !taken.insert(lowercase(new)) {
             // Creating `A` and `a` at once fails halfway on a file system that
             // ignores case, so they are refused everywhere.

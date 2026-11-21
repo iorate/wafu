@@ -2,6 +2,8 @@ use std::borrow::Cow;
 
 use icu_normalizer::ComposingNormalizer;
 
+use crate::app::Os;
+
 pub(crate) const LINE_BREAK_SYMBOL: &str = "\u{21B5}";
 
 /// Composes `text` (NFC).
@@ -15,6 +17,16 @@ pub fn nfc(text: &str) -> Cow<'_, str> {
 // The case counts: whether the file system tells it apart is not known here.
 pub(crate) fn same_name(a: &str, b: &str) -> bool {
     nfc(a) == nfc(b)
+}
+
+pub(crate) fn name_problem(name: &str, os: Os) -> Option<&'static str> {
+    if name == "." || name == ".." {
+        Some("invalid name")
+    } else if name.contains('/') || (os == Os::Windows && name.contains('\\')) {
+        Some("contains a separator")
+    } else {
+        None
+    }
 }
 
 // The text layout forces a line break after these characters, so a single-row
