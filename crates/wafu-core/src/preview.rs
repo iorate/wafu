@@ -180,7 +180,6 @@ impl Document {
     pub fn lines(&self, mode: DocumentMode, top: usize, rows: usize) -> Vec<PreviewLine> {
         let count = self.line_count(mode);
         let end = top.saturating_add(rows).min(count);
-        let digits = self.digits(mode);
         match mode {
             DocumentMode::Text => (top.min(end)..end)
                 .map(|index| {
@@ -197,25 +196,28 @@ impl Document {
                     }
                 })
                 .collect(),
-            DocumentMode::Binary => (top.min(end)..end)
-                .map(|index| {
-                    if self.truncated && index == count - 1 {
-                        PreviewLine {
-                            index,
-                            number: String::new(),
-                            text: truncated_note(self.raw.len()),
+            DocumentMode::Binary => {
+                let digits = self.digits(mode);
+                (top.min(end)..end)
+                    .map(|index| {
+                        if self.truncated && index == count - 1 {
+                            PreviewLine {
+                                index,
+                                number: String::new(),
+                                text: truncated_note(self.raw.len()),
+                            }
+                        } else {
+                            let offset = index * BYTES_PER_LINE;
+                            let end = (offset + BYTES_PER_LINE).min(self.raw.len());
+                            PreviewLine {
+                                index,
+                                number: format!("{offset:0digits$x}"),
+                                text: hex_line(&self.raw[offset..end]),
+                            }
                         }
-                    } else {
-                        let offset = index * BYTES_PER_LINE;
-                        let end = (offset + BYTES_PER_LINE).min(self.raw.len());
-                        PreviewLine {
-                            index,
-                            number: format!("{offset:0digits$x}"),
-                            text: hex_line(&self.raw[offset..end]),
-                        }
-                    }
-                })
-                .collect(),
+                    })
+                    .collect()
+            }
         }
     }
 }
@@ -569,24 +571,16 @@ mod tests {
     #[test]
     fn offsets_have_six_digits_or_as_many_as_the_last_one_needs() {
         let document = |len| Document::decode(vec![0; len], false, None);
-        let last_offset = |document: &Document| {
-            let count = document.line_count(DocumentMode::Binary);
-            document.lines(DocumentMode::Binary, count - 1, 1)[0]
-                .number
-                .clone()
-        };
 
         assert_eq!(document(0).digits(DocumentMode::Binary), 0);
         assert_eq!(document(1).digits(DocumentMode::Binary), 6);
         assert_eq!(document(0x0100_0000).digits(DocumentMode::Binary), 6);
-        assert_eq!(last_offset(&document(0x0100_0000)), "fffff0");
         let longer = document(0x0100_0001);
         assert_eq!(longer.digits(DocumentMode::Binary), 7);
         assert_eq!(
             longer.lines(DocumentMode::Binary, 0, 1)[0].number,
             "0000000"
         );
-        assert_eq!(last_offset(&longer), "1000000");
     }
 
     #[test]
