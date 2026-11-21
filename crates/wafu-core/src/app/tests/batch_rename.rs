@@ -320,6 +320,24 @@ fn the_cursor_follows_the_item_it_was_on_at_enter_through_reloads_in_a_chain() {
 }
 
 #[test]
+fn the_cursor_stays_on_an_item_that_was_not_renamed() {
+    let mut harness = marked(&["1", "2"], &["1", "2"]);
+    harness.press("Up");
+    assert_eq!(harness.cursor_name(Side::Left), "1");
+    harness.press("Alt+R");
+    harness.edit("{2}");
+    harness.press("Enter");
+
+    harness.finish(Outcome::Failed {
+        path: path(LEFT, "2"),
+        error: IoError::new("busy"),
+    });
+    harness.load(Side::Left, vec![file("1"), file("2")]);
+
+    assert_eq!(harness.cursor_name(Side::Left), "1");
+}
+
+#[test]
 fn a_pane_showing_a_renamed_directory_follows_it() {
     let shown_dir = path(LEFT, "d1");
     let mut harness = Harness::start(LEFT, shown_dir.to_str().unwrap());

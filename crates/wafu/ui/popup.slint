@@ -478,12 +478,8 @@ export component PopupOverlay {
                     root.lines-rows-changed(self.rows);
                 }
 
-                // The rows change as the popup closes too, when the report
-                // would be taken for the next popup's.
                 changed rows => {
-                    if root.data.has-lines {
-                        root.lines-rows-changed(self.rows);
-                    }
+                    root.lines-rows-changed(self.rows);
                 }
 
                 Rectangle {

@@ -378,6 +378,7 @@ pub struct RenamePopup {
     siblings: bool,
     pub fields: Vec<InputField>,
     pub plan: RenamePlan,
+    // Counted among the items the list shows, not among the targets.
     top: usize,
     rows: LineRows,
 }
