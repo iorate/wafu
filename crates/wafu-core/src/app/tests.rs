@@ -2022,13 +2022,38 @@ fn the_popup_list_keeps_the_cursor_in_view() {
     assert_eq!(harness.view().popup.unwrap().scroll_top, 15);
     harness.send(Msg::PopupRows { rows: 2 });
     assert_eq!(harness.view().popup.unwrap().scroll_top, 18);
-    harness.send(Msg::PopupRows { rows: 0 });
-    assert_eq!(harness.view().popup.unwrap().scroll_top, 19);
     harness.send(Msg::PopupRows { rows: 30 });
     assert_eq!(harness.view().popup.unwrap().scroll_top, 0);
     harness.send(Msg::PopupRows { rows: 5 });
     harness.press("Down");
     assert_eq!(harness.view().popup.unwrap().scroll_top, 0);
+}
+
+#[test]
+fn the_first_report_of_its_rows_places_the_popup_list_anew() {
+    let mut harness = many_bookmarks();
+    harness.press("End");
+    for _ in 0..5 {
+        harness.press("Up");
+    }
+    assert_eq!(harness.view().popup.unwrap().scroll_top, 14);
+
+    harness.send(Msg::PopupRows { rows: 8 });
+    assert_eq!(harness.view().popup.unwrap().scroll_top, 7);
+    harness.send(Msg::PopupRows { rows: 10 });
+    assert_eq!(harness.view().popup.unwrap().scroll_top, 7);
+}
+
+#[test]
+fn a_report_of_no_rows_leaves_the_rows_of_the_popup_list_as_they_were() {
+    let mut harness = many_bookmarks();
+    harness.press("Esc");
+    harness.send(Msg::PopupRows { rows: 0 });
+
+    harness.press("J");
+    harness.press("End");
+
+    assert_eq!(harness.view().popup.unwrap().scroll_top, 15);
 }
 
 #[test]
