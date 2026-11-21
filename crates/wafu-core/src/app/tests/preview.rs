@@ -232,7 +232,7 @@ fn switching_modes_forgets_the_measured_rows() {
     harness.press("Tab");
     harness.press("End");
 
-    assert_eq!(harness.preview_numbers()[0], "00000000");
+    assert_eq!(harness.preview_numbers()[0], "000000");
 }
 
 #[test]
@@ -268,7 +268,7 @@ fn tab_switches_to_the_hex_dump_and_back_from_the_top() {
     let lines = harness.preview_lines();
     assert_eq!(lines.len(), 2);
     assert!(lines[0].starts_with("6c 30 0a 6c 31 0a"));
-    assert_eq!(harness.preview_numbers(), ["00000000", "00000010"]);
+    assert_eq!(harness.preview_numbers(), ["000000", "000010"]);
     let preview = harness.view().preview.unwrap();
     assert!(matches!(
         preview.content,
@@ -518,7 +518,7 @@ fn a_binary_file_opens_as_a_hex_dump_with_the_note() {
     assert_eq!(lines.len(), 2);
     assert!(lines[0].starts_with("61 62 00"));
     assert_eq!(lines[1], "--- truncated: showing the first 3 bytes ---");
-    assert_eq!(harness.preview_numbers(), ["00000000", ""]);
+    assert_eq!(harness.preview_numbers(), ["000000", ""]);
 }
 
 #[test]
@@ -1660,7 +1660,7 @@ fn text_keys_come_from_the_text_table_in_both_modes() {
     harness.press("Tab");
     harness.preview_rows(1);
     harness.press("J");
-    assert_eq!(harness.preview_numbers()[0], "00000010");
+    assert_eq!(harness.preview_numbers()[0], "000010");
 
     harness.press("Alt+Up");
     assert_eq!(harness.view().log_rows, 7);

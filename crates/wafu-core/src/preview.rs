@@ -13,7 +13,7 @@ const BINARY_PROBE: usize = 8 * 1024;
 const MAX_LINE_CHARS: usize = 1024;
 const TAB_STOP: usize = 8;
 const BYTES_PER_LINE: usize = 16;
-const OFFSET_DIGITS: usize = 8;
+const MIN_OFFSET_DIGITS: usize = 6;
 const IMAGE_EXTENSIONS: [&str; 7] = ["png", "jpg", "jpeg", "gif", "bmp", "webp", "ico"];
 
 // `replacement` and `x-user-defined` are left out: neither is a text encoding
@@ -165,7 +165,10 @@ impl Document {
                 .map(|line| line.number)
                 .find(|&number| number != 0)
                 .map_or(0, |number| number.to_string().len()),
-            DocumentMode::Binary => OFFSET_DIGITS,
+            DocumentMode::Binary => self.raw.len().checked_sub(1).map_or(0, |last| {
+                let offset = last / BYTES_PER_LINE * BYTES_PER_LINE;
+                format!("{offset:x}").len().max(MIN_OFFSET_DIGITS)
+            }),
         }
     }
 
@@ -177,6 +180,7 @@ impl Document {
     pub fn lines(&self, mode: DocumentMode, top: usize, rows: usize) -> Vec<PreviewLine> {
         let count = self.line_count(mode);
         let end = top.saturating_add(rows).min(count);
+        let digits = self.digits(mode);
         match mode {
             DocumentMode::Text => (top.min(end)..end)
                 .map(|index| {
@@ -206,7 +210,7 @@ impl Document {
                         let end = (offset + BYTES_PER_LINE).min(self.raw.len());
                         PreviewLine {
                             index,
-                            number: format!("{offset:0OFFSET_DIGITS$x}"),
+                            number: format!("{offset:0digits$x}"),
                             text: hex_line(&self.raw[offset..end]),
                         }
                     }
@@ -558,9 +562,31 @@ mod tests {
                 "61 62 63                                          abc",
             ]
         );
-        assert_eq!(document.digits(DocumentMode::Binary), OFFSET_DIGITS);
         assert_eq!(document.lines(DocumentMode::Binary, 1, 1).len(), 1);
         assert_eq!(document.lines(DocumentMode::Binary, 5, 1).len(), 0);
+    }
+
+    #[test]
+    fn offsets_have_six_digits_or_as_many_as_the_last_one_needs() {
+        let document = |len| Document::decode(vec![0; len], false, None);
+        let last_offset = |document: &Document| {
+            let count = document.line_count(DocumentMode::Binary);
+            document.lines(DocumentMode::Binary, count - 1, 1)[0]
+                .number
+                .clone()
+        };
+
+        assert_eq!(document(0).digits(DocumentMode::Binary), 0);
+        assert_eq!(document(1).digits(DocumentMode::Binary), 6);
+        assert_eq!(document(0x0100_0000).digits(DocumentMode::Binary), 6);
+        assert_eq!(last_offset(&document(0x0100_0000)), "fffff0");
+        let longer = document(0x0100_0001);
+        assert_eq!(longer.digits(DocumentMode::Binary), 7);
+        assert_eq!(
+            longer.lines(DocumentMode::Binary, 0, 1)[0].number,
+            "0000000"
+        );
+        assert_eq!(last_offset(&longer), "1000000");
     }
 
     #[test]
