@@ -19,6 +19,10 @@ concurrency:
 
 jobs:
   check:
+    # The ruleset of the default branch requires the checks by this name, which
+    # would otherwise include every value of the matrix.
+    name: check (${{ matrix.os }})
+
     strategy:
       fail-fast: false
       matrix:
