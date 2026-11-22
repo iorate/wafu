@@ -1,0 +1,30 @@
+# The licenses ask for their notices to accompany the binary, which a file in
+# the release archive does. Showing them inside wafu would need the list to be
+# generated in every build, not only in releases.
+
+# The order is the preference: a crate under "MIT OR Apache-2.0" is listed under
+# the one that comes first here. GPL-3.0-only must stay out, because Slint is
+# "GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR ..." and wafu uses it
+# under the royalty-free license.
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "LicenseRef-Slint-Royalty-free-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "ISC",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Zlib",
+    "CC0-1.0",
+    "bzip2-1.0.6",
+    "Unlicense",
+]
+
+# No targets here: each job passes its own with --target, so that a list holds
+# only the crates in the binary for that platform.
+
+# Neither ends up in the binary.
+ignore-build-dependencies = true
+ignore-dev-dependencies = true

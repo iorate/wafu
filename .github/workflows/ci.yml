@@ -19,13 +19,20 @@ concurrency:
 
 jobs:
   check:
+    # The ruleset of the default branch requires the checks by this name, which
+    # would otherwise include every value of the matrix.
+    name: check (${{ matrix.os }})
+
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-latest
-          - windows-latest
-          - macos-latest
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: macos-latest
+            target: aarch64-apple-darwin
 
     runs-on: ${{ matrix.os }}
 
@@ -54,6 +61,19 @@ jobs:
 
       - name: cargo test
         run: cargo test
+
+      - name: Install cargo-about
+        uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: cargo-about@0.9.3
+
+      # The release workflow generates this file for each archive. Generating
+      # it here makes a dependency under a license that about.toml does not
+      # accept fail the pull request that brings it in, not the release.
+      - name: Generate the third-party licenses
+        run: cargo about generate --locked --fail --target "$TARGET" -c about.toml -m crates/wafu/Cargo.toml -o "$RUNNER_TEMP/THIRD-PARTY-LICENSES.txt" about.hbs
+        env:
+          TARGET: ${{ matrix.target }}
 
       - name: Check the package.json version
         if: runner.os == 'Linux'
