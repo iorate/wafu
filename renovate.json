@@ -17,8 +17,24 @@
       "matchStrings": ["(?m)^\\s*tool:\\s*(?<depName>[^@\\s]+)@(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)"],
       "datasourceTemplate": "crate",
       "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Update the Zig installed with mlugg/setup-zig in workflows",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "matchStrings": ["uses:\\s*mlugg/setup-zig@[^\\n]*\\n\\s*with:\\s*\\n\\s*version:\\s*(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)"],
+      "depNameTemplate": "zig",
+      "datasourceTemplate": "custom.zig",
+      "versioningTemplate": "semver"
     }
   ],
+  "customDatasources": {
+    "zig": {
+      "description": "The download index of ziglang.org, which mlugg/setup-zig installs from; the GitHub mirror of Zig no longer gets tags",
+      "defaultRegistryUrlTemplate": "https://ziglang.org/download/index.json",
+      "transformTemplates": ["{\"releases\": $each($, function($v, $k) { $k != \"master\" ? {\"version\": $k, \"releaseTimestamp\": $v.date} })}"]
+    }
+  },
 
   "minimumReleaseAge": "3 days",
   "minimumReleaseAgePackageManagerSync": true,
@@ -38,7 +54,7 @@
     {
       "description": "Treat minor updates of 0.x crates and tools like majors: separate PRs, no automerge",
       "matchManagers": ["cargo", "custom.regex"],
-      "matchDatasources": ["crate"],
+      "matchDatasources": ["crate", "custom.zig"],
       "matchCurrentVersion": "<1",
       "matchUpdateTypes": ["minor"],
       "groupName": null,

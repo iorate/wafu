@@ -1,0 +1,67 @@
+{{!--
+  Triple braces everywhere: this is plain text, and double braces would escape
+  it for HTML.
+
+  The two fixed sections cover what cargo-about cannot. It finds no text for a
+  license outside the SPDX list, so it leaves the Slint crates out with only a
+  warning, even with --fail. The icons of the Slint widgets are compiled into
+  the binary under a license of their own, which no crate declares.
+
+  The crates of wafu itself are skipped. Their licenses are the LICENSE-MIT and
+  LICENSE-APACHE next to this file.
+--}}
+THIRD-PARTY LICENSES
+
+wafu includes third-party software. Their licenses and notices follow.
+
+================================================================================
+Slint
+================================================================================
+
+wafu uses Slint (https://slint.dev) under the Slint Royalty-free Desktop,
+Mobile, and Web Applications License, version 2.0:
+https://github.com/slint-ui/slint/blob/master/LICENSES/LicenseRef-Slint-Royalty-free-2.0.md
+
+================================================================================
+Fluent UI System Icons
+================================================================================
+
+The widgets of Slint include icons from Fluent UI System Icons
+(https://github.com/microsoft/fluentui-system-icons).
+
+MIT License
+
+Copyright (c) 2020 Microsoft Corporation
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+{{#each licenses}}
+
+================================================================================
+{{{name}}}
+================================================================================
+
+Used by:
+{{#each used_by}}
+{{#unless (or (eq crate.name "wafu") (eq crate.name "wafu-core") (eq crate.name "wafu-io"))}}
+- {{{crate.name}}} {{{crate.version}}}
+{{/unless}}
+{{/each}}
+
+{{{text}}}
+{{/each}}

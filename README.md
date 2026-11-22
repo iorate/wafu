@@ -8,36 +8,48 @@ A keyboard-driven dual-pane file manager for Windows, macOS, and Linux, built wi
 
 ### Windows
 
-Download `wafu-vX.Y.Z-windows-x64.zip` from [GitHub Releases](https://github.com/iorate/wafu/releases), extract it, and run `wafu.exe`.
+Install with [Scoop](https://scoop.sh):
 
-The executable is not signed, so Microsoft Defender SmartScreen may block it on the first run. Click "More info" and then "Run anyway".
+```sh
+scoop bucket add iorate https://github.com/iorate/scoop-bucket
+scoop install iorate/wafu
+```
 
 ### macOS
 
-Install with Cargo:
+Install with [Homebrew](https://brew.sh) (Apple silicon only):
 
 ```sh
-cargo install --locked wafu
+brew install iorate/tap/wafu
 ```
 
-Alternatively, download `wafu-vX.Y.Z-macos-arm64.dmg` (Apple silicon) from [GitHub Releases](https://github.com/iorate/wafu/releases) and drag `wafu.app` into `Applications`.
-
-The app is not notarized, so macOS blocks it on the first launch. Open System Settings → Privacy & Security and click "Open Anyway", or remove the quarantine attribute:
-
-```sh
-xattr -dr com.apple.quarantine /Applications/wafu.app
-```
+This installs the `wafu` command and `wafu.app`. `brew info iorate/tap/wafu` shows where the app is and how to put it in `Applications`.
 
 ### Linux
 
-Install the build dependencies and then wafu with Cargo. On Debian and Ubuntu:
+Install with [Homebrew](https://brew.sh) (x86-64 only):
 
 ```sh
-sudo apt install libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libxkbcommon-x11-dev libfontconfig-dev libwayland-dev
+brew install iorate/tap/wafu
+```
+
+The binary needs glibc 2.28 or later and uses the libraries of the host: fontconfig, xkbcommon, Wayland or X11, and EGL or OpenGL.
+
+The directory dialog of `browse` needs an XDG Desktop Portal backend with a file chooser (GTK, GNOME, or KDE) or, failing that, `zenity`.
+
+### Cargo
+
+On any of the three, wafu can be built from source instead:
+
+```sh
 cargo install --locked wafu
 ```
 
-The directory dialog of `browse` needs an XDG Desktop Portal backend with a file chooser (GTK, GNOME, or KDE) or, failing that, `zenity`.
+On Linux, install the build dependencies first. On Debian and Ubuntu:
+
+```sh
+sudo apt install libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libxkbcommon-x11-dev libfontconfig-dev libwayland-dev
+```
 
 ## Configuration
 

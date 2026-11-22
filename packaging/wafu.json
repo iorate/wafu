@@ -1,0 +1,14 @@
+{
+    "version": "@VERSION@",
+    "description": "A keyboard-driven dual-pane file manager",
+    "homepage": "https://github.com/iorate/wafu",
+    "license": "MIT|Apache-2.0",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/iorate/wafu/releases/download/v@VERSION@/wafu-v@VERSION@-windows-x64.zip",
+            "hash": "@WINDOWS_X64_SHA256@"
+        }
+    },
+    "bin": "wafu.exe",
+    "shortcuts": [["wafu.exe", "wafu"]]
+}
