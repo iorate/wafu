@@ -44,6 +44,11 @@
       "groupName": null,
       "schedule": null,
       "automerge": false
+    },
+    {
+      "description": "Rewrite the requirements in Cargo.toml so that cargo resolves all updates of a branch at once; a lock file update moves one crate at a time, which fails for crates that pin each other, like slint and slint-build",
+      "matchManagers": ["cargo"],
+      "rangeStrategy": "bump"
     }
   ],
   "lockFileMaintenance": {
