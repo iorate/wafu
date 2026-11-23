@@ -89,6 +89,7 @@ const NAMES: &[(Command, &str)] = &[
     (Command::ShellMenu, "shell_menu"),
     (Command::EnterAsArchive, "enter_as_archive"),
     (Command::Extract, "extract"),
+    (Command::ExtractHere, "extract_here"),
     (Command::Compress, "compress"),
     (Command::CalculateSize, "calculate_size"),
     (Command::CalculateSizeOnDisk, "calculate_size_on_disk"),
@@ -200,6 +201,7 @@ pub enum Command {
     ShellMenu,
     EnterAsArchive,
     Extract,
+    ExtractHere,
     Compress,
     /// Logs the number of files and directories and the total size of the
     /// targets, counting what is inside directories.
@@ -391,6 +393,7 @@ impl Command {
             | Self::RunCommandLine
             | Self::Compress
             | Self::Extract
+            | Self::ExtractHere
             | Self::CalculateSize
             | Self::CalculateSizeOnDisk
             | Self::ShellMenu

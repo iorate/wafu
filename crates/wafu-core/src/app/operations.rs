@@ -76,7 +76,8 @@ impl App {
                 self.shell_menu(anchor, effects);
             }
             Command::EnterAsArchive => self.enter_as_archive(effects),
-            Command::Extract => self.start_extract(effects),
+            Command::Extract => self.start_extract(false, effects),
+            Command::ExtractHere => self.start_extract(true, effects),
             Command::Compress => self.open_compress(),
             Command::CalculateSize => self.start_calculation(OperationKind::CalculateSize, effects),
             Command::CalculateSizeOnDisk => {
@@ -119,15 +120,20 @@ impl App {
         self.start_operation(kind, source_dir, names, sources, Some(dest), effects);
     }
 
-    fn start_extract(&mut self, effects: &mut Vec<Effect>) {
+    fn start_extract(&mut self, here: bool, effects: &mut Vec<Effect>) {
         let Some((location, names)) = self.target_names() else {
             return;
         };
         let kind = OperationKind::Extract {
             into_dir: self.config.filelist.extract_creates_dir,
         };
-        let Some(dest) = self.other_dest(kind.verb()) else {
-            return;
+        let dest = if here {
+            self.active_pane().location().base.clone()
+        } else {
+            let Some(dest) = self.other_dest(kind.verb()) else {
+                return;
+            };
+            dest
         };
         let source_dir = location.base.clone();
         let sources = if location.in_archive() {
@@ -826,7 +832,10 @@ impl App {
     fn command_location(&self, command: &Command) -> Location {
         let pane = self.active_pane();
         let location = match command {
-            Command::Mkdir | Command::NewFile | Command::NewText => None,
+            // On the `..` row of an archive root the target of `extract_here`
+            // is outside the archive, but the pane does not show where the
+            // contents would land.
+            Command::Mkdir | Command::NewFile | Command::NewText | Command::ExtractHere => None,
             Command::OpenWithOs | Command::Rename | Command::Edit | Command::EnterAsArchive => {
                 pane.cursor_target().map(|(location, _)| location)
             }

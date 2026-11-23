@@ -127,7 +127,7 @@ There are no default bookmarks, external commands, [`open_alternative` programs]
 |---|---|
 | `mkdir_enters_dir` | Enter the directory that `mkdir` created. |
 | `new_text_creates_file` | `new_text` creates the file before opening it in the editor. |
-| `extract_creates_dir` | `extract` puts the contents in a directory named after the archive. |
+| `extract_creates_dir` | `extract` and `extract_here` put the contents in a directory named after the archive. |
 | `require_marks` | `copy`, `move`, `delete`, and `trash` act only on marked items, never on the cursor item alone. |
 | `search_matches_anywhere` | `search` finds the text anywhere in a name. When `false`, only at the start of a name. |
 | `size_format` | How the file list's size column writes sizes: `"plain"` (`1234567`), `"comma"` (`1,234,567`), or `"human"` (`1.2M`). |
