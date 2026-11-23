@@ -984,8 +984,6 @@ fn extract_here_on_the_parent_row_of_an_archive_root_is_refused() {
 #[test]
 fn compress_here_puts_the_archive_in_the_same_side() {
     let mut harness = outside();
-    harness.press("Down");
-    harness.take_effects();
 
     harness.press("Alt+P");
     assert_eq!(harness.view().popup.unwrap().title, "Compress (here)");
