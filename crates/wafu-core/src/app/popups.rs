@@ -398,7 +398,6 @@ impl App {
             },
             Popup::List(popup) => PopupView {
                 title: popup.title().to_owned(),
-                message: popup.message.clone(),
                 note: popup
                     .items
                     .is_empty()
@@ -427,7 +426,7 @@ impl App {
                 ..PopupView::default()
             },
             Popup::Rename(popup) => PopupView {
-                title: popup.title(),
+                title: popup.title().to_owned(),
                 fields: popup.fields.clone(),
                 note: Some(popup.note()),
                 lines: Some(popup.lines(self.popup_rows)),

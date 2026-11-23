@@ -1372,7 +1372,8 @@ fn a_wrong_preview_password_is_asked_again_and_esc_closes() {
     });
 
     let popup = harness.view().popup.unwrap();
-    assert_eq!(popup.message.as_deref(), Some("Wrong password for a.zip"));
+    assert_eq!(popup.message.as_deref(), Some("a.zip"));
+    assert_eq!(popup.note.as_deref(), Some("Wrong password"));
 
     harness.press("Esc");
 

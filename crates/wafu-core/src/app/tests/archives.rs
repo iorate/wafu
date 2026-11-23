@@ -401,7 +401,8 @@ fn a_wrong_password_for_a_listing_is_asked_again_and_forgotten() {
     harness.need_password(Side::Left, 0, true);
 
     let popup = harness.view().popup.unwrap();
-    assert_eq!(popup.message.as_deref(), Some("Wrong password for a.zip"));
+    assert_eq!(popup.message.as_deref(), Some("a.zip"));
+    assert_eq!(popup.note.as_deref(), Some("Wrong password"));
     assert_eq!(harness.archive_passwords(Side::Left), Passwords::default());
 }
 
@@ -1084,7 +1085,7 @@ fn compress_asks_for_the_name_and_a_password_in_one_popup() {
     assert_eq!(popup.message, None);
     assert_eq!(
         popup.note.as_deref(),
-        Some("zip, tar, tar.gz, tar.bz2, or tar.xz; only zip takes a password")
+        Some("Formats: zip, tar, tar.gz, tar.bz2, tar.xz; only zip takes a password")
     );
     let labels: Vec<&str> = popup.fields.iter().map(|field| field.label).collect();
     assert_eq!(labels, ["Name", "Password"]);
@@ -1417,7 +1418,8 @@ fn a_wrong_password_is_asked_again_and_forgotten() {
     });
 
     let popup = harness.view().popup.unwrap();
-    assert_eq!(popup.message.as_deref(), Some("Wrong password for a.zip"));
+    assert_eq!(popup.message.as_deref(), Some("a.zip"));
+    assert_eq!(popup.note.as_deref(), Some("Wrong password"));
 
     harness.press("Esc");
 

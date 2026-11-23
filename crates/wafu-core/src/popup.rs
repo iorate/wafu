@@ -319,8 +319,6 @@ pub enum ConflictChoice {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListPopup {
     pub kind: ListKind,
-    /// What to show under the title, if anything.
-    pub message: Option<String>,
     pub items: Vec<ListItem>,
     pub query: String,
     /// The items shown, as indices into `items`: those whose label has the query.
@@ -562,15 +560,13 @@ impl InputPopup {
     #[must_use]
     pub fn message(&self) -> Option<String> {
         match &self.kind {
-            InputKind::ArchivePassword { archive, retry, .. } => {
-                let name = archive.file_name().unwrap_or_default().to_string_lossy();
-                Some(if *retry {
-                    format!("Wrong password for {name}")
-                } else {
-                    name.into_owned()
-                })
-            }
-            InputKind::Find { dir } => Some(dir.display().to_string()),
+            InputKind::ArchivePassword { archive, .. } => Some(
+                archive
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
             _ => None,
         }
     }
@@ -578,9 +574,10 @@ impl InputPopup {
     #[must_use]
     pub fn note(&self) -> Option<String> {
         match self.kind {
-            InputKind::Compress { .. } => {
-                Some("zip, tar, tar.gz, tar.bz2, or tar.xz; only zip takes a password".to_owned())
-            }
+            InputKind::ArchivePassword { retry: true, .. } => Some("Wrong password".to_owned()),
+            InputKind::Compress { .. } => Some(
+                "Formats: zip, tar, tar.gz, tar.bz2, tar.xz; only zip takes a password".to_owned(),
+            ),
             _ => None,
         }
     }
@@ -610,8 +607,8 @@ impl ChoicePopup {
     #[must_use]
     pub fn delete_confirm(dir: PathBuf, names: Vec<OsString>) -> Self {
         let message = match names.as_slice() {
-            [name] => format!("Delete \"{}\"?", name.to_string_lossy()),
-            _ => format!("Delete {} items?", names.len()),
+            [name] => name.to_string_lossy().into_owned(),
+            _ => format!("{} items", names.len()),
         };
         Self {
             kind: ChoiceKind::DeleteConfirm { dir, names },
@@ -627,7 +624,7 @@ impl ChoicePopup {
             kind: ChoiceKind::QuitDuringOperation {
                 resume: resume.map(Box::new),
             },
-            message: "An operation is in progress. Quit anyway?".to_owned(),
+            message: "An operation is in progress".to_owned(),
             cursor: 1,
         }
     }
@@ -694,7 +691,6 @@ impl ListPopup {
         let cursor = items.iter().position(|item| item.current).unwrap_or(0);
         Self {
             kind,
-            message: None,
             matches: (0..items.len()).collect(),
             items,
             query: String::new(),
@@ -781,10 +777,7 @@ impl ListPopup {
                 source: None,
             })
             .collect();
-        Self {
-            message: Some(dir.display().to_string()),
-            ..Self::new(ListKind::Found, items)
-        }
+        Self::new(ListKind::Found, items)
     }
 
     /// Auto-detection first, then every encoding, with the one named `current` marked.
@@ -1059,10 +1052,10 @@ impl RenamePopup {
     }
 
     #[must_use]
-    pub fn title(&self) -> String {
-        match self.targets.as_slice() {
-            [target] => format!("Rename {}", target.name.to_string_lossy()),
-            targets => format!("Rename {} items", targets.len()),
+    pub fn title(&self) -> &'static str {
+        match self.mode {
+            RenameMode::Replace => "Rename (replace)",
+            RenameMode::Template => "Rename (template)",
         }
     }
 
@@ -1716,7 +1709,9 @@ mod tests {
         let retry = InputPopup::password(archive, 0, true, PasswordPurpose::Operation);
 
         assert_eq!(first.message().as_deref(), Some("b.zip"));
-        assert_eq!(retry.message().as_deref(), Some("Wrong password for b.zip"));
+        assert_eq!(first.note(), None);
+        assert_eq!(retry.message().as_deref(), Some("b.zip"));
+        assert_eq!(retry.note().as_deref(), Some("Wrong password"));
     }
 
     #[test]
@@ -1738,8 +1733,8 @@ mod tests {
         let one = ChoicePopup::delete_confirm(PathBuf::from("/d"), vec!["a".into()]);
         let two = ChoicePopup::delete_confirm(PathBuf::from("/d"), vec!["a".into(), "b".into()]);
 
-        assert_eq!(one.message, "Delete \"a\"?");
-        assert_eq!(two.message, "Delete 2 items?");
+        assert_eq!(one.message, "a");
+        assert_eq!(two.message, "2 items");
         assert_eq!(one.cursor, 1);
     }
 
