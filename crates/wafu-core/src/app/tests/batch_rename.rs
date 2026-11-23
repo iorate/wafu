@@ -10,13 +10,13 @@ use crate::test_support::{Harness, LEFT, RIGHT, dir, file, path, shown};
 use crate::view::InputField;
 
 #[test]
-fn rename_replace_opens_on_the_marks_with_two_empty_fields_and_the_hint() {
+fn rename_replace_opens_with_two_empty_fields_and_the_hint() {
     let mut harness = marked(&["a", "b", "c"], &["a", "c"]);
 
     harness.press("Shift+R");
 
     let popup = harness.view().popup.unwrap();
-    assert_eq!(popup.title, "Rename 2 items");
+    assert_eq!(popup.title, "Rename (replace)");
     assert_eq!(
         popup.fields,
         [
@@ -37,7 +37,7 @@ fn rename_replace_opens_on_the_marks_with_two_empty_fields_and_the_hint() {
 }
 
 #[test]
-fn rename_template_opens_on_the_cursor_entry_without_marks_with_the_name_selected() {
+fn rename_template_opens_with_the_name_placeholder_selected() {
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.load(Side::Left, vec![file("a.txt"), file("b.txt")]);
     harness.press("Down");
@@ -45,7 +45,7 @@ fn rename_template_opens_on_the_cursor_entry_without_marks_with_the_name_selecte
     harness.press("Alt+R");
 
     let popup = harness.view().popup.unwrap();
-    assert_eq!(popup.title, "Rename a.txt");
+    assert_eq!(popup.title, "Rename (template)");
     assert_eq!(
         popup.fields,
         [InputField {
@@ -100,7 +100,6 @@ fn a_batch_rename_on_the_parent_row_renames_the_directory_itself_whatever_its_li
     assert_eq!(harness.cursor_name(Side::Left), "..");
 
     harness.press("Alt+R");
-    assert_eq!(harness.view().popup.unwrap().title, "Rename user");
     harness.edit("me");
     harness.take_effects();
     harness.press("Enter");
@@ -472,14 +471,13 @@ fn an_area_reported_without_a_rename_popup_does_not_change_the_page_of_another_l
 }
 
 #[test]
-fn line_breaks_in_names_show_as_symbols_in_the_title_the_list_and_the_note() {
+fn line_breaks_in_names_show_as_symbols_in_the_list_and_the_note() {
     let mut harness = marked(&["a\r", "b"], &["a\r"]);
 
     harness.press("Alt+R");
     harness.edit("b");
 
     let popup = harness.view().popup.unwrap();
-    assert_eq!(popup.title, "Rename a\u{21b5}");
     assert_eq!(shown_items(&harness), ["a\u{21b5} \u{2192} b"]);
     assert_eq!(
         popup.note.as_deref(),

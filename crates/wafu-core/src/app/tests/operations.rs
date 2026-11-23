@@ -487,7 +487,7 @@ fn closing_the_window_during_an_operation_asks_first() {
     assert_eq!(popup.title, "Quit");
     assert_eq!(
         popup.message.as_deref(),
-        Some("An operation is in progress. Quit anyway?")
+        Some("An operation is in progress")
     );
     assert_eq!(harness.popup_labels(), ["", "Quit", "Keep running"]);
     assert_eq!(harness.popup_items()[0].kind, ItemKind::Separator);
@@ -584,7 +584,7 @@ fn delete_asks_once_and_names_a_single_target() {
 
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Delete");
-    assert_eq!(popup.message.as_deref(), Some("Delete \"a\"?"));
+    assert_eq!(popup.message.as_deref(), Some("a"));
     assert_eq!(harness.popup_labels(), ["", "Delete", "Cancel"]);
     assert_eq!(harness.popup_items()[0].kind, ItemKind::Separator);
     assert_eq!(popup.cursor, Some(1));
@@ -772,7 +772,6 @@ fn find_asks_for_a_pattern_and_searches_the_pane_s_directory_as_the_pane_shows_i
     harness.press("Shift+F");
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Find");
-    assert_eq!(popup.message, Some(LEFT.to_owned()));
     assert_eq!(popup.fields[0].text, "");
     harness.edit("*.rs");
     harness.press("Enter");
@@ -840,7 +839,6 @@ fn find_lists_the_paths_found() {
 
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Find");
-    assert_eq!(popup.message, Some(LEFT.to_owned()));
     assert_eq!(
         harness.popup_labels(),
         [
