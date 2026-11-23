@@ -982,6 +982,33 @@ fn extract_here_on_the_parent_row_of_an_archive_root_is_refused() {
 }
 
 #[test]
+fn compress_here_puts_the_archive_in_the_same_side() {
+    let mut harness = outside();
+
+    harness.press("Alt+P");
+    assert_eq!(harness.view().popup.unwrap().title, "Compress (here)");
+    harness.press("Enter");
+
+    assert_eq!(
+        harness.start_operation().map(|spec| spec.dest),
+        Some(Some(PathBuf::from(LEFT)))
+    );
+}
+
+#[test]
+fn compress_here_on_the_parent_row_of_an_archive_root_is_refused() {
+    let mut harness = inside();
+
+    harness.press("Alt+P");
+
+    assert_eq!(harness.view().popup, None);
+    assert_eq!(
+        harness.log(),
+        ["Cannot run compress_here: not available inside an archive"]
+    );
+}
+
+#[test]
 fn compress_on_the_parent_row_offers_the_directory_itself() {
     let mut harness = outside();
     harness.press("Home");

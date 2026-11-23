@@ -91,6 +91,7 @@ const NAMES: &[(Command, &str)] = &[
     (Command::Extract, "extract"),
     (Command::ExtractHere, "extract_here"),
     (Command::Compress, "compress"),
+    (Command::CompressHere, "compress_here"),
     (Command::CalculateSize, "calculate_size"),
     (Command::CalculateSizeOnDisk, "calculate_size_on_disk"),
     (Command::Palette, "palette"),
@@ -203,6 +204,7 @@ pub enum Command {
     Extract,
     ExtractHere,
     Compress,
+    CompressHere,
     /// Logs the number of files and directories and the total size of the
     /// targets, counting what is inside directories.
     CalculateSize,
@@ -392,6 +394,7 @@ impl Command {
             | Self::RunFile
             | Self::RunCommandLine
             | Self::Compress
+            | Self::CompressHere
             | Self::Extract
             | Self::ExtractHere
             | Self::CalculateSize

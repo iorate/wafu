@@ -78,7 +78,8 @@ impl App {
             Command::EnterAsArchive => self.enter_as_archive(effects),
             Command::Extract => self.start_extract(false, effects),
             Command::ExtractHere => self.start_extract(true, effects),
-            Command::Compress => self.open_compress(),
+            Command::Compress => self.open_compress(false),
+            Command::CompressHere => self.open_compress(true),
             Command::CalculateSize => self.start_calculation(OperationKind::CalculateSize, effects),
             Command::CalculateSizeOnDisk => {
                 self.start_calculation(OperationKind::CalculateSizeOnDisk, effects);
@@ -144,12 +145,17 @@ impl App {
         self.start_operation(kind, source_dir, names, sources, Some(dest), effects);
     }
 
-    fn open_compress(&mut self) {
+    fn open_compress(&mut self, here: bool) {
         let Some((location, names)) = self.target_names() else {
             return;
         };
-        let Some(dest) = self.other_dest(OperationKind::Compress.verb()) else {
-            return;
+        let dest = if here {
+            self.active_pane().location().base.clone()
+        } else {
+            let Some(dest) = self.other_dest(OperationKind::Compress.verb()) else {
+                return;
+            };
+            dest
         };
         let dir = location.base;
         let stem = match names.as_slice() {
@@ -161,7 +167,7 @@ impl App {
         };
         let initial = format!("{stem}.{}", ArchiveFormat::Zip.extension());
         self.popup = Some(Popup::Input(InputPopup::compress(
-            dir, dest, names, initial,
+            dir, dest, names, here, initial,
         )));
     }
 
@@ -833,9 +839,13 @@ impl App {
         let pane = self.active_pane();
         let location = match command {
             // On the `..` row of an archive root the target of `extract_here`
-            // is outside the archive, but the pane does not show where the
-            // contents would land.
-            Command::Mkdir | Command::NewFile | Command::NewText | Command::ExtractHere => None,
+            // and `compress_here` is outside the archive, but the pane does
+            // not show where the result would land.
+            Command::Mkdir
+            | Command::NewFile
+            | Command::NewText
+            | Command::ExtractHere
+            | Command::CompressHere => None,
             Command::OpenWithOs | Command::Rename | Command::Edit | Command::EnterAsArchive => {
                 pane.cursor_target().map(|(location, _)| location)
             }
