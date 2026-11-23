@@ -223,11 +223,13 @@ pub enum InputKind {
         purpose: PasswordPurpose,
     },
     /// The name of the archive to make and its password, for the entries
-    /// named in `dir`, to be put in `dest`.
+    /// named in `dir`, to be put in `dest`: the directory of the same pane
+    /// when `here`, or else that of the other.
     Compress {
         dir: PathBuf,
         dest: PathBuf,
         names: Vec<OsString>,
+        here: bool,
     },
 }
 
@@ -522,11 +524,17 @@ impl InputPopup {
         dir: PathBuf,
         dest: PathBuf,
         names: Vec<OsString>,
+        here: bool,
         initial_name: String,
     ) -> Self {
         let select = stem_selection(&initial_name);
         Self {
-            kind: InputKind::Compress { dir, dest, names },
+            kind: InputKind::Compress {
+                dir,
+                dest,
+                names,
+                here,
+            },
             fields: vec![
                 InputField {
                     label: "Name",
@@ -597,7 +605,8 @@ impl InputKind {
             Self::NewText { .. } => "New text",
             Self::RunFile | Self::RunCommand => "Run",
             Self::ArchivePassword { .. } => "Password",
-            Self::Compress { .. } => "Compress",
+            Self::Compress { here: false, .. } => "Compress",
+            Self::Compress { here: true, .. } => "Compress (here)",
         }
     }
 }

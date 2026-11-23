@@ -791,6 +791,7 @@ impl App {
             | Command::Extract
             | Command::ExtractHere
             | Command::Compress
+            | Command::CompressHere
             | Command::CalculateSize
             | Command::CalculateSizeOnDisk => self.run_file_command(command, effects),
             Command::Nop => {}

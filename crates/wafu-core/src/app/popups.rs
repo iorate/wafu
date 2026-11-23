@@ -573,7 +573,9 @@ impl App {
                 self.listing_password(popup, effects);
                 return;
             }
-            InputKind::Compress { dir, dest, names } => {
+            InputKind::Compress {
+                dir, dest, names, ..
+            } => {
                 self.confirm_compress(dir, dest, names, &text, &password, effects);
                 return;
             }
