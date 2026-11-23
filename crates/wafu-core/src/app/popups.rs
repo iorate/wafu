@@ -301,7 +301,6 @@ impl App {
                 .collect()
         };
         Some(PopupView {
-            title: show_line_breaks(view.title),
             message: view.message.map(show_line_breaks),
             note: view.note.map(show_line_breaks),
             lines: view.lines.map(|view| PopupLines {

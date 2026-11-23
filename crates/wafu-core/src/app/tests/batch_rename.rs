@@ -10,7 +10,7 @@ use crate::test_support::{Harness, LEFT, RIGHT, dir, file, path, shown};
 use crate::view::InputField;
 
 #[test]
-fn rename_replace_opens_on_the_marks_with_two_empty_fields_and_the_hint() {
+fn rename_replace_opens_with_two_empty_fields_and_the_hint() {
     let mut harness = marked(&["a", "b", "c"], &["a", "c"]);
 
     harness.press("Shift+R");
@@ -37,7 +37,7 @@ fn rename_replace_opens_on_the_marks_with_two_empty_fields_and_the_hint() {
 }
 
 #[test]
-fn rename_template_opens_on_the_cursor_entry_without_marks_with_the_name_selected() {
+fn rename_template_opens_with_the_name_placeholder_selected() {
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.load(Side::Left, vec![file("a.txt"), file("b.txt")]);
     harness.press("Down");
