@@ -951,6 +951,36 @@ fn extract_unpacks_straight_into_the_other_side_when_configured() {
 }
 
 #[test]
+fn extract_here_unpacks_the_targets_into_the_same_side() {
+    let mut harness = outside();
+
+    harness.press("Alt+U");
+
+    assert_eq!(
+        harness.start_operation(),
+        Some(OperationSpec {
+            kind: OperationKind::Extract { into_dir: true },
+            sources: Sources::Paths(vec![archive()]),
+            dest: Some(PathBuf::from(LEFT)),
+            output: None,
+        })
+    );
+}
+
+#[test]
+fn extract_here_on_the_parent_row_of_an_archive_root_is_refused() {
+    let mut harness = inside();
+
+    harness.press("Alt+U");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log(),
+        ["Cannot run extract_here: not available inside an archive"]
+    );
+}
+
+#[test]
 fn compress_on_the_parent_row_offers_the_directory_itself() {
     let mut harness = outside();
     harness.press("Home");

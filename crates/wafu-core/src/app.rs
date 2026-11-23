@@ -789,6 +789,7 @@ impl App {
             | Command::ShellMenu
             | Command::EnterAsArchive
             | Command::Extract
+            | Command::ExtractHere
             | Command::Compress
             | Command::CalculateSize
             | Command::CalculateSizeOnDisk => self.run_file_command(command, effects),

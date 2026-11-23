@@ -60,6 +60,7 @@ const DEFAULT_FILELIST: &[(&str, &str)] = &[
     ("Shift+X", "run_command"),
     ("P", "compress"),
     ("U", "extract"),
+    ("Alt+U", "extract_here"),
     ("Shift+U", "enter_as_archive"),
     ("I", "calculate_size_on_disk"),
     ("Shift+I", "calculate_size"),
