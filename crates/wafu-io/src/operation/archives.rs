@@ -192,7 +192,7 @@ impl Worker<'_> {
         }
         // The first source stands for the operation in the conflict, since
         // the output is not a copy of anything in particular.
-        let Some(out) = self.clear_destination(first, &out, Some(first))? else {
+        let Some(out) = self.clear_destination(first, &out, None, paths)? else {
             return Ok(());
         };
         let file = File::create(&out).map_err(fail(&out))?;
@@ -348,7 +348,7 @@ impl Worker<'_> {
                 // Once the entry is known to be readable, so that one skipped
                 // leaves no directories behind.
                 ensure_parent(&shown, &extraction.dest, &dst)?;
-                let Some(dst) = self.clear_destination(&shown, &dst, None)? else {
+                let Some(dst) = self.clear_destination(&shown, &dst, None, &[])? else {
                     return Ok(false);
                 };
                 let result = self.write_entry(extraction, index, copy_of, &dst, &shown);
@@ -369,7 +369,7 @@ impl Worker<'_> {
                     .read_to_string(&mut target)
                     .map_err(fail(&shown))?;
                 ensure_parent(&shown, &extraction.dest, &dst)?;
-                let Some(dst) = self.clear_destination(&shown, &dst, None)? else {
+                let Some(dst) = self.clear_destination(&shown, &dst, None, &[])? else {
                     return Ok(false);
                 };
                 // Counted once the link is made.
@@ -2164,6 +2164,70 @@ mod tests {
             Outcome::Failed { error, .. } if error.to_string() == "the output is inside the source"
         ));
         assert!(!src.join("a.zip").exists());
+    }
+
+    #[test]
+    fn a_compression_renamed_onto_one_of_its_sources_keeps_that_source() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("src");
+        fs::create_dir(&src).unwrap();
+        fs::write(src.join("a.txt"), b"a").unwrap();
+        fs::write(src.join("b.zip"), b"the original b.zip").unwrap();
+        fs::write(src.join("x.zip"), b"old").unwrap();
+
+        let (outcome, _, _) = run(
+            &compress(&[src.join("a.txt"), src.join("b.zip")], &src, "x.zip", None),
+            [
+                Reply::Rename("b.zip".into()),
+                Reply::Overwrite { all: false },
+            ],
+        );
+
+        assert!(
+            matches!(
+                &outcome,
+                Outcome::Failed { error, .. } if error.to_string() == "the output is inside the source"
+            ),
+            "outcome: {outcome:?}"
+        );
+        assert_eq!(
+            fs::read(src.join("b.zip")).unwrap(),
+            b"the original b.zip",
+            "outcome: {outcome:?}"
+        );
+    }
+
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn a_compression_onto_a_source_spelled_in_another_case_keeps_that_source() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("Foo");
+        fs::create_dir(&src).unwrap();
+        fs::write(src.join("a.txt"), b"a").unwrap();
+        fs::write(src.join("foo.zip"), b"the original foo.zip").unwrap();
+
+        let (outcome, _, events) = run(
+            &compress(
+                &[src.join("a.txt"), src.join("foo.zip")],
+                &src,
+                "Foo.zip",
+                None,
+            ),
+            [Reply::Overwrite { all: false }],
+        );
+
+        assert!(
+            matches!(
+                &outcome,
+                Outcome::Failed { error, .. } if error.to_string() == "the output is inside the source"
+            ),
+            "outcome: {outcome:?}"
+        );
+        assert_eq!(
+            fs::read(src.join("foo.zip")).unwrap(),
+            b"the original foo.zip",
+            "outcome: {outcome:?}, events: {events:?}"
+        );
     }
 
     #[test]
