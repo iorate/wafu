@@ -286,21 +286,35 @@ mod tests {
         assert!(is_same_file(&dir.path().join("link"), &dir.path().join("target")).unwrap());
     }
 
-    #[cfg(unix)]
     #[test]
     fn an_unreadable_file_is_the_same_file_as_itself() {
-        use std::os::unix::fs::PermissionsExt;
-
         let dir = TempDir::new().unwrap();
         let file = dir.path().join("a");
         fs::write(&file, "data").unwrap();
-        fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).unwrap();
+        deny_reading(&file);
         // A user who can read it anyway (root) has nothing to check.
         if File::open(&file).is_ok() {
             return;
         }
 
         assert!(is_same_file(&file, &file).unwrap());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn diagnostic_a_file_denied_generic_read_cannot_be_compared() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("a");
+        fs::write(&file, "data").unwrap();
+        let status = std::process::Command::new("icacls")
+            .arg(&file)
+            .args(["/deny", "*S-1-1-0:(R)"])
+            .status()
+            .unwrap();
+        assert!(status.success());
+
+        let result = is_same_file(&file, &file);
+        assert!(result.is_err(), "{result:?}");
     }
 
     #[cfg(unix)]
@@ -360,5 +374,23 @@ mod tests {
         let error = create_file(&path).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
         assert_eq!(error.to_string(), "already exists");
+    }
+
+    #[cfg(unix)]
+    fn deny_reading(path: &Path) {
+        use std::os::unix::fs::PermissionsExt;
+
+        fs::set_permissions(path, fs::Permissions::from_mode(0o000)).unwrap();
+    }
+
+    #[cfg(windows)]
+    fn deny_reading(path: &Path) {
+        // `S-1-1-0` is Everyone, under whatever name the system gives it.
+        let status = std::process::Command::new("icacls")
+            .arg(path)
+            .args(["/deny", "*S-1-1-0:(RD)"])
+            .status()
+            .unwrap();
+        assert!(status.success());
     }
 }
