@@ -15,8 +15,53 @@ pub(crate) fn rename(from: &Path, to: &Path) -> io::Result<()> {
 pub(crate) fn is_taken(from: &Path, to: &Path) -> bool {
     fs::symlink_metadata(to).is_ok()
         && !(differ_only_in_case(from, to)
-            && same_file::is_same_file(from, to).unwrap_or(false)
+            && is_same_file(from, to).unwrap_or(false)
             && is_alone(from, to))
+}
+
+// Opening the files for reading, as `same_file::is_same_file` does, fails on
+// a file that cannot be read and never returns on a FIFO; neither may pass
+// for "another file".
+#[cfg(unix)]
+pub(crate) fn is_same_file(a: &Path, b: &Path) -> io::Result<bool> {
+    use std::os::unix::fs::MetadataExt;
+
+    let id = |meta: fs::Metadata| (meta.dev(), meta.ino());
+    let entries = id(fs::symlink_metadata(a)?) == id(fs::symlink_metadata(b)?);
+    // Following the links fails for a broken one, which the entries
+    // themselves still tell apart.
+    Ok(entries
+        || fs::metadata(a)
+            .and_then(|a| Ok(id(a) == id(fs::metadata(b)?)))
+            .unwrap_or(false))
+}
+
+// Access mode 0 asks for no rights to the file, so one that cannot be read can
+// still be compared. Backup semantics is needed to open a directory, which the
+// compress output check may pass as its source.
+#[cfg(windows)]
+pub(crate) fn is_same_file(a: &Path, b: &Path) -> io::Result<bool> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    use windows::Win32::Storage::FileSystem::{
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+    };
+
+    let handle = |path: &Path, flags: u32| {
+        let file = OpenOptions::new()
+            .access_mode(0)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0 | flags)
+            .open(path)?;
+        same_file::Handle::from_file(file)
+    };
+    let entry = |path| handle(path, FILE_FLAG_OPEN_REPARSE_POINT.0);
+    let entries = entry(a)? == entry(b)?;
+    // Following the links fails for a broken one, which the entries
+    // themselves still tell apart.
+    Ok(entries
+        || handle(a, 0)
+            .and_then(|a| Ok(a == handle(b, 0)?))
+            .unwrap_or(false))
 }
 
 pub(crate) fn mkdir(path: &Path) -> io::Result<()> {
@@ -142,6 +187,24 @@ mod tests {
         assert_eq!(names, ["A.txt"]);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn rename_changing_only_the_case_works_for_an_unreadable_file() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("a.txt"), "data").unwrap();
+        fs::set_permissions(dir.path().join("a.txt"), fs::Permissions::from_mode(0o000)).unwrap();
+
+        rename(&dir.path().join("a.txt"), &dir.path().join("A.txt")).unwrap();
+
+        let names: Vec<String> = fs::read_dir(dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, ["A.txt"]);
+    }
+
     #[test]
     fn rename_refuses_a_link_onto_its_target_named_in_another_case() {
         let dir = TempDir::new().unwrap();
@@ -210,6 +273,66 @@ mod tests {
         assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
         assert!(dir.path().join("a").exists());
         assert!(dir.path().join("b").exists());
+    }
+
+    #[test]
+    fn a_link_is_the_same_file_as_its_target() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("target"), "data").unwrap();
+        if !symlink(Path::new("target"), &dir.path().join("link")) {
+            return;
+        }
+
+        assert!(is_same_file(&dir.path().join("link"), &dir.path().join("target")).unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_file_is_the_same_file_as_itself() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("a");
+        fs::write(&file, "data").unwrap();
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).unwrap();
+        // A user who can read it anyway (root) has nothing to check.
+        if File::open(&file).is_ok() {
+            return;
+        }
+
+        assert!(is_same_file(&file, &file).unwrap());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_is_the_same_file_as_itself_without_blocking() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let dir = TempDir::new().unwrap();
+        let fifo = dir.path().join("p");
+        let status = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let (sender, results) = mpsc::channel();
+        let path = fifo.clone();
+        std::thread::spawn(move || {
+            let _ = sender.send(is_same_file(&path, &path));
+        });
+
+        let result = results.recv_timeout(Duration::from_secs(3)).ok();
+        if result.is_none() {
+            // Releases the thread stuck opening the FIFO for reading.
+            std::thread::spawn(move || OpenOptions::new().write(true).open(fifo));
+            let _ = results.recv_timeout(Duration::from_secs(3));
+        }
+
+        assert!(
+            matches!(result, Some(Ok(true))),
+            "blocked or failed: {result:?}"
+        );
     }
 
     #[test]

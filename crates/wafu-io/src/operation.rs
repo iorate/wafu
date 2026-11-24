@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use wafu_core::{IoError, OperationEvent, OperationKind, OperationSpec, Outcome, Reply, Sources};
 
 use crate::archive::NestedArchives;
+use crate::fs_ops::is_same_file;
 use crate::trash::trash;
 
 mod archives;
@@ -219,7 +220,7 @@ impl Worker<'_> {
         meta: &Metadata,
         transfer: Transfer,
     ) -> Step {
-        let Some(dst) = self.clear_destination(src, dst)? else {
+        let Some(dst) = self.clear_destination(src, dst, Some(src))? else {
             return Ok(false);
         };
         self.write_file(src, &dst)?;
@@ -233,7 +234,7 @@ impl Worker<'_> {
 
     fn transfer_link(&mut self, src: &Path, dst: &Path, transfer: Transfer) -> Step {
         let target = fs::read_link(src).map_err(fail(src))?;
-        let Some(dst) = self.clear_destination(src, dst)? else {
+        let Some(dst) = self.clear_destination(src, dst, Some(src))? else {
             return Ok(false);
         };
         make_symlink(&target, src, &dst).map_err(fail(src))?;
@@ -245,8 +246,15 @@ impl Worker<'_> {
     }
 
     // Makes room for a file or link at `dst`, asking about a conflict. Returns
-    // the path to write, which may have been renamed, or `None` to skip.
-    fn clear_destination(&mut self, src: &Path, dst: &Path) -> Result<Option<PathBuf>, Stop> {
+    // the path to write, which may have been renamed, or `None` to skip. An
+    // archive entry passes no `on_disk`: it is not a file on disk, so the
+    // same-file check could only fail.
+    fn clear_destination(
+        &mut self,
+        src: &Path,
+        dst: &Path,
+        on_disk: Option<&Path>,
+    ) -> Result<Option<PathBuf>, Stop> {
         let mut dst = dst.to_path_buf();
         loop {
             let existing = match fs::symlink_metadata(&dst) {
@@ -261,7 +269,11 @@ impl Worker<'_> {
             }
             match self.resolve_conflict(src, &dst)? {
                 Resolution::Overwrite => {
-                    if same_file::is_same_file(src, &dst).unwrap_or(false) {
+                    // A destination that cannot be told apart from the source is
+                    // not removed.
+                    if let Some(on_disk) = on_disk
+                        && is_same_file(on_disk, &dst).map_err(fail(src))?
+                    {
                         return Err(failure(src, "the destination is the same file"));
                     }
                     // Writing through a link would change its target instead.
@@ -343,7 +355,7 @@ impl Worker<'_> {
     fn move_item(&mut self, src: &Path, dst: &Path) -> Step {
         self.begin(src)?;
         let meta = fs::symlink_metadata(src).map_err(fail(src))?;
-        if meta.is_dir() && dst.starts_with(src) {
+        if meta.is_dir() && is_within(dst, src) {
             return Err(failure(src, "the destination is inside the source"));
         }
         let existing = match fs::symlink_metadata(dst) {
@@ -375,7 +387,9 @@ impl Worker<'_> {
         }
         match self.resolve_conflict(src, dst)? {
             Resolution::Overwrite => {
-                if same_file::is_same_file(src, dst).unwrap_or(false) {
+                // A destination that cannot be told apart from the source is
+                // not removed.
+                if is_same_file(src, dst).map_err(fail(src))? {
                     return Err(failure(src, "the destination is the same file"));
                 }
                 // Removed here rather than left to the rename: across devices
@@ -1171,6 +1185,49 @@ mod tests {
         assert_eq!(fs::read(dir.path().join("a")).unwrap(), b"a");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn copying_an_unreadable_file_onto_itself_keeps_it() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("a");
+        fs::write(&file, b"a").unwrap();
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).unwrap();
+        // A user who can read it anyway (root) has nothing to check.
+        if File::open(&file).is_ok() {
+            return;
+        }
+
+        let (outcome, _, _) = run(
+            &copy(std::slice::from_ref(&file), dir.path()),
+            [Reply::Overwrite { all: false }],
+        );
+
+        assert!(
+            fs::symlink_metadata(&file).is_ok(),
+            "the file is gone, outcome: {outcome:?}"
+        );
+    }
+
+    #[test]
+    fn copying_over_a_broken_link_replaces_it() {
+        let dir = TempDir::new().unwrap();
+        let (src, dst) = two_dirs(&dir, &["a"], &[]);
+        if !symlink(Path::new("nowhere"), &dst.join("a")) {
+            return;
+        }
+
+        let (outcome, _, _) = run(
+            &copy(&[src.join("a")], &dst),
+            [Reply::Overwrite { all: false }],
+        );
+
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert!(!fs::symlink_metadata(dst.join("a")).unwrap().is_symlink());
+        assert_eq!(fs::read(dst.join("a")).unwrap(), b"src a");
+    }
+
     #[test]
     fn a_file_and_a_directory_of_the_same_name_are_an_error() {
         let dir = TempDir::new().unwrap();
@@ -1338,6 +1395,88 @@ mod tests {
         };
         assert_eq!(error.to_string(), "the destination is the same file");
         assert_eq!(fs::read(dir.path().join("a")).unwrap(), b"a");
+    }
+
+    #[test]
+    fn moving_a_broken_link_onto_itself_keeps_it() {
+        let dir = TempDir::new().unwrap();
+        let link = dir.path().join("l");
+        if !symlink(Path::new("nowhere"), &link) {
+            return;
+        }
+
+        let (outcome, _, _) = run(
+            &mv(std::slice::from_ref(&link), dir.path()),
+            [Reply::Overwrite { all: false }],
+        );
+
+        assert!(
+            fs::symlink_metadata(&link).is_ok(),
+            "the link is gone, outcome: {outcome:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn moving_an_unreadable_file_onto_itself_keeps_it() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("a");
+        fs::write(&file, b"a").unwrap();
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).unwrap();
+        // A user who can read it anyway (root) has nothing to check.
+        if File::open(&file).is_ok() {
+            return;
+        }
+
+        let (outcome, _, _) = run(
+            &mv(std::slice::from_ref(&file), dir.path()),
+            [Reply::Overwrite { all: false }],
+        );
+
+        assert!(
+            fs::symlink_metadata(&file).is_ok(),
+            "the file is gone, outcome: {outcome:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn moving_a_directory_onto_itself_through_a_link_is_an_error() {
+        let dir = TempDir::new().unwrap();
+        let real = dir.path().join("real");
+        let link = dir.path().join("link");
+        fs::create_dir_all(real.join("d").join("e")).unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        let (outcome, _, _) = run(&mv(&[real.join("d")], &link), []);
+
+        let left = real.join("d").join("e").is_dir();
+        assert!(
+            left && matches!(outcome, Outcome::Failed { .. }),
+            "the tree is left: {left}, outcome: {outcome:?}"
+        );
+    }
+
+    // Only a file system that ignores case finds `Dir` under `dir`.
+    #[test]
+    fn moving_a_directory_onto_itself_named_in_another_case_is_an_error() {
+        let dir = TempDir::new().unwrap();
+        let upper = dir.path().join("Dir");
+        let lower = dir.path().join("dir");
+        fs::create_dir_all(upper.join("e").join("deep")).unwrap();
+        if !lower.is_dir() {
+            return;
+        }
+
+        let (outcome, _, _) = run(&mv(&[upper.join("e")], &lower), []);
+
+        let left = upper.join("e").join("deep").is_dir();
+        assert!(
+            left && matches!(outcome, Outcome::Failed { .. }),
+            "the tree is left: {left}, outcome: {outcome:?}"
+        );
     }
 
     // A move across devices cannot be set up in a temporary directory, so

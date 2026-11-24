@@ -192,7 +192,7 @@ impl Worker<'_> {
         }
         // The first source stands for the operation in the conflict, since
         // the output is not a copy of anything in particular.
-        let Some(out) = self.clear_destination(first, &out)? else {
+        let Some(out) = self.clear_destination(first, &out, Some(first))? else {
             return Ok(());
         };
         let file = File::create(&out).map_err(fail(&out))?;
@@ -348,7 +348,7 @@ impl Worker<'_> {
                 // Once the entry is known to be readable, so that one skipped
                 // leaves no directories behind.
                 ensure_parent(&shown, &extraction.dest, &dst)?;
-                let Some(dst) = self.clear_destination(&shown, &dst)? else {
+                let Some(dst) = self.clear_destination(&shown, &dst, None)? else {
                     return Ok(false);
                 };
                 let result = self.write_entry(extraction, index, copy_of, &dst, &shown);
@@ -369,7 +369,7 @@ impl Worker<'_> {
                     .read_to_string(&mut target)
                     .map_err(fail(&shown))?;
                 ensure_parent(&shown, &extraction.dest, &dst)?;
-                let Some(dst) = self.clear_destination(&shown, &dst)? else {
+                let Some(dst) = self.clear_destination(&shown, &dst, None)? else {
                     return Ok(false);
                 };
                 // Counted once the link is made.
