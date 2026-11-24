@@ -30,7 +30,7 @@ icu_collator = "2.4.0"
 icu_normalizer = "2.4.0"
 ignore = "0.4.34"
 image = { version = "0.25.10", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png", "webp"] }
-notify = "8.2.2"
+notify = "9.0.0"
 open = "5.4.5"
 raw-window-handle = "0.6.2"
 # The default xdg-portal backend on Linux needs no GTK development packages to
