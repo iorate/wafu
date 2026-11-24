@@ -28,6 +28,7 @@ const NAME_AT: usize = std::mem::offset_of!(
 // core, which does not see the ones inside a directory.
 const NOT_REGULAR: &str = "not a regular file";
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
+const REPLACEMENT_PREFIX: &str = ".wafu-";
 
 // `owner_window` is the raw handle of the window that owns the dialogs the OS
 // may show (on Windows, the warning that an item cannot go to the trash).
@@ -223,8 +224,21 @@ impl Worker<'_> {
         let Some(dst) = self.clear_destination(src, dst, Some(src), &[])? else {
             return Ok(false);
         };
-        self.write_file(src, &dst)?;
-        copy_metadata(&dst, meta);
+        self.copy_file(src, &dst, meta, transfer)
+    }
+
+    fn copy_file(
+        &mut self,
+        src: &Path,
+        dst: &Destination,
+        meta: &Metadata,
+        transfer: Transfer,
+    ) -> Step {
+        write_replacing(dst, src, |path| {
+            self.write_file(src, path)?;
+            copy_metadata(path, meta);
+            Ok(())
+        })?;
         if transfer == Transfer::MoveByCopy {
             remove_file(src).map_err(fail(src))?;
         }
@@ -237,7 +251,26 @@ impl Worker<'_> {
         let Some(dst) = self.clear_destination(src, dst, Some(src), &[])? else {
             return Ok(false);
         };
-        make_symlink(&target, src, &dst).map_err(fail(src))?;
+        self.copy_link(src, &target, &dst, transfer)
+    }
+
+    fn copy_link(
+        &mut self,
+        src: &Path,
+        target: &Path,
+        dst: &Destination,
+        transfer: Transfer,
+    ) -> Step {
+        if dst.replace {
+            let temp = temp_beside(&dst.path, |path| make_symlink(target, src, path))
+                .map_err(fail(src))?;
+            if let Err(error) = replace(&temp, &dst.path) {
+                let _ = remove_file(&temp);
+                return Err(fail(src)(error));
+            }
+        } else {
+            make_symlink(target, src, &dst.path).map_err(fail(src))?;
+        }
         if transfer == Transfer::MoveByCopy {
             remove_file(src).map_err(fail(src))?;
         }
@@ -245,10 +278,11 @@ impl Worker<'_> {
         Ok(true)
     }
 
-    // Makes room for a file or link at `dst`, asking about a conflict. Returns
-    // the path to write, which may have been renamed, or `None` to skip. An
-    // archive entry passes no `on_disk`: it is not a file on disk, so the
-    // same-file check could only fail. A compression passes its sources as
+    // Decides where a file or link for `dst` goes, asking about a conflict.
+    // Returns that path, which may have been renamed, with whether the entry
+    // there is to be replaced, or `None` to skip. An archive entry passes no
+    // `on_disk`: it is not a file on disk, so the same-file check could only
+    // fail. A compression passes its sources as
     // `keep` instead: its output is a copy of none of them, and a rename in the
     // conflict or another spelling of the name can still land it on any of them.
     fn clear_destination(
@@ -257,12 +291,17 @@ impl Worker<'_> {
         dst: &Path,
         on_disk: Option<&Path>,
         keep: &[PathBuf],
-    ) -> Result<Option<PathBuf>, Stop> {
+    ) -> Result<Option<Destination>, Stop> {
         let mut dst = dst.to_path_buf();
         loop {
             let existing = match fs::symlink_metadata(&dst) {
                 Ok(existing) => existing,
-                Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Some(dst)),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                    return Ok(Some(Destination {
+                        path: dst,
+                        replace: false,
+                    }));
+                }
                 Err(error) => {
                     return Err(fail(src)(error));
                 }
@@ -273,7 +312,7 @@ impl Worker<'_> {
             match self.resolve_conflict(src, &dst)? {
                 Resolution::Overwrite => {
                     // A destination that cannot be told apart from the source is
-                    // not removed.
+                    // not replaced.
                     if let Some(on_disk) = on_disk
                         && is_same_file(on_disk, &dst).map_err(fail(src))?
                     {
@@ -284,9 +323,10 @@ impl Worker<'_> {
                             return Err(failure(&dst, "the output is inside the source"));
                         }
                     }
-                    // Writing through a link would change its target instead.
-                    remove_file(&dst).map_err(fail(src))?;
-                    return Ok(Some(dst));
+                    return Ok(Some(Destination {
+                        path: dst,
+                        replace: true,
+                    }));
                 }
                 Resolution::Skip => {
                     self.skipped += 1;
@@ -332,19 +372,8 @@ impl Worker<'_> {
         }
     }
 
-    // Copies the contents in chunks, checking for a cancellation between
-    // them. Whatever was written is removed when the copy does not finish, as
-    // a file with the right name and partial content could pass for a finished
-    // one.
+    // Copies the contents in chunks, checking for a cancellation between them.
     fn write_file(&mut self, src: &Path, dst: &Path) -> Result<(), Stop> {
-        let result = self.write_chunks(src, dst);
-        if result.is_err() {
-            let _ = fs::remove_file(dst);
-        }
-        result
-    }
-
-    fn write_chunks(&mut self, src: &Path, dst: &Path) -> Result<(), Stop> {
         let mut reader = File::open(src).map_err(fail(src))?;
         let mut writer = File::create(dst).map_err(fail(src))?;
         let mut buffer = vec![0; CHUNK_SIZE];
@@ -369,7 +398,11 @@ impl Worker<'_> {
         let existing = match fs::symlink_metadata(dst) {
             Ok(existing) => existing,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                return self.move_to_free_path(src, dst);
+                let dst = Destination {
+                    path: dst.to_path_buf(),
+                    replace: false,
+                };
+                return self.move_to(src, &dst, &meta);
             }
             Err(error) => {
                 return Err(fail(src)(error));
@@ -396,15 +429,15 @@ impl Worker<'_> {
         match self.resolve_conflict(src, dst)? {
             Resolution::Overwrite => {
                 // A destination that cannot be told apart from the source is
-                // not removed.
+                // not replaced.
                 if is_same_file(src, dst).map_err(fail(src))? {
                     return Err(failure(src, "the destination is the same file"));
                 }
-                // Removed here rather than left to the rename: across devices
-                // the move becomes a copy, which would ask about the conflict
-                // a second time.
-                remove_file(dst).map_err(fail(src))?;
-                self.move_to_free_path(src, dst)
+                let dst = Destination {
+                    path: dst.to_path_buf(),
+                    replace: true,
+                };
+                self.move_to(src, &dst, &meta)
             }
             Resolution::Skip => {
                 self.skipped += 1;
@@ -418,15 +451,29 @@ impl Worker<'_> {
     }
 
     // A rename when the file system allows it; copying and removing when it
-    // crosses devices.
-    fn move_to_free_path(&mut self, src: &Path, dst: &Path) -> Step {
-        match fs::rename(src, dst) {
+    // crosses devices. A file or link it replaces is not asked about again.
+    fn move_to(&mut self, src: &Path, dst: &Destination, meta: &Metadata) -> Step {
+        let renamed = if dst.replace {
+            replace(src, &dst.path)
+        } else {
+            fs::rename(src, &dst.path)
+        };
+        match renamed {
             Ok(()) => {
                 self.done += 1;
                 Ok(true)
             }
             Err(error) if error.kind() == io::ErrorKind::CrossesDevices => {
-                self.transfer_item(src, dst, Transfer::MoveByCopy)
+                if !dst.replace {
+                    self.transfer_item(src, &dst.path, Transfer::MoveByCopy)
+                } else if meta.is_symlink() {
+                    let target = fs::read_link(src).map_err(fail(src))?;
+                    self.copy_link(src, &target, dst, Transfer::MoveByCopy)
+                } else if meta.is_file() {
+                    self.copy_file(src, dst, meta, Transfer::MoveByCopy)
+                } else {
+                    Err(failure(src, NOT_REGULAR))
+                }
             }
             Err(error) => Err(fail(src)(error)),
         }
@@ -607,6 +654,11 @@ impl Stop {
 enum Transfer {
     Copy,
     MoveByCopy,
+}
+
+struct Destination {
+    path: PathBuf,
+    replace: bool,
 }
 
 enum Resolution {
@@ -900,6 +952,110 @@ fn make_symlink(target: &Path, src: &Path, dst: &Path) -> io::Result<()> {
     } else {
         std::os::windows::fs::symlink_file(target, dst)
     }
+}
+
+// Writes a file at `dst` through `write`. One that replaces another is written
+// under a temporary name beside it and put in its place once complete, so that
+// a failure or a cancellation leaves the old one. Whatever was written is
+// removed when the write does not finish, as a file with the right name and
+// partial content could pass for a finished one.
+fn write_replacing(
+    dst: &Destination,
+    shown: &Path,
+    write: impl FnOnce(&Path) -> Result<(), Stop>,
+) -> Result<(), Stop> {
+    let path = if dst.replace {
+        temp_beside(&dst.path, |path| File::create_new(path).map(drop)).map_err(fail(shown))?
+    } else {
+        dst.path.clone()
+    };
+    let result = write(&path).and_then(|()| {
+        if dst.replace {
+            replace(&path, &dst.path).map_err(fail(shown))
+        } else {
+            Ok(())
+        }
+    });
+    if result.is_err() {
+        let _ = remove_file(&path);
+    }
+    result
+}
+
+fn temp_beside(dst: &Path, create: impl FnMut(&Path) -> io::Result<()>) -> io::Result<PathBuf> {
+    let dir = dst.parent().unwrap_or(Path::new(""));
+    let mut temp = tempfile::Builder::new()
+        .prefix(REPLACEMENT_PREFIX)
+        .make_in(dir, create)?
+        .into_temp_path();
+    temp.disable_cleanup(true);
+    Ok(temp.to_path_buf())
+}
+
+#[cfg(windows)]
+fn replace(src: &Path, dst: &Path) -> io::Result<()> {
+    use std::os::windows::fs::FileTypeExt;
+
+    let is_dir_link = |path: &Path| {
+        fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink_dir())
+    };
+    if !is_dir_link(src) && !is_dir_link(dst) {
+        return rename_over_read_only(src, dst);
+    }
+    // A link to a directory is a directory to the rename, which puts a
+    // directory only in the place of another and a file only in the place of a
+    // file. The one in the way is moved aside rather than removed, so that it
+    // can be put back when the rename fails.
+    let aside = temp_beside(dst, |path| {
+        // `fs::rename` would replace an entry that took the name already.
+        if fs::symlink_metadata(path).is_ok() {
+            return Err(io::ErrorKind::AlreadyExists.into());
+        }
+        fs::rename(dst, path)
+    })?;
+    match fs::rename(src, dst) {
+        Ok(()) => {
+            let _ = remove_file(&aside);
+            Ok(())
+        }
+        Err(error) => {
+            let _ = fs::rename(&aside, dst);
+            Err(error)
+        }
+    }
+}
+
+// The read-only attribute is cleared only for the retry, and set again when
+// the retry fails too, since the file then stays.
+#[cfg(windows)]
+fn rename_over_read_only(src: &Path, dst: &Path) -> io::Result<()> {
+    match fs::rename(src, dst) {
+        Err(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+            let Ok(meta) = fs::symlink_metadata(dst) else {
+                return Err(error);
+            };
+            let read_only = meta.permissions();
+            if !read_only.readonly() {
+                return Err(error);
+            }
+            let mut writable = read_only.clone();
+            // Only the Windows read-only attribute is touched here.
+            #[allow(clippy::permissions_set_readonly_false)]
+            writable.set_readonly(false);
+            if fs::set_permissions(dst, writable).is_err() {
+                return Err(error);
+            }
+            fs::rename(src, dst).inspect_err(|_| {
+                let _ = fs::set_permissions(dst, read_only);
+            })
+        }
+        result => result,
+    }
+}
+
+#[cfg(not(windows))]
+fn replace(src: &Path, dst: &Path) -> io::Result<()> {
+    fs::rename(src, dst)
 }
 
 // Removes a file or a link, clearing the read-only attribute on Windows if
@@ -1313,6 +1469,24 @@ mod tests {
         assert!(src.join("real").is_file());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn copying_a_link_over_a_file_puts_the_link_in_its_place() {
+        let dir = TempDir::new().unwrap();
+        let (src, dst) = two_dirs(&dir, &[], &["l"]);
+        std::os::unix::fs::symlink("real", src.join("l")).unwrap();
+
+        let (outcome, done, _) = run(
+            &copy(&[src.join("l")], &dst),
+            [Reply::Overwrite { all: false }],
+        );
+
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(done, 1);
+        assert_eq!(fs::read_link(dst.join("l")).unwrap(), Path::new("real"));
+        assert_eq!(fs::read_dir(&dst).unwrap().count(), 1);
+    }
+
     #[cfg(windows)]
     #[test]
     fn a_link_to_a_directory_is_deleted_without_its_target() {
@@ -1550,6 +1724,36 @@ mod tests {
 
         assert!(!dst.join("big").exists());
         assert!(src.join("big").is_file());
+    }
+
+    #[test]
+    fn a_cancellation_while_overwriting_keeps_the_destination() {
+        let dir = TempDir::new().unwrap();
+        let (src, dst) = two_dirs(&dir, &[], &["big"]);
+        fs::write(src.join("big"), vec![7; CHUNK_SIZE * 3]).unwrap();
+        let (sender, replies) = mpsc::channel();
+        // The cancellation is in the queue behind the answer, so it is seen by
+        // the check before the first chunk.
+        let report = |event| {
+            if matches!(event, OperationEvent::Conflict { .. }) {
+                sender.send(Reply::Overwrite { all: false }).unwrap();
+                sender.send(Reply::Cancel).unwrap();
+            }
+            if let OperationEvent::Finished(outcome) = event {
+                assert_eq!(outcome, Outcome::Cancelled);
+            }
+        };
+
+        run_operation(
+            &copy(&[src.join("big")], &dst),
+            None,
+            &NestedArchives::default(),
+            &replies,
+            &report,
+        );
+
+        assert_eq!(fs::read(dst.join("big")).unwrap(), b"dst big");
+        assert_eq!(fs::read_dir(&dst).unwrap().count(), 1);
     }
 
     #[test]
