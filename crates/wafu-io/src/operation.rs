@@ -220,7 +220,7 @@ impl Worker<'_> {
         meta: &Metadata,
         transfer: Transfer,
     ) -> Step {
-        let Some(dst) = self.clear_destination(src, dst, Some(src))? else {
+        let Some(dst) = self.clear_destination(src, dst, Some(src), &[])? else {
             return Ok(false);
         };
         self.write_file(src, &dst)?;
@@ -234,7 +234,7 @@ impl Worker<'_> {
 
     fn transfer_link(&mut self, src: &Path, dst: &Path, transfer: Transfer) -> Step {
         let target = fs::read_link(src).map_err(fail(src))?;
-        let Some(dst) = self.clear_destination(src, dst, Some(src))? else {
+        let Some(dst) = self.clear_destination(src, dst, Some(src), &[])? else {
             return Ok(false);
         };
         make_symlink(&target, src, &dst).map_err(fail(src))?;
@@ -248,12 +248,15 @@ impl Worker<'_> {
     // Makes room for a file or link at `dst`, asking about a conflict. Returns
     // the path to write, which may have been renamed, or `None` to skip. An
     // archive entry passes no `on_disk`: it is not a file on disk, so the
-    // same-file check could only fail.
+    // same-file check could only fail. A compression passes its sources as
+    // `keep` instead: its output is a copy of none of them, and a rename in the
+    // conflict or another spelling of the name can still land it on any of them.
     fn clear_destination(
         &mut self,
         src: &Path,
         dst: &Path,
         on_disk: Option<&Path>,
+        keep: &[PathBuf],
     ) -> Result<Option<PathBuf>, Stop> {
         let mut dst = dst.to_path_buf();
         loop {
@@ -275,6 +278,11 @@ impl Worker<'_> {
                         && is_same_file(on_disk, &dst).map_err(fail(src))?
                     {
                         return Err(failure(src, "the destination is the same file"));
+                    }
+                    for kept in keep {
+                        if is_same_file(kept, &dst).map_err(fail(kept))? {
+                            return Err(failure(&dst, "the output is inside the source"));
+                        }
                     }
                     // Writing through a link would change its target instead.
                     remove_file(&dst).map_err(fail(src))?;
