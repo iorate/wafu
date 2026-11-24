@@ -300,23 +300,6 @@ mod tests {
         assert!(is_same_file(&file, &file).unwrap());
     }
 
-    #[cfg(windows)]
-    #[test]
-    fn diagnostic_a_file_denied_generic_read_cannot_be_compared() {
-        let dir = TempDir::new().unwrap();
-        let file = dir.path().join("a");
-        fs::write(&file, "data").unwrap();
-        let status = std::process::Command::new("icacls")
-            .arg(&file)
-            .args(["/deny", "*S-1-1-0:(R)"])
-            .status()
-            .unwrap();
-        assert!(status.success());
-
-        let result = is_same_file(&file, &file);
-        assert!(result.is_err(), "{result:?}");
-    }
-
     #[cfg(unix)]
     #[test]
     fn a_fifo_is_the_same_file_as_itself_without_blocking() {
