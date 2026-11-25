@@ -211,8 +211,9 @@ impl Ui {
         self.render(&self.app.borrow().view());
     }
 
-    /// Puts the window where it was, in logical pixels. The position is left
-    /// alone on Wayland, which has no notion of it.
+    /// Puts the window where it was. The position is left alone on Wayland,
+    /// which has no notion of it, and on Windows when too little of the window
+    /// would be on the attached screens.
     pub fn restore_window(&self, state: Option<&WindowState>) {
         self.startup_window.replace(state.cloned());
         let Some(state) = state else {
@@ -226,13 +227,7 @@ impl Ui {
             #[allow(clippy::cast_precision_loss)]
             window.set_size(LogicalSize::new(width as f32, height as f32));
         }
-        if let (Some(x), Some(y)) = (state.x, state.y)
-            && !wafu_io::is_wayland()
-        {
-            // Likewise for positions.
-            #[allow(clippy::cast_precision_loss)]
-            window.set_position(LogicalPosition::new(x as f32, y as f32));
-        }
+        restore_position(window, state);
     }
 
     // The menu runs a modal loop of its own, so it is opened from the event
@@ -1045,17 +1040,50 @@ struct LineRowsQueue {
 // the DPI setting has changed.
 fn window_state(scale: f32, position: PhysicalPosition, size: PhysicalSize) -> WindowState {
     let size = size.to_logical(scale);
-    let position = position.to_logical(scale);
-    let (x, y) = if wafu_io::is_wayland() {
-        (None, None)
-    } else {
-        (Some(round(position.x)), Some(round(position.y)))
-    };
+    let (x, y) = saved_position(scale, position);
     WindowState {
         x,
         y,
         width: Some(round(size.width).unsigned_abs()),
         height: Some(round(size.height).unsigned_abs()),
+    }
+}
+
+// Physical pixels on Windows, where a logical position would be scaled back by
+// the factor of whichever monitor the new window is created on, not the one it
+// was saved on.
+#[cfg(windows)]
+fn saved_position(_scale: f32, position: PhysicalPosition) -> (Option<i32>, Option<i32>) {
+    (Some(position.x), Some(position.y))
+}
+
+#[cfg(not(windows))]
+fn saved_position(scale: f32, position: PhysicalPosition) -> (Option<i32>, Option<i32>) {
+    if wafu_io::is_wayland() {
+        return (None, None);
+    }
+    let position = position.to_logical(scale);
+    (Some(round(position.x)), Some(round(position.y)))
+}
+
+#[cfg(windows)]
+fn restore_position(window: &slint::Window, state: &WindowState) {
+    // The saved size is logical and the screens are physical. The scale factor
+    // is not known before the window exists, and a logical size is never larger
+    // than the physical one, so this errs toward discarding the position.
+    if let Some((x, y)) = state.position_on(&wafu_io::screens()) {
+        window.set_position(PhysicalPosition::new(x, y));
+    }
+}
+
+#[cfg(not(windows))]
+fn restore_position(window: &slint::Window, state: &WindowState) {
+    if let (Some(x), Some(y)) = (state.x, state.y)
+        && !wafu_io::is_wayland()
+    {
+        // Positions are small enough to be exact as floats.
+        #[allow(clippy::cast_precision_loss)]
+        window.set_position(LogicalPosition::new(x as f32, y as f32));
     }
 }
 
