@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Cursor, Read, Seek, SeekFrom, Write};
@@ -8,7 +9,7 @@ use bzip2::write::BzEncoder;
 use flate2::read::MultiGzDecoder;
 use flate2::write::GzEncoder;
 use lzma_rust2::{XzOptions, XzReader, XzWriter};
-use tar::{Archive, Builder, Entries, Entry, EntryType, Header};
+use tar::{Builder, EntryType, GnuExtSparseHeader, GnuSparseHeader, Header, PaxExtensions};
 
 use super::names::{decode_name, split_name};
 use super::shared::SharedFile;
@@ -22,6 +23,8 @@ const LINK_NAME_LEN: usize = 100;
 const LONG_LINK: &[u8] = b"././@LongLink";
 const SPARSE: &str = "sparse entries are not supported";
 const MULTI_VOLUME: &str = "multi-volume archives are not supported";
+const BLOCK_SIZE: u64 = 512;
+const EXTENSION_LIMIT: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Compression {
@@ -81,7 +84,16 @@ struct EntryReader<'a> {
     name: String,
 }
 
-// What an entry's PAX records say beyond what the crate applies itself.
+struct Parsed {
+    header: Header,
+    long_name: Option<Vec<u8>>,
+    long_link: Option<Vec<u8>>,
+    pax: Option<Vec<u8>>,
+    size: u64,
+    start: u64,
+}
+
+// What an entry's PAX records say beyond its name, link target and size.
 #[derive(Default)]
 struct PaxRecords {
     sparse: bool,
@@ -104,15 +116,7 @@ enum Encoder {
 
 impl TarReader {
     pub(crate) fn open(file: SharedFile, compression: Compression) -> Result<Self, ArchiveError> {
-        let reader = BufReader::new(file.rewound());
-        // A plain tar can seek past the content; a decoded one reads through it.
-        let (entries, contents) = if compression == Compression::None {
-            let mut archive = Archive::new(reader);
-            scan(archive.entries_with_seek()?)?
-        } else {
-            let mut archive = Archive::new(decoder(compression, reader));
-            scan(archive.entries()?)?
-        };
+        let (entries, contents) = scan(&mut Stream::open(&file, compression))?;
         Ok(Self {
             file,
             compression,
@@ -262,20 +266,21 @@ impl Stream {
         Self { source, pos: 0 }
     }
 
-    // Moves forward to `target`, which is never behind the position.
+    // Moves forward to `target`, which is never behind the position. A
+    // decoded stream that ends before it stops at its end.
     fn skip_to(&mut self, target: u64) -> io::Result<()> {
         match &mut self.source {
             Source::Plain(file) => {
                 file.seek(SeekFrom::Start(target))?;
+                self.pos = target;
             }
             Source::Decoded(reader) => {
-                io::copy(
+                self.pos += io::copy(
                     &mut reader.by_ref().take(target - self.pos),
                     &mut io::sink(),
                 )?;
             }
         }
-        self.pos = target;
         Ok(())
     }
 }
@@ -315,6 +320,34 @@ impl Read for EntryReader<'_> {
         }
         self.remaining -= read as u64;
         Ok(read)
+    }
+}
+
+impl Parsed {
+    fn path_bytes(&self) -> Cow<'_, [u8]> {
+        match &self.long_name {
+            Some(name) => Cow::Borrowed(name.strip_suffix(b"\0").unwrap_or(name)),
+            None => self
+                .pax_value(b"path")
+                .map_or_else(|| self.header.path_bytes(), Cow::Borrowed),
+        }
+    }
+
+    fn link_name_bytes(&self) -> Option<Cow<'_, [u8]>> {
+        match &self.long_link {
+            Some(link) => Some(Cow::Borrowed(link.strip_suffix(b"\0").unwrap_or(link))),
+            None => self
+                .pax_value(b"linkpath")
+                .map(Cow::Borrowed)
+                .or_else(|| self.header.link_name_bytes()),
+        }
+    }
+
+    fn pax_value(&self, key: &[u8]) -> Option<&[u8]> {
+        PaxExtensions::new(self.pax.as_deref()?)
+            .filter_map(Result::ok)
+            .find(|extension| extension.key_bytes() == key)
+            .map(|extension| extension.value_bytes())
     }
 }
 
@@ -360,21 +393,20 @@ impl Write for Encoder {
     }
 }
 
-// The index of the archive, in one pass. The crate resolves the GNU and PAX
-// extensions, so long names arrive whole and their carrier entries do not
-// show up.
-fn scan<R: Read>(
-    entries: Entries<'_, R>,
-) -> Result<(Vec<ArchiveEntry>, Vec<Content>), ArchiveError> {
+// The index of the archive, in one pass. The crate's iterator reads a long
+// name, long link or PAX header into memory whatever size it declares, so the
+// blocks are walked here, as the iterator walks them, and the crate only
+// reads the fields of a header.
+fn scan(stream: &mut Stream) -> Result<(Vec<ArchiveEntry>, Vec<Content>), ArchiveError> {
     let mut listed: Vec<ArchiveEntry> = Vec::new();
     let mut contents: Vec<Content> = Vec::new();
     let mut latest: HashMap<Vec<String>, usize> = HashMap::new();
     let mut replaced: Vec<bool> = Vec::new();
     let mut last: Option<String> = None;
-    for entry in entries {
-        let mut entry = entry.map_err(|error| unreadable(error, last.as_deref()))?;
-        let pax = pax_records(&mut entry).map_err(|error| unreadable(error, last.as_deref()))?;
-        let header = entry.header();
+    let mut next = 0;
+    while let Some(entry) = next_entry(stream, &mut next, last.as_deref())? {
+        let pax = pax_records(&entry).map_err(|error| unreadable(error, last.as_deref()))?;
+        let header = &entry.header;
         let name = pax
             .sparse_name
             .clone()
@@ -416,6 +448,168 @@ fn scan<R: Read>(
         contents.push(content);
     }
     Ok(drop_replaced(listed, &contents, &replaced))
+}
+
+fn next_entry(
+    stream: &mut Stream,
+    next: &mut u64,
+    last: Option<&str>,
+) -> Result<Option<Parsed>, ArchiveError> {
+    let unreadable = |error| unreadable(error, last);
+    let mut long_name = None;
+    let mut long_link = None;
+    let mut pax: Option<Vec<u8>> = None;
+    loop {
+        let Some(header) = next_header(stream, next).map_err(unreadable)? else {
+            if long_name.is_some() || long_link.is_some() || pax.is_some() {
+                return Err(unreadable(damaged()));
+            }
+            return Ok(None);
+        };
+        let kind = header.entry_type();
+        let start = *next;
+        let mut size = header.entry_size().map_err(unreadable)?;
+        let is_extension = kind.is_gnu_longname()
+            || kind.is_gnu_longlink()
+            || kind.is_pax_local_extensions()
+            || kind.is_pax_global_extensions();
+        if let Some(pax_size) = pax.as_deref().filter(|_| !is_extension).and_then(pax_size) {
+            size = pax_size;
+        }
+        *next = size
+            .checked_add(BLOCK_SIZE - 1)
+            .and_then(|size| start.checked_add(size & !(BLOCK_SIZE - 1)))
+            .ok_or_else(|| unreadable(damaged()))?;
+        // As the crate does, a header in neither the GNU nor the ustar format
+        // carries no extension and is taken as an entry.
+        let is_recognized = header.as_gnu().is_some() || header.as_ustar().is_some();
+        let slot = match kind {
+            _ if !is_recognized => None,
+            EntryType::GNULongName => Some(&mut long_name),
+            EntryType::GNULongLink => Some(&mut long_link),
+            EntryType::XHeader => Some(&mut pax),
+            _ => None,
+        };
+        if let Some(slot) = slot {
+            if slot.is_some() {
+                return Err(unreadable(damaged()));
+            }
+            if size > EXTENSION_LIMIT {
+                return Err(ArchiveError::Invalid(
+                    "a header extension in the tar archive is too large".to_owned(),
+                ));
+            }
+            let mut content = Vec::new();
+            stream
+                .by_ref()
+                .take(size)
+                .read_to_end(&mut content)
+                .map_err(unreadable)?;
+            *slot = Some(content);
+            continue;
+        }
+        if kind.is_gnu_sparse() {
+            size = sparse_size(stream, &header, size, next).map_err(unreadable)?;
+        }
+        return Ok(Some(Parsed {
+            header,
+            long_name,
+            long_link,
+            pax,
+            size,
+            start,
+        }));
+    }
+}
+
+fn next_header(stream: &mut Stream, next: &mut u64) -> io::Result<Option<Header>> {
+    // The system refuses to seek this far, and the crate fails such a size
+    // as damaged before it asks.
+    if i64::try_from(*next).is_err() {
+        return Err(damaged());
+    }
+    stream.skip_to(*next)?;
+    if stream.pos != *next {
+        return Err(damaged());
+    }
+    let mut header = Header::new_old();
+    let block = header.as_mut_bytes();
+    let mut read = 0;
+    while read < block.len() {
+        match stream.read(&mut block[read..])? {
+            0 if read == 0 => return Ok(None),
+            0 => return Err(damaged()),
+            n => read += n,
+        }
+    }
+    if block.iter().all(|&byte| byte == 0) {
+        return Ok(None);
+    }
+    *next = next.checked_add(BLOCK_SIZE).ok_or_else(damaged)?;
+    let bytes = header.as_bytes();
+    let sum = bytes[..148]
+        .iter()
+        .chain(&bytes[156..])
+        .map(|&byte| u32::from(byte))
+        .sum::<u32>()
+        + 8 * 32;
+    if sum != header.cksum()? {
+        return Err(damaged());
+    }
+    Ok(Some(header))
+}
+
+// The map continues in blocks between the header and the data, so they
+// move where the next header is.
+fn sparse_size(stream: &mut Stream, header: &Header, size: u64, next: &mut u64) -> io::Result<u64> {
+    let gnu = header.as_gnu().ok_or_else(damaged)?;
+    let mut end = 0;
+    let mut remaining = size;
+    let mut add = |block: &GnuSparseHeader| -> io::Result<()> {
+        if block.is_empty() {
+            return Ok(());
+        }
+        let offset = block.offset()?;
+        let len = block.length()?;
+        if (len != 0 && !(size - remaining).is_multiple_of(BLOCK_SIZE)) || offset < end {
+            return Err(damaged());
+        }
+        end = offset.checked_add(len).ok_or_else(damaged)?;
+        remaining = remaining.checked_sub(len).ok_or_else(damaged)?;
+        Ok(())
+    };
+    gnu.sparse.iter().try_for_each(&mut add)?;
+    if gnu.is_extended() {
+        let mut extension = GnuExtSparseHeader::new();
+        loop {
+            stream.read_exact(extension.as_mut_bytes())?;
+            *next = next.checked_add(BLOCK_SIZE).ok_or_else(damaged)?;
+            extension.sparse.iter().try_for_each(&mut add)?;
+            if !extension.is_extended() {
+                break;
+            }
+        }
+    }
+    if end != gnu.real_size()? || remaining > 0 {
+        return Err(damaged());
+    }
+    Ok(end)
+}
+
+// What the crate's `pax_extensions_value` takes as the size: the first
+// `size` record, unless a malformed record comes before it.
+fn pax_size(records: &[u8]) -> Option<u64> {
+    for extension in PaxExtensions::new(records) {
+        let extension = extension.ok()?;
+        if extension.key() == Ok("size") {
+            return extension.value().ok()?.parse().ok();
+        }
+    }
+    None
+}
+
+fn damaged() -> io::Error {
+    io::ErrorKind::InvalidData.into()
 }
 
 // The crate's messages about a header quote its bytes, which are anything
@@ -463,8 +657,8 @@ fn drop_replaced(
 
 // What an entry is, how large, and where its content is; `None` for one
 // that is not a member.
-fn member<R: Read>(
-    entry: &Entry<'_, R>,
+fn member(
+    entry: &Parsed,
     name: &str,
     pax: &PaxRecords,
     listed: &[ArchiveEntry],
@@ -477,12 +671,12 @@ fn member<R: Read>(
             .map(|bytes| decode_name(&bytes))
             .unwrap_or_default()
     };
-    Some(match entry.header().entry_type() {
+    Some(match entry.header.entry_type() {
         // A PAX sparse file is a regular one holding the map of its
         // data, under a made-up name.
         _ if pax.sparse => (
             ArchiveEntryKind::File,
-            pax.sparse_size.unwrap_or(entry.size()),
+            pax.sparse_size.unwrap_or(entry.size),
             Content::Unsupported(SPARSE),
         ),
         // The old formats have no directory type and mark a directory by
@@ -497,7 +691,7 @@ fn member<R: Read>(
                 ArchiveEntryKind::Dir,
                 0,
                 Content::Span {
-                    start: entry.raw_file_position(),
+                    start: entry.start,
                     len: 0,
                 },
             )
@@ -533,21 +727,21 @@ fn member<R: Read>(
         }
         EntryType::GNUSparse => (
             ArchiveEntryKind::File,
-            entry.size(),
+            entry.size,
             Content::Unsupported(SPARSE),
         ),
         // A continuation holds the rest of a file begun on the volume
         // before, which this archive does not have.
         kind if kind.as_byte() == b'M' => (
             ArchiveEntryKind::File,
-            entry.size(),
+            entry.size,
             Content::Unsupported(MULTI_VOLUME),
         ),
         // Nothing could be made of devices on extraction, and a whole
-        // archive should not fail over one. The crate resolves the
-        // extensions but still hands out a PAX global header (what
-        // `git archive` starts with), which is not a member either, and
-        // neither is a GNU volume label.
+        // archive should not fail over one. A PAX global header (what
+        // `git archive` starts with) is not a member either, nor is an
+        // extension in neither the GNU nor the ustar format, nor a GNU
+        // volume label.
         EntryType::Char
         | EntryType::Block
         | EntryType::Fifo
@@ -559,27 +753,27 @@ fn member<R: Read>(
         // Unknown types are files, as the format says.
         _ => (
             ArchiveEntryKind::File,
-            entry.size(),
+            entry.size,
             Content::Span {
-                start: entry.raw_file_position(),
-                len: entry.size(),
+                start: entry.start,
+                len: entry.size,
             },
         ),
     })
 }
 
-fn pax_records<R: Read>(entry: &mut Entry<'_, R>) -> io::Result<PaxRecords> {
+fn pax_records(entry: &Parsed) -> io::Result<PaxRecords> {
     let mut records = PaxRecords::default();
     // A global header's records are its content and not about the header,
     // and they are left out with it.
-    let kind = entry.header().entry_type();
+    let kind = entry.header.entry_type();
     if kind.is_pax_global_extensions() || kind.is_pax_local_extensions() {
         return Ok(records);
     }
-    let Some(extensions) = entry.pax_extensions()? else {
+    let Some(extensions) = entry.pax.as_deref() else {
         return Ok(records);
     };
-    for extension in extensions {
+    for extension in PaxExtensions::new(extensions) {
         let extension = extension?;
         match extension.key() {
             Ok("GNU.sparse.name") => {
@@ -641,10 +835,10 @@ pub(crate) fn header_of(kind: EntryType, size: u64) -> Header {
 
 #[cfg(test)]
 mod tests {
-    use std::borrow::Cow;
     use std::fs;
     use std::path::Path;
 
+    use tar::Archive;
     use tempfile::TempDir;
 
     use super::*;
@@ -680,13 +874,14 @@ mod tests {
                     .add_file(&format!("d/{long}"), 4, None, None, &mut &b"long"[..])
                     .unwrap();
                 writer.add_symlink("l", "d/f.txt", Some(modified)).unwrap();
+                writer.add_symlink("far", &long, None).unwrap();
                 writer.finish().unwrap();
             }
 
             let mut reader = TarReader::open(shared(&path), compression).unwrap();
 
             let entries = reader.entries().to_vec();
-            assert_eq!(entries.len(), 4, "{compression:?}");
+            assert_eq!(entries.len(), 5, "{compression:?}");
             assert_eq!(entries[0].components, ["d"]);
             assert_eq!(entries[0].kind, ArchiveEntryKind::Dir);
             assert_eq!(entries[0].mode, Some(0o755));
@@ -702,6 +897,7 @@ mod tests {
             assert_eq!(content(&mut reader, 1), b"hello");
             assert_eq!(content(&mut reader, 2), b"long");
             assert_eq!(content(&mut reader, 3), b"d/f.txt");
+            assert_eq!(content(&mut reader, 4), long.as_bytes());
         }
     }
 
@@ -895,6 +1091,223 @@ mod tests {
     }
 
     #[test]
+    fn old_gnu_sparse_map_blocks_are_skipped_to_find_the_next_entry() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.tar");
+        {
+            let mut builder = Builder::new(File::create(&path).unwrap());
+            let mut sparse = header_of(EntryType::GNUSparse, 0);
+            let gnu = sparse.as_gnu_mut().unwrap();
+            gnu.set_real_size(0);
+            gnu.set_is_extended(true);
+            let map = GnuExtSparseHeader::new();
+            builder
+                .append_data(&mut sparse, "holes.bin", &map.as_bytes()[..])
+                .unwrap();
+            builder
+                .append_data(&mut header_of(EntryType::Regular, 0), "after", io::empty())
+                .unwrap();
+            builder.finish().unwrap();
+        }
+
+        let reader = TarReader::open(shared(&path), Compression::None).unwrap();
+
+        let names: Vec<&str> = reader
+            .entries()
+            .iter()
+            .map(|entry| entry.components[0].as_str())
+            .collect();
+        assert_eq!(names, ["holes.bin", "after"]);
+    }
+
+    #[test]
+    fn an_old_gnu_sparse_map_that_does_not_add_up_fails_the_archive() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.tar");
+        let mut short = header_of(EntryType::GNUSparse, 0);
+        short.as_gnu_mut().unwrap().set_real_size(12_345);
+        // The map's blocks would move the next header past what a position
+        // can hold.
+        let mut huge = header_of(EntryType::GNUSparse, u64::MAX - 1023);
+        let gnu = huge.as_gnu_mut().unwrap();
+        gnu.set_real_size(0);
+        gnu.set_is_extended(true);
+        let map = GnuExtSparseHeader::new();
+        for (case, mut header, data) in [
+            ("short of its real size", short, &[][..]),
+            ("overflowing", huge, &map.as_bytes()[..]),
+        ] {
+            {
+                let mut builder = Builder::new(File::create(&path).unwrap());
+                builder.append_data(&mut header, "s", data).unwrap();
+                builder.finish().unwrap();
+            }
+
+            let error = TarReader::open(shared(&path), Compression::None)
+                .err()
+                .unwrap();
+
+            assert_eq!(error.to_string(), "not a tar archive", "{case}");
+        }
+    }
+
+    #[test]
+    fn pax_records_name_an_entry_and_its_link_target() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.tar");
+        {
+            let mut builder = Builder::new(File::create(&path).unwrap());
+            builder
+                .append_pax_extensions([("path", &b"d/named"[..]), ("linkpath", b"target")])
+                .unwrap();
+            let mut link = header_of(EntryType::Symlink, 0);
+            link.set_link_name("t").unwrap();
+            builder.append_data(&mut link, "l", io::empty()).unwrap();
+            builder.finish().unwrap();
+        }
+
+        let mut reader = TarReader::open(shared(&path), Compression::None).unwrap();
+
+        assert_eq!(reader.entries()[0].components, ["d", "named"]);
+        assert_eq!(content(&mut reader, 0), b"target");
+    }
+
+    #[test]
+    fn a_pax_size_is_taken_over_the_header_to_find_the_content_and_the_next_entry() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.tar");
+        {
+            let mut builder = Builder::new(File::create(&path).unwrap());
+            builder
+                .append_pax_extensions([("size", &b"5"[..])])
+                .unwrap();
+            builder
+                .append_data(&mut header_of(EntryType::Regular, 0), "f", &b"hello"[..])
+                .unwrap();
+            builder
+                .append_data(&mut header_of(EntryType::Regular, 0), "after", io::empty())
+                .unwrap();
+            builder.finish().unwrap();
+        }
+
+        let mut reader = TarReader::open(shared(&path), Compression::None).unwrap();
+
+        assert_eq!(reader.entries().len(), 2);
+        assert_eq!(reader.entries()[0].size, 5);
+        assert_eq!(reader.entries()[1].components, ["after"]);
+        assert_eq!(content(&mut reader, 0), b"hello");
+    }
+
+    #[test]
+    fn a_long_name_link_or_pax_header_past_the_limit_is_refused_instead_of_read_into_memory() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.tar");
+        let content = vec![b'a'; usize::try_from(EXTENSION_LIMIT).unwrap() + 1];
+        for kind in [
+            EntryType::GNULongName,
+            EntryType::GNULongLink,
+            EntryType::XHeader,
+        ] {
+            {
+                let mut builder = Builder::new(File::create(&path).unwrap());
+                append_extension(&mut builder, kind, &content);
+                let mut member = header_of(EntryType::Regular, 0);
+                builder.append_data(&mut member, "f", io::empty()).unwrap();
+                builder.finish().unwrap();
+            }
+
+            let result = TarReader::open(shared(&path), Compression::None);
+
+            assert!(
+                matches!(&result, Err(ArchiveError::Invalid(message)) if message.contains("too large")),
+                "{kind:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_long_name_at_the_limit_is_read() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.tar");
+        let name = vec![b'a'; usize::try_from(EXTENSION_LIMIT).unwrap()];
+        {
+            let mut builder = Builder::new(File::create(&path).unwrap());
+            append_extension(&mut builder, EntryType::GNULongName, &name);
+            let mut member = header_of(EntryType::Regular, 0);
+            builder.append_data(&mut member, "f", io::empty()).unwrap();
+            builder.finish().unwrap();
+        }
+
+        let reader = TarReader::open(shared(&path), Compression::None).unwrap();
+
+        assert_eq!(reader.entries().len(), 1);
+        assert_eq!(reader.entries()[0].components[0].as_bytes(), name);
+    }
+
+    #[test]
+    fn a_pax_size_is_not_applied_to_a_long_name_after_it() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.tar");
+        {
+            let mut builder = Builder::new(File::create(&path).unwrap());
+            builder
+                .append_pax_extensions([("size", &b"0"[..])])
+                .unwrap();
+            append_extension(&mut builder, EntryType::GNULongName, b"name\0");
+            builder
+                .append_data(&mut header_of(EntryType::Regular, 0), "f", io::empty())
+                .unwrap();
+            builder.finish().unwrap();
+        }
+
+        let reader = TarReader::open(shared(&path), Compression::None).unwrap();
+
+        assert_eq!(reader.entries()[0].components, ["name"]);
+    }
+
+    #[test]
+    fn a_bad_checksum_a_repeated_extension_or_one_describing_nothing_fails_the_archive() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.tar");
+        let tar = |build: &dyn Fn(&mut Builder<Vec<u8>>)| {
+            let mut builder = Builder::new(Vec::new());
+            build(&mut builder);
+            builder.into_inner().unwrap()
+        };
+        let long_name = |builder: &mut Builder<Vec<u8>>| {
+            append_extension(builder, EntryType::GNULongName, b"name\0");
+        };
+        let member = |builder: &mut Builder<Vec<u8>>| {
+            builder
+                .append_data(&mut header_of(EntryType::Regular, 0), "f", io::empty())
+                .unwrap();
+        };
+        let mut bad_checksum = tar(&member);
+        bad_checksum[0] ^= 1;
+        let cases = [
+            ("bad checksum", bad_checksum),
+            (
+                "repeated",
+                tar(&|builder| {
+                    long_name(builder);
+                    long_name(builder);
+                    member(builder);
+                }),
+            ),
+            ("describing nothing", tar(&long_name)),
+        ];
+        for (case, tar) in cases {
+            fs::write(&path, tar).unwrap();
+
+            let error = TarReader::open(shared(&path), Compression::None)
+                .err()
+                .unwrap();
+
+            assert_eq!(error.to_string(), "not a tar archive", "{case}");
+        }
+    }
+
+    #[test]
     fn a_volume_label_is_left_out_a_dumpdir_is_a_directory_and_a_continuation_cannot_be_read() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("a.tar");
@@ -1043,6 +1456,37 @@ mod tests {
     }
 
     #[test]
+    fn a_whole_compressed_stream_holding_a_cut_tar_is_damaged_after_the_cut_entry() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.tgz");
+        {
+            let mut builder = Builder::new(Vec::new());
+            builder
+                .append_data(&mut header_of(EntryType::Regular, 1), "a", &b"a"[..])
+                .unwrap();
+            builder
+                .append_data(
+                    &mut header_of(EntryType::Regular, 1000),
+                    "b",
+                    &[b'b'; 1000][..],
+                )
+                .unwrap();
+            let mut tar = builder.into_inner().unwrap();
+            tar.truncate(3 * 512 + 100);
+            let mut encoder =
+                GzEncoder::new(File::create(&path).unwrap(), flate2::Compression::default());
+            encoder.write_all(&tar).unwrap();
+            encoder.finish().unwrap();
+        }
+
+        let error = TarReader::open(shared(&path), Compression::Gzip)
+            .err()
+            .unwrap();
+
+        assert_eq!(error.to_string(), "the tar archive is damaged after b");
+    }
+
+    #[test]
     fn a_tar_damaged_after_entries_left_out_is_damaged_after_the_last_one_listed() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("a.tar");
@@ -1067,6 +1511,29 @@ mod tests {
             .unwrap();
 
         assert_eq!(error.to_string(), "the tar archive is damaged after a");
+    }
+
+    #[test]
+    fn a_size_past_where_a_seek_reaches_is_damage_rather_than_a_system_error() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("a.tar");
+        {
+            let mut builder = Builder::new(File::create(&path).unwrap());
+            builder
+                .append_data(
+                    &mut header_of(EntryType::Regular, 1 << 63),
+                    "f",
+                    io::empty(),
+                )
+                .unwrap();
+            builder.finish().unwrap();
+        }
+
+        let error = TarReader::open(shared(&path), Compression::None)
+            .err()
+            .unwrap();
+
+        assert_eq!(error.to_string(), "the tar archive is damaged after f");
     }
 
     #[test]
@@ -1099,6 +1566,13 @@ mod tests {
 
         assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
         assert_eq!(error.to_string(), "the tar archive is damaged in a");
+    }
+
+    fn append_extension<W: Write>(builder: &mut Builder<W>, kind: EntryType, content: &[u8]) {
+        let mut header = header_of(kind, content.len() as u64);
+        header.as_gnu_mut().unwrap().name[..LONG_LINK.len()].copy_from_slice(LONG_LINK);
+        header.set_cksum();
+        builder.append(&header, content).unwrap();
     }
 
     fn shared(path: &Path) -> SharedFile {
