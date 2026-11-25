@@ -19,10 +19,12 @@ use super::{
 };
 use crate::archive::{
     ArchiveEntry, ArchiveEntryKind, ArchiveError, ArchiveReader, ArchiveWriter, LevelError,
-    NOT_FOUND, Stamp, UNSAFE_NAME, check_component, create_archive, open_archive,
+    NAME_LIMIT, NOT_FOUND, Stamp, UNSAFE_NAME, check_component, create_archive, decode_name,
+    open_archive,
 };
 
 const TEMP_PREFIX: &str = "wafu-";
+const LONG_TARGET: &str = "the link target is too long";
 
 impl Worker<'_> {
     pub(super) fn extract_archives(
@@ -346,14 +348,18 @@ impl Worker<'_> {
                 extraction.written.insert(index, dst.path);
             }
             ArchiveEntryKind::Symlink => {
+                if entry.size > NAME_LIMIT {
+                    return Err(refuse(&shown, LONG_TARGET));
+                }
                 self.unlock(extraction, index, &shown)?;
-                let mut target = String::new();
+                let mut raw = Vec::new();
                 extraction
                     .reader
                     .open(index, extraction.password.as_deref())
                     .map_err(|error| entry_error(&shown, error))?
-                    .read_to_string(&mut target)
+                    .read_to_end(&mut raw)
                     .map_err(fail(&shown))?;
+                let target = decode_name(&raw);
                 ensure_parent(&shown, &extraction.dest, &dst)?;
                 let Some(dst) = self.clear_destination(&shown, &dst, None, &[])? else {
                     return Ok(false);
@@ -741,12 +747,51 @@ fn make_link(target: &str, dst: &Path) -> std::io::Result<()> {
     let target = target.replace('/', "\\");
     // The kind of link is fixed on Windows and the archive does not record
     // it, so it follows what the target is at this moment.
-    let resolved = dst.parent().unwrap_or(Path::new("")).join(&target);
-    if fs::metadata(resolved).is_ok_and(|meta| meta.is_dir()) {
+    if links_to_dir(dst.parent().unwrap_or(Path::new("")), &target) {
         std::os::windows::fs::symlink_dir(target, dst)
     } else {
         std::os::windows::fs::symlink_file(target, dst)
     }
+}
+
+// Whether `target`, as the target of a link in `dir`, is a directory. Looking
+// a path up on Windows connects to the host it names over SMB and tries to
+// sign in to it, and the target comes from the archive. So only a relative
+// target is looked up, and it counts as a file once a link is met, even as
+// its last component, since another link from the same archive may lead to
+// such a host. So does a target with a name that Windows reads as a device.
+#[cfg(any(windows, test))]
+fn links_to_dir(dir: &Path, target: &str) -> bool {
+    if !is_plain_relative(target) {
+        return false;
+    }
+    let mut path = dir.to_path_buf();
+    for component in target.split(['/', '\\']) {
+        match component {
+            "" | "." => {}
+            ".." => {
+                path.pop();
+            }
+            name => {
+                path.push(name);
+                // `is_dir` is false for a link to a directory.
+                if check_component(name).is_err()
+                    || !fs::symlink_metadata(&path).is_ok_and(|meta| meta.is_dir())
+                {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
+// Whether `target` has neither a root nor a drive on Windows, judged from the
+// text so that it is the same on every OS. A colon is refused anywhere, so
+// that a component such as `C:` cannot make `PathBuf::push` start over.
+#[cfg(any(windows, test))]
+fn is_plain_relative(target: &str) -> bool {
+    !target.starts_with(['/', '\\']) && !target.contains(':')
 }
 
 // A fresh directory under the system's temporary directory, left for the OS
@@ -1558,6 +1603,42 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn a_zip_link_whose_target_is_not_utf8_does_not_stop_the_extraction() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("l.zip");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        write_zip_with_link(&archive, &mut &b"caf\xe9"[..]);
+
+        let (outcome, _, events) = run(&extract(std::slice::from_ref(&archive), &dest), []);
+
+        assert!(
+            matches!(outcome, Outcome::Completed { .. }),
+            "{outcome:?}, skipped {:?}",
+            skipped_errors(&events)
+        );
+        assert!(fs::symlink_metadata(dest.join("l")).unwrap().is_symlink());
+        assert_eq!(fs::read(dest.join("f.txt")).unwrap(), b"f");
+    }
+
+    #[test]
+    fn a_zip_link_whose_target_is_longer_than_any_path_is_skipped_without_asking_the_os() {
+        const LEN: u64 = NAME_LIMIT + 1;
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("l.zip");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        write_zip_with_link(&archive, &mut io::repeat(b'a').take(LEN));
+
+        let (outcome, _, events) = run(&extract(std::slice::from_ref(&archive), &dest), []);
+
+        assert_eq!(outcome, Outcome::Completed { skipped: 1 });
+        assert_eq!(fs::read(dest.join("f.txt")).unwrap(), b"f");
+        assert_eq!(skipped_errors(&events), [LONG_TARGET]);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn a_link_that_cannot_be_made_is_skipped_and_directory_times_are_still_set() {
         let dir = TempDir::new().unwrap();
         let archive = dir.path().join("l.zip");
@@ -2343,6 +2424,44 @@ mod tests {
     }
 
     #[test]
+    fn a_target_is_a_directory_only_when_no_link_is_on_the_way_to_it() {
+        let dir = TempDir::new().unwrap();
+        fs::create_dir_all(dir.path().join("d/sub")).unwrap();
+        fs::write(dir.path().join("f"), b"").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("d", dir.path().join("l")).unwrap();
+        // Making a link needs a privilege on Windows.
+        #[cfg(windows)]
+        if std::os::windows::fs::symlink_dir("d", dir.path().join("l")).is_err() {
+            return;
+        }
+
+        for target in ["d", "d/sub", "./d/../d", ".."] {
+            assert!(links_to_dir(dir.path(), target), "{target}");
+        }
+        for target in ["f", "missing", "l", "l/sub", "/"] {
+            assert!(!links_to_dir(dir.path(), target), "{target}");
+        }
+    }
+
+    #[test]
+    fn only_a_target_without_a_root_or_a_drive_is_plain_relative() {
+        for target in [
+            "//host/share",
+            r"\\host\share",
+            "C:/x",
+            "/x",
+            "C:x",
+            "sub/C:/x",
+        ] {
+            assert!(!is_plain_relative(target), "{target}");
+        }
+        for target in ["sub/f.txt", "../d"] {
+            assert!(is_plain_relative(target), "{target}");
+        }
+    }
+
+    #[test]
     fn extract_to_temp_makes_a_fresh_directory_and_reports_it() {
         let dir = TempDir::new().unwrap();
         let archive = dir.path().join("a.zip");
@@ -2464,6 +2583,33 @@ mod tests {
         let mut writer = ZipArchiveWriter::new(File::create(path).unwrap(), password);
         fill(&mut writer);
         Box::new(writer).finish().unwrap();
+    }
+
+    // A zip whose first entry `l` is a link with `target` as its content,
+    // which `add_symlink` takes only as a string, followed by `f.txt`. The
+    // link is written as a file and its type is set in the central directory.
+    fn write_zip_with_link(path: &Path, target: &mut dyn io::Read) {
+        const LINK: u32 = 0o120_777;
+        let mut writer = ::zip::ZipWriter::new(File::create(path).unwrap());
+        let options = ::zip::write::SimpleFileOptions::default()
+            .compression_method(::zip::CompressionMethod::Deflated)
+            .unix_permissions(0o777);
+        writer.start_file("l", options).unwrap();
+        io::copy(target, &mut writer).unwrap();
+        writer.start_file("f.txt", options).unwrap();
+        writer.write_all(b"f").unwrap();
+        writer.finish().unwrap();
+        let mut bytes = fs::read(path).unwrap();
+        let central = bytes
+            .windows(4)
+            .rposition(|window| window == b"PK\x01\x02")
+            .unwrap();
+        // The last central header is that of `f.txt`; the one before it, 46
+        // bytes and the one-byte name earlier, is that of `l`.
+        let central = central - 47;
+        assert_eq!(&bytes[central..central + 4], b"PK\x01\x02");
+        bytes[central + 38..central + 42].copy_from_slice(&(LINK << 16).to_le_bytes());
+        fs::write(path, bytes).unwrap();
     }
 
     // Names and link targets are written as given, which the crate's own

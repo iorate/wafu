@@ -1,4 +1,5 @@
 pub(crate) const UNSAFE_NAME: &str = "the entry name is unsafe";
+pub(crate) const NAME_LIMIT: u64 = 1024 * 1024;
 const RESERVED_NAMES: [&str; 6] = ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"];
 const NUMBERED_RESERVED_NAMES: [&str; 2] = ["COM", "LPT"];
 #[cfg(windows)]
