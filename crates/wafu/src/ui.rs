@@ -476,8 +476,6 @@ impl Ui {
                 ui.dispatch(Msg::CloseRequested);
             }
             // Quitting is the core's decision, carried out by `Effect::Quit`.
-            // Cmd+Q on macOS ends the process without coming here
-            // (slint-ui/slint#4482).
             CloseRequestResponse::KeepWindowShown
         });
 

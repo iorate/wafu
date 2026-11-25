@@ -143,11 +143,9 @@ export component AppWindow inherits Window {
     }
 
     // Only macOS shows the bar (it is native there), but a hidden bar still
-    // handles its shortcuts, so the shortcuts come and go with it. Quit is in
-    // the application menu that the platform adds on its own; closing the
-    // only window is the same as quitting. That Quit (Cmd+Q) ends the process
-    // without going through close-requested (slint-ui/slint#4482). A MenuBar
-    // cannot be placed inside `if`, hence `visible`.
+    // handles its shortcuts, so the shortcuts come and go with it. Closing
+    // the only window is the same as quitting. A MenuBar cannot be placed
+    // inside `if`, hence `visible`.
     MenuBar {
         visible: root.menu-bar-visible;
 
@@ -165,6 +163,18 @@ export component AppWindow inherits Window {
             MenuItem {
                 title: "Close Window";
                 shortcut: root.menu-bar-visible ? @keys(Control + W) : @keys();
+                activated => {
+                    root.quit-requested();
+                }
+            }
+
+            // Slint moves this item into the application menu, in place of
+            // the Quit it adds on its own, and gives it Cmd+Q. That Quit would
+            // end the process without going through close-requested
+            // (slint-ui/slint#4482), so nothing would be saved.
+            MenuItem {
+                title: "Quit wafu";
+                role: quit;
                 activated => {
                     root.quit-requested();
                 }
