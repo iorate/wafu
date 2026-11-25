@@ -90,6 +90,7 @@ impl App {
             cursor,
             history,
             passwords,
+            fallback: false,
         }));
     }
 
@@ -192,6 +193,7 @@ impl App {
                 cursor,
                 history,
                 passwords,
+                fallback,
                 ..
             }) => match result {
                 Ok(directory) => {
@@ -208,6 +210,27 @@ impl App {
                         history,
                     };
                     self.ask_listing_password(side, Some(navigation), passwords, level, retry);
+                    return false;
+                }
+                Err(ReadError::Failed(source)) if fallback => {
+                    self.log.push(
+                        AppError::ReadDir {
+                            path: archive_shown(&target),
+                            source: source.clone(),
+                        }
+                        .to_string(),
+                    );
+                    pane.set_reload_pending(false);
+                    // Home is the last resort: looking above it could come
+                    // back to it, and reading the old place again would start
+                    // the search over.
+                    if target.base == normalize(&self.home) {
+                        Self::rewatch(side, pane, effects);
+                    } else if let Some(parent) = target.base.parent() {
+                        self.resolve(side, parent, true, Some(source), effects);
+                    } else {
+                        self.fall_back_home(side, target.base, effects);
+                    }
                     return false;
                 }
                 Err(ReadError::Failed(source)) => {
@@ -354,6 +377,7 @@ impl App {
         else {
             return;
         };
+        let fallback = failed.is_some() || (climb && pane.location().base.as_os_str().is_empty());
         match result {
             Some(Resolved { dir, file })
                 if climb && still_here(pane.location(), &dir, file.as_deref()) =>
@@ -376,7 +400,11 @@ impl App {
                         .to_string(),
                     );
                 }
-                self.navigate(side, Location::new(dir), file, HistoryMove::Visit, effects);
+                if fallback {
+                    self.fall_back_to(side, dir, file, effects);
+                } else {
+                    self.navigate(side, Location::new(dir), file, HistoryMove::Visit, effects);
+                }
             }
             None if !climb => {
                 self.log.push(AppError::NotFound { path }.to_string());
@@ -390,18 +418,39 @@ impl App {
                 Self::rewatch(side, pane, effects);
                 self.refresh(side, effects);
             }
-            None => {
-                let home = self.home.clone();
-                self.log.push(
-                    AppError::Fallback {
-                        path,
-                        fallback: home.clone(),
-                    }
-                    .to_string(),
-                );
-                self.navigate(side, Location::new(home), None, HistoryMove::Visit, effects);
-            }
+            None => self.fall_back_home(side, path, effects),
         }
+    }
+
+    fn fall_back_to(
+        &mut self,
+        side: Side,
+        dir: PathBuf,
+        cursor: Option<OsString>,
+        effects: &mut Vec<Effect>,
+    ) {
+        self.navigate(
+            side,
+            Location::new(dir),
+            cursor,
+            HistoryMove::Visit,
+            effects,
+        );
+        if let Some(InFlight::Navigate { fallback, .. }) = self.panes[side.index()].loading_mut() {
+            *fallback = true;
+        }
+    }
+
+    fn fall_back_home(&mut self, side: Side, path: PathBuf, effects: &mut Vec<Effect>) {
+        let home = self.home.clone();
+        self.log.push(
+            AppError::Fallback {
+                path,
+                fallback: home.clone(),
+            }
+            .to_string(),
+        );
+        self.fall_back_to(side, home, None, effects);
     }
 
     pub(super) fn location_changed(&mut self, side: Side, path: &Path, effects: &mut Vec<Effect>) {

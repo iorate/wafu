@@ -2208,6 +2208,72 @@ fn start_with_nothing_existing_falls_back_to_home() {
 }
 
 #[test]
+fn start_at_an_unreadable_directory_looks_above_it() {
+    let mut harness = Harness::start_unresolved(Os::Linux, "/secret", "/tmp");
+    harness.resolve(Side::Left, "/secret", None);
+    harness.take_effects();
+
+    harness.fail_load(Side::Left, "permission denied");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Resolve {
+            side: Side::Left,
+            path: PathBuf::from("/"),
+            climb: true,
+            request: harness.latest_resolve(Side::Left),
+        }]
+    );
+}
+
+#[test]
+fn start_at_an_unreadable_root_falls_back_to_home() {
+    let mut harness = Harness::start_unresolved(Os::Linux, "/", "/tmp");
+    harness.resolve(Side::Left, "/", None);
+    harness.take_effects();
+
+    harness.fail_load(Side::Left, "permission denied");
+
+    assert_eq!(
+        harness.log(),
+        [
+            format!("Cannot read {}: permission denied", shown_place("/")),
+            format!(
+                "Cannot open {}: not available; opened /home/user",
+                shown_place("/")
+            ),
+        ]
+    );
+    assert_eq!(
+        harness.take_effects(),
+        vec![
+            Effect::Watch {
+                side: Side::Left,
+                path: PathBuf::from(HOME),
+            },
+            Effect::ReadDir {
+                side: Side::Left,
+                location: Location::new(PathBuf::from(HOME)),
+                passwords: Passwords::default(),
+                request: harness.latest_request(Side::Left),
+            },
+        ]
+    );
+}
+
+#[test]
+fn start_at_an_unreadable_home_stops_looking() {
+    let mut harness = Harness::start_unresolved(Os::Linux, HOME, "/tmp");
+    harness.resolve(Side::Left, HOME, None);
+    harness.take_effects();
+
+    harness.fail_load(Side::Left, "permission denied");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert!(harness.app().pane(Side::Left).loading().is_none());
+}
+
+#[test]
 fn start_folds_dot_dot_in_the_path_before_resolving_it() {
     let mut harness = Harness::start_unresolved(Os::Linux, "/home/user/sub/..", "/tmp");
 
@@ -2981,6 +3047,49 @@ fn a_failed_reload_of_a_place_that_still_exists_only_logs() {
     assert_eq!(harness.view().left.path, shown_place("/home/user"));
     assert_eq!(harness.names(Side::Left), ["..", "a"]);
     assert!(harness.view().popup.is_none());
+}
+
+#[test]
+fn a_vanished_place_whose_ancestor_cannot_be_read_looks_further_up() {
+    let mut harness = Harness::start("/srv/data/proj", "/tmp");
+    harness.load(Side::Left, vec![file("a")]);
+    harness.changed(Side::Left);
+    harness.fail_load(Side::Left, "No such file or directory");
+    harness.resolve(Side::Left, "/srv/data", None);
+    harness.take_effects();
+
+    harness.fail_load(Side::Left, "permission denied");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Resolve {
+            side: Side::Left,
+            path: PathBuf::from("/srv"),
+            climb: true,
+            request: harness.latest_resolve(Side::Left),
+        }]
+    );
+}
+
+#[test]
+fn a_vanished_place_with_no_readable_home_to_fall_back_to_stops_looking() {
+    let mut harness = Harness::start("/srv/data/proj", "/tmp");
+    harness.load(Side::Left, vec![file("a")]);
+    harness.changed(Side::Left);
+    harness.fail_load(Side::Left, "No such file or directory");
+    harness.fail_resolve(Side::Left);
+    harness.take_effects();
+
+    harness.fail_load(Side::Left, "permission denied");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Watch {
+            side: Side::Left,
+            path: PathBuf::from("/srv/data/proj"),
+        }]
+    );
+    assert!(harness.app().pane(Side::Left).loading().is_none());
 }
 
 #[test]
