@@ -45,7 +45,7 @@ impl App {
             // restored, and where it cannot go Windows warns and elsewhere the
             // move fails.
             Command::Trash => {
-                let Some((location, names)) = self.target_names() else {
+                let Some((location, names)) = self.target_names(OperationKind::Trash.verb()) else {
                     return;
                 };
                 self.start_removal(OperationKind::Trash, location.base, names, effects);
@@ -97,6 +97,11 @@ impl App {
             self.log.push(AppError::InArchive { command }.to_string());
             return;
         }
+        let names = targets.entries.iter().map(|entry| entry.name.as_os_str());
+        if let Some(error) = self.bad_target("show the shell menu for", &targets.location, names) {
+            self.log.push(error.to_string());
+            return;
+        }
         let paths = targets
             .entries
             .iter()
@@ -106,7 +111,7 @@ impl App {
     }
 
     fn start_transfer(&mut self, kind: OperationKind, effects: &mut Vec<Effect>) {
-        let Some((location, names)) = self.target_names() else {
+        let Some((location, names)) = self.target_names(kind.verb()) else {
             return;
         };
         let Some(dest) = self.other_dest(kind.verb()) else {
@@ -122,11 +127,11 @@ impl App {
     }
 
     fn start_extract(&mut self, here: bool, effects: &mut Vec<Effect>) {
-        let Some((location, names)) = self.target_names() else {
-            return;
-        };
         let kind = OperationKind::Extract {
             into_dir: self.config.filelist.extract_creates_dir,
+        };
+        let Some((location, names)) = self.target_names(kind.verb()) else {
+            return;
         };
         let dest = if here {
             self.active_pane().location().base.clone()
@@ -146,7 +151,7 @@ impl App {
     }
 
     fn open_compress(&mut self, here: bool) {
-        let Some((location, names)) = self.target_names() else {
+        let Some((location, names)) = self.target_names(OperationKind::Compress.verb()) else {
             return;
         };
         let dest = if here {
@@ -220,7 +225,7 @@ impl App {
     }
 
     pub(super) fn confirm_delete(&mut self) {
-        if let Some((location, names)) = self.target_names() {
+        if let Some((location, names)) = self.target_names(OperationKind::Delete.verb()) {
             let popup = ChoicePopup::delete_confirm(location.base, names);
             self.popup = Some(Popup::Choice(popup));
         }
@@ -240,7 +245,7 @@ impl App {
     }
 
     fn start_calculation(&mut self, kind: OperationKind, effects: &mut Vec<Effect>) {
-        let Some((location, names)) = self.target_names() else {
+        let Some((location, names)) = self.target_names(kind.verb()) else {
             return;
         };
         self.start_removal(kind, location.base, names, effects);
@@ -421,6 +426,10 @@ impl App {
         let Some((location, entry)) = self.active_pane().cursor_target() else {
             return;
         };
+        if let Some(error) = self.bad_target("rename", &location, [entry.name.as_os_str()]) {
+            self.log.push(error.to_string());
+            return;
+        }
         let text = entry.name.to_string_lossy().into_owned();
         let selection = rename_selection(&entry);
         let kind = InputKind::Rename {
@@ -435,6 +444,11 @@ impl App {
         let Some(targets) = pane.targets() else {
             return;
         };
+        let names = targets.entries.iter().map(|entry| entry.name.as_os_str());
+        if let Some(error) = self.bad_target("rename", &targets.location, names) {
+            self.log.push(error.to_string());
+            return;
+        }
         let siblings = targets.location == *pane.location();
         let dir = targets.location.base;
         // A name that is not UTF-8 would not survive being put together again
@@ -659,6 +673,10 @@ impl App {
         if entry.kind.is_dir_like() {
             return;
         }
+        if let Some(error) = self.bad_target("edit", &location, [entry.name.as_os_str()]) {
+            self.log.push(error.to_string());
+            return;
+        }
         if entry.kind.is_special() {
             let path = location.base.join(&entry.name);
             self.log.push(AppError::NotRegularFile { path }.to_string());
@@ -704,6 +722,10 @@ impl App {
         let Some((location, entry)) = self.active_pane().cursor_target() else {
             return;
         };
+        if let Some(error) = self.bad_target("open", &location, [entry.name.as_os_str()]) {
+            self.log.push(error.to_string());
+            return;
+        }
         if location.in_archive() {
             let entries = self.archive_entries(&location, std::slice::from_ref(&entry.name));
             self.start_temp(Self::temp_open(entry.name), entries, effects);
@@ -716,6 +738,10 @@ impl App {
         let Some((location, entry)) = self.active_pane().cursor_target() else {
             return;
         };
+        if let Some(error) = self.bad_target("run", &location, [entry.name.as_os_str()]) {
+            self.log.push(error.to_string());
+            return;
+        }
         let executable = entry.kind.is_executable();
         if location.in_archive() {
             let temp = Temp {
@@ -742,6 +768,20 @@ impl App {
         effects: &mut Vec<Effect>,
     ) {
         let pane = self.active_pane();
+        if line.uses_paths() {
+            let cursor = pane.cursor_target().and_then(|(at, entry)| {
+                self.bad_target("run a command on", &at, [entry.name.as_os_str()])
+            });
+            let error = cursor.or_else(|| {
+                let targets = pane.targets()?;
+                let names = targets.entries.iter().map(|entry| entry.name.as_os_str());
+                self.bad_target("run a command on", &targets.location, names)
+            });
+            if let Some(error) = error {
+                self.log.push(error.to_string());
+                return;
+            }
+        }
         let location = pane.location().clone();
         if !location.in_archive() || !line.uses_paths() {
             Self::spawn(name, &line, &self.expansion(), effects);
@@ -805,6 +845,12 @@ impl App {
         entry: &Entry,
         effects: &mut Vec<Effect>,
     ) {
+        if line.uses_paths()
+            && let Some(error) = self.bad_target("open", location, [entry.name.as_os_str()])
+        {
+            self.log.push(error.to_string());
+            return;
+        }
         if location.in_archive() && line.uses_paths() {
             let temp = Temp {
                 action: TempAction::Spawn { name, line },
@@ -879,14 +925,43 @@ impl App {
 
     // Special files are not weeded out here: the worker refuses them, and it
     // alone sees the ones inside directories.
-    fn target_names(&self) -> Option<(Location, Vec<OsString>)> {
+    fn target_names(&mut self, verb: &'static str) -> Option<(Location, Vec<OsString>)> {
         let targets = self.active_pane().targets()?;
+        let names = targets.entries.iter().map(|entry| entry.name.as_os_str());
+        if let Some(error) = self.bad_target(verb, &targets.location, names) {
+            self.log.push(error.to_string());
+            return None;
+        }
         let names = targets
             .entries
             .into_iter()
             .map(|entry| entry.name)
             .collect();
         Some((targets.location, names))
+    }
+
+    // Windows drops a trailing dot or space from a path element, so a path
+    // made from such a name would name a sibling.
+    pub(super) fn bad_target<'a>(
+        &self,
+        verb: &'static str,
+        location: &Location,
+        names: impl IntoIterator<Item = &'a OsStr>,
+    ) -> Option<AppError> {
+        if self.os != Os::Windows || location.in_archive() {
+            return None;
+        }
+        let name = names.into_iter().find(|name| {
+            matches!(
+                name_problem(&name.to_string_lossy(), Os::Windows),
+                Some(NameProblem::Ending)
+            )
+        })?;
+        Some(AppError::BadTargetName {
+            verb,
+            path: location.base.join(name),
+            reason: NameProblem::Ending.reason(),
+        })
     }
 
     fn edit_file(&self, path: PathBuf, effects: &mut Vec<Effect>) {
