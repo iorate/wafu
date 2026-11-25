@@ -479,7 +479,14 @@ impl App {
         let side = self.active;
         let pane = &self.panes[side.index()];
         let location = pane.location().clone();
-        match pane.cursor_entry() {
+        let entry = pane.cursor_entry();
+        if let Some(entry) = entry
+            && let Some(error) = self.bad_target("open", &location, [entry.name.as_os_str()])
+        {
+            self.log.push(error.to_string());
+            return;
+        }
+        match entry {
             // `..` stands for this place, and opening it would only show it again, so it moves up.
             None => self.go_parent(effects),
             Some(entry) if entry.kind.is_dir_like() => {
@@ -552,6 +559,10 @@ impl App {
         if entry.kind.is_dir_like() {
             return;
         }
+        if let Some(error) = self.bad_target("open", &location, [entry.name.as_os_str()]) {
+            self.log.push(error.to_string());
+            return;
+        }
         if entry.kind.is_broken_link() {
             let path = location.base.join(&entry.name);
             self.log.push(AppError::BrokenLink { path }.to_string());
@@ -588,6 +599,10 @@ impl App {
         }
         // A link inside an archive leads nowhere until extracted.
         if is_link_in_archive(&location, entry.kind) {
+            return;
+        }
+        if let Some(error) = self.bad_target("open", &location, [entry.name.as_os_str()]) {
+            self.log.push(error.to_string());
             return;
         }
         // An unknown extension leaves the format to the content.

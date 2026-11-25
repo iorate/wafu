@@ -2225,6 +2225,169 @@ fn clipboard_copies_are_logged_with_the_text_or_the_line_count() {
     );
 }
 
+#[test]
+fn delete_on_windows_refuses_a_name_ending_with_a_dot() {
+    let mut harness = windows_with(file("notes."));
+    cursor_only(&mut harness);
+
+    harness.press("D");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert!(harness.popup().is_none());
+    assert_eq!(
+        harness.log().last().cloned(),
+        Some(format!(
+            "Cannot delete {}: ends with a dot or a space, which Windows does not allow",
+            path(WIN_LEFT, "notes.").display()
+        ))
+    );
+}
+
+#[test]
+fn one_such_name_among_the_marks_refuses_the_whole_command() {
+    let mut harness = Harness::start_on(Os::Windows, WIN_LEFT, WIN_RIGHT);
+    harness.load(Side::Left, vec![file("a"), file("b."), file("c.")]);
+    for _ in 0..3 {
+        harness.press("Space");
+    }
+    harness.take_effects();
+
+    harness.press("Shift+D");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log(),
+        [format!(
+            "Cannot trash {}: ends with a dot or a space, which Windows does not allow",
+            path(WIN_LEFT, "b.").display()
+        )]
+    );
+}
+
+#[test]
+fn a_name_ending_with_a_dot_is_acted_on_outside_windows() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("notes.")]);
+    cursor_only(&mut harness);
+    harness.press("Down");
+
+    harness.press("D");
+
+    assert_eq!(harness.view().popup.unwrap().title, "Delete");
+}
+
+#[test]
+fn shell_menu_refuses_a_name_ending_with_a_dot() {
+    let mut harness = windows_with(file("notes."));
+
+    harness.press("\\");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log(),
+        [format!(
+            "Cannot show the shell menu for {}: ends with a dot or a space, which Windows does not allow",
+            path(WIN_LEFT, "notes.").display()
+        )]
+    );
+}
+
+#[test]
+fn rename_refuses_an_original_name_ending_with_a_dot() {
+    let mut harness = windows_with(file("notes."));
+
+    harness.press("R");
+
+    assert!(harness.popup().is_none());
+    assert_eq!(
+        harness.log(),
+        [format!(
+            "Cannot rename {}: ends with a dot or a space, which Windows does not allow",
+            path(WIN_LEFT, "notes.").display()
+        )]
+    );
+}
+
+#[test]
+fn open_refuses_to_enter_a_directory_ending_with_a_dot() {
+    let mut harness = windows_with(dir("notes."));
+
+    harness.press("Enter");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.cursor_name(Side::Left), "notes.");
+    assert_eq!(
+        harness.log(),
+        [format!(
+            "Cannot open {}: ends with a dot or a space, which Windows does not allow",
+            path(WIN_LEFT, "notes.").display()
+        )]
+    );
+}
+
+#[test]
+fn a_command_line_with_paths_refuses_a_name_ending_with_a_dot() {
+    let mut harness = windows_with(file("notes."));
+
+    harness.press("Shift+X");
+    harness.edit("tool {paths}");
+    harness.press("Enter");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log(),
+        [format!(
+            "Cannot run a command on {}: ends with a dot or a space, which Windows does not allow",
+            path(WIN_LEFT, "notes.").display()
+        )]
+    );
+}
+
+#[test]
+fn commands_on_the_cursor_entry_refuse_a_name_ending_with_a_dot() {
+    for (key, verb) in [
+        ("V", "open"),
+        ("Shift+U", "open"),
+        ("Ctrl+Enter", "open"),
+        ("E", "edit"),
+        ("X", "run"),
+        ("Shift+R", "rename"),
+    ] {
+        let mut harness = windows_with(file("notes."));
+
+        harness.press(key);
+
+        assert_eq!(harness.take_effects(), vec![], "{key}");
+        assert!(harness.popup().is_none(), "{key}");
+        assert_eq!(
+            harness.log(),
+            [format!(
+                "Cannot {verb} {}: ends with a dot or a space, which Windows does not allow",
+                path(WIN_LEFT, "notes.").display()
+            )],
+            "{key}"
+        );
+    }
+}
+
+#[test]
+fn open_alternative_with_a_line_that_uses_paths_refuses_a_name_ending_with_a_dot() {
+    let mut harness = windows_with(dir("notes."));
+    harness.config("[open_alternative]\ndir = \"alt {paths}\"\n");
+    harness.take_effects();
+
+    harness.press("Shift+Enter");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log().last().cloned(),
+        Some(format!(
+            "Cannot open {}: ends with a dot or a space, which Windows does not allow",
+            path(WIN_LEFT, "notes.").display()
+        ))
+    );
+}
+
 // Lets copy, move, delete, and trash act on the cursor row without marks.
 fn cursor_only(harness: &mut Harness) {
     harness.config("[filelist]\nrequire_marks = false\n");
@@ -2233,6 +2396,14 @@ fn cursor_only(harness: &mut Harness) {
 fn three_files() -> Harness {
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
+    harness
+}
+
+fn windows_with(entry: Entry) -> Harness {
+    let mut harness = Harness::start_on(Os::Windows, WIN_LEFT, WIN_RIGHT);
+    harness.load(Side::Left, vec![entry]);
+    harness.press("Down");
+    harness.take_effects();
     harness
 }
 

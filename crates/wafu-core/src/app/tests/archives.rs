@@ -806,6 +806,22 @@ fn right_click_inside_an_archive_on_windows_is_refused() {
 }
 
 #[test]
+fn a_name_ending_with_a_dot_inside_an_archive_on_windows_is_not_refused() {
+    let mut harness = Harness::start_on(Os::Windows, r"C:\Users\me", r"D:\");
+    harness.load(Side::Left, vec![file("a.zip")]);
+    harness.press("Down");
+    harness.enter_archive(Side::Left, vec![file("notes.")]);
+    harness.press("Down");
+    harness.press("Space");
+    harness.take_effects();
+
+    harness.press("C");
+
+    assert!(harness.start_operation().is_some());
+    assert_eq!(harness.log(), Vec::<String>::new());
+}
+
+#[test]
 fn nothing_can_be_sent_into_an_archive_on_the_other_side() {
     let mut harness = inside();
     harness.press("Tab");
