@@ -11,7 +11,7 @@ use flate2::write::GzEncoder;
 use lzma_rust2::{XzOptions, XzReader, XzWriter};
 use tar::{Builder, EntryType, GnuExtSparseHeader, GnuSparseHeader, Header, PaxExtensions};
 
-use super::names::{decode_name, split_name};
+use super::names::{NAME_LIMIT, decode_name, split_name};
 use super::shared::SharedFile;
 use super::{ArchiveEntry, ArchiveEntryKind, ArchiveError, ArchiveReader, ArchiveWriter};
 
@@ -24,7 +24,6 @@ const LONG_LINK: &[u8] = b"././@LongLink";
 const SPARSE: &str = "sparse entries are not supported";
 const MULTI_VOLUME: &str = "multi-volume archives are not supported";
 const BLOCK_SIZE: u64 = 512;
-const EXTENSION_LIMIT: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Compression {
@@ -494,7 +493,7 @@ fn next_entry(
             if slot.is_some() {
                 return Err(unreadable(damaged()));
             }
-            if size > EXTENSION_LIMIT {
+            if size > NAME_LIMIT {
                 return Err(ArchiveError::Invalid(
                     "a header extension in the tar archive is too large".to_owned(),
                 ));
@@ -1202,7 +1201,7 @@ mod tests {
     fn a_long_name_link_or_pax_header_past_the_limit_is_refused_instead_of_read_into_memory() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("a.tar");
-        let content = vec![b'a'; usize::try_from(EXTENSION_LIMIT).unwrap() + 1];
+        let content = vec![b'a'; usize::try_from(NAME_LIMIT).unwrap() + 1];
         for kind in [
             EntryType::GNULongName,
             EntryType::GNULongLink,
@@ -1229,7 +1228,7 @@ mod tests {
     fn a_long_name_at_the_limit_is_read() {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("a.tar");
-        let name = vec![b'a'; usize::try_from(EXTENSION_LIMIT).unwrap()];
+        let name = vec![b'a'; usize::try_from(NAME_LIMIT).unwrap()];
         {
             let mut builder = Builder::new(File::create(&path).unwrap());
             append_extension(&mut builder, EntryType::GNULongName, &name);
