@@ -14,8 +14,8 @@ use wafu_core::{
 };
 
 use super::{
-    CHUNK_SIZE, NOT_REGULAR, Step, Stop, Worker, children, fail, failure, is_within,
-    open_for_times, refuse, refuse_io,
+    CHUNK_SIZE, Destination, NOT_REGULAR, Step, Stop, Worker, children, fail, failure, is_within,
+    open_for_times, refuse, refuse_io, remove_file, replace, temp_beside, write_replacing,
 };
 use crate::archive::{
     ArchiveEntry, ArchiveEntryKind, ArchiveError, ArchiveReader, ArchiveWriter, LevelError,
@@ -102,9 +102,9 @@ impl Worker<'_> {
             ensure_dir(shown, root, &dest).map_err(Stop::fatal)?;
         }
         let all: Vec<usize> = (0..extraction.reader.entries().len()).collect();
-        let complete = self.extract_indices(&mut extraction, &all, 0)?;
-        let unlinked = self.finish_extraction(extraction);
-        if complete && unlinked.is_empty() {
+        let extracted = self.extract_indices(&mut extraction, &all, 0);
+        let unlinked = self.finish_extraction(extraction, extracted.is_err());
+        if extracted? && unlinked.is_empty() {
             (self.report)(OperationEvent::ItemDone { index });
         }
         Ok(())
@@ -148,12 +148,15 @@ impl Worker<'_> {
         // In archive order, since a tar is read front to back and going back
         // reads it again from the start.
         let mut complete = vec![true; entries.names.len()];
-        for (index, item) in owners.iter().enumerate() {
+        let extracted = owners.iter().enumerate().try_for_each(|(index, item)| {
             if let Some(item) = *item {
                 complete[item] &= self.extract_one(&mut extraction, index, prefix.len())?;
             }
-        }
-        for index in self.finish_extraction(extraction) {
+            Ok(())
+        });
+        let unlinked = self.finish_extraction(extraction, extracted.is_err());
+        extracted?;
+        for index in unlinked {
             if let Some(item) = owners[index] {
                 complete[item] = false;
             }
@@ -195,29 +198,13 @@ impl Worker<'_> {
         let Some(out) = self.clear_destination(first, &out, None, paths)? else {
             return Ok(());
         };
-        let file = File::create(&out).map_err(fail(&out))?;
-        let writer = create_archive(file, output.format, output.password.as_deref());
-        let mut writer = match writer {
-            Ok(writer) => writer,
-            Err(error) => {
-                let _ = fs::remove_file(&out);
-                return Err(Stop::Failed { path: out, error });
-            }
-        };
-        match self.add_all(&mut writer, paths) {
-            Ok(()) => match writer.finish() {
-                Ok(()) => Ok(()),
-                Err(error) => {
-                    let _ = fs::remove_file(&out);
-                    Err(Stop::Failed { path: out, error })
-                }
-            },
-            Err(stop) => {
-                drop(writer);
-                let _ = fs::remove_file(&out);
-                Err(stop)
-            }
-        }
+        write_replacing(&out, &out.path, |path| {
+            let file = File::create(path).map_err(fail(&out.path))?;
+            let mut writer = create_archive(file, output.format, output.password.as_deref())
+                .map_err(fail(&out.path))?;
+            self.add_all(&mut writer, paths)?;
+            writer.finish().map_err(fail(&out.path))
+        })
     }
 
     fn open_entries(&self, entries: &ArchiveEntries, dest: &Path) -> Result<Extraction, Stop> {
@@ -351,13 +338,12 @@ impl Worker<'_> {
                 let Some(dst) = self.clear_destination(&shown, &dst, None, &[])? else {
                     return Ok(false);
                 };
-                let result = self.write_entry(extraction, index, copy_of, &dst, &shown);
-                if result.is_err() {
-                    let _ = fs::remove_file(&dst);
-                }
-                result?;
-                set_entry_metadata(&dst, &entry);
-                extraction.written.insert(index, dst);
+                write_replacing(&dst, &shown, |path| {
+                    self.write_entry(extraction, index, copy_of, path, &shown)?;
+                    set_entry_metadata(path, &entry);
+                    Ok(())
+                })?;
+                extraction.written.insert(index, dst.path);
             }
             ArchiveEntryKind::Symlink => {
                 self.unlock(extraction, index, &shown)?;
@@ -389,11 +375,26 @@ impl Worker<'_> {
         });
     }
 
-    // Returns the entries whose links could not be made.
-    fn finish_extraction(&mut self, extraction: Extraction) -> Vec<usize> {
+    // Returns the entries whose links could not be made. None is made when the
+    // extraction stopped early, so that the files they were to replace stay.
+    fn finish_extraction(&mut self, extraction: Extraction, stopped: bool) -> Vec<usize> {
         let mut unlinked = Vec::new();
-        for (dst, target, index, shown) in extraction.links {
-            match make_link(&target, &dst) {
+        let links = if stopped {
+            Vec::new()
+        } else {
+            extraction.links
+        };
+        for (dst, target, index, shown) in links {
+            let made = if dst.replace {
+                temp_beside(&dst.path, |path| make_link(&target, path)).and_then(|temp| {
+                    replace(&temp, &dst.path).inspect_err(|_| {
+                        let _ = remove_file(&temp);
+                    })
+                })
+            } else {
+                make_link(&target, &dst.path)
+            };
+            match made {
                 Ok(()) => self.done += 1,
                 Err(error) => {
                     self.skip_entry(shown, &error);
@@ -592,7 +593,7 @@ struct Extraction {
     password: Option<String>,
     dest: PathBuf,
     // The link, its target, the entry's index, and its path as shown.
-    links: Vec<(PathBuf, String, usize, PathBuf)>,
+    links: Vec<(Destination, String, usize, PathBuf)>,
     dirs: Vec<(PathBuf, ArchiveEntry)>,
     written: HashMap<usize, PathBuf>,
 }
@@ -1445,6 +1446,37 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn a_link_entry_overwriting_a_file_takes_its_place() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.tar");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        fs::write(dest.join("l"), b"old l").unwrap();
+        write_tar(
+            &archive,
+            &[
+                ("l", EntryType::Symlink, "b.txt", b""),
+                ("b.txt", EntryType::Regular, "", b"new"),
+            ],
+        );
+
+        let (outcome, done, _) = run(
+            &extract(&[archive], &dest),
+            [Reply::Overwrite { all: false }],
+        );
+
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(done, 2);
+        assert_eq!(
+            fs::read_link(dest.join("l")).unwrap(),
+            PathBuf::from("b.txt")
+        );
+        assert_eq!(fs::read(dest.join("l")).unwrap(), b"new");
+        assert_eq!(fs::read_dir(&dest).unwrap().count(), 2);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn copied_items_are_reported_done_after_their_links_are_made() {
         let dir = TempDir::new().unwrap();
         let archive = dir.path().join("l.zip");
@@ -1496,6 +1528,32 @@ mod tests {
             ["the destination exists and is not a directory"]
         );
         assert_eq!(fs::read_dir(&elsewhere).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn a_file_a_link_entry_was_to_replace_stays_when_a_later_conflict_cancels() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.tar");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        fs::write(dest.join("l"), b"old l").unwrap();
+        fs::write(dest.join("b.txt"), b"old b").unwrap();
+        write_tar(
+            &archive,
+            &[
+                ("l", EntryType::Symlink, "b.txt", b""),
+                ("b.txt", EntryType::Regular, "", b"new"),
+            ],
+        );
+
+        let (outcome, _, _) = run(
+            &extract(&[archive], &dest),
+            [Reply::Overwrite { all: false }, Reply::Cancel],
+        );
+
+        assert_eq!(outcome, Outcome::Cancelled);
+        assert_eq!(fs::read(dest.join("l")).unwrap(), b"old l");
+        assert_eq!(fs::read(dest.join("b.txt")).unwrap(), b"old b");
     }
 
     #[cfg(unix)]
@@ -2256,6 +2314,32 @@ mod tests {
             Some(OperationEvent::Finished(Outcome::Cancelled))
         ));
         assert!(!dest.join("a.zip").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_compression_keeps_the_archive_it_was_to_replace() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("src");
+        fs::create_dir(&src).unwrap();
+        fs::write(src.join("a.txt"), b"a").unwrap();
+        let status = std::process::Command::new("mkfifo")
+            .arg(src.join("fifo"))
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        fs::write(dest.join("x.zip"), b"old").unwrap();
+
+        let (outcome, _, _) = run(
+            &compress(std::slice::from_ref(&src), &dest, "x.zip", None),
+            [Reply::Overwrite { all: false }],
+        );
+
+        assert!(matches!(outcome, Outcome::Failed { .. }), "{outcome:?}");
+        assert_eq!(fs::read(dest.join("x.zip")).unwrap(), b"old");
+        assert_eq!(fs::read_dir(&dest).unwrap().count(), 1);
     }
 
     #[test]
