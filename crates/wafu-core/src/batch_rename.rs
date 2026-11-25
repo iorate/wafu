@@ -225,7 +225,7 @@ fn first_error(
         let reason = if new.is_empty() {
             "empty name"
         } else if let Some(problem) = name_problem(new, os) {
-            problem
+            problem.reason()
         } else if !taken.insert(lowercase(new)) {
             // Creating `A` and `a` at once fails halfway on a file system that
             // ignores case, so they are refused everywhere.

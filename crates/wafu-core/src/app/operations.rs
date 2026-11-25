@@ -14,12 +14,11 @@ use crate::operation::{
     Outcome, OutcomeLine, Renames, Reply, Sources,
 };
 use crate::pane::HistoryMove;
-use crate::path::normalize;
 use crate::popup::{
     ChoiceKind, ChoicePopup, ConflictPopup, InputKind, InputPopup, ListPopup, PasswordPurpose,
     Popup, RenameMode, RenamePopup,
 };
-use crate::text::{name_problem, same_name};
+use crate::text::{NameProblem, name_problem, same_name};
 use crate::view::PopupView;
 
 const DEFAULT_ARCHIVE_STEM: &str = "archive";
@@ -182,6 +181,14 @@ impl App {
         effects: &mut Vec<Effect>,
     ) {
         if name.is_empty() {
+            return;
+        }
+        if let Some(problem) = name_problem(name, self.os) {
+            let error = AppError::BadArchiveName {
+                path: dest.join(name),
+                reason: problem.reason(),
+            };
+            self.log.push(error.to_string());
             return;
         }
         let Some(format) = ArchiveFormat::from_name(OsStr::new(name)) else {
@@ -513,9 +520,6 @@ impl App {
         if base.as_os_str().is_empty() {
             return;
         }
-        // A pane enters the folded path, so things are made there too; through
-        // a linked directory the OS would take `..` somewhere else.
-        let path = normalize(&base.join(text));
         match kind {
             InputKind::Rename { original, .. } => {
                 // A name that only differs in normalization is the same entry
@@ -523,35 +527,51 @@ impl App {
                 if same_name(&original.to_string_lossy(), text) {
                     return;
                 }
-                if let Some(reason) = name_problem(text, self.os) {
+                if let Some(problem) = name_problem(text, self.os) {
                     let error = AppError::BadNewName {
                         path: base.join(&original),
                         name: text.to_owned(),
-                        reason,
+                        reason: problem.reason(),
                     };
                     self.log.push(error.to_string());
                 } else {
                     effects.push(Effect::Rename {
                         from: base.join(&original),
-                        to: path,
+                        to: base.join(text),
                     });
                 }
             }
-            InputKind::Mkdir { .. } => effects.push(Effect::Mkdir(path)),
-            InputKind::NewFile { .. } => effects.push(Effect::CreateFile(path)),
-            // Some editors do nothing when given a path that does not exist
-            // yet (`open -t` on macOS), so the file is made first by default.
-            InputKind::NewText { .. } if self.config.filelist.new_text_creates_file => {
-                self.edit_after_create = Some((path.clone(), base));
-                effects.push(Effect::CreateFile(path));
+            InputKind::Mkdir { .. } => {
+                let checked = dir_below(&base, text, self.os);
+                if let Some(path) = self.created_path(&base, text, checked) {
+                    effects.push(Effect::Mkdir(path));
+                }
+            }
+            InputKind::NewFile { .. } => {
+                let checked = file_below(&base, text, self.os);
+                if let Some(path) = self.created_path(&base, text, checked) {
+                    effects.push(Effect::CreateFile(path));
+                }
             }
             InputKind::NewText { .. } => {
-                let expansion = Expansion {
-                    paths: vec![path],
-                    dir: base,
-                    ..self.expansion()
+                let checked = file_below(&base, text, self.os);
+                let Some(path) = self.created_path(&base, text, checked) else {
+                    return;
                 };
-                Self::spawn_editor(&self.config.programs.editor, &expansion, effects);
+                // Some editors do nothing when given a path that does not
+                // exist yet (`open -t` on macOS), so the file is made first by
+                // default.
+                if self.config.filelist.new_text_creates_file {
+                    self.edit_after_create = Some((path.clone(), base));
+                    effects.push(Effect::CreateFile(path));
+                } else {
+                    let expansion = Expansion {
+                        paths: vec![path],
+                        dir: base,
+                        ..self.expansion()
+                    };
+                    Self::spawn_editor(&self.config.programs.editor, &expansion, effects);
+                }
             }
             InputKind::ConflictRename { .. }
             | InputKind::Filter
@@ -1156,6 +1176,23 @@ impl App {
         self.follow_renamed(&paths, effects);
     }
 
+    fn created_path(
+        &mut self,
+        base: &Path,
+        text: &str,
+        checked: Result<PathBuf, NameProblem>,
+    ) -> Option<PathBuf> {
+        checked
+            .map_err(|problem| {
+                let error = AppError::BadCreateName {
+                    path: base.join(text),
+                    reason: problem.reason(),
+                };
+                self.log.push(error.to_string());
+            })
+            .ok()
+    }
+
     fn created_line(&self, path: &Path) -> String {
         let relative = [self.active, self.active.other()]
             .into_iter()
@@ -1301,4 +1338,33 @@ fn first_component_under(path: &Path, base: &Path) -> Option<OsString> {
         Some(Component::Normal(name)) => Some(name.to_owned()),
         _ => None,
     }
+}
+
+fn file_below(base: &Path, text: &str, os: Os) -> Result<PathBuf, NameProblem> {
+    match name_problem(text, os) {
+        Some(problem) => Err(problem),
+        None => Ok(base.join(text)),
+    }
+}
+
+// Each part has to be a name, so that neither `..` nor a drive takes the
+// directory out of `base`. Empty parts and `.` are skipped as the OS would,
+// except that a leading separator means a root.
+fn dir_below(base: &Path, text: &str, os: Os) -> Result<PathBuf, NameProblem> {
+    let separators: &[char] = if os == Os::Windows {
+        &['/', '\\']
+    } else {
+        &['/']
+    };
+    if text.starts_with(separators) {
+        return Err(NameProblem::Invalid);
+    }
+    text.split(separators)
+        .filter(|part| !part.is_empty() && *part != ".")
+        .try_fold(base.to_path_buf(), |path, part| {
+            match name_problem(part, os) {
+                Some(problem) => Err(problem),
+                None => Ok(path.join(part)),
+            }
+        })
 }

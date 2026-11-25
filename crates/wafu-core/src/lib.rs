@@ -55,7 +55,7 @@ pub use operation::{
 pub use pane::{DrivePurpose, RequestId};
 pub use preview::{Document, DocumentMode, ImageData, Line};
 pub use state::{CompareState, PaneState, ScreenRect, StateError, StateFile, WindowState};
-pub use text::nfc;
+pub use text::{NameProblem, name_problem, nfc};
 pub use view::{
     ColorSet, ExtensionColor, Fonts, InputField, ItemKind, LineRanges, LogView, PaneView,
     PopupItem, PopupLine, PopupLines, PopupView, PreviewContent, PreviewLine, PreviewPlacement,

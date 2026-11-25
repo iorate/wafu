@@ -629,11 +629,11 @@ impl App {
             .is_some_and(|current| same_name(&current.to_string_lossy(), &name));
         if name.is_empty() || same {
             self.popup = Some(Popup::Conflict(ConflictPopup::new(source, dest, all)));
-        } else if let Some(reason) = name_problem(&name, self.os) {
+        } else if let Some(problem) = name_problem(&name, self.os) {
             let error = AppError::BadNewName {
                 path: source.clone(),
                 name,
-                reason,
+                reason: problem.reason(),
             };
             self.log.push(error.to_string());
             self.popup = Some(Popup::Conflict(ConflictPopup::new(source, dest, all)));
