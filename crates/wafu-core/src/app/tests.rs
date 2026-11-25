@@ -12,7 +12,7 @@ use crate::pane::InFlight;
 use crate::state::{CompareState, PaneState, StateFile};
 use crate::test_support::{
     CONFIG_PATH, HOME, Harness, STATE_PATH, config_file, config_source, config_text, dir, file,
-    path, rows_at, shown, special, start_msg, start_msg_with,
+    rows_at, shown, shown_place, special, start_msg, start_msg_with,
 };
 use crate::view::{ExtensionColor, InputField, ItemKind, RowKind};
 
@@ -71,10 +71,13 @@ fn start_resolves_both_panes_then_watches_and_reads_them() {
     harness.load(Side::Left, vec![file("a")]);
 
     assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(harness.view().title, "wafu - /home/user");
-    assert_eq!(harness.view().left.path, "/home/user");
+    assert_eq!(
+        harness.view().title,
+        format!("wafu - {}", shown_place("/home/user"))
+    );
+    assert_eq!(harness.view().left.path, shown_place("/home/user"));
     assert_eq!(harness.names(Side::Left), ["..", "a"]);
-    assert_eq!(harness.history(Side::Left), ["/home/user"]);
+    assert_eq!(harness.history(Side::Left), [shown_place("/home/user")]);
 }
 
 #[test]
@@ -327,7 +330,7 @@ fn open_on_parent_row_goes_to_parent() {
     harness.press("Enter");
     harness.load(Side::Left, vec![]);
 
-    assert_eq!(harness.view().left.path, "/home");
+    assert_eq!(harness.view().left.path, shown_place("/home"));
 }
 
 #[test]
@@ -338,7 +341,7 @@ fn go_parent_puts_cursor_on_the_directory_we_came_from() {
     harness.press("BS");
     harness.load(Side::Left, vec![dir("other"), dir("user")]);
 
-    assert_eq!(harness.view().left.path, "/home");
+    assert_eq!(harness.view().left.path, shown_place("/home"));
     assert_eq!(harness.cursor_name(Side::Left), "user");
 }
 
@@ -362,12 +365,18 @@ fn focus_and_switch_change_the_active_pane_and_title() {
     harness.press("Right");
     assert_eq!(harness.take_effects(), vec![]);
     assert!(harness.view().right.active);
-    assert_eq!(harness.view().title, "wafu - /tmp");
+    assert_eq!(
+        harness.view().title,
+        format!("wafu - {}", shown_place("/tmp"))
+    );
 
     harness.press("Tab");
     assert_eq!(harness.take_effects(), vec![]);
     assert!(harness.view().left.active);
-    assert_eq!(harness.view().title, "wafu - /home/user");
+    assert_eq!(
+        harness.view().title,
+        format!("wafu - {}", shown_place("/home/user"))
+    );
 }
 
 #[test]
@@ -413,27 +422,29 @@ fn navigating_keeps_the_old_listing_until_the_new_one_arrives() {
 
     harness.press("Enter");
 
-    let docs = PathBuf::from("/home/user").join("docs");
     let view = harness.view();
-    assert_eq!(view.left.path, "/home/user");
-    assert_eq!(view.title, "wafu - /home/user");
+    assert_eq!(view.left.path, shown_place("/home/user"));
+    assert_eq!(view.title, format!("wafu - {}", shown_place("/home/user")));
     assert_eq!(harness.names(Side::Left), ["..", "docs"]);
     assert_eq!(harness.marks(Side::Left), ["docs"]);
     let popup = view.popup.unwrap();
     assert_eq!(popup.title, "Loading");
-    assert_eq!(popup.message, Some(format!("Reading {}", docs.display())));
+    assert_eq!(
+        popup.message,
+        Some(format!("Reading {}", shown("/home/user", "docs")))
+    );
     assert!(popup.progress);
 
     harness.load(Side::Left, vec![file("x")]);
 
     let view = harness.view();
-    assert_eq!(view.left.path, docs.display().to_string());
+    assert_eq!(view.left.path, shown("/home/user", "docs"));
     assert_eq!(harness.names(Side::Left), ["..", "x"]);
     assert_eq!(view.left.cursor, Some(0));
     assert!(view.popup.is_none());
     assert_eq!(
         harness.history(Side::Left),
-        ["/home/user".to_owned(), docs.display().to_string()]
+        [shown_place("/home/user"), shown("/home/user", "docs")]
     );
 }
 
@@ -533,7 +544,7 @@ fn escape_cancels_a_move_and_stays_put() {
             },
         ]
     );
-    assert_eq!(harness.view().left.path, "/home/user");
+    assert_eq!(harness.view().left.path, shown_place("/home/user"));
     assert_eq!(harness.names(Side::Left), ["..", "a"]);
     assert!(harness.view().popup.is_none());
 
@@ -546,7 +557,7 @@ fn escape_cancels_a_move_and_stays_put() {
             entries: vec![dir("user")],
         }),
     }));
-    assert_eq!(harness.view().left.path, "/home/user");
+    assert_eq!(harness.view().left.path, shown_place("/home/user"));
     assert_eq!(harness.log(), Vec::<String>::new());
 }
 
@@ -577,13 +588,13 @@ fn escape_with_both_panes_moving_cancels_only_the_earliest_move() {
     assert!(harness.app().pane(Side::Left).loading().is_none());
     assert_eq!(
         harness.view().popup.unwrap().message,
-        Some("Reading /tmp".to_owned())
+        Some(format!("Reading {}", shown_place("/tmp")))
     );
 
     harness.load(Side::Right, vec![file("a")]);
 
     assert_eq!(harness.view().left.path, "");
-    assert_eq!(harness.view().right.path, "/tmp");
+    assert_eq!(harness.view().right.path, shown_place("/tmp"));
     assert_eq!(harness.names(Side::Right), ["..", "a"]);
     assert!(harness.view().popup.is_none());
 }
@@ -595,7 +606,7 @@ fn escape_cancels_the_move_requested_first_even_when_the_other_pane_moved_on() {
     let right = harness.latest_resolve(Side::Right);
     assert_eq!(
         harness.view().popup.unwrap().message,
-        Some("Reading /tmp".to_owned())
+        Some(format!("Reading {}", shown_place("/tmp")))
     );
     harness.take_effects();
 
@@ -609,7 +620,7 @@ fn escape_cancels_the_move_requested_first_even_when_the_other_pane_moved_on() {
 
     harness.load(Side::Left, vec![file("a")]);
 
-    assert_eq!(harness.view().left.path, "/home/user");
+    assert_eq!(harness.view().left.path, shown_place("/home/user"));
     assert_eq!(harness.view().right.path, "");
     assert!(harness.view().popup.is_none());
 }
@@ -623,7 +634,13 @@ fn read_error_is_logged_and_the_pane_stays_where_it_was() {
 
     harness.fail_load(Side::Left, "permission denied");
 
-    assert_eq!(harness.log(), ["Cannot read /home: permission denied"]);
+    assert_eq!(
+        harness.log(),
+        [format!(
+            "Cannot read {}: permission denied",
+            shown_place("/home")
+        )]
+    );
     assert_eq!(
         harness.take_effects(),
         vec![
@@ -639,13 +656,13 @@ fn read_error_is_logged_and_the_pane_stays_where_it_was() {
             },
         ]
     );
-    assert_eq!(harness.view().left.path, "/home/user");
+    assert_eq!(harness.view().left.path, shown_place("/home/user"));
     assert_eq!(harness.names(Side::Left), ["..", "a"]);
     assert!(matches!(
         harness.app().pane(Side::Left).loading(),
         Some(InFlight::Refresh { .. })
     ));
-    assert_eq!(harness.history(Side::Left), ["/home/user"]);
+    assert_eq!(harness.history(Side::Left), [shown_place("/home/user")]);
 }
 
 #[test]
@@ -1840,8 +1857,7 @@ fn double_click_opens_the_row() {
     harness.double_click(Side::Left, 1);
     harness.load(Side::Left, vec![]);
 
-    let docs = PathBuf::from("/home/user").join("docs");
-    assert_eq!(harness.view().left.path, docs.display().to_string());
+    assert_eq!(harness.view().left.path, shown("/home/user", "docs"));
 }
 
 #[test]
@@ -1856,8 +1872,11 @@ fn double_click_past_the_last_row_only_activates_the_pane() {
 
     assert_eq!(harness.app().active(), Side::Right);
     assert_eq!(harness.cursor_name(Side::Right), "docs");
-    assert_eq!(harness.view().right.path, "/tmp");
-    assert_eq!(harness.view().title, "wafu - /tmp");
+    assert_eq!(harness.view().right.path, shown_place("/tmp"));
+    assert_eq!(
+        harness.view().title,
+        format!("wafu - {}", shown_place("/tmp"))
+    );
     assert_eq!(harness.take_effects(), vec![]);
 }
 
@@ -2152,7 +2171,7 @@ fn start_with_a_file_argument_opens_its_parent_with_the_cursor_on_it() {
     harness.resolve(Side::Left, "/home/user", Some("notes.txt"));
     harness.load(Side::Left, vec![file("a"), file("notes.txt")]);
 
-    assert_eq!(harness.view().left.path, "/home/user");
+    assert_eq!(harness.view().left.path, shown_place("/home/user"));
     assert_eq!(harness.cursor_name(Side::Left), "notes.txt");
     assert_eq!(harness.log(), Vec::<String>::new());
 }
@@ -2166,7 +2185,10 @@ fn start_with_nothing_existing_falls_back_to_home() {
 
     assert_eq!(
         harness.log(),
-        ["Cannot open /nowhere: not available; opened /home/user"]
+        [format!(
+            "Cannot open {}: not available; opened /home/user",
+            shown_place("/nowhere")
+        )]
     );
     assert_eq!(
         harness.take_effects(),
@@ -2183,6 +2205,16 @@ fn start_with_nothing_existing_falls_back_to_home() {
             },
         ]
     );
+}
+
+#[test]
+fn start_folds_dot_dot_in_the_path_before_resolving_it() {
+    let mut harness = Harness::start_unresolved(Os::Linux, "/home/user/sub/..", "/tmp");
+
+    assert!(harness.take_effects().iter().any(|effect| matches!(
+        effect,
+        Effect::Resolve { side: Side::Left, path, .. } if path == Path::new("/home/user")
+    )));
 }
 
 #[test]
@@ -2211,7 +2243,7 @@ fn a_move_to_a_drive_with_nothing_on_it_stays_put() {
             },
         ]
     );
-    assert_eq!(harness.view().left.path, "/home/user");
+    assert_eq!(harness.view().left.path, shown_place("/home/user"));
     assert_eq!(harness.names(Side::Left), ["..", "a"]);
     assert!(harness.view().popup.is_none());
 }
@@ -2223,10 +2255,9 @@ fn history_back_and_forward_move_without_recording_and_stop_at_an_end() {
     harness.press("Down");
     harness.press("Enter");
     harness.load(Side::Left, vec![]);
-    let docs = PathBuf::from("/home/user").join("docs");
     assert_eq!(
         harness.history(Side::Left),
-        ["/home/user".to_owned(), docs.display().to_string()]
+        [shown_place("/home/user"), shown("/home/user", "docs")]
     );
     harness.take_effects();
 
@@ -2248,7 +2279,7 @@ fn history_back_and_forward_move_without_recording_and_stop_at_an_end() {
         ]
     );
     harness.load(Side::Left, vec![dir("docs")]);
-    assert_eq!(harness.view().left.path, "/home/user");
+    assert_eq!(harness.view().left.path, shown_place("/home/user"));
     // Moving through the history does not restore the cursor.
     assert_eq!(harness.cursor_name(Side::Left), "..");
     assert_eq!(harness.history(Side::Left).len(), 2);
@@ -2257,7 +2288,7 @@ fn history_back_and_forward_move_without_recording_and_stop_at_an_end() {
 
     harness.press("Ctrl+Shift+Right");
     harness.load(Side::Left, vec![]);
-    assert_eq!(harness.view().left.path, docs.display().to_string());
+    assert_eq!(harness.view().left.path, shown("/home/user", "docs"));
     assert_eq!(harness.app().pane(Side::Left).history().pos(), 1);
     harness.take_effects();
 
@@ -2276,9 +2307,12 @@ fn failed_history_move_keeps_the_position() {
     harness.press("Ctrl+Shift+Left");
     harness.fail_load(Side::Left, "gone");
 
-    assert_eq!(harness.view().left.path, "/home");
+    assert_eq!(harness.view().left.path, shown_place("/home"));
     assert_eq!(harness.app().pane(Side::Left).history().pos(), 1);
-    assert_eq!(harness.history(Side::Left), ["/home/user", "/home"]);
+    assert_eq!(
+        harness.history(Side::Left),
+        [shown_place("/home/user"), shown_place("/home")]
+    );
 }
 
 #[test]
@@ -2294,7 +2328,14 @@ fn history_popup_lists_newest_first_and_narrows_to_what_is_typed() {
 
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "History (left)");
-    assert_eq!(harness.popup_labels(), ["/", "/home", "/home/user"]);
+    assert_eq!(
+        harness.popup_labels(),
+        [
+            shown_place("/"),
+            shown_place("/home"),
+            shown_place("/home/user")
+        ]
+    );
     assert_eq!(popup.fields, [InputField::new(String::new())]);
     assert_eq!(popup.cursor, Some(0));
 
@@ -2305,12 +2346,12 @@ fn history_popup_lists_newest_first_and_narrows_to_what_is_typed() {
 
     harness.press("H");
     harness.edit("user");
-    assert_eq!(harness.popup_labels(), ["/home/user"]);
+    assert_eq!(harness.popup_labels(), [shown_place("/home/user")]);
     assert_eq!(harness.view().popup.unwrap().cursor, Some(0));
     harness.press("Enter");
     assert_eq!(harness.popup(), None);
     harness.load(Side::Left, vec![]);
-    assert_eq!(harness.view().left.path, "/home/user");
+    assert_eq!(harness.view().left.path, shown_place("/home/user"));
     assert_eq!(harness.history(Side::Left).len(), 3);
     assert_eq!(harness.app().pane(Side::Left).history().pos(), 0);
 
@@ -2329,13 +2370,16 @@ fn history_popup_switches_to_the_other_pane_with_tab_keeping_the_query() {
     harness.load(Side::Right, vec![]);
     harness.press("Tab");
     harness.press("H");
-    assert_eq!(harness.popup_labels(), ["/home/user"]);
+    assert_eq!(harness.popup_labels(), [shown_place("/home/user")]);
 
     harness.press("Tab");
 
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "History (right)");
-    assert_eq!(harness.popup_labels(), ["/", "/tmp"]);
+    assert_eq!(
+        harness.popup_labels(),
+        [shown_place("/"), shown_place("/tmp")]
+    );
     assert_eq!(popup.cursor, Some(1));
 
     harness.edit("tmp");
@@ -2343,7 +2387,7 @@ fn history_popup_switches_to_the_other_pane_with_tab_keeping_the_query() {
     assert_eq!(harness.view().popup.unwrap().title, "History (left)");
     assert_eq!(harness.popup_labels(), Vec::<String>::new());
     harness.press("Tab");
-    assert_eq!(harness.popup_labels(), ["/tmp"]);
+    assert_eq!(harness.popup_labels(), [shown_place("/tmp")]);
 }
 
 #[test]
@@ -2356,10 +2400,13 @@ fn history_popup_visits_a_place_of_the_other_pane_in_the_active_pane() {
 
     assert_eq!(harness.popup(), None);
     harness.load(Side::Left, vec![]);
-    assert_eq!(harness.view().left.path, "/tmp");
-    assert_eq!(harness.view().right.path, "/tmp");
-    assert_eq!(harness.history(Side::Left), ["/home/user", "/tmp"]);
-    assert_eq!(harness.history(Side::Right), ["/tmp"]);
+    assert_eq!(harness.view().left.path, shown_place("/tmp"));
+    assert_eq!(harness.view().right.path, shown_place("/tmp"));
+    assert_eq!(
+        harness.history(Side::Left),
+        [shown_place("/home/user"), shown_place("/tmp")]
+    );
+    assert_eq!(harness.history(Side::Right), [shown_place("/tmp")]);
 }
 
 #[test]
@@ -2374,7 +2421,7 @@ fn history_popup_shows_line_breaks_in_the_places_as_symbols() {
 
     assert_eq!(
         harness.popup_labels(),
-        [shown("/home/user", "a\u{21B5}b"), "/home/user".to_owned()]
+        [shown("/home/user", "a\u{21B5}b"), shown_place("/home/user")]
     );
 }
 
@@ -2382,7 +2429,10 @@ fn history_popup_shows_line_breaks_in_the_places_as_symbols() {
 fn history_popup_visits_a_place_that_left_its_position_while_open() {
     let mut harness = back_to_b_with_the_history_open();
     harness.vanish(Side::Left, "/", vec![]);
-    assert_eq!(harness.history(Side::Left), ["/a", "/b", "/"]);
+    assert_eq!(
+        harness.history(Side::Left),
+        ["/a".to_owned(), "/b".to_owned(), shown_place("/")]
+    );
 
     harness.press("Up");
     harness.press("Enter");
@@ -2404,8 +2454,16 @@ fn history_popup_visits_a_place_that_left_its_position_while_open() {
         ]
     );
     harness.load(Side::Left, vec![]);
-    assert_eq!(harness.view().left.path, "/c");
-    assert_eq!(harness.history(Side::Left), ["/a", "/b", "/", "/c"]);
+    assert_eq!(harness.view().left.path, shown_place("/c"));
+    assert_eq!(
+        harness.history(Side::Left),
+        [
+            "/a".to_owned(),
+            "/b".to_owned(),
+            shown_place("/"),
+            shown_place("/c")
+        ]
+    );
     assert_eq!(harness.app().pane(Side::Left).history().pos(), 3);
 }
 
@@ -2418,8 +2476,11 @@ fn history_popup_moves_to_the_row_that_was_current_once_the_history_moved_on() {
 
     assert_eq!(harness.popup(), None);
     harness.load(Side::Left, vec![]);
-    assert_eq!(harness.view().left.path, "/b");
-    assert_eq!(harness.history(Side::Left), ["/a", "/b", "/"]);
+    assert_eq!(harness.view().left.path, shown_place("/b"));
+    assert_eq!(
+        harness.history(Side::Left),
+        ["/a".to_owned(), "/b".to_owned(), shown_place("/")]
+    );
     assert_eq!(harness.app().pane(Side::Left).history().pos(), 1);
 }
 
@@ -2451,7 +2512,7 @@ fn go_home_at_home_reads_it_again_without_recording_history() {
     harness.load(Side::Left, vec![file("a"), file("b")]);
     assert_eq!(harness.marks(Side::Left), Vec::<String>::new());
     assert_eq!(harness.cursor_name(Side::Left), "..");
-    assert_eq!(harness.history(Side::Left), ["/home/user"]);
+    assert_eq!(harness.history(Side::Left), [shown_place("/home/user")]);
     assert_eq!(harness.log(), Vec::<String>::new());
 }
 
@@ -2496,8 +2557,8 @@ fn swap_panes_at_the_same_place_reads_both_again_without_recording_history() {
     harness.load(Side::Right, vec![]);
     assert_eq!(harness.marks(Side::Left), Vec::<String>::new());
     assert_eq!(harness.cursor_name(Side::Left), "..");
-    assert_eq!(harness.history(Side::Left), ["/home/user"]);
-    assert_eq!(harness.history(Side::Right), ["/home/user"]);
+    assert_eq!(harness.history(Side::Left), [shown_place("/home/user")]);
+    assert_eq!(harness.history(Side::Right), [shown_place("/home/user")]);
     assert_eq!(harness.log(), Vec::<String>::new());
 }
 
@@ -2509,7 +2570,7 @@ fn go_to_path_starts_with_the_current_path_and_expands_the_input() {
     harness.press("Shift+J");
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Go to path");
-    assert_eq!(popup.fields[0].text, "/home/user");
+    assert_eq!(popup.fields[0].text, shown_place("/home/user"));
 
     harness.edit("~/docs");
     harness.press("Enter");
@@ -2552,7 +2613,7 @@ fn go_to_path_resolves_relative_input_from_the_place_the_popup_was_opened_in() {
     harness.take_effects();
     harness.press("Shift+J");
     harness.vanish(Side::Left, "/home", vec![dir("user")]);
-    assert_eq!(harness.view().left.path, "/home");
+    assert_eq!(harness.view().left.path, shown_place("/home"));
 
     harness.edit("docs");
     harness.press("Enter");
@@ -2584,7 +2645,7 @@ fn go_to_path_to_a_file_in_the_current_place_rereads_it_with_the_cursor_on_the_f
     harness.load(Side::Left, vec![file("a.txt"), file("b.txt")]);
 
     assert_eq!(harness.cursor_name(Side::Left), "b.txt");
-    assert_eq!(harness.history(Side::Left), ["/home/user"]);
+    assert_eq!(harness.history(Side::Left), [shown_place("/home/user")]);
 }
 
 #[test]
@@ -2618,7 +2679,7 @@ fn go_to_path_to_the_current_place_reads_it_again_without_recording_history() {
     harness.load(Side::Left, vec![file("a"), file("b")]);
     assert_eq!(harness.marks(Side::Left), Vec::<String>::new());
     assert_eq!(harness.cursor_name(Side::Left), "..");
-    assert_eq!(harness.history(Side::Left), ["/home/user"]);
+    assert_eq!(harness.history(Side::Left), [shown_place("/home/user")]);
     assert_eq!(harness.log(), Vec::<String>::new());
 }
 
@@ -2652,7 +2713,7 @@ fn go_to_path_to_a_missing_place_logs_an_error_and_stays() {
             "Cannot open {MAIN_SEPARATOR}nowhere: does not exist"
         )]
     );
-    assert_eq!(harness.view().left.path, "/home/user");
+    assert_eq!(harness.view().left.path, shown_place("/home/user"));
     assert_eq!(
         harness.take_effects(),
         vec![
@@ -2695,9 +2756,12 @@ fn sync_commands_copy_the_location_across() {
 
     harness.press("O");
     harness.load(Side::Left, vec![]);
-    assert_eq!(harness.view().left.path, "/tmp");
-    assert_eq!(harness.view().right.path, "/tmp");
-    assert_eq!(harness.history(Side::Left), ["/home/user", "/tmp"]);
+    assert_eq!(harness.view().left.path, shown_place("/tmp"));
+    assert_eq!(harness.view().right.path, shown_place("/tmp"));
+    assert_eq!(
+        harness.history(Side::Left),
+        [shown_place("/home/user"), shown_place("/tmp")]
+    );
 }
 
 #[test]
@@ -2738,10 +2802,13 @@ fn swap_panes_exchanges_the_locations_and_keeps_the_active_pane() {
     );
     harness.load(Side::Left, vec![]);
     harness.load(Side::Right, vec![]);
-    assert_eq!(harness.view().left.path, "/tmp");
-    assert_eq!(harness.view().right.path, "/home/user");
+    assert_eq!(harness.view().left.path, shown_place("/tmp"));
+    assert_eq!(harness.view().right.path, shown_place("/home/user"));
     assert_eq!(harness.app().active(), Side::Right);
-    assert_eq!(harness.history(Side::Right), ["/tmp", "/home/user"]);
+    assert_eq!(
+        harness.history(Side::Right),
+        [shown_place("/tmp"), shown_place("/home/user")]
+    );
 }
 
 #[test]
@@ -2787,9 +2854,9 @@ fn moving_gives_a_pane_without_a_place_its_place_and_history() {
     harness.press("~");
     harness.load(Side::Right, vec![file("a")]);
 
-    assert_eq!(harness.view().right.path, HOME);
+    assert_eq!(harness.view().right.path, shown_place(HOME));
     assert_eq!(harness.names(Side::Right), ["..", "a"]);
-    assert_eq!(harness.history(Side::Right), [HOME]);
+    assert_eq!(harness.history(Side::Right), [shown_place(HOME)]);
 }
 
 #[test]
@@ -2825,7 +2892,10 @@ fn a_vanished_place_is_left_for_the_nearest_ancestor() {
 
     assert_eq!(
         harness.log(),
-        ["Cannot open /home/user: not available; opened /home"]
+        [format!(
+            "Cannot open {}: not available; opened /home",
+            shown_place("/home/user")
+        )]
     );
     assert_eq!(
         harness.take_effects(),
@@ -2843,8 +2913,11 @@ fn a_vanished_place_is_left_for_the_nearest_ancestor() {
         ]
     );
     harness.load(Side::Left, vec![]);
-    assert_eq!(harness.view().left.path, "/home");
-    assert_eq!(harness.history(Side::Left), ["/home/user", "/home"]);
+    assert_eq!(harness.view().left.path, shown_place("/home"));
+    assert_eq!(
+        harness.history(Side::Left),
+        [shown_place("/home/user"), shown_place("/home")]
+    );
 }
 
 #[test]
@@ -2859,7 +2932,10 @@ fn a_vanished_place_without_an_ancestor_is_left_for_home() {
 
     assert_eq!(
         harness.log(),
-        ["Cannot open /mnt/usb: not available; opened /home/user"]
+        [format!(
+            "Cannot open {}: not available; opened /home/user",
+            shown_place("/mnt/usb")
+        )]
     );
     assert_eq!(
         harness.take_effects(),
@@ -2888,7 +2964,13 @@ fn a_failed_reload_of_a_place_that_still_exists_only_logs() {
 
     harness.resolve(Side::Left, "/home/user", None);
 
-    assert_eq!(harness.log(), ["Cannot read /home/user: permission denied"]);
+    assert_eq!(
+        harness.log(),
+        [format!(
+            "Cannot read {}: permission denied",
+            shown_place("/home/user")
+        )]
+    );
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Watch {
@@ -2896,7 +2978,7 @@ fn a_failed_reload_of_a_place_that_still_exists_only_logs() {
             path: PathBuf::from("/home/user"),
         }]
     );
-    assert_eq!(harness.view().left.path, "/home/user");
+    assert_eq!(harness.view().left.path, shown_place("/home/user"));
     assert_eq!(harness.names(Side::Left), ["..", "a"]);
     assert!(harness.view().popup.is_none());
 }
@@ -2920,7 +3002,7 @@ fn opening_a_broken_link_logs_an_error() {
         harness.log(),
         [format!(
             "Cannot open {}: the symbolic link is broken",
-            PathBuf::from("/home/user").join("dead").display()
+            shown("/home/user", "dead")
         )]
     );
     assert_eq!(harness.take_effects(), vec![]);
@@ -2939,7 +3021,7 @@ fn opening_a_special_file_logs_an_error() {
         harness.log(),
         [format!(
             "Cannot open {}: not a regular file",
-            PathBuf::from("/home/user").join("fifo").display()
+            shown("/home/user", "fifo")
         )]
     );
     assert_eq!(harness.take_effects(), vec![]);
@@ -2958,7 +3040,7 @@ fn entering_a_special_file_as_an_archive_logs_an_error() {
         harness.log(),
         [format!(
             "Cannot open {}: not a regular file",
-            PathBuf::from("/home/user").join("sock").display()
+            shown("/home/user", "sock")
         )]
     );
     assert_eq!(harness.take_effects(), vec![]);
@@ -2987,7 +3069,7 @@ fn bookmarks_popup_shows_names_and_picks_by_key() {
     harness.press("V");
     assert_eq!(harness.popup(), None);
     harness.load(Side::Left, vec![]);
-    assert_eq!(harness.view().left.path, "/var");
+    assert_eq!(harness.view().left.path, shown_place("/var"));
 }
 
 #[test]
@@ -2999,9 +3081,23 @@ fn bookmarks_popup_expands_tilde() {
     harness.press("J");
     harness.press("Enter");
 
-    let docs = PathBuf::from(HOME).join("docs");
     harness.load(Side::Left, vec![]);
-    assert_eq!(harness.view().left.path, docs.display().to_string());
+    assert_eq!(harness.view().left.path, shown(HOME, "docs"));
+}
+
+#[test]
+fn bookmarks_popup_takes_a_relative_path_from_the_directory_of_the_configuration_file() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.config("[[bookmarks]]\nname = \"R\"\npath = \"work\"\n");
+    harness.take_effects();
+
+    harness.press("J");
+    harness.press("Enter");
+
+    assert_eq!(
+        last_read_base(&mut harness, Side::Left),
+        Some(Path::new(CONFIG_PATH).parent().unwrap().join("work"))
+    );
 }
 
 #[test]
@@ -3157,7 +3253,7 @@ fn escape_while_listing_drives_drops_the_letters_that_arrive_later() {
     harness.drives(&['C', 'D']);
 
     assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(harness.view().left.path, "/home/user");
+    assert_eq!(harness.view().left.path, shown_place("/home/user"));
 }
 
 #[test]
@@ -3532,7 +3628,7 @@ fn start_takes_paths_from_the_arguments_then_the_state_then_home() {
     ));
     saved.resolve(Side::Left, "/saved/left", None);
     saved.load(Side::Left, vec![]);
-    assert_eq!(saved.history(Side::Left), ["/saved/left"]);
+    assert_eq!(saved.history(Side::Left), [shown_place("/saved/left")]);
 }
 
 #[test]
@@ -3581,7 +3677,10 @@ fn start_prefers_the_saved_display_state_and_falls_back_to_the_defaults() {
     );
     assert!(left.show_hidden());
     // The start-up visit follows the restored position.
-    assert_eq!(harness.history(Side::Left), ["/a", "/home/user"]);
+    assert_eq!(
+        harness.history(Side::Left),
+        ["/a".to_owned(), shown_place("/home/user")]
+    );
     let right = harness.app().pane(Side::Right);
     assert_eq!(right.sort(), SortSpec::default());
     assert!(!right.show_hidden());
@@ -3644,7 +3743,10 @@ fn start_without_a_saved_history_position_continues_from_the_newest_place() {
     harness.resolve(Side::Left, "/home/user", None);
     harness.load(Side::Left, vec![]);
 
-    assert_eq!(harness.history(Side::Left), ["/a", "/b", "/home/user"]);
+    assert_eq!(
+        harness.history(Side::Left),
+        ["/a".to_owned(), "/b".to_owned(), shown_place("/home/user")]
+    );
     assert_eq!(harness.app().pane(Side::Left).history().pos(), 2);
 }
 
@@ -3660,7 +3762,10 @@ fn start_keeps_only_the_newest_saved_places_within_max_history() {
     harness.resolve(Side::Left, "/home/user", None);
     harness.load(Side::Left, vec![]);
 
-    assert_eq!(harness.history(Side::Left), ["/c", "/home/user"]);
+    assert_eq!(
+        harness.history(Side::Left),
+        ["/c".to_owned(), shown_place("/home/user")]
+    );
 }
 
 #[test]
@@ -3755,7 +3860,10 @@ fn reloading_a_lower_max_history_drops_the_oldest_places() {
 
     harness.config("[filelist]\nmax_history = 2\n");
 
-    assert_eq!(harness.history(Side::Left), ["/b", "/home/user"]);
+    assert_eq!(
+        harness.history(Side::Left),
+        ["/b".to_owned(), shown_place("/home/user")]
+    );
 }
 
 #[test]
@@ -3776,7 +3884,10 @@ fn a_history_move_still_loading_follows_the_places_a_reload_drops() {
     harness.config("[filelist]\nmax_history = 2\n");
     harness.load(Side::Left, vec![]);
 
-    assert_eq!(harness.history(Side::Left), ["/c", "/home/user"]);
+    assert_eq!(
+        harness.history(Side::Left),
+        ["/c".to_owned(), shown_place("/home/user")]
+    );
     assert_eq!(harness.app().pane(Side::Left).history().pos(), 0);
 }
 
@@ -3798,7 +3909,7 @@ fn a_history_move_still_loading_becomes_a_visit_when_a_reload_drops_its_place() 
     harness.config("[filelist]\nmax_history = 1\n");
     harness.load(Side::Left, vec![]);
 
-    assert_eq!(harness.history(Side::Left), ["/c"]);
+    assert_eq!(harness.history(Side::Left), [shown_place("/c")]);
 }
 
 #[test]
@@ -4132,7 +4243,10 @@ fn the_title_says_when_the_process_is_elevated() {
     harness.resolve(Side::Left, "/home/user", None);
     harness.load(Side::Left, Vec::new());
 
-    assert_eq!(harness.view().title, "wafu (Administrator) - /home/user");
+    assert_eq!(
+        harness.view().title,
+        format!("wafu (Administrator) - {}", shown_place("/home/user"))
+    );
 }
 
 #[test]
@@ -4157,12 +4271,12 @@ fn external_commands_expand_placeholders_and_report_their_start() {
             program: "wt".to_owned(),
             args: vec![
                 OsString::from("-d"),
-                home.as_os_str().to_owned(),
-                home.join("a").into_os_string(),
-                home.join("b").into_os_string(),
+                OsString::from(shown_place(HOME)),
+                OsString::from(shown(HOME, "a")),
+                OsString::from(shown(HOME, "b")),
                 OsString::from("--other"),
-                OsString::from("/tmp"),
-                home.join("c").into_os_string(),
+                OsString::from(shown_place("/tmp")),
+                OsString::from(shown(HOME, "c")),
             ],
             cwd: home.clone(),
         }]
@@ -4340,7 +4454,7 @@ fn external_commands_run_from_the_palette() {
         vec![Effect::Spawn {
             name: SpawnName::Command(Command::External("term".to_owned())),
             program: "wt".to_owned(),
-            args: vec![path("/home", "user").into_os_string()],
+            args: vec![OsString::from(shown("/home", "user"))],
             cwd: PathBuf::from(HOME),
         }]
     );
@@ -4445,6 +4559,21 @@ fn start_with_term(os: Os, inherited: bool, config: &str) -> Harness {
     harness
 }
 
+fn last_read_base(harness: &mut Harness, side: Side) -> Option<PathBuf> {
+    harness
+        .take_effects()
+        .into_iter()
+        .filter_map(|effect| match effect {
+            Effect::ReadDir {
+                side: read_side,
+                location,
+                ..
+            } if read_side == side => Some(location.base),
+            _ => None,
+        })
+        .next_back()
+}
+
 fn many_bookmarks() -> Harness {
     let mut harness = Harness::start("/home/user", "/tmp");
     let config = "[[bookmarks]]\nname = \"b\"\npath = \"/b\"\n".repeat(20);
@@ -4478,7 +4607,10 @@ fn back_to_b_with_the_history_open() -> Harness {
     harness.press("Ctrl+Shift+Left");
     harness.load(Side::Left, vec![]);
     harness.press("H");
-    assert_eq!(harness.popup_labels(), ["/c", "/b", "/a"]);
+    assert_eq!(
+        harness.popup_labels(),
+        [shown_place("/c"), "/b".to_owned(), "/a".to_owned()]
+    );
     assert_eq!(harness.view().popup.unwrap().cursor, Some(1));
     harness.take_effects();
     harness

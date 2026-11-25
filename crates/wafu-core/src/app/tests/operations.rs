@@ -12,7 +12,9 @@ use crate::operation::{
     FindQuery, OperationEvent, OperationKind, OperationSpec, Outcome, Reply, Sources,
 };
 use crate::popup::Popup;
-use crate::test_support::{Harness, LEFT, RIGHT, dir, executable, file, path, shown, special};
+use crate::test_support::{
+    Harness, LEFT, RIGHT, dir, executable, file, path, shown, shown_place, special,
+};
 use crate::view::ItemKind;
 
 const WIN_LEFT: &str = r"C:\Users\me";
@@ -170,7 +172,10 @@ fn progress_is_shown_in_the_popup() {
 
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Copying");
-    assert_eq!(popup.message, Some(format!("2 done: {}", shown(LEFT, "b"))));
+    assert_eq!(
+        popup.message,
+        Some(format!("2 done: {}", path(LEFT, "b").display()))
+    );
     assert!(popup.progress);
 }
 
@@ -222,7 +227,7 @@ fn a_conflict_opens_the_choices_and_letters_answer_them() {
 
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "File exists");
-    assert_eq!(popup.message, Some(shown(RIGHT, "a")));
+    assert_eq!(popup.message, Some(path(RIGHT, "a").display().to_string()));
     assert_eq!(
         harness.popup_labels(),
         [
@@ -654,7 +659,7 @@ fn delete_takes_the_directory_the_confirmation_was_opened_in() {
     harness.press("Down");
     harness.press("D");
     harness.vanish(Side::Left, "/home", vec![file("a")]);
-    assert_eq!(harness.view().left.path, "/home");
+    assert_eq!(harness.view().left.path, shown_place("/home"));
 
     harness.press("Y");
 
@@ -1007,7 +1012,7 @@ fn rename_to_a_path_is_an_error() {
         harness.log().last().unwrap(),
         &format!(
             "Cannot rename {} to b/c: contains a separator",
-            path(LEFT, "a").display()
+            shown(LEFT, "a")
         )
     );
 }
@@ -1018,7 +1023,7 @@ fn rename_takes_the_directory_the_popup_was_opened_in() {
     harness.press("Down");
     harness.press("R");
     harness.vanish(Side::Left, "/home", vec![file("a")]);
-    assert_eq!(harness.view().left.path, "/home");
+    assert_eq!(harness.view().left.path, shown_place("/home"));
 
     harness.edit("z");
     harness.press("Enter");
@@ -1122,11 +1127,11 @@ fn rename_on_the_parent_row_renames_the_directory_itself_and_follows_it() {
                 location,
                 ..
             }
-        ] if path.as_os_str() == "/home/me"
+        ] if path == Path::new("/home/me")
             && *location == Location::new(PathBuf::from("/home/me"))
     ));
     harness.load(Side::Left, vec![]);
-    assert_eq!(harness.view().left.path, "/home/me");
+    assert_eq!(harness.view().left.path, shown_place("/home/me"));
 }
 
 #[test]
@@ -1173,7 +1178,7 @@ fn a_failed_rename_only_logs() {
 
     assert_eq!(
         harness.log().last().cloned(),
-        Some(format!("Cannot rename {}: busy", shown(LEFT, "z")))
+        Some(format!("Cannot rename {}: busy", path(LEFT, "z").display()))
     );
     assert_eq!(harness.take_effects(), vec![]);
 }
@@ -1256,6 +1261,24 @@ fn mkdir_creates_nested_directories_and_enters_the_new_one() {
 }
 
 #[test]
+fn mkdir_with_dot_dot_enters_the_folded_place() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.take_effects();
+    harness.press("K");
+    harness.edit("../x");
+    harness.press("Enter");
+    harness.take_effects();
+
+    harness.changed_result(Change::DirCreated(PathBuf::from(LEFT).join("../x")), None);
+
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::Watch { .. }, Effect::ReadDir { side: Side::Left, location, .. }]
+            if location.base == Path::new("/home/x")
+    ));
+}
+
+#[test]
 fn mkdir_without_entering_puts_the_cursor_on_the_first_component() {
     let mut harness =
         Harness::start_with_config(LEFT, RIGHT, "[filelist]\nmkdir_enters_dir = false\n");
@@ -1283,7 +1306,7 @@ fn mkdir_makes_the_directory_in_the_place_the_popup_was_opened_in() {
     let mut harness = three_files();
     harness.press("K");
     harness.vanish(Side::Left, "/home", vec![file("a")]);
-    assert_eq!(harness.view().left.path, "/home");
+    assert_eq!(harness.view().left.path, shown_place("/home"));
 
     harness.edit("x");
     harness.press("Enter");
@@ -1303,7 +1326,7 @@ fn a_failed_mkdir_is_logged() {
         harness.log().last().cloned(),
         Some(format!(
             "Cannot create {}: already exists",
-            shown(LEFT, "x")
+            path(LEFT, "x").display()
         ))
     );
 }
@@ -1367,7 +1390,7 @@ fn new_file_creates_the_file_in_the_place_the_popup_was_opened_in() {
     harness.edit("new_file");
     harness.press("Enter");
     harness.vanish(Side::Left, "/home", vec![file("a")]);
-    assert_eq!(harness.view().left.path, "/home");
+    assert_eq!(harness.view().left.path, shown_place("/home"));
 
     harness.edit("n.txt");
     harness.press("Enter");
@@ -1385,7 +1408,7 @@ fn new_text_names_and_opens_the_file_in_the_place_the_popup_was_opened_in() {
     harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
     harness.press("Shift+E");
     harness.vanish(Side::Left, "/home", vec![file("a")]);
-    assert_eq!(harness.view().left.path, "/home");
+    assert_eq!(harness.view().left.path, shown_place("/home"));
 
     harness.edit("notes.txt");
     harness.press("Enter");
@@ -1401,7 +1424,7 @@ fn new_text_names_and_opens_the_file_in_the_place_the_popup_was_opened_in() {
             name: SpawnName::Editor,
             program: "ed".to_owned(),
             args: vec![
-                OsString::from(LEFT),
+                OsString::from(shown_place(LEFT)),
                 path(LEFT, "notes.txt").into_os_string()
             ],
             cwd: PathBuf::from(LEFT),
@@ -1419,7 +1442,7 @@ fn new_text_without_creating_opens_the_editor_in_the_place_the_popup_was_opened_
     harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
     harness.press("Shift+E");
     harness.vanish(Side::Left, "/home", vec![file("a")]);
-    assert_eq!(harness.view().left.path, "/home");
+    assert_eq!(harness.view().left.path, shown_place("/home"));
 
     harness.edit("notes.txt");
     harness.press("Enter");
@@ -1430,9 +1453,9 @@ fn new_text_without_creating_opens_the_editor_in_the_place_the_popup_was_opened_
             name: SpawnName::Editor,
             program: "ed".to_owned(),
             args: vec![
-                OsString::from(LEFT),
-                OsString::from(RIGHT),
-                path(LEFT, "notes.txt").into_os_string()
+                OsString::from(shown_place(LEFT)),
+                OsString::from(shown_place(RIGHT)),
+                OsString::from(shown(LEFT, "notes.txt"))
             ],
             cwd: PathBuf::from(LEFT),
         }]
@@ -1487,7 +1510,7 @@ fn new_text_on_an_existing_name_only_logs() {
         harness.log().last().cloned(),
         Some(format!(
             "Cannot create {}: already exists",
-            shown(LEFT, "a")
+            path(LEFT, "a").display()
         ))
     );
     harness.changed_result(Change::FileCreated(path(LEFT, "a")), None);
@@ -1512,7 +1535,7 @@ fn edit_opens_the_cursor_entry_whatever_is_marked() {
         vec![Effect::Spawn {
             name: SpawnName::Editor,
             program: "xdg-open".to_owned(),
-            args: vec![path(LEFT, "c").into_os_string()],
+            args: vec![OsString::from(shown(LEFT, "c"))],
             cwd: PathBuf::from(LEFT),
         }]
     );
@@ -1572,10 +1595,10 @@ fn open_alternative_starts_the_rule_for_the_extension_on_the_cursor_entry_alone(
             name: SpawnName::Command(Command::OpenAlternative),
             program: "view".to_owned(),
             args: vec![
-                path(LEFT, "b.PDF").into_os_string(),
-                path(LEFT, "b.PDF").into_os_string(),
-                OsString::from(LEFT),
-                OsString::from(RIGHT),
+                OsString::from(shown(LEFT, "b.PDF")),
+                OsString::from(shown(LEFT, "b.PDF")),
+                OsString::from(shown_place(LEFT)),
+                OsString::from(shown_place(RIGHT)),
             ],
             cwd: PathBuf::from(LEFT),
         }]
@@ -1597,7 +1620,7 @@ fn open_alternative_starts_the_dir_rule_on_a_directory() {
         vec![Effect::Spawn {
             name: SpawnName::Command(Command::OpenAlternative),
             program: "code".to_owned(),
-            args: vec![path(LEFT, "d").into_os_string()],
+            args: vec![OsString::from(shown(LEFT, "d"))],
             cwd: PathBuf::from(LEFT),
         }]
     );
@@ -1629,12 +1652,12 @@ fn open_alternative_rules_win_over_entering_an_archive_and_running_a_program() {
     assert_eq!(
         started,
         [
-            ("z".to_owned(), vec![path(LEFT, "a.zip").into_os_string()]),
-            ("s".to_owned(), vec![path(LEFT, "run.sh").into_os_string()]),
+            ("z".to_owned(), vec![OsString::from(shown(LEFT, "a.zip"))]),
+            ("s".to_owned(), vec![OsString::from(shown(LEFT, "run.sh"))]),
         ]
     );
     assert!(harness.popup().is_none());
-    assert_eq!(harness.view().left.path, LEFT);
+    assert_eq!(harness.view().left.path, shown_place(LEFT));
 }
 
 #[test]
@@ -1727,7 +1750,10 @@ fn open_with_os_opens_the_cursor_entry_only() {
     }));
     assert_eq!(
         harness.log().last().cloned(),
-        Some(format!("Cannot open {}: no application", shown(LEFT, "c")))
+        Some(format!(
+            "Cannot open {}: no application",
+            path(LEFT, "c").display()
+        ))
     );
 }
 
@@ -1779,7 +1805,7 @@ fn run_file_starts_the_cursor_item_in_the_pane_directory() {
         harness.take_effects(),
         vec![Effect::Spawn {
             name: SpawnName::Command(Command::RunFile),
-            program: path(LEFT, "my tool").to_string_lossy().into_owned(),
+            program: shown(LEFT, "my tool"),
             args: Vec::new(),
             cwd: PathBuf::from(LEFT),
         }]
@@ -1814,7 +1840,7 @@ fn run_file_on_anything_else_puts_the_caret_before_its_quoted_path() {
     let line = CommandLine::parse(&format!("p{}", field.text), Os::Linux).unwrap();
     assert_eq!(
         line.expand(&Expansion::default()),
-        [path(LEFT, "my dir").into_os_string()]
+        [OsString::from(shown(LEFT, "my dir"))]
     );
     assert_eq!(field.select, Some((0, 0)));
 }
@@ -1836,7 +1862,7 @@ fn run_command_starts_the_line_with_its_placeholders_filled_in_the_pane_director
         vec![Effect::Spawn {
             name: SpawnName::Command(Command::RunCommandLine),
             program: "tool".to_owned(),
-            args: vec![path(LEFT, "a").into_os_string()],
+            args: vec![OsString::from(shown(LEFT, "a"))],
             cwd: PathBuf::from(LEFT),
         }]
     );

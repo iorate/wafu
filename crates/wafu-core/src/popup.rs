@@ -15,7 +15,7 @@ use crate::key::{Key, KeyBase, NamedKey};
 use crate::listing::{SortKey, SortSpec};
 use crate::location::{ArchiveFormat, Location, Passwords};
 use crate::pane::HistoryMove;
-use crate::path::expand_tilde;
+use crate::path::resolve_input;
 use crate::preview::ENCODINGS;
 use crate::scroll::{self, LineRows};
 use crate::text::nfc;
@@ -734,7 +734,7 @@ impl ListPopup {
     }
 
     /// Bookmarks in the configured order; a pick goes to the path with `~`
-    /// taken from `home`.
+    /// taken from `home` and any other relative path from the bookmark's `dir`.
     #[must_use]
     pub fn bookmarks(bookmarks: &[Bookmark], home: &Path) -> Self {
         let items = bookmarks
@@ -745,7 +745,7 @@ impl ListPopup {
                     key: bookmark.key,
                     label: bookmark.name.clone(),
                     current: false,
-                    target: ListTarget::Path(expand_tilde(&path, home)),
+                    target: ListTarget::Path(resolve_input(&path, home, &bookmark.dir)),
                     source: Some(path.into_owned()),
                 }
             })
@@ -2202,6 +2202,7 @@ mod tests {
         Bookmark {
             name: path.to_owned(),
             path: PathBuf::from(path),
+            dir: PathBuf::from("/home/user"),
             key,
         }
     }

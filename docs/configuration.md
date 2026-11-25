@@ -230,7 +230,7 @@ zip = "#ff8080"
 
 ## Bookmarks
 
-Each `[[bookmarks]]` entry adds one bookmark, in order. `name` is what the bookmarks popup shows; a `path` that is `~` or starts with `~/` (on Windows also `~\`) is taken from your home directory.
+Each `[[bookmarks]]` entry adds one bookmark, in order. `name` is what the bookmarks popup shows; a `path` that is `~` or starts with `~/` (on Windows also `~\`) is taken from your home directory, and any other relative path from the directory of the file it is written in.
 
 ```toml
 [[bookmarks]]
