@@ -25,6 +25,8 @@ use crate::archive::{
 
 const TEMP_PREFIX: &str = "wafu-";
 const LONG_TARGET: &str = "the link target is too long";
+#[cfg(target_os = "macos")]
+const QUARANTINE: &str = "com.apple.quarantine";
 
 impl Worker<'_> {
     pub(super) fn extract_archives(
@@ -101,7 +103,7 @@ impl Worker<'_> {
         };
         let mut extraction = open(self, &dest)?;
         if into_dir {
-            ensure_dir(shown, root, &dest).map_err(Stop::fatal)?;
+            ensure_dir(shown, root, &dest, extraction.mark.as_deref()).map_err(Stop::fatal)?;
         }
         let all: Vec<usize> = (0..extraction.reader.entries().len()).collect();
         let extracted = self.extract_indices(&mut extraction, &all, 0);
@@ -247,6 +249,7 @@ impl Worker<'_> {
                         opened.reader,
                         innermost,
                         password,
+                        read_mark(base),
                         dest,
                     ));
                 }
@@ -318,7 +321,7 @@ impl Worker<'_> {
         }
         match entry.kind {
             ArchiveEntryKind::Dir => {
-                ensure_dir(&shown, &extraction.dest, &dst)?;
+                ensure_dir(&shown, &extraction.dest, &dst, extraction.mark.as_deref())?;
                 extraction.dirs.push((dst, entry));
             }
             ArchiveEntryKind::File => {
@@ -336,12 +339,15 @@ impl Worker<'_> {
                 }
                 // Once the entry is known to be readable, so that one skipped
                 // leaves no directories behind.
-                ensure_parent(&shown, &extraction.dest, &dst)?;
+                ensure_parent(&shown, &extraction.dest, &dst, extraction.mark.as_deref())?;
                 let Some(dst) = self.clear_destination(&shown, &dst, None, &[])? else {
                     return Ok(false);
                 };
                 write_replacing(&dst, &shown, |path| {
                     self.write_entry(extraction, index, copy_of, path, &shown)?;
+                    // Before the metadata, since a read-only file refuses the
+                    // mark and writing it on Windows changes the modification time.
+                    mark_file(path, extraction.mark.as_deref());
                     set_entry_metadata(path, &entry);
                     Ok(())
                 })?;
@@ -360,7 +366,7 @@ impl Worker<'_> {
                     .read_to_end(&mut raw)
                     .map_err(fail(&shown))?;
                 let target = decode_name(&raw);
-                ensure_parent(&shown, &extraction.dest, &dst)?;
+                ensure_parent(&shown, &extraction.dest, &dst, extraction.mark.as_deref())?;
                 let Some(dst) = self.clear_destination(&shown, &dst, None, &[])? else {
                     return Ok(false);
                 };
@@ -597,6 +603,9 @@ struct Extraction {
     // The level of the archive among those read to reach it, and its password.
     level: usize,
     password: Option<String>,
+    // The mark of where the outermost archive came from, read from it since
+    // a nested archive is read from a temporary file.
+    mark: Option<Vec<u8>>,
     dest: PathBuf,
     // The link, its target, the entry's index, and its path as shown.
     links: Vec<(Destination, String, usize, PathBuf)>,
@@ -608,7 +617,14 @@ impl Extraction {
     fn open(archive: &Path, format: Option<ArchiveFormat>, dest: &Path) -> Result<Self, Stop> {
         let reader =
             open_archive(archive, format).map_err(|error| failure(archive, &error.to_string()))?;
-        Ok(Self::new(archive.to_path_buf(), reader, 0, None, dest))
+        Ok(Self::new(
+            archive.to_path_buf(),
+            reader,
+            0,
+            None,
+            read_mark(archive),
+            dest,
+        ))
     }
 
     fn new(
@@ -616,6 +632,7 @@ impl Extraction {
         reader: Box<dyn ArchiveReader>,
         level: usize,
         password: Option<String>,
+        mark: Option<Vec<u8>>,
         dest: &Path,
     ) -> Self {
         Self {
@@ -623,6 +640,7 @@ impl Extraction {
             reader,
             level,
             password,
+            mark,
             dest: dest.to_path_buf(),
             links: Vec::new(),
             dirs: Vec::new(),
@@ -664,7 +682,7 @@ fn archive_name(path: &Path, base: &Path) -> Result<String, Stop> {
         .join("/"))
 }
 
-fn ensure_dir(shown: &Path, root: &Path, dst: &Path) -> Result<(), Stop> {
+fn ensure_dir(shown: &Path, root: &Path, dst: &Path, mark: Option<&[u8]>) -> Result<(), Stop> {
     let relative = dst
         .strip_prefix(root)
         .map_err(|_| refuse(shown, UNSAFE_NAME))?;
@@ -681,6 +699,7 @@ fn ensure_dir(shown: &Path, root: &Path, dst: &Path) -> Result<(), Stop> {
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 fs::create_dir(&path).map_err(|error| creation_error(shown, error))?;
+                mark_dir(&path, mark);
             }
             Err(error) => {
                 return Err(fail(shown)(error));
@@ -711,9 +730,9 @@ fn creation_error(shown: &Path, error: io::Error) -> Stop {
 }
 
 // Archives need not list a directory before the files in it.
-fn ensure_parent(shown: &Path, root: &Path, dst: &Path) -> Result<(), Stop> {
+fn ensure_parent(shown: &Path, root: &Path, dst: &Path, mark: Option<&[u8]>) -> Result<(), Stop> {
     match dst.parent() {
-        Some(parent) => ensure_dir(shown, root, parent),
+        Some(parent) => ensure_dir(shown, root, parent, mark),
         None => Ok(()),
     }
 }
@@ -735,6 +754,55 @@ fn set_modified(path: &Path, modified: SystemTime) {
     if let Ok(file) = open_for_times(path) {
         let _ = file.set_times(FileTimes::new().set_modified(modified));
     }
+}
+
+// Read through a link, as the archive itself is.
+#[cfg(target_os = "macos")]
+fn read_mark(archive: &Path) -> Option<Vec<u8>> {
+    xattr::get_deref(archive, QUARANTINE).ok().flatten()
+}
+
+#[cfg(windows)]
+fn read_mark(archive: &Path) -> Option<Vec<u8>> {
+    fs::read(zone_identifier(archive)).ok()
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn read_mark(_: &Path) -> Option<Vec<u8>> {
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn mark_file(path: &Path, mark: Option<&[u8]>) {
+    if let Some(mark) = mark {
+        let _ = xattr::set(path, QUARANTINE, mark);
+    }
+}
+
+#[cfg(windows)]
+fn mark_file(path: &Path, mark: Option<&[u8]>) {
+    if let Some(mark) = mark {
+        let _ = fs::write(zone_identifier(path), mark);
+    }
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn mark_file(_: &Path, _: Option<&[u8]>) {}
+
+#[cfg(target_os = "macos")]
+fn mark_dir(path: &Path, mark: Option<&[u8]>) {
+    mark_file(path, mark);
+}
+
+// Windows marks only the files it extracts from a zip.
+#[cfg(not(target_os = "macos"))]
+fn mark_dir(_: &Path, _: Option<&[u8]>) {}
+
+#[cfg(windows)]
+fn zone_identifier(path: &Path) -> PathBuf {
+    let mut stream = path.as_os_str().to_owned();
+    stream.push(":Zone.Identifier");
+    PathBuf::from(stream)
 }
 
 #[cfg(unix)]
@@ -2494,6 +2562,89 @@ mod tests {
         );
         assert_eq!(fs::read(temp.join("a.txt")).unwrap(), b"a");
         fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn quarantine_is_carried_to_extracted_files() {
+        use std::process::Command;
+
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("download.zip");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        write_zip(&archive, None, |writer| {
+            writer
+                .add_file(
+                    "run.command",
+                    10,
+                    None,
+                    Some(0o444),
+                    &mut &b"#!/bin/sh\n"[..],
+                )
+                .unwrap();
+        });
+        let set = Command::new("/usr/bin/xattr")
+            .args(["-w", "com.apple.quarantine", "0083;65a00000;Safari;"])
+            .arg(&archive)
+            .status()
+            .unwrap();
+        assert!(set.success());
+        let has = |path: &Path| {
+            Command::new("/usr/bin/xattr")
+                .args(["-p", "com.apple.quarantine"])
+                .arg(path)
+                .output()
+                .unwrap()
+                .status
+                .success()
+        };
+
+        let (outcome, _, _) = run(&extract(std::slice::from_ref(&archive), &dest), []);
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        let spec = OperationSpec {
+            kind: OperationKind::ExtractToTemp,
+            sources: Sources::Entries(entries(&archive, &[], &["run.command"], None)),
+            dest: None,
+            output: None,
+        };
+        let (_, _, events) = run(&spec, []);
+        let Some(OperationEvent::TempDir(temp)) = events.first() else {
+            panic!();
+        };
+        let extracted = has(&dest.join("run.command"));
+        let in_temp = has(&temp.join("run.command"));
+        fs::remove_dir_all(temp).unwrap();
+
+        assert!(extracted, "the extracted file is not quarantined");
+        assert!(in_temp, "the file extracted to open is not quarantined");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_zone_of_the_archive_is_carried_to_extracted_files() {
+        const ZONE: &[u8] = b"[ZoneTransfer]\r\nZoneId=3\r\n";
+
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("download.zip");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        write_zip(&archive, None, |writer| {
+            writer
+                .add_file("a.txt", 1, None, None, &mut &b"a"[..])
+                .unwrap();
+        });
+        if fs::write(zone_identifier(&archive), ZONE).is_err() {
+            return;
+        }
+
+        let (outcome, _, _) = run(&extract(std::slice::from_ref(&archive), &dest), []);
+
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(
+            fs::read(zone_identifier(&dest.join("a.txt"))).unwrap(),
+            ZONE
+        );
     }
 
     fn run(

@@ -47,6 +47,9 @@ toml = "1.2.1"
 trash = "5.4.0"
 windows = "0.62.2"
 winresource = "0.1.34"
+# Reads and writes the quarantine mark on macOS without unsafe code, which
+# wafu-io keeps to Windows API calls.
+xattr = { version = "1.7.0", default-features = false }
 zip = { version = "9.7.0", default-features = false, features = ["aes-crypto", "bzip2", "deflate", "deflate64"] }
 wafu-core = { version = "=0.4.0", path = "crates/wafu-core" }
 wafu-io = { version = "=0.4.0", path = "crates/wafu-io" }
