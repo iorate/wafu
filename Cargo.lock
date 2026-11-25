@@ -5551,6 +5551,7 @@ dependencies = [
  "trash",
  "wafu-core",
  "windows",
+ "xattr",
  "zip",
 ]
 
