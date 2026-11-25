@@ -327,7 +327,7 @@ impl Worker<'_> {
             return Err(refuse(&shown, UNSAFE_NAME));
         }
         // Probed before anything is made, since a name the file system cannot
-        // hold fails the lookups on the way too, which would stop the rest.
+        // hold fails the lookup for a conflict too, which would stop the rest.
         if let Err(error) = fs::symlink_metadata(&dst)
             && error.kind() == io::ErrorKind::InvalidFilename
         {
@@ -756,8 +756,11 @@ fn ensure_dir(
                 mark_dir(&path, mark);
                 created.insert(path.clone());
             }
+            // The probe of the whole path does not catch a directory's name
+            // that is too long on Windows, where a path below such a name is
+            // reported as not found.
             Err(error) => {
-                return Err(fail(shown)(error));
+                return Err(creation_error(shown, error));
             }
         }
     }
