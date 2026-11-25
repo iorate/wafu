@@ -39,8 +39,9 @@ pub struct CompareState {
     pub ignore_case: Option<bool>,
 }
 
-/// The window's place on the screen in logical pixels. The position is
-/// absent where the platform does not provide it.
+/// The window's place on the screen. The size is in logical pixels; the
+/// position is in physical pixels on Windows and in logical pixels elsewhere,
+/// and is absent where the platform does not provide it.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WindowState {
@@ -48,6 +49,15 @@ pub struct WindowState {
     pub y: Option<i32>,
     pub width: Option<u32>,
     pub height: Option<u32>,
+}
+
+/// A screen's rectangle in physical pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScreenRect {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -70,9 +80,44 @@ impl StateFile {
     }
 }
 
+impl WindowState {
+    /// The saved position, if the window placed there with the saved size
+    /// shows at least 100 pixels (or its whole width or height, if smaller)
+    /// each way on one of `screens`. `None` when the position or the size is
+    /// not saved.
+    #[must_use]
+    pub fn position_on(&self, screens: &[ScreenRect]) -> Option<(i32, i32)> {
+        let (Some(x), Some(y), Some(width), Some(height)) =
+            (self.x, self.y, self.width, self.height)
+        else {
+            return None;
+        };
+        screens
+            .iter()
+            .any(|screen| {
+                overlap(x, width, screen.x, screen.width) >= i64::from(width.min(100))
+                    && overlap(y, height, screen.y, screen.height) >= i64::from(height.min(100))
+            })
+            .then_some((x, y))
+    }
+}
+
+fn overlap(start: i32, length: u32, other_start: i32, other_length: u32) -> i64 {
+    let end = i64::from(start) + i64::from(length);
+    let other_end = i64::from(other_start) + i64::from(other_length);
+    end.min(other_end) - i64::from(start).max(i64::from(other_start))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const SCREENS: &[ScreenRect] = &[ScreenRect {
+        x: 0,
+        y: 0,
+        width: 1920,
+        height: 1080,
+    }];
 
     #[test]
     fn round_trips_through_toml() {
@@ -117,5 +162,61 @@ mod tests {
         assert_eq!(state.right, PaneState::default());
         assert_eq!(state.window, None);
         assert_eq!(StateFile::from_toml(""), Ok(StateFile::default()));
+    }
+
+    #[test]
+    fn position_on_keeps_a_window_fully_on_a_screen() {
+        assert_eq!(
+            window(100, 100, 80, 60).position_on(SCREENS),
+            Some((100, 100))
+        );
+    }
+
+    #[test]
+    fn position_on_keeps_a_window_enough_of_which_is_on_a_screen() {
+        assert_eq!(
+            window(1820, 100, 800, 600).position_on(SCREENS),
+            Some((1820, 100))
+        );
+    }
+
+    #[test]
+    fn position_on_drops_a_window_too_little_of_which_is_on_a_screen() {
+        assert_eq!(window(1821, 100, 800, 600).position_on(SCREENS), None);
+    }
+
+    #[test]
+    fn position_on_drops_a_window_off_every_screen() {
+        assert_eq!(window(100, 2000, 800, 600).position_on(SCREENS), None);
+    }
+
+    #[test]
+    fn position_on_measures_from_the_edges_of_a_screen_away_from_the_origin() {
+        let screens = &[ScreenRect {
+            x: 1920,
+            y: 200,
+            width: 1280,
+            height: 1024,
+        }];
+        assert_eq!(
+            window(1220, -500, 800, 800).position_on(screens),
+            Some((1220, -500))
+        );
+        assert_eq!(window(1219, -500, 800, 800).position_on(screens), None);
+        assert_eq!(window(1220, -501, 800, 800).position_on(screens), None);
+    }
+
+    #[test]
+    fn position_on_drops_the_position_without_screens() {
+        assert_eq!(window(100, 100, 800, 600).position_on(&[]), None);
+    }
+
+    fn window(x: i32, y: i32, width: u32, height: u32) -> WindowState {
+        WindowState {
+            x: Some(x),
+            y: Some(y),
+            width: Some(width),
+            height: Some(height),
+        }
     }
 }

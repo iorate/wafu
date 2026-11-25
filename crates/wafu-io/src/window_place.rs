@@ -1,12 +1,15 @@
-use windows::Win32::Foundation::{HWND, RECT};
+use wafu_core::ScreenRect;
+use windows::Win32::Foundation::{HWND, LPARAM, RECT};
 use windows::Win32::Graphics::Gdi::{
-    GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromRect,
+    EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITOR_DEFAULTTONEAREST, MONITORINFO,
+    MonitorFromRect,
 };
 use windows::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow};
 use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowInfo, GetWindowPlacement, WINDOWINFO, WINDOWPLACEMENT, WS_EX_TOOLWINDOW, WS_MAXIMIZE,
     WS_MINIMIZE,
 };
+use windows::core::BOOL;
 
 /// A place of a window in physical pixels: the screen position of the
 /// top-left corner of its frame and the size inside the frame.
@@ -71,4 +74,50 @@ pub fn normal_window_place(window: isize) -> windows::core::Result<WindowPlace> 
         width: inner(rect.right - rect.left, frame.right - frame.left),
         height: inner(rect.bottom - rect.top, frame.bottom - frame.top),
     })
+}
+
+/// Returns the rectangles of the attached screens in physical pixels, in the
+/// coordinates window positions use.
+#[allow(unsafe_code)]
+pub fn screens() -> Vec<ScreenRect> {
+    let mut screens = Vec::new();
+    // SAFETY: the callback is called only during the call, and the vector it
+    // is handed outlives the call.
+    let _ = unsafe {
+        EnumDisplayMonitors(
+            None,
+            None,
+            Some(add_screen),
+            LPARAM(&raw mut screens as isize),
+        )
+    };
+    screens
+}
+
+#[allow(unsafe_code)]
+unsafe extern "system" fn add_screen(
+    monitor: HMONITOR,
+    _hdc: HDC,
+    _rect: *mut RECT,
+    screens: LPARAM,
+) -> BOOL {
+    let mut info = MONITORINFO {
+        cbSize: u32::try_from(size_of::<MONITORINFO>()).unwrap_or(0),
+        ..Default::default()
+    };
+    // SAFETY: the monitor is the one being enumerated, and the structure is
+    // writable with its size set.
+    if unsafe { GetMonitorInfoW(monitor, &raw mut info) }.as_bool() {
+        // SAFETY: the parameter points to the vector that `screens()` passed,
+        // borrowed by nothing else during the enumeration.
+        let screens = unsafe { &mut *(screens.0 as *mut Vec<ScreenRect>) };
+        let rect = info.rcMonitor;
+        screens.push(ScreenRect {
+            x: rect.left,
+            y: rect.top,
+            width: u32::try_from(rect.right - rect.left).unwrap_or(0),
+            height: u32::try_from(rect.bottom - rect.top).unwrap_or(0),
+        });
+    }
+    true.into()
 }
