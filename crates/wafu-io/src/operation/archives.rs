@@ -1,5 +1,5 @@
 use std::cell::Cell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fmt;
 use std::fs::{self, File, FileTimes};
@@ -103,7 +103,14 @@ impl Worker<'_> {
         };
         let mut extraction = open(self, &dest)?;
         if into_dir {
-            ensure_dir(shown, root, &dest, extraction.mark.as_deref()).map_err(Stop::fatal)?;
+            ensure_dir(
+                shown,
+                root,
+                &dest,
+                extraction.mark.as_deref(),
+                &mut extraction.created,
+            )
+            .map_err(Stop::fatal)?;
         }
         let all: Vec<usize> = (0..extraction.reader.entries().len()).collect();
         let extracted = self.extract_indices(&mut extraction, &all, 0);
@@ -321,8 +328,19 @@ impl Worker<'_> {
         }
         match entry.kind {
             ArchiveEntryKind::Dir => {
-                ensure_dir(&shown, &extraction.dest, &dst, extraction.mark.as_deref())?;
-                extraction.dirs.push((dst, entry));
+                ensure_dir(
+                    &shown,
+                    &extraction.dest,
+                    &dst,
+                    extraction.mark.as_deref(),
+                    &mut extraction.created,
+                )?;
+                // One that was already there is the user's, such as `~/.ssh`
+                // under an archive's `.ssh/`, and keeps its permissions and
+                // time.
+                if extraction.created.contains(&dst) {
+                    extraction.dirs.push((dst, entry));
+                }
             }
             ArchiveEntryKind::File => {
                 // A hard link is extracted as a copy. Its content comes before
@@ -339,7 +357,13 @@ impl Worker<'_> {
                 }
                 // Once the entry is known to be readable, so that one skipped
                 // leaves no directories behind.
-                ensure_parent(&shown, &extraction.dest, &dst, extraction.mark.as_deref())?;
+                ensure_parent(
+                    &shown,
+                    &extraction.dest,
+                    &dst,
+                    extraction.mark.as_deref(),
+                    &mut extraction.created,
+                )?;
                 let Some(dst) = self.clear_destination(&shown, &dst, None, &[])? else {
                     return Ok(false);
                 };
@@ -348,7 +372,7 @@ impl Worker<'_> {
                     // Before the metadata, since a read-only file refuses the
                     // mark and writing it on Windows changes the modification time.
                     mark_file(path, extraction.mark.as_deref());
-                    set_entry_metadata(path, &entry);
+                    set_entry_metadata(path, &entry, extraction.umask);
                     Ok(())
                 })?;
                 extraction.written.insert(index, dst.path);
@@ -366,7 +390,13 @@ impl Worker<'_> {
                     .read_to_end(&mut raw)
                     .map_err(fail(&shown))?;
                 let target = decode_name(&raw);
-                ensure_parent(&shown, &extraction.dest, &dst, extraction.mark.as_deref())?;
+                ensure_parent(
+                    &shown,
+                    &extraction.dest,
+                    &dst,
+                    extraction.mark.as_deref(),
+                    &mut extraction.created,
+                )?;
                 let Some(dst) = self.clear_destination(&shown, &dst, None, &[])? else {
                     return Ok(false);
                 };
@@ -416,7 +446,7 @@ impl Worker<'_> {
         }
         // Children were written after their directories, so deeper first.
         for (dir, entry) in extraction.dirs.iter().rev() {
-            set_entry_metadata(dir, entry);
+            set_entry_metadata(dir, entry, extraction.umask);
         }
         unlinked
     }
@@ -610,7 +640,9 @@ struct Extraction {
     // The link, its target, the entry's index, and its path as shown.
     links: Vec<(Destination, String, usize, PathBuf)>,
     dirs: Vec<(PathBuf, ArchiveEntry)>,
+    created: HashSet<PathBuf>,
     written: HashMap<usize, PathBuf>,
+    umask: u32,
 }
 
 impl Extraction {
@@ -644,7 +676,9 @@ impl Extraction {
             dest: dest.to_path_buf(),
             links: Vec::new(),
             dirs: Vec::new(),
+            created: HashSet::new(),
             written: HashMap::new(),
+            umask: read_umask(),
         }
     }
 }
@@ -689,7 +723,13 @@ fn join_name(shown: &Path, dir: &Path, name: &OsStr) -> Result<PathBuf, Stop> {
     Ok(dir.join(name))
 }
 
-fn ensure_dir(shown: &Path, root: &Path, dst: &Path, mark: Option<&[u8]>) -> Result<(), Stop> {
+fn ensure_dir(
+    shown: &Path,
+    root: &Path,
+    dst: &Path,
+    mark: Option<&[u8]>,
+    created: &mut HashSet<PathBuf>,
+) -> Result<(), Stop> {
     let relative = dst
         .strip_prefix(root)
         .map_err(|_| refuse(shown, UNSAFE_NAME))?;
@@ -707,6 +747,7 @@ fn ensure_dir(shown: &Path, root: &Path, dst: &Path, mark: Option<&[u8]>) -> Res
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 fs::create_dir(&path).map_err(|error| creation_error(shown, error))?;
                 mark_dir(&path, mark);
+                created.insert(path.clone());
             }
             Err(error) => {
                 return Err(fail(shown)(error));
@@ -737,23 +778,26 @@ fn creation_error(shown: &Path, error: io::Error) -> Stop {
 }
 
 // Archives need not list a directory before the files in it.
-fn ensure_parent(shown: &Path, root: &Path, dst: &Path, mark: Option<&[u8]>) -> Result<(), Stop> {
+fn ensure_parent(
+    shown: &Path,
+    root: &Path,
+    dst: &Path,
+    mark: Option<&[u8]>,
+    created: &mut HashSet<PathBuf>,
+) -> Result<(), Stop> {
     match dst.parent() {
-        Some(parent) => ensure_dir(shown, root, parent, mark),
+        Some(parent) => ensure_dir(shown, root, parent, mark, created),
         None => Ok(()),
     }
 }
 
 // Best effort, as when copying.
-fn set_entry_metadata(dst: &Path, entry: &ArchiveEntry) {
+fn set_entry_metadata(dst: &Path, entry: &ArchiveEntry, umask: u32) {
     if let Some(modified) = entry.modified {
         set_modified(dst, modified);
     }
-    #[cfg(unix)]
     if let Some(mode) = entry.mode {
-        use std::os::unix::fs::PermissionsExt;
-
-        let _ = fs::set_permissions(dst, fs::Permissions::from_mode(mode & 0o777));
+        set_mode(dst, mode, umask);
     }
 }
 
@@ -761,6 +805,32 @@ fn set_modified(path: &Path, modified: SystemTime) {
     if let Ok(file) = open_for_times(path) {
         let _ = file.set_times(FileTimes::new().set_modified(modified));
     }
+}
+
+#[cfg(unix)]
+fn set_mode(path: &Path, mode: u32, umask: u32) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let _ = fs::set_permissions(path, fs::Permissions::from_mode(mode & 0o777 & !umask));
+}
+
+#[cfg(not(unix))]
+fn set_mode(_: &Path, _: u32, _: u32) {}
+
+// Read from a directory made with the default permissions, since setting the
+// umask to learn it is unsafe and changes it for every thread meanwhile.
+#[cfg(unix)]
+fn read_umask() -> u32 {
+    use std::os::unix::fs::PermissionsExt;
+
+    tempfile::tempdir()
+        .and_then(|dir| fs::metadata(dir.path()))
+        .map_or(0o022, |meta| 0o777 & !meta.permissions().mode())
+}
+
+#[cfg(not(unix))]
+fn read_umask() -> u32 {
+    0
 }
 
 // Read through a link, as the archive itself is.
@@ -1119,6 +1189,77 @@ mod tests {
             0o555
         );
         fs::set_permissions(&ro, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    #[test]
+    fn a_directory_listed_after_its_contents_still_gets_its_time() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.zip");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        let modified = MODIFIED + Duration::from_secs(1_700_000_000);
+        write_zip(&archive, None, |writer| {
+            writer
+                .add_file("d/f.txt", 1, None, None, &mut &b"f"[..])
+                .unwrap();
+            writer.add_dir("d", Some(modified), None).unwrap();
+        });
+
+        let (outcome, _, _) = run(&extract(&[archive], &dest), []);
+
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(modified_of(&dest.join("d")), modified);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_that_was_already_there_keeps_its_mode() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.zip");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        let private = dest.join("private");
+        fs::create_dir(&private).unwrap();
+        fs::set_permissions(&private, fs::Permissions::from_mode(0o700)).unwrap();
+        write_zip(&archive, None, |writer| {
+            writer.add_dir("private", None, Some(0o777)).unwrap();
+        });
+
+        let (outcome, _, _) = run(&extract(&[archive], &dest), []);
+
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(
+            fs::metadata(&private).unwrap().permissions().mode() & 0o7777,
+            0o700
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn modes_from_the_archive_go_through_the_umask() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.zip");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        let probe = dir.path().join("probe");
+        fs::create_dir(&probe).unwrap();
+        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o7777;
+        write_zip(&archive, None, |writer| {
+            writer.add_dir("new", None, Some(0o777)).unwrap();
+            writer
+                .add_file("new/run.sh", 1, None, Some(0o777), &mut &b"x"[..])
+                .unwrap();
+        });
+
+        let (outcome, _, _) = run(&extract(&[archive], &dest), []);
+
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(mode(&dest.join("new/run.sh")), mode(&probe));
+        assert_eq!(mode(&dest.join("new")), mode(&probe));
     }
 
     #[test]
