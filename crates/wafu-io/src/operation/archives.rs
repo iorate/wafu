@@ -326,6 +326,13 @@ impl Worker<'_> {
         if !dst.starts_with(&extraction.dest) {
             return Err(refuse(&shown, UNSAFE_NAME));
         }
+        // Probed before anything is made, since a name the file system cannot
+        // hold fails the lookup for a conflict too, which would stop the rest.
+        if let Err(error) = fs::symlink_metadata(&dst)
+            && error.kind() == io::ErrorKind::InvalidFilename
+        {
+            return Err(refuse_io(&shown)(error));
+        }
         match entry.kind {
             ArchiveEntryKind::Dir => {
                 ensure_dir(
@@ -749,8 +756,11 @@ fn ensure_dir(
                 mark_dir(&path, mark);
                 created.insert(path.clone());
             }
+            // The probe of the whole path does not catch a directory's name
+            // that is too long on Windows, where a path below such a name is
+            // reported as not found.
             Err(error) => {
-                return Err(fail(shown)(error));
+                return Err(creation_error(shown, error));
             }
         }
     }
@@ -1901,6 +1911,33 @@ mod tests {
         assert_eq!(done_indices(&events), Vec::<usize>::new());
         assert_eq!(fs::read(dest.join("d").join("l").join("x")).unwrap(), b"x");
         assert_eq!(modified_of(&dest.join("d")), modified);
+    }
+
+    #[test]
+    fn an_entry_whose_name_is_too_long_is_skipped_and_the_rest_are_extracted() {
+        for (case, long) in [
+            ("file", "n".repeat(256)),
+            ("dir", "n".repeat(256) + "/f.txt"),
+        ] {
+            let dir = TempDir::new().unwrap();
+            let archive = dir.path().join("a.tar");
+            let dest = dir.path().join("out");
+            fs::create_dir(&dest).unwrap();
+            let mut builder = tar::Builder::new(File::create(&archive).unwrap());
+            for name in [long.as_str(), "last.txt"] {
+                let mut header = Header::new_gnu();
+                header.set_entry_type(EntryType::Regular);
+                header.set_size(1);
+                header.set_mode(0o644);
+                builder.append_data(&mut header, name, &b"x"[..]).unwrap();
+            }
+            builder.into_inner().unwrap().flush().unwrap();
+
+            let (outcome, _, _) = run(&extract(&[archive], &dest), []);
+
+            assert_eq!(outcome, Outcome::Completed { skipped: 1 }, "{case}");
+            assert!(dest.join("last.txt").exists(), "{case}");
+        }
     }
 
     #[cfg(windows)]
