@@ -1,4 +1,5 @@
-use std::path::PathBuf;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 
 use crate::app::{Change, Effect, IoEvent, Msg, Os, Side, SpawnName};
 use crate::command::Command;
@@ -10,7 +11,10 @@ use crate::operation::{
     ArchiveEntries, ArchiveOutput, OperationEvent, OperationKind, OperationSpec, Outcome, Reply,
     Sources,
 };
-use crate::test_support::{Harness, LEFT, RIGHT, dir, executable, file, passwords, path, shown};
+use crate::path::normalize;
+use crate::test_support::{
+    Harness, LEFT, RIGHT, dir, executable, file, passwords, path, shown, shown_place,
+};
 
 const TEMP: &str = "/tmp/wafu/x1";
 
@@ -45,7 +49,7 @@ fn enter_on_a_zip_watches_the_archive_and_shows_its_path() {
         harness.names(Side::Left),
         ["..", "docs", "b.txt", "inner.zip", "secret.txt"]
     );
-    assert_eq!(harness.history(Side::Left), [LEFT]);
+    assert_eq!(harness.history(Side::Left), [shown_place(LEFT)]);
 }
 
 #[test]
@@ -185,7 +189,7 @@ fn enter_as_archive_on_the_parent_row_does_nothing() {
     harness.press("Shift+U");
 
     assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(harness.view().left.path, LEFT);
+    assert_eq!(harness.view().left.path, shown_place(LEFT));
     assert_eq!(harness.log(), Vec::<String>::new());
 }
 
@@ -228,7 +232,7 @@ fn directories_inside_an_archive_descend_and_backspace_returns_with_the_cursor()
     harness.load(Side::Left, contents());
 
     assert_eq!(harness.cursor_name(Side::Left), "docs");
-    assert_eq!(harness.history(Side::Left), [LEFT]);
+    assert_eq!(harness.history(Side::Left), [shown_place(LEFT)]);
 }
 
 #[test]
@@ -252,7 +256,7 @@ fn go_root_inside_an_archive_goes_to_the_archive_root_and_stays_there() {
     harness.load(Side::Left, contents());
     assert_eq!(harness.view().left.path, root().to_string());
     assert_eq!(harness.cursor_name(Side::Left), "..");
-    assert_eq!(harness.history(Side::Left), [LEFT]);
+    assert_eq!(harness.history(Side::Left), [shown_place(LEFT)]);
     harness.take_effects();
 
     harness.press("/");
@@ -264,7 +268,7 @@ fn go_root_inside_an_archive_goes_to_the_archive_root_and_stays_there() {
     ));
     harness.load(Side::Left, contents());
     assert_eq!(harness.view().left.path, root().to_string());
-    assert_eq!(harness.history(Side::Left), [LEFT]);
+    assert_eq!(harness.history(Side::Left), [shown_place(LEFT)]);
 }
 
 #[test]
@@ -291,7 +295,7 @@ fn backspace_at_the_archive_root_leaves_with_the_cursor_on_the_archive() {
     harness.load(Side::Left, vec![file("a.zip"), file("note.txt"), dir("d")]);
 
     assert_eq!(harness.cursor_name(Side::Left), "a.zip");
-    assert_eq!(harness.view().left.path, LEFT);
+    assert_eq!(harness.view().left.path, shown_place(LEFT));
 }
 
 #[test]
@@ -1239,8 +1243,8 @@ fn compress_takes_the_directories_of_both_panes_when_the_popup_was_opened() {
     harness.press("P");
     harness.vanish(Side::Left, "/home", vec![file("note.txt")]);
     harness.vanish(Side::Right, "/", vec![]);
-    assert_eq!(harness.view().left.path, "/home");
-    assert_eq!(harness.view().right.path, "/");
+    assert_eq!(harness.view().left.path, shown_place("/home"));
+    assert_eq!(harness.view().right.path, shown_place("/"));
 
     harness.press("Enter");
 
@@ -1518,7 +1522,7 @@ fn edit_inside_an_archive_extracts_to_a_temporary_directory_and_then_starts_the_
         [Effect::ReadDir { .. }, Effect::Spawn { program, args, cwd, .. }]
             if program == "xdg-open"
                 && *args == vec![path(TEMP, "b.txt").into_os_string()]
-                && cwd.as_os_str() == LEFT
+                && cwd == Path::new(LEFT)
     ));
     assert!(harness.popup().is_none());
     assert_eq!(harness.log(), Vec::<String>::new());
@@ -1570,7 +1574,7 @@ fn open_alternative_inside_an_archive_extracts_the_cursor_entry_alone_and_then_s
                     path(TEMP, "b.txt").into_os_string(),
                     path(TEMP, "b.txt").into_os_string(),
                 ]
-                && cwd.as_os_str() == LEFT
+                && cwd == Path::new(LEFT)
     ));
 }
 
@@ -1612,7 +1616,7 @@ fn open_alternative_inside_an_archive_with_a_line_without_paths_starts_at_once()
         vec![Effect::Spawn {
             name: SpawnName::Command(Command::OpenAlternative),
             program: "term".to_owned(),
-            args: vec![PathBuf::from(LEFT).into_os_string()],
+            args: vec![OsString::from(shown_place(LEFT))],
             cwd: PathBuf::from(LEFT),
         }]
     );
@@ -1760,7 +1764,7 @@ fn run_command_inside_an_archive_without_paths_starts_at_once_in_the_directory_h
         vec![Effect::Spawn {
             name: SpawnName::Command(Command::RunCommandLine),
             program: "tool".to_owned(),
-            args: vec![PathBuf::from(LEFT).into_os_string()],
+            args: vec![OsString::from(shown_place(LEFT))],
             cwd: PathBuf::from(LEFT),
         }]
     );
@@ -1830,8 +1834,8 @@ fn an_external_command_inside_an_archive_extracts_the_cursor_and_the_marks() {
             path(TEMP, "inner.zip").into_os_string(),
             path(TEMP, "b.txt").into_os_string(),
             path(TEMP, "b.txt").into_os_string(),
-            PathBuf::from(LEFT).into_os_string(),
-            PathBuf::from(RIGHT).into_os_string(),
+            OsString::from(shown_place(LEFT)),
+            OsString::from(shown_place(RIGHT)),
         ]
     );
     assert_eq!(*cwd, PathBuf::from(LEFT));
@@ -1856,8 +1860,8 @@ fn an_external_command_on_the_parent_row_of_an_archive_root_passes_the_archive_f
             args: vec![
                 archive().into_os_string(),
                 archive().into_os_string(),
-                PathBuf::from(LEFT).into_os_string(),
-                PathBuf::from(RIGHT).into_os_string(),
+                OsString::from(shown_place(LEFT)),
+                OsString::from(shown_place(RIGHT)),
             ],
             cwd: PathBuf::from(LEFT),
         }]
@@ -1893,8 +1897,8 @@ fn an_external_command_on_the_parent_row_inside_a_directory_extracts_the_directo
         vec![
             path(TEMP, "docs").into_os_string(),
             path(TEMP, "docs").into_os_string(),
-            PathBuf::from(LEFT).into_os_string(),
-            PathBuf::from(RIGHT).into_os_string(),
+            OsString::from(shown_place(LEFT)),
+            OsString::from(shown_place(RIGHT)),
         ]
     );
 }
@@ -1942,8 +1946,8 @@ fn an_external_command_on_the_parent_row_with_marks_extracts_the_marks_alone() {
         vec![
             path(TEMP, "x").into_os_string(),
             path(TEMP, "x").into_os_string(),
-            PathBuf::from(LEFT).into_os_string(),
-            PathBuf::from(RIGHT).into_os_string(),
+            OsString::from(shown_place(LEFT)),
+            OsString::from(shown_place(RIGHT)),
         ]
     );
 }
@@ -1995,7 +1999,7 @@ fn a_failed_temporary_extraction_starts_nothing() {
         harness.log().last().cloned(),
         Some(format!(
             "Cannot extract {}: disk full",
-            shown(TEMP, "b.txt")
+            path(TEMP, "b.txt").display()
         ))
     );
 }
@@ -2065,7 +2069,10 @@ fn history_back_inside_an_archive_leaves_it_without_recording_it() {
     harness.load(Side::Left, vec![file("a.zip")]);
     harness.press("Down");
     harness.enter_archive(Side::Left, contents());
-    assert_eq!(harness.history(Side::Left), [LEFT, &shown(LEFT, "d")]);
+    assert_eq!(
+        harness.history(Side::Left),
+        [shown_place(LEFT), shown(LEFT, "d")]
+    );
     harness.take_effects();
 
     harness.press("Ctrl+Shift+Left");
@@ -2076,8 +2083,11 @@ fn history_back_inside_an_archive_leaves_it_without_recording_it() {
             if *location == Location::new(PathBuf::from(LEFT))
     ));
     harness.load(Side::Left, vec![dir("d")]);
-    assert_eq!(harness.view().left.path, LEFT);
-    assert_eq!(harness.history(Side::Left), [LEFT, &shown(LEFT, "d")]);
+    assert_eq!(harness.view().left.path, shown_place(LEFT));
+    assert_eq!(
+        harness.history(Side::Left),
+        [shown_place(LEFT), shown(LEFT, "d")]
+    );
 }
 
 #[test]
@@ -2092,12 +2102,18 @@ fn history_popup_inside_an_archive_leaves_it_for_the_place_holding_it() {
     harness.press("Down");
     harness.press("Down");
     harness.enter_archive(Side::Left, contents());
-    assert_eq!(harness.history(Side::Left), [LEFT, &shown(LEFT, "d")]);
+    assert_eq!(
+        harness.history(Side::Left),
+        [shown_place(LEFT), shown(LEFT, "d")]
+    );
     assert_eq!(harness.app().pane(Side::Left).history().pos(), 0);
     harness.take_effects();
 
     harness.press("H");
-    assert_eq!(harness.popup_labels(), [&shown(LEFT, "d"), LEFT]);
+    assert_eq!(
+        harness.popup_labels(),
+        [shown(LEFT, "d"), shown_place(LEFT)]
+    );
     assert_eq!(harness.view().popup.unwrap().cursor, Some(1));
     harness.press("Enter");
 
@@ -2118,8 +2134,11 @@ fn history_popup_inside_an_archive_leaves_it_for_the_place_holding_it() {
         ]
     );
     harness.load(Side::Left, vec![dir("d"), file("a.zip")]);
-    assert_eq!(harness.view().left.path, LEFT);
-    assert_eq!(harness.history(Side::Left), [LEFT, &shown(LEFT, "d")]);
+    assert_eq!(harness.view().left.path, shown_place(LEFT));
+    assert_eq!(
+        harness.history(Side::Left),
+        [shown_place(LEFT), shown(LEFT, "d")]
+    );
     assert_eq!(harness.app().pane(Side::Left).history().pos(), 0);
 }
 
@@ -2343,8 +2362,9 @@ fn nested_contents() -> Vec<Entry> {
     vec![dir("y"), file("c.txt")]
 }
 
+// Normalized, as the place a pane enters is.
 fn archive() -> PathBuf {
-    path(LEFT, "a.zip")
+    normalize(&path(LEFT, "a.zip"))
 }
 
 fn root() -> Location {

@@ -14,6 +14,7 @@ use crate::operation::{
     Outcome, OutcomeLine, Renames, Reply, Sources,
 };
 use crate::pane::HistoryMove;
+use crate::path::normalize;
 use crate::popup::{
     ChoiceKind, ChoicePopup, ConflictPopup, InputKind, InputPopup, ListPopup, PasswordPurpose,
     Popup, RenameMode, RenamePopup,
@@ -512,7 +513,9 @@ impl App {
         if base.as_os_str().is_empty() {
             return;
         }
-        let path = base.join(text);
+        // A pane enters the folded path, so things are made there too; through
+        // a linked directory the OS would take `..` somewhere else.
+        let path = normalize(&base.join(text));
         match kind {
             InputKind::Rename { original, .. } => {
                 // A name that only differs in normalization is the same entry

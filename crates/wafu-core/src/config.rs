@@ -51,8 +51,10 @@ pub struct Config {
 pub struct Bookmark {
     /// What the bookmarks popup shows.
     pub name: String,
-    /// As written, before `~` is expanded.
+    /// As written, before `~` is expanded and a relative path is taken from `dir`.
     pub path: PathBuf,
+    /// The directory of the configuration file that names it.
+    pub dir: PathBuf,
     /// The key that picks the bookmark at once: a digit or a lowercase letter.
     pub key: Option<char>,
 }
@@ -327,15 +329,16 @@ pub struct SyntaxError {
     pub message: String,
 }
 
-/// Reads the files of a configuration leniently, each merged over the ones
-/// before it, so that the bases come first and the file that extends them
-/// last. A syntax error in any file rejects them all and gives the index of
-/// that file, while an unknown or unusable item is reported and ignored.
+/// Reads the files of a configuration, given as paths and texts, leniently,
+/// each merged over the ones before it, so that the bases come first and the
+/// file that extends them last. A syntax error in any file rejects them all
+/// and gives the index of that file, while an unknown or unusable item is
+/// reported and ignored.
 pub fn parse_config<'a>(
-    texts: impl IntoIterator<Item = &'a str>,
+    files: impl IntoIterator<Item = (&'a Path, &'a str)>,
     os: Os,
 ) -> Result<(Config, Vec<Diagnostic>), (usize, SyntaxError)> {
-    decode::parse_layers(texts, os)
+    decode::parse_layers(files, os)
 }
 
 /// Reads the configuration file at `path` and the files it names in
@@ -935,7 +938,8 @@ mod tests {
     #[test]
     fn template_as_written_is_the_default() {
         for os in [Os::Windows, Os::MacOs, Os::Linux] {
-            let (config, diagnostics) = parse_config([CONFIG_TEMPLATE], os).unwrap();
+            let (config, diagnostics) =
+                parse_config([(Path::new("/c/config.toml"), CONFIG_TEMPLATE)], os).unwrap();
             assert_eq!(diagnostics, Vec::new(), "{os:?}");
             assert_eq!(config, Config::default_for(os), "{os:?}");
         }

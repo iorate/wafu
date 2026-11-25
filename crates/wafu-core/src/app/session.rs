@@ -90,8 +90,8 @@ impl App {
         let right = right
             .or_else(|| saved(right_state))
             .unwrap_or_else(|| self.home.clone());
-        self.resolve(Side::Left, left, true, None, effects);
-        self.resolve(Side::Right, right, true, None, effects);
+        self.resolve(Side::Left, &left, true, None, effects);
+        self.resolve(Side::Right, &right, true, None, effects);
     }
 
     pub(super) fn config_loaded(&mut self, files: Vec<ConfigFile>) {
@@ -280,7 +280,11 @@ impl App {
             self.log.push(error.to_string());
             return None;
         }
-        match parse_config(texts.iter().map(String::as_str), self.os) {
+        let files = paths
+            .iter()
+            .map(PathBuf::as_path)
+            .zip(texts.iter().map(String::as_str));
+        match parse_config(files, self.os) {
             Ok((config, diagnostics)) => {
                 for diagnostic in diagnostics {
                     self.log.push(diagnostic.to_string());

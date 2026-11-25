@@ -1,5 +1,5 @@
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::app::{
     App, Change, ConfigContent, ConfigFile, ConfigSource, Effect, IoEvent, MouseInput, Msg, Os,
@@ -11,6 +11,7 @@ use crate::key::{Key, KeyBase, KeyInput};
 use crate::location::Passwords;
 use crate::operation::{OperationEvent, OperationSpec, Outcome};
 use crate::pane::RequestId;
+use crate::path::normalize;
 use crate::popup::Popup;
 use crate::preview::{Document, ImageData};
 use crate::state::{StateError, StateFile};
@@ -597,9 +598,16 @@ pub(crate) fn path(dir: &str, name: &str) -> PathBuf {
     PathBuf::from(dir).join(name)
 }
 
-// The path as the log shows it, with the separator of the OS running the test.
+// A place as a pane shows it: normalized, so with the separator of the OS
+// running the test.
+pub(crate) fn shown_place(path: &str) -> String {
+    normalize(Path::new(path)).display().to_string()
+}
+
+// A path built from a pane's place, normalized like the place. A path that
+// comes from an I/O event is shown as it came, so `path` gives that one.
 pub(crate) fn shown(dir: &str, name: &str) -> String {
-    path(dir, name).display().to_string()
+    normalize(&path(dir, name)).display().to_string()
 }
 
 pub(crate) fn file(name: &str) -> Entry {

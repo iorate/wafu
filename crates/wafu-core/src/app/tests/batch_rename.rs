@@ -6,7 +6,7 @@ use crate::error::IoError;
 use crate::location::Location;
 use crate::operation::{OperationEvent, OperationKind, OperationSpec, Outcome, Renames, Sources};
 use crate::popup::Popup;
-use crate::test_support::{Harness, LEFT, RIGHT, dir, file, path, shown};
+use crate::test_support::{Harness, LEFT, RIGHT, dir, file, path};
 use crate::view::InputField;
 
 #[test]
@@ -64,6 +64,8 @@ fn rename_template_opens_with_the_name_placeholder_selected() {
 fn a_batch_rename_with_a_target_whose_name_is_not_utf8_is_refused() {
     use std::ffi::OsStr;
     use std::os::unix::ffi::OsStrExt;
+
+    use crate::test_support::shown;
 
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.load(
@@ -278,7 +280,7 @@ fn a_broken_cycle_unmarks_its_items_and_names_the_one_left_under_a_temporary_nam
         harness.log().last().cloned(),
         Some(format!(
             "Cannot rename {}: busy (1 left as wafu-rename-0.tmp)",
-            shown(LEFT, "2")
+            path(LEFT, "2").display()
         ))
     );
 }

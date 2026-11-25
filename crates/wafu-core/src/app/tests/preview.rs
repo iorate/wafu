@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::path::PathBuf;
 
 use crate::app::{Effect, IoEvent, MouseInput, Msg, PreviewSource, ReadError, Side, SpawnName};
@@ -10,7 +11,8 @@ use crate::operation::{
 use crate::pane::InFlight;
 use crate::preview::Document;
 use crate::test_support::{
-    Harness, LEFT, RIGHT, dir, executable, file, passwords, path, rows_at, shown, special,
+    Harness, LEFT, RIGHT, dir, executable, file, passwords, path, rows_at, shown, shown_place,
+    special,
 };
 use crate::view::{PreviewContent, PreviewPlacement};
 
@@ -454,7 +456,7 @@ fn e_closes_the_preview_and_opens_the_shown_file_in_the_editor_whatever_is_marke
         vec![Effect::Spawn {
             name: SpawnName::Editor,
             program: "xdg-open".to_owned(),
-            args: vec![path(LEFT, "zzz.txt").into_os_string()],
+            args: vec![OsString::from(shown(LEFT, "zzz.txt"))],
             cwd: PathBuf::from(LEFT),
         }]
     );
@@ -552,7 +554,7 @@ fn a_failed_read_is_logged_and_closes_the_preview() {
         harness.log().last().map(String::as_str),
         Some(&*format!(
             "Cannot preview {}: permission denied",
-            PathBuf::from(LEFT).join("note.txt").display()
+            shown(LEFT, "note.txt")
         ))
     );
 }
@@ -977,10 +979,7 @@ fn a_failed_decode_shows_the_message_in_place_of_the_image() {
 
     harness.fail_image(ReadError::Failed(IoError::new("bad png")));
 
-    let message = format!(
-        "Cannot preview {}: bad png",
-        PathBuf::from(LEFT).join("one.png").display()
-    );
+    let message = format!("Cannot preview {}: bad png", shown(LEFT, "one.png"));
     assert_eq!(
         harness.view().preview.unwrap().content,
         PreviewContent::Message(message.clone())
@@ -1008,7 +1007,7 @@ fn a_failed_decode_shows_line_breaks_in_the_name_as_symbols() {
         harness.view().preview.unwrap().content,
         PreviewContent::Message(format!(
             "Cannot preview {}: bad png",
-            PathBuf::from(LEFT).join("a\u{21B5}.png").display()
+            shown(LEFT, "a\u{21B5}.png")
         ))
     );
 }
@@ -1547,7 +1546,7 @@ fn v_on_the_parent_row_does_nothing() {
     harness.press("V");
 
     assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(harness.view().left.path, LEFT);
+    assert_eq!(harness.view().left.path, shown_place(LEFT));
     assert!(harness.view().preview.is_none());
     assert_eq!(harness.log(), Vec::<String>::new());
 }

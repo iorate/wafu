@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Range;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use toml::{Table, Value};
 
@@ -31,14 +31,20 @@ const EXTENSION_TABLES: [&[&str]; 3] = [
 // items). A syntax error rejects every file and keeps the previous
 // configuration; any other error drops just that item with a warning.
 pub(super) fn parse_layers<'a>(
-    texts: impl IntoIterator<Item = &'a str>,
+    files: impl IntoIterator<Item = (&'a Path, &'a str)>,
     os: Os,
 ) -> Result<(Config, Vec<Diagnostic>), (usize, SyntaxError)> {
     let mut merged = Table::new();
     let mut diagnostics = Vec::new();
-    for (index, text) in texts.into_iter().enumerate() {
+    let mut bookmarks_dir = Path::new("");
+    for (index, (file, text)) in files.into_iter().enumerate() {
         let mut table = parse_table(text).map_err(|error| (index, error))?;
         take_extends(&mut table, &mut diagnostics);
+        // Arrays replace wholesale in the merge, so every bookmark comes from
+        // the last file that has them.
+        if table.contains_key("bookmarks") {
+            bookmarks_dir = file.parent().unwrap_or(file);
+        }
         merge(&mut merged, table);
     }
     let mut config = Config::default_for(os);
@@ -49,7 +55,7 @@ pub(super) fn parse_layers<'a>(
     read_programs(&mut root, &mut config, os);
     read_font(&mut root, &mut config);
     read_colors(&mut root, &mut config);
-    read_bookmarks(&mut root, &mut config);
+    read_bookmarks(&mut root, &mut config, bookmarks_dir);
     read_commands(&mut root, &mut config, os);
     read_open_alternative(&mut root, &mut config, os);
     read_keys(&mut root, &mut config);
@@ -549,7 +555,7 @@ fn read_extensions<T>(
     }
 }
 
-fn read_bookmarks(root: &mut Reader<'_>, config: &mut Config) {
+fn read_bookmarks(root: &mut Reader<'_>, config: &mut Config, dir: &Path) {
     let Some(value) = root.table.remove("bookmarks") else {
         return;
     };
@@ -576,6 +582,7 @@ fn read_bookmarks(root: &mut Reader<'_>, config: &mut Config) {
             config.bookmarks.push(Bookmark {
                 name,
                 path: PathBuf::from(path),
+                dir: dir.to_path_buf(),
                 key,
             });
         }
@@ -828,6 +835,7 @@ mod tests {
     use crate::config::{ImagePreviewConfig, PreviewConfig, TextPreviewConfig, TimeFormat};
     use crate::external::{CommandLineError, Expansion};
 
+    const FILE: &str = "/c/config.toml";
     const EXAMPLE: &str = r##"
 [filelist]
 mkdir_enters_dir = true
@@ -1723,11 +1731,11 @@ run = "wt"
     #[test]
     fn later_files_merge_over_earlier_ones() {
         let (config, diagnostics) = parse_layers(
-            [
+            in_one_file(&[
                 "[filelist]\nrequire_marks = false\nsize_format = \"comma\"\n",
                 "extends = \"a.toml\"\n[filelist]\nsize_format = \"human\"\nmkdir_enters_dir = false\n",
                 "extends = [\"b.toml\"]\n[filelist]\nmkdir_enters_dir = true\n",
-            ],
+            ]),
             Os::Linux,
         )
         .unwrap();
@@ -1739,12 +1747,41 @@ run = "wt"
     }
 
     #[test]
-    fn extension_colors_merge_by_lowercased_extension() {
+    fn bookmarks_are_taken_from_the_directory_of_the_last_file_that_has_them() {
         let (config, diagnostics) = parse_layers(
             [
+                (
+                    Path::new("/a/base.toml"),
+                    "[[bookmarks]]\nname = \"a\"\npath = \"a\"\n",
+                ),
+                (
+                    Path::new("/b/middle.toml"),
+                    "[[bookmarks]]\nname = \"b\"\npath = \"b\"\n",
+                ),
+                (Path::new(FILE), "[filelist]\nrequire_marks = false\n"),
+            ],
+            Os::Linux,
+        )
+        .unwrap();
+
+        assert_eq!(diagnostics, []);
+        assert_eq!(
+            config
+                .bookmarks
+                .iter()
+                .map(|bookmark| (bookmark.name.as_str(), bookmark.dir.as_path()))
+                .collect::<Vec<_>>(),
+            [("b", Path::new("/b"))]
+        );
+    }
+
+    #[test]
+    fn extension_colors_merge_by_lowercased_extension() {
+        let (config, diagnostics) = parse_layers(
+            in_one_file(&[
                 "[colors.light.extensions]\nzip = \"#111111\"\npng = \"#222222\"\nGIF = \"#555555\"\n",
                 "[colors.light.extensions]\nzip = \"#333333\"\n7z = \"#444444\"\ngif = \"#666666\"\n",
-            ],
+            ]),
             Os::Linux,
         )
         .unwrap();
@@ -1764,10 +1801,10 @@ run = "wt"
     #[test]
     fn open_alternative_rules_merge_by_lowercased_extension() {
         let (config, diagnostics) = parse_layers(
-            [
+            in_one_file(&[
                 "[open_alternative.extensions]\nPDF = \"a {paths}\"\ntxt = \"b {paths}\"\n",
                 "[open_alternative.extensions]\npdf = \"c {paths}\"\n",
-            ],
+            ]),
             Os::Linux,
         )
         .unwrap();
@@ -1791,7 +1828,7 @@ run = "wt"
     #[test]
     fn an_empty_string_takes_back_what_a_file_below_set() {
         let (config, diagnostics) = parse_layers(
-            [
+            in_one_file(&[
                 r##"
 [filelist]
 size_format = "human"
@@ -1830,7 +1867,7 @@ pdf = ""
 [keys.filelist]
 "C" = ""
 "#,
-            ],
+            ]),
             Os::Linux,
         )
         .unwrap();
@@ -1872,7 +1909,7 @@ pdf = ""
 
     #[test]
     fn a_syntax_error_in_any_file_names_that_file() {
-        let error = parse_layers(["", "[filelist\n", ""], Os::Linux).unwrap_err();
+        let error = parse_layers(in_one_file(&["", "[filelist\n", ""]), Os::Linux).unwrap_err();
 
         assert_eq!(error.0, 1);
     }
@@ -1916,7 +1953,7 @@ pdf = ""
     }
 
     fn parse(text: &str, os: Os) -> Result<(Config, Vec<Diagnostic>), SyntaxError> {
-        parse_layers([text], os).map_err(|(_, error)| error)
+        parse_layers([(Path::new(FILE), text)], os).map_err(|(_, error)| error)
     }
 
     fn table(text: &str) -> Table {
@@ -1927,7 +1964,12 @@ pdf = ""
         Bookmark {
             name: name.to_owned(),
             path: PathBuf::from(path),
+            dir: Path::new(FILE).parent().unwrap().to_path_buf(),
             key: None,
         }
+    }
+
+    fn in_one_file<'a>(texts: &[&'a str]) -> Vec<(&'a Path, &'a str)> {
+        texts.iter().map(|text| (Path::new(FILE), *text)).collect()
     }
 }

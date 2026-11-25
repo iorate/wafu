@@ -7,7 +7,7 @@ use crate::entry::{Directory, EntryKind};
 use crate::error::{AppError, IoError};
 use crate::location::{ArchiveFormat, Location, Passwords};
 use crate::pane::{DrivePurpose, HistoryMove, InFlight, Pane, RequestId};
-use crate::path::{drive_letter, root_of};
+use crate::path::{drive_letter, normalize, root_of};
 use crate::popup::{InputKind, InputPopup, PasswordPurpose, PendingNavigation, Popup};
 use crate::preview::is_image_name;
 
@@ -67,6 +67,10 @@ impl App {
         passwords: Passwords,
         effects: &mut Vec<Effect>,
     ) {
+        let target = Location {
+            base: normalize(&target.base),
+            ..target
+        };
         Self::cancel_loading(&mut self.panes[side.index()], effects);
         // Watching before reading means a change during the read is not missed.
         effects.push(Effect::Watch {
@@ -92,11 +96,12 @@ impl App {
     pub(super) fn resolve(
         &mut self,
         side: Side,
-        path: PathBuf,
+        path: &Path,
         climb: bool,
         failed: Option<IoError>,
         effects: &mut Vec<Effect>,
     ) {
+        let path = normalize(path);
         Self::cancel_loading(&mut self.panes[side.index()], effects);
         let request = self.next_request_id();
         effects.push(Effect::Resolve {
@@ -232,7 +237,7 @@ impl App {
                 Err(ReadError::Failed(source)) => {
                     // The place may be gone; let the I/O layer find out.
                     let path = pane.location().base.clone();
-                    self.resolve(side, path, true, Some(source), effects);
+                    self.resolve(side, &path, true, Some(source), effects);
                     return false;
                 }
             },
@@ -732,7 +737,7 @@ impl App {
             .get(&letter)
             .cloned()
             .unwrap_or_else(|| PathBuf::from(format!("{letter}:\\")));
-        self.resolve(self.active, path, true, None, effects);
+        self.resolve(self.active, &path, true, None, effects);
     }
 
     pub(super) fn drive_of_active(&self) -> Option<char> {
@@ -763,7 +768,7 @@ impl App {
             return;
         }
         match path {
-            Some(path) => self.resolve(side, path, false, None, effects),
+            Some(path) => self.resolve(side, &path, false, None, effects),
             None => self.stop_waiting(side, effects),
         }
     }
