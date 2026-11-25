@@ -1621,6 +1621,7 @@ mod tests {
         assert_eq!(fs::read(dest.join("f.txt")).unwrap(), b"f");
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_zip_link_whose_target_is_longer_than_any_path_is_skipped_without_asking_the_os() {
         const LEN: u64 = NAME_LIMIT + 1;
@@ -2588,6 +2589,7 @@ mod tests {
     // A zip whose first entry `l` is a link with `target` as its content,
     // which `add_symlink` takes only as a string, followed by `f.txt`. The
     // link is written as a file and its type is set in the central directory.
+    #[cfg(unix)]
     fn write_zip_with_link(path: &Path, target: &mut dyn io::Read) {
         const LINK: u32 = 0o120_777;
         let mut writer = ::zip::ZipWriter::new(File::create(path).unwrap());
