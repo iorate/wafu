@@ -1261,12 +1261,22 @@ fn mkdir_creates_nested_directories_and_enters_the_new_one() {
 }
 
 #[test]
-fn mkdir_with_dot_dot_enters_the_folded_place() {
+fn mkdir_with_dot_dot_makes_the_folded_place() {
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.take_effects();
     harness.press("K");
     harness.edit("../x");
     harness.press("Enter");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Mkdir(PathBuf::from("/home/x"))]
+    );
+}
+
+#[test]
+fn mkdir_enters_the_folded_place_of_what_was_made() {
+    let mut harness = Harness::start(LEFT, RIGHT);
     harness.take_effects();
 
     harness.changed_result(Change::DirCreated(PathBuf::from(LEFT).join("../x")), None);
