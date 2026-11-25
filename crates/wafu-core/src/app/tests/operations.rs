@@ -98,7 +98,7 @@ fn destructive_commands_require_marks_by_default() {
 fn copy_without_a_location_on_the_other_side_is_logged() {
     let mut harness = Harness::start_both_pending(Os::Linux, LEFT, RIGHT);
     harness.load(Side::Left, vec![file("a")]);
-    harness.fail_load(Side::Right, "gone");
+    harness.press("Esc");
     cursor_only(&mut harness);
     harness.press("Down");
     harness.take_effects();

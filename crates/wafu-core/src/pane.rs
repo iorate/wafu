@@ -61,13 +61,15 @@ pub enum InFlight {
     },
     /// A move to `target`. The pane keeps showing its current place until the
     /// listing arrives, and takes `passwords` for the target's archive levels
-    /// then.
+    /// then. `fallback` is set when the move is a search for somewhere to be,
+    /// after the pane's place failed or when it has none.
     Navigate {
         request: RequestId,
         target: Location,
         cursor: Option<OsString>,
         history: HistoryMove,
         passwords: Passwords,
+        fallback: bool,
     },
     /// A re-read of the current place, with `passwords`, which become the
     /// pane's when the listing arrives.
@@ -609,6 +611,10 @@ impl Pane {
 
     pub(crate) fn loading(&self) -> Option<&InFlight> {
         self.loading.as_ref()
+    }
+
+    pub(crate) fn loading_mut(&mut self) -> Option<&mut InFlight> {
+        self.loading.as_mut()
     }
 
     pub(crate) fn set_loading(&mut self, in_flight: Option<InFlight>) {
