@@ -13,7 +13,7 @@ use crate::archive::{ArchiveReader, LaneArchives, LevelError, NOT_FOUND, Stamp, 
 // `into_decoder` does not charge the decoded image to `image`'s allocation
 // limit, and the RGBA conversion never does, so a small file declaring a huge
 // size would take gigabytes.
-const MAX_DECODED_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_DECODED_BYTES: u64 = 1024 * 1024 * 1024;
 
 // The archive previewed last, kept open so that moving through its entries
 // does not build its index again: for a compressed tar that means
