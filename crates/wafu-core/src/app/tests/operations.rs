@@ -1018,6 +1018,19 @@ fn rename_to_a_path_is_an_error() {
 }
 
 #[test]
+fn rename_on_windows_refuses_a_name_with_a_drive_prefix() {
+    let mut harness = windows_files();
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("R");
+    harness.edit("c:b");
+    harness.press("Enter");
+
+    assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
 fn rename_takes_the_directory_the_popup_was_opened_in() {
     let mut harness = three_files();
     harness.press("Down");
@@ -1261,16 +1274,52 @@ fn mkdir_creates_nested_directories_and_enters_the_new_one() {
 }
 
 #[test]
-fn mkdir_with_dot_dot_makes_the_folded_place() {
-    let mut harness = Harness::start(LEFT, RIGHT);
+fn mkdir_refuses_a_path_that_leads_out_of_the_directory() {
+    for name in ["/etc/x", "a/../../x"] {
+        let mut harness = Harness::start(LEFT, RIGHT);
+        harness.take_effects();
+        harness.press("K");
+        harness.edit(name);
+        harness.press("Enter");
+
+        assert_eq!(harness.take_effects(), vec![], "{name}");
+        assert_eq!(
+            harness.log().last().cloned(),
+            Some(format!(
+                "Cannot create {}: invalid name",
+                path(&shown_place(LEFT), name).display()
+            )),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn mkdir_skips_empty_and_dot_parts_of_the_path() {
+    let mut harness = three_files();
     harness.take_effects();
+
     harness.press("K");
-    harness.edit("../x");
+    harness.edit("./a//b/");
     harness.press("Enter");
 
     assert_eq!(
         harness.take_effects(),
-        vec![Effect::Mkdir(PathBuf::from("/home/x"))]
+        vec![Effect::Mkdir(PathBuf::from(LEFT).join("a").join("b"))]
+    );
+}
+
+#[test]
+fn mkdir_on_windows_splits_the_path_at_backslashes_too() {
+    let mut harness = windows_files();
+
+    harness.press("K");
+    harness.edit(r"a\b");
+    harness.press("Enter");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Mkdir(path(WIN_LEFT, "a").join("b"))]
     );
 }
 
@@ -1369,6 +1418,25 @@ fn new_file_creates_an_empty_file_and_puts_the_cursor_on_it() {
 }
 
 #[test]
+fn new_file_refuses_a_name_that_is_a_path() {
+    let mut harness = three_files();
+    harness.take_effects();
+
+    harness.press("N");
+    harness.edit("sub/n.txt");
+    harness.press("Enter");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log().last().cloned(),
+        Some(format!(
+            "Cannot create {}: contains a separator",
+            path(&shown_place(LEFT), "sub/n.txt").display()
+        ))
+    );
+}
+
+#[test]
 fn a_creation_in_the_other_pane_logs_its_name() {
     let mut harness = three_files();
 
@@ -1409,6 +1477,18 @@ fn new_file_creates_the_file_in_the_place_the_popup_was_opened_in() {
         harness.take_effects(),
         vec![Effect::CreateFile(path(LEFT, "n.txt"))]
     );
+}
+
+#[test]
+fn new_text_refuses_a_name_that_is_a_path() {
+    let mut harness = three_files();
+    harness.take_effects();
+
+    harness.press("Shift+E");
+    harness.edit("../notes.txt");
+    harness.press("Enter");
+
+    assert_eq!(harness.take_effects(), vec![]);
 }
 
 #[test]

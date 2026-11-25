@@ -1194,6 +1194,26 @@ fn compress_refuses_a_name_whose_extension_names_no_format() {
 }
 
 #[test]
+fn compress_refuses_a_name_that_is_a_path() {
+    let mut harness = outside();
+    harness.press("Down");
+    harness.press("P");
+    harness.edit("../backup.zip");
+    harness.take_effects();
+
+    harness.press("Enter");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log().last().cloned(),
+        Some(format!(
+            "Cannot compress to {}: contains a separator",
+            path(&shown_place(RIGHT), "../backup.zip").display()
+        ))
+    );
+}
+
+#[test]
 fn compress_takes_the_format_from_the_extension_typed() {
     let mut harness = outside();
     harness.press("Down");

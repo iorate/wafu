@@ -97,7 +97,7 @@ impl Worker<'_> {
         // One destination serves the whole operation; naming the directory
         // here saves the core from passing one per archive.
         let dest = if into_dir {
-            root.join(ArchiveFormat::stem_of(name))
+            join_name(shown, root, ArchiveFormat::stem_of(name))?
         } else {
             root.to_path_buf()
         };
@@ -193,7 +193,7 @@ impl Worker<'_> {
             .output
             .as_ref()
             .ok_or_else(|| failure(first, "no output"))?;
-        let out = dest.join(&output.name);
+        let out = join_name(&dest.join(&output.name), dest, &output.name)?;
         if paths.iter().any(|path| is_within(&out, path)) {
             return Err(failure(&out, "the output is inside the source"));
         }
@@ -680,6 +680,13 @@ fn archive_name(path: &Path, base: &Path) -> Result<String, Stop> {
         .map(|component| component.as_os_str().to_string_lossy().into_owned())
         .collect::<Vec<_>>()
         .join("/"))
+}
+
+// The name comes from the core or from an archive's name, and neither may
+// lead out of `dir`.
+fn join_name(shown: &Path, dir: &Path, name: &OsStr) -> Result<PathBuf, Stop> {
+    check_component(&name.to_string_lossy()).map_err(|reason| failure(shown, reason))?;
+    Ok(dir.join(name))
 }
 
 fn ensure_dir(shown: &Path, root: &Path, dst: &Path, mark: Option<&[u8]>) -> Result<(), Stop> {
@@ -1342,6 +1349,28 @@ mod tests {
         assert_eq!(fs::read(dest.join("a").join("x.txt")).unwrap(), b"x");
         assert_eq!(fs::read(dest.join("b")).unwrap(), b"file");
         assert_eq!(done_indices(&events), [0]);
+    }
+
+    #[test]
+    fn extract_into_dirs_fails_an_archive_whose_name_makes_no_directory_below() {
+        let dir = TempDir::new().unwrap();
+        let parent = dir.path().join("parent");
+        let dest = parent.join("out");
+        fs::create_dir_all(&dest).unwrap();
+        let archive = dir.path().join("...zip");
+        write_archive(&archive, ArchiveFormat::Zip, &[("f.txt", b"f")]);
+
+        let (outcome, _, _) = run(
+            &extract_into_dirs(std::slice::from_ref(&archive), &dest),
+            [],
+        );
+
+        assert!(
+            matches!(&outcome, Outcome::Failed { path, .. } if *path == archive),
+            "{outcome:?}"
+        );
+        assert!(!parent.join("f.txt").exists());
+        assert!(!dest.join("f.txt").exists());
     }
 
     #[test]
@@ -2295,6 +2324,23 @@ mod tests {
         };
         assert_eq!(path, src.join("fifo"));
         assert_eq!(error.to_string(), "not a regular file");
+    }
+
+    #[test]
+    fn compress_fails_at_an_output_name_that_leads_out_of_the_destination() {
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("a.txt");
+        fs::write(&src, b"a").unwrap();
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+
+        let (outcome, _, _) = run(
+            &compress(std::slice::from_ref(&src), &dest, "../backup.zip", None),
+            [],
+        );
+
+        assert!(matches!(outcome, Outcome::Failed { .. }), "{outcome:?}");
+        assert!(!dir.path().join("backup.zip").exists());
     }
 
     #[test]

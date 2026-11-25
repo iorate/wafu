@@ -58,6 +58,8 @@ pub enum AppError {
     NoPassword { path: PathBuf },
     #[error("Cannot compress to {}: unknown archive format", path.display())]
     NoFormat { path: PathBuf },
+    #[error("Cannot compress to {}: {reason}", path.display())]
+    BadArchiveName { path: PathBuf, reason: &'static str },
     #[error("Config: {}:{line}: {message}", path.display())]
     ConfigSyntax {
         path: PathBuf,
@@ -101,6 +103,8 @@ pub enum AppError {
     NotUtf8 { path: PathBuf },
     #[error("Cannot create {}: {source}", path.display())]
     CreateFailed { path: PathBuf, source: IoError },
+    #[error("Cannot create {}: {reason}", path.display())]
+    BadCreateName { path: PathBuf, reason: &'static str },
     #[error("Cannot copy to the clipboard: {source}")]
     ClipboardFailed { source: IoError },
     #[error("Cannot open {}: {source}", path.display())]
