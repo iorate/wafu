@@ -2,10 +2,18 @@ use std::fs::File;
 use std::io::{self, Cursor, Read};
 use std::path::PathBuf;
 
-use image::{DynamicImage, ImageDecoder, ImageReader, ImageResult};
+use image::metadata::Orientation;
+use image::{DynamicImage, ImageDecoder, ImageReader};
 use wafu_core::{Document, ImageData, IoError, OuterArchive, PreviewSource, ReadError, byte_count};
 
 use crate::archive::{ArchiveReader, LaneArchives, LevelError, NOT_FOUND, Stamp, find_entry};
+
+// For every buffer a preview may go through: the decoded image, a copy when
+// its orientation is corrected, its RGBA, and the UI's own copy of that RGBA.
+// `into_decoder` does not charge the decoded image to `image`'s allocation
+// limit, and the RGBA conversion never does, so a small file declaring a huge
+// size would take gigabytes.
+const MAX_DECODED_BYTES: u64 = 512 * 1024 * 1024;
 
 // The archive previewed last, kept open so that moving through its entries
 // does not build its index again: for a compressed tar that means
@@ -50,14 +58,34 @@ pub(crate) fn load_image(
             byte_count(max_bytes)
         ))));
     }
-    decode_image(&bytes).map_err(|error| ReadError::Failed(IoError::new(error.to_string())))
+    decode_image(&bytes, MAX_DECODED_BYTES).map_err(ReadError::Failed)
 }
 
-fn decode_image(bytes: &[u8]) -> ImageResult<ImageData> {
-    let reader = ImageReader::new(Cursor::new(bytes)).with_guessed_format()?;
-    let mut decoder = reader.into_decoder()?;
-    let orientation = decoder.orientation()?;
-    let mut image = DynamicImage::from_decoder(decoder)?;
+fn decode_image(bytes: &[u8], limit: u64) -> Result<ImageData, IoError> {
+    let image_error = |error: image::ImageError| IoError::new(error.to_string());
+    let reader = ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|e| IoError::new(e.to_string()))?;
+    let mut decoder = reader.into_decoder().map_err(image_error)?;
+    let orientation = decoder.orientation().map_err(image_error)?;
+    let buffer = decoder.total_bytes();
+    let corrected = if orientation == Orientation::NoTransforms {
+        0
+    } else {
+        buffer
+    };
+    let (width, height) = decoder.dimensions();
+    let rgba = (u64::from(width) * u64::from(height)).saturating_mul(4);
+    let total = buffer
+        .saturating_add(corrected)
+        .saturating_add(rgba.saturating_mul(2));
+    if total > limit {
+        return Err(IoError::new(format!(
+            "too large (over {} when decoded)",
+            byte_count(limit)
+        )));
+    }
+    let mut image = DynamicImage::from_decoder(decoder).map_err(image_error)?;
     image.apply_orientation(orientation);
     let image = image.into_rgba8();
     let (width, height) = image.dimensions();
@@ -139,7 +167,8 @@ mod tests {
     use std::path::Path;
     use std::sync::atomic::AtomicBool;
 
-    use image::{ImageFormat, RgbaImage};
+    use image::codecs::png::PngEncoder;
+    use image::{ExtendedColorType, GrayImage, ImageEncoder, ImageFormat, RgbaImage};
     use tempfile::TempDir;
     use wafu_core::{ArchiveFormat, ArchivePath, Passwords};
 
@@ -345,6 +374,49 @@ mod tests {
             image(&source, len - 1, &mut PreviewedArchive::default()).unwrap_err(),
             ReadError::Failed(IoError::new(format!("too large (over {} bytes)", len - 1)))
         );
+    }
+
+    #[test]
+    fn an_image_too_large_when_decoded_is_refused() {
+        let bytes = gray_png(None);
+        let total = 64 * 64 + 2 * (64 * 64 * 4);
+
+        assert!(decode_image(&bytes, total).is_ok());
+
+        assert_eq!(
+            decode_image(&bytes, total - 1).unwrap_err(),
+            IoError::new(format!(
+                "too large (over {} when decoded)",
+                byte_count(total - 1)
+            ))
+        );
+    }
+
+    #[test]
+    fn an_image_to_be_turned_needs_room_for_a_corrected_copy() {
+        // TIFF header and one IFD entry: orientation 6, turned 90 degrees.
+        let exif = [
+            b'I', b'I', 42, 0, 8, 0, 0, 0, 1, 0, 0x12, 0x01, 3, 0, 1, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0,
+            0,
+        ];
+        let bytes = gray_png(Some(&exif));
+        let total = 2 * (64 * 64) + 2 * (64 * 64 * 4);
+
+        assert!(decode_image(&bytes, total).is_ok());
+        assert!(decode_image(&bytes, total - 1).is_err());
+    }
+
+    fn gray_png(exif: Option<&[u8]>) -> Vec<u8> {
+        let image = GrayImage::new(64, 64);
+        let mut bytes = Vec::new();
+        let mut encoder = PngEncoder::new(&mut bytes);
+        if let Some(exif) = exif {
+            encoder.set_exif_metadata(exif.to_vec()).unwrap();
+        }
+        encoder
+            .write_image(image.as_raw(), 64, 64, ExtendedColorType::L8)
+            .unwrap();
+        bytes
     }
 
     fn preview(
