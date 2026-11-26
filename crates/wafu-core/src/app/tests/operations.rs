@@ -1742,6 +1742,27 @@ fn open_alternative_starts_the_dir_rule_on_a_directory() {
 }
 
 #[test]
+fn open_alternative_on_the_parent_row_starts_the_dir_rule_on_the_directory_itself() {
+    let mut harness =
+        Harness::start_with_config(LEFT, RIGHT, "[open_alternative]\ndir = \"code {paths}\"\n");
+    harness.load(Side::Left, vec![dir("d")]);
+    harness.take_effects();
+    assert_eq!(harness.cursor_name(Side::Left), "..");
+
+    harness.press("Shift+Enter");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Spawn {
+            name: SpawnName::Command(Command::OpenAlternative),
+            program: "code".to_owned(),
+            args: vec![OsString::from(shown_place(LEFT))],
+            cwd: PathBuf::from(LEFT),
+        }]
+    );
+}
+
+#[test]
 fn open_alternative_rules_win_over_entering_an_archive_and_running_a_program() {
     let mut harness = Harness::start_with_config(
         LEFT,
@@ -1782,7 +1803,11 @@ fn open_alternative_without_a_rule_does_what_open_does() {
         ..file("broken.txt")
     };
     let cases = [
-        ("[open_alternative]\ndir = \"alt {paths}\"\n", dir("d"), 0),
+        (
+            "[open_alternative.extensions]\ntxt = \"alt {paths}\"\n",
+            dir("d"),
+            0,
+        ),
         (
             "[open_alternative.extensions]\ntxt = \"alt {paths}\"\n",
             dir("d"),

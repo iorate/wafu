@@ -292,7 +292,8 @@ pdf = "sumatrapdf {paths}"
 
 - `dir` is the command line for directories, and links to them.
 - `[open_alternative.extensions]` gives regular files, and links to them, a command line by extension. Its keys follow the rules of [extension colors](#colors): an extension without the dot, matched in either case and against the part after the last dot only. A rule for an extension wins over entering an archive or running an executable file, so a `zip` rule opens `a.zip` in its program rather than entering it.
-- Anything without a rule, the `..` row, broken links, special files, and links inside an archive are opened as `open` does.
+- On the `..` row the item is the current directory itself, or, at the root of an archive, the archive file.
+- Anything without a rule, broken links, special files, and links inside an archive are opened as `open` does.
 - Both are empty by default.
 
 The command lines follow the rules of [external commands](#commands), with the item under the cursor as the only target: `{paths}` and `{cursor_path}` are that item, and `{marked_paths}` is empty, whatever is marked. Inside an archive, a line that uses `{cursor_path}`, `{marked_paths}`, or `{paths}` first extracts the item to a temporary directory, as for external commands.
