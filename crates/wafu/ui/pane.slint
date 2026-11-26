@@ -158,7 +158,7 @@ export component PaneWidget {
     // Assigned rather than bound: the list assigns `content-y` itself when
     // scrolled, and that would drop a binding.
     changed scroll-top => {
-        list.content-y = -scroll-top * Theme.row-height;
+        list.content-y = root.content-y();
     }
 
     changed row-height => {
@@ -175,10 +175,16 @@ export component PaneWidget {
     function report-rows() {
         root.visible-rows = floor(list.visible-height / Theme.row-height);
         root.viewport-rows-changed(root.visible-rows);
-        // At the end the list moves the rows down to fill its height and does
-        // not move them back when it gets shorter, which with an unchanged
-        // top row would cut off the last row.
-        list.content-y = -root.scroll-top * Theme.row-height;
+        // The list does not move the rows back up when it gets shorter, which
+        // at the end would cut off the last row.
+        list.content-y = root.content-y();
+    }
+
+    // At the end this is against the bottom edge, where the list's bounds
+    // would move the rows anyway: placed by the top row, they show too high
+    // for a moment first.
+    function content-y() -> length {
+        return -min(root.scroll-top * Theme.row-height, max(0px, list.content-height - list.visible-height));
     }
 
     measure-gap := Cell {
@@ -258,7 +264,7 @@ export component PaneWidget {
                 // Rows added in the same frame as a scroll are clipped to the
                 // old height until the list has measured them.
                 changed viewport-height => {
-                    self.content-y = -root.scroll-top * Theme.row-height;
+                    self.content-y = root.content-y();
                 }
 
                 for row[index] in root.rows: RowItem {
