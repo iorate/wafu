@@ -1746,6 +1746,29 @@ fn open_with_os_on_the_parent_row_inside_an_archive_extracts_the_directory_itsel
 }
 
 #[test]
+fn edit_and_open_with_os_on_a_link_inside_an_archive_are_refused() {
+    for (key, verb) in [("E", "edit"), ("Ctrl+Enter", "open")] {
+        let mut harness = outside();
+        harness.enter_archive(Side::Left, vec![link("link.txt")]);
+        harness.press("Down");
+        assert_eq!(harness.cursor_name(Side::Left), "link.txt");
+        harness.take_effects();
+
+        harness.press(key);
+
+        assert_eq!(harness.start_operation(), None, "{key}");
+        assert_eq!(
+            harness.log(),
+            [format!(
+                "Cannot {verb} {}/link.txt: a link inside an archive leads nowhere until extracted",
+                root()
+            )],
+            "{key}"
+        );
+    }
+}
+
+#[test]
 fn enter_on_an_executable_zip_enters_it() {
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.load(Side::Left, vec![executable("a.zip")]);
@@ -1986,6 +2009,56 @@ fn an_external_command_on_the_parent_row_with_marks_extracts_the_marks_alone() {
             OsString::from(shown_place(RIGHT)),
         ]
     );
+}
+
+#[test]
+fn an_external_command_on_a_link_inside_an_archive_is_refused() {
+    let mut harness = outside();
+    harness.config("[commands.view]\nrun = \"view {paths}\"\n[keys.filelist]\nF9 = \"$view\"\n");
+    harness.enter_archive(Side::Left, vec![link("link.txt")]);
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("F9");
+
+    assert_eq!(
+        harness.log(),
+        [
+            "Reloaded config".to_owned(),
+            format!(
+                "Cannot run a command on {}/link.txt: a link inside an archive leads nowhere until extracted",
+                root()
+            ),
+        ]
+    );
+    assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
+fn an_external_command_with_a_link_among_the_marks_inside_an_archive_is_refused_as_a_whole() {
+    let mut harness = outside();
+    harness.config("[commands.view]\nrun = \"view {paths}\"\n[keys.filelist]\nF9 = \"$view\"\n");
+    harness.enter_archive(Side::Left, vec![file("b.txt"), link("link.txt")]);
+    harness.press("Down");
+    harness.press("Space");
+    harness.press("Space");
+    harness.press("Up");
+    assert_eq!(harness.cursor_name(Side::Left), "b.txt");
+    harness.take_effects();
+
+    harness.press("F9");
+
+    assert_eq!(
+        harness.log(),
+        [
+            "Reloaded config".to_owned(),
+            format!(
+                "Cannot run a command on {}/link.txt: a link inside an archive leads nowhere until extracted",
+                root()
+            ),
+        ]
+    );
+    assert_eq!(harness.take_effects(), vec![]);
 }
 
 #[test]
@@ -2396,6 +2469,15 @@ fn contents() -> Vec<Entry> {
 
 fn nested_contents() -> Vec<Entry> {
     vec![dir("y"), file("c.txt")]
+}
+
+fn link(name: &str) -> Entry {
+    Entry {
+        kind: EntryKind::Symlink {
+            target: Some(TargetKind::File { executable: false }),
+        },
+        ..file(name)
+    }
 }
 
 // Normalized, as the place a pane enters is.
