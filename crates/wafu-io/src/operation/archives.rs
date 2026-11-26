@@ -25,6 +25,7 @@ use crate::archive::{
 
 const TEMP_PREFIX: &str = "wafu-";
 const LONG_TARGET: &str = "the link target is too long";
+const LINK_IN_ARCHIVE: &str = "a link inside an archive leads nowhere until extracted";
 #[cfg(target_os = "macos")]
 const QUARANTINE: &str = "com.apple.quarantine";
 
@@ -125,8 +126,10 @@ impl Worker<'_> {
         &mut self,
         entries: &ArchiveEntries,
         dest: &Path,
+        make_links: bool,
     ) -> Result<(), Stop> {
         let mut extraction = self.open_entries(entries, dest)?;
+        extraction.make_links = make_links;
         let prefix = &entries.path.inner;
         let mut items: HashMap<&str, usize> = HashMap::new();
         for (item, name) in entries.names.iter().enumerate() {
@@ -185,7 +188,9 @@ impl Worker<'_> {
     pub(super) fn extract_to_temp(&mut self, entries: &ArchiveEntries) -> Result<(), Stop> {
         let dir = make_temp_dir().map_err(fail(&entries.archive))?;
         (self.report)(OperationEvent::TempDir(dir.clone()));
-        self.extract_entries(entries, &dir)
+        // A link made here could lead the program started on these files
+        // outside of them.
+        self.extract_entries(entries, &dir, false)
     }
 
     pub(super) fn compress(&mut self, paths: &[PathBuf], spec: &OperationSpec) -> Result<(), Stop> {
@@ -388,6 +393,9 @@ impl Worker<'_> {
                 extraction.written.insert(index, dst.path);
             }
             ArchiveEntryKind::Symlink => {
+                if !extraction.make_links {
+                    return Err(refuse(&shown, LINK_IN_ARCHIVE));
+                }
                 if entry.size > NAME_LIMIT {
                     return Err(refuse(&shown, LONG_TARGET));
                 }
@@ -648,6 +656,7 @@ struct Extraction {
     // a nested archive is read from a temporary file.
     mark: Option<Vec<u8>>,
     dest: PathBuf,
+    make_links: bool,
     // The link, its target, the entry's index, and its path as shown.
     links: Vec<(Destination, String, usize, PathBuf)>,
     dirs: Vec<(PathBuf, ArchiveEntry)>,
@@ -685,6 +694,7 @@ impl Extraction {
             password,
             mark,
             dest: dest.to_path_buf(),
+            make_links: true,
             links: Vec::new(),
             dirs: Vec::new(),
             created: HashSet::new(),
@@ -2851,6 +2861,38 @@ mod tests {
         );
         assert_eq!(fs::read(temp.join("a.txt")).unwrap(), b"a");
         fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn extract_to_temp_skips_a_link_and_extracts_the_rest() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.zip");
+        write_zip(&archive, None, |writer| {
+            writer
+                .add_file("d/f.txt", 1, None, None, &mut &b"f"[..])
+                .unwrap();
+            writer.add_symlink("d/l", "f.txt", None).unwrap();
+        });
+        let spec = OperationSpec {
+            kind: OperationKind::ExtractToTemp,
+            sources: Sources::Entries(entries(&archive, &[], &["d"], None)),
+            dest: None,
+            output: None,
+        };
+
+        let (outcome, _, events) = run(&spec, []);
+
+        let Some(OperationEvent::TempDir(temp)) = events.first() else {
+            panic!("expected TempDir first, got {events:?}");
+        };
+        let link = fs::symlink_metadata(temp.join("d").join("l"));
+        let file = fs::read(temp.join("d").join("f.txt"));
+        fs::remove_dir_all(temp).unwrap();
+        assert_eq!(outcome, Outcome::Completed { skipped: 1 });
+        assert_eq!(skipped_errors(&events), [LINK_IN_ARCHIVE]);
+        assert_eq!(done_indices(&events), Vec::<usize>::new());
+        assert!(link.is_err());
+        assert_eq!(file.unwrap(), b"f");
     }
 
     #[cfg(target_os = "macos")]
