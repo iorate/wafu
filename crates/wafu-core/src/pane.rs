@@ -7,7 +7,7 @@ use crate::config::{SizeFormat, TimeFormat};
 use crate::entry::{Directory, Entry, EntryKind};
 use crate::error::IoError;
 use crate::filter::Filter;
-use crate::history::History;
+use crate::history::{History, Step};
 use crate::listing::{Listing, SortSpec};
 use crate::location::{Location, Passwords};
 use crate::path::drive_letter;
@@ -121,8 +121,10 @@ pub struct Targets {
 pub enum HistoryMove {
     /// A new visit, dropping anything after the current position.
     Visit,
-    /// Moving within the history, as `history_back` does.
-    Position(usize),
+    /// Moving to `pos` within the history. With a `step`, as `history_back`
+    /// and `history_forward` move, a place that cannot be read is skipped for
+    /// the next one in that direction.
+    Position { pos: usize, step: Option<Step> },
 }
 
 impl Pane {
@@ -593,11 +595,14 @@ impl Pane {
         // A move within the history that is still loading holds a position
         // from before the oldest places were dropped.
         if let Some(InFlight::Navigate { history, .. }) = &mut self.loading
-            && let HistoryMove::Position(pos) = *history
+            && let HistoryMove::Position { pos, step } = *history
         {
-            *history = pos
-                .checked_sub(dropped)
-                .map_or(HistoryMove::Visit, HistoryMove::Position);
+            *history =
+                pos.checked_sub(dropped)
+                    .map_or(HistoryMove::Visit, |pos| HistoryMove::Position {
+                        pos,
+                        step,
+                    });
         }
     }
 
@@ -650,7 +655,7 @@ impl Pane {
             }
             match history {
                 HistoryMove::Visit => self.history.visit(target.base.clone()),
-                HistoryMove::Position(pos) => self.history.set_pos(pos),
+                HistoryMove::Position { pos, .. } => self.history.set_pos(pos),
             }
         }
         self.set_location(target, cursor);
@@ -1555,7 +1560,7 @@ mod tests {
         enter(
             &mut pane,
             Location::new(PathBuf::from("/a")),
-            HistoryMove::Position(0),
+            HistoryMove::Position { pos: 0, step: None },
         );
 
         assert_eq!(
