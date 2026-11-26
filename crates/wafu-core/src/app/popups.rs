@@ -130,15 +130,19 @@ impl App {
             },
             Some(Popup::Search(popup)) => self.search_popup_key(popup, key),
             Some(Popup::List(popup)) if key.base == KeyBase::Named(NamedKey::Tab) => {
-                self.popup = Some(Popup::List(match popup.history_side() {
+                match popup.history_side() {
                     Some(side) => {
                         // The other history is another list, but the same kind
-                        // of popup, so the follow-up would keep the old top.
+                        // of popup, so the follow-up would keep the old top,
+                        // and does nothing at all when the two histories have
+                        // as many rows and the cursor on the same one.
                         self.popup_top = 0;
-                        self.history_list(side.other(), popup.query)
+                        let other = self.history_list(side.other(), popup.query);
+                        self.popup = Some(Popup::List(other));
+                        self.show_popup_cursor();
                     }
-                    None => popup,
-                }));
+                    None => self.popup = Some(Popup::List(popup)),
+                }
             }
             Some(popup) => {
                 // As in the file list, so that the cursor keeps its place on

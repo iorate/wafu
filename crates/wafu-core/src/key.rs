@@ -128,6 +128,7 @@ impl FromStr for Key {
             // binding like `@` work on every layout without per-layout defaults,
             // and Slint offers no stable way to learn the physical key anyway.
             (Some(_), None) if shift => return Err(error()),
+            (Some(c), None) if c == ' ' || c.is_control() => return Err(error()),
             (Some(c), None) => KeyBase::Char(c),
             (Some(_), Some(_)) => KeyBase::Named(base.parse().map_err(|_| error())?),
             (None, _) => return Err(error()),
@@ -280,6 +281,8 @@ mod tests {
             "Shift+1",
             "Foo",
             "ab",
+            " ",
+            "\t",
         ] {
             assert!(text.parse::<Key>().is_err(), "{text:?} should be rejected");
         }

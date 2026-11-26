@@ -2503,6 +2503,56 @@ fn history_popup_switches_to_the_other_pane_with_tab_keeping_the_query() {
 }
 
 #[test]
+fn tab_to_a_history_of_the_same_length_keeps_the_cursor_in_view() {
+    let places = |prefix: &str| -> Vec<PathBuf> {
+        (0..20)
+            .map(|i| PathBuf::from(format!("/{prefix}{i}")))
+            .collect()
+    };
+    let state = StateFile {
+        left: PaneState {
+            history: places("l"),
+            history_pos: Some(2),
+            ..PaneState::default()
+        },
+        right: PaneState {
+            history: places("r"),
+            history_pos: Some(2),
+            ..PaneState::default()
+        },
+        ..StateFile::default()
+    };
+    let mut harness = Harness::start_from(start_msg_with(
+        Os::Linux,
+        Some("/l2"),
+        Some("/r2"),
+        config_source(""),
+        Ok(Some(state)),
+    ));
+    harness.resolve(Side::Left, "/l2", None);
+    harness.resolve(Side::Right, "/r2", None);
+    harness.load(Side::Left, vec![]);
+    harness.load(Side::Right, vec![]);
+    assert_eq!(harness.history(Side::Left).len(), 20);
+    assert_eq!(harness.history(Side::Right).len(), 20);
+    harness.send(Msg::PopupRows { rows: 5 });
+
+    harness.press("H");
+    let popup = harness.view().popup.unwrap();
+    assert_eq!((popup.scroll_top, popup.cursor), (13, Some(17)));
+
+    harness.press("Tab");
+    let popup = harness.view().popup.unwrap();
+    assert_eq!(popup.title, "History (right)");
+    let cursor = popup.cursor.unwrap();
+    assert!(
+        (popup.scroll_top..popup.scroll_top + 5).contains(&cursor),
+        "cursor row {cursor} is outside the rows shown from {}",
+        popup.scroll_top
+    );
+}
+
+#[test]
 fn history_popup_visits_a_place_of_the_other_pane_in_the_active_pane() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.press("H");

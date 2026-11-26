@@ -89,8 +89,12 @@ impl Entry {
         if self.kind.is_dir_like() {
             return (name.into_owned(), String::new());
         }
-        // A leading dot alone does not start an extension.
-        match name.rfind('.').filter(|&index| index > 0) {
+        // A leading dot alone does not start an extension, and a trailing dot
+        // does not end the stem, so that it stays in the shown name.
+        match name
+            .rfind('.')
+            .filter(|&index| index > 0 && index + 1 < name.len())
+        {
             Some(index) => (name[..index].to_owned(), name[index + 1..].to_owned()),
             None => (name.into_owned(), String::new()),
         }
@@ -246,6 +250,14 @@ mod tests {
             ".bashrc",
             "bak",
         );
+    }
+
+    #[test]
+    fn split_name_keeps_a_trailing_dot_in_the_name() {
+        let kind = EntryKind::File { executable: false };
+
+        assert_split("report.", kind, "report.", "");
+        assert_split("a..", kind, "a..", "");
     }
 
     #[test]
