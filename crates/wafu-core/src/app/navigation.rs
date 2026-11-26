@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use super::{App, Effect, Os, ReadError, Resolved, Side, SpawnName};
 use crate::command::Command;
-use crate::entry::{Directory, EntryKind};
+use crate::entry::{Directory, Entry, EntryKind};
 use crate::error::{AppError, IoError};
 use crate::history::Step;
 use crate::location::{ArchiveFormat, Location, Passwords};
@@ -496,6 +496,10 @@ impl App {
             self.log.push(error.to_string());
             return;
         }
+        if let Some(error) = link_in_archive("open", &location, entry) {
+            self.log.push(error.to_string());
+            return;
+        }
         match entry {
             // `..` stands for this place, and opening it would only show it again, so it moves up.
             None => self.go_parent(effects),
@@ -515,8 +519,6 @@ impl App {
                 let path = location.base.join(&entry.name);
                 self.log.push(AppError::NotRegularFile { path }.to_string());
             }
-            // A link inside an archive leads nowhere until extracted.
-            Some(entry) if is_link_in_archive(&location, entry.kind) => {}
             Some(entry) => {
                 if let Some(format) = ArchiveFormat::from_name(&entry.name) {
                     let name = entry.name.clone();
@@ -583,8 +585,8 @@ impl App {
             self.log.push(AppError::NotRegularFile { path }.to_string());
             return;
         }
-        // A link inside an archive leads nowhere until extracted.
-        if is_link_in_archive(&location, entry.kind) {
+        if let Some(error) = link_in_archive("open", &location, [&entry]) {
+            self.log.push(error.to_string());
             return;
         }
         self.open_document(&location, &entry.name, effects);
@@ -607,8 +609,8 @@ impl App {
         if self.active_pane().cursor_entry().is_none() {
             return;
         }
-        // A link inside an archive leads nowhere until extracted.
-        if is_link_in_archive(&location, entry.kind) {
+        if let Some(error) = link_in_archive("open", &location, [&entry]) {
+            self.log.push(error.to_string());
             return;
         }
         if let Some(error) = self.bad_target("open", &location, [entry.name.as_os_str()]) {
@@ -947,6 +949,20 @@ pub(super) fn level_shown(location: &Location, level: usize) -> PathBuf {
 
 pub(super) fn is_link_in_archive(location: &Location, kind: EntryKind) -> bool {
     location.in_archive() && matches!(kind, EntryKind::Symlink { .. })
+}
+
+pub(super) fn link_in_archive<'a>(
+    verb: &'static str,
+    location: &Location,
+    entries: impl IntoIterator<Item = &'a Entry>,
+) -> Option<AppError> {
+    let entry = entries
+        .into_iter()
+        .find(|entry| is_link_in_archive(location, entry.kind))?;
+    Some(AppError::LinkInArchive {
+        verb,
+        path: PathBuf::from(location.child_display(&entry.name)),
+    })
 }
 
 // Whether a resolve of the pane's base found it where it is: the directory

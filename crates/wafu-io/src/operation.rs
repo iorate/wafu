@@ -109,7 +109,7 @@ impl Worker<'_> {
                     .dest
                     .as_deref()
                     .ok_or_else(|| failure(&entries.archive, "no destination"))?;
-                self.extract_entries(entries, dest)
+                self.extract_entries(entries, dest, true)
             }
         }
     }

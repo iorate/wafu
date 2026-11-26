@@ -1,7 +1,7 @@
 use std::ffi::{OsStr, OsString};
 use std::path::{Component, Path, PathBuf};
 
-use super::navigation::is_link_in_archive;
+use super::navigation::link_in_archive;
 use super::{App, Change, Effect, MenuAnchor, Os, PreviewSource, Side, SpawnName};
 use crate::command::{Command, Context};
 use crate::entry::Entry;
@@ -697,9 +697,7 @@ impl App {
             self.log.push(AppError::NotRegularFile { path }.to_string());
             return;
         }
-        if is_link_in_archive(&location, entry.kind) {
-            let path = PathBuf::from(location.child_display(&entry.name));
-            let error = AppError::LinkInArchive { verb: "edit", path };
+        if let Some(error) = link_in_archive("edit", &location, [&entry]) {
             self.log.push(error.to_string());
             return;
         }
@@ -747,9 +745,7 @@ impl App {
             self.log.push(error.to_string());
             return;
         }
-        if is_link_in_archive(&location, entry.kind) {
-            let path = PathBuf::from(location.child_display(&entry.name));
-            let error = AppError::LinkInArchive { verb: "open", path };
+        if let Some(error) = link_in_archive("open", &location, [&entry]) {
             self.log.push(error.to_string());
             return;
         }
@@ -769,9 +765,7 @@ impl App {
             self.log.push(error.to_string());
             return;
         }
-        if is_link_in_archive(&location, entry.kind) {
-            let path = PathBuf::from(location.child_display(&entry.name));
-            let error = AppError::LinkInArchive { verb: "run", path };
+        if let Some(error) = link_in_archive("run", &location, [&entry]) {
             self.log.push(error.to_string());
             return;
         }
@@ -824,16 +818,8 @@ impl App {
             .marked_entries()
             .map(|entry| entry.name.clone())
             .collect();
-        let symlink = pane
-            .cursor_entry()
-            .into_iter()
-            .chain(pane.marked_entries())
-            .find(|entry| is_link_in_archive(&location, entry.kind));
-        if let Some(entry) = symlink {
-            let error = AppError::LinkInArchive {
-                verb: "run a command on",
-                path: PathBuf::from(location.child_display(&entry.name)),
-            };
+        let entries = pane.cursor_entry().into_iter().chain(pane.marked_entries());
+        if let Some(error) = link_in_archive("run a command on", &location, entries) {
             self.log.push(error.to_string());
             return;
         }

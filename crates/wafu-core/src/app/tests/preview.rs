@@ -1633,7 +1633,7 @@ fn v_on_a_special_file_logs_an_error() {
 }
 
 #[test]
-fn v_on_a_link_inside_an_archive_does_nothing() {
+fn v_on_a_link_inside_an_archive_is_refused() {
     let mut harness = inside_archive();
     harness.press("Down");
     harness.press("Down");
@@ -1643,7 +1643,13 @@ fn v_on_a_link_inside_an_archive_does_nothing() {
 
     assert_eq!(harness.take_effects(), vec![]);
     assert!(harness.view().preview.is_none());
-    assert_eq!(harness.log(), Vec::<String>::new());
+    assert_eq!(
+        harness.log(),
+        [format!(
+            "Cannot open {}/link: a link inside an archive leads nowhere until extracted",
+            shown(LEFT, "a.zip")
+        )]
+    );
 }
 
 #[test]
