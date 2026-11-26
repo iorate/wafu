@@ -353,6 +353,8 @@ impl Location {
     /// archive, or past the innermost level.
     #[must_use]
     pub fn level_file_display(&self, level: usize) -> PathBuf {
+        // Level 0 is a file on disk, whose path `child_display` would give
+        // only lossily.
         let entry = self
             .level_root(level)
             .filter(|_| level > 0)
@@ -586,7 +588,7 @@ mod tests {
         }
     }
 
-    // `/a/b/c.zip/d/n.tar.gz`, then `segments` inside it.
+    // `n.tar.gz` in `d` of `/a/b/c.zip`, then `segments` inside it.
     fn nested(segments: &[&str]) -> Location {
         let mut location = inside(&["d"]).nested_root("n.tar.gz", Some(ArchiveFormat::TarGz));
         if let Some(archive) = &mut location.archive {

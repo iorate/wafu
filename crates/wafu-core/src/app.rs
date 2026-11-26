@@ -939,7 +939,7 @@ impl App {
         if path.is_empty() {
             name.to_owned()
         } else {
-            // The path comes first because task bars and window switchers
+            // The path comes first because taskbars and window switchers
             // cut a long title at its end.
             format!("{path} - {name}")
         }
