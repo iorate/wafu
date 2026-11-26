@@ -22,6 +22,7 @@ use crate::archive::{
     NAME_LIMIT, NOT_FOUND, Stamp, UNSAFE_NAME, check_component, create_archive, decode_name,
     open_archive,
 };
+use crate::fs_ops::file_id;
 
 const TEMP_PREFIX: &str = "wafu-";
 const LONG_TARGET: &str = "the link target is too long";
@@ -353,7 +354,7 @@ impl Worker<'_> {
                 // A hard link is extracted as a copy. Its content comes before
                 // it in a tar, so reading it there would start the stream over;
                 // the file already written has it too, unless the mode it was
-                // given keeps it from being read.
+                // given keeps it from being read or a later entry replaced it.
                 let copy_of = extraction
                     .reader
                     .hard_link_target(index)
@@ -374,6 +375,7 @@ impl Worker<'_> {
                 let Some(dst) = self.clear_destination(&shown, &dst, None, &[])? else {
                     return Ok(false);
                 };
+                let replaced = dst.replace.then(|| file_id(&dst.path).ok()).flatten();
                 write_replacing(&dst, &shown, |path| {
                     self.write_entry(extraction, index, copy_of, path, &shown)?;
                     // Before the metadata, since a read-only file refuses the
@@ -382,7 +384,7 @@ impl Worker<'_> {
                     set_entry_metadata(path, &entry, extraction.umask);
                     Ok(())
                 })?;
-                extraction.written.insert(index, dst.path);
+                extraction.remember(index, dst.path, replaced);
             }
             ArchiveEntryKind::Symlink => {
                 if entry.size > NAME_LIMIT {
@@ -648,7 +650,9 @@ struct Extraction {
     links: Vec<(Destination, String, usize, PathBuf)>,
     dirs: Vec<(PathBuf, ArchiveEntry)>,
     created: HashSet<PathBuf>,
+    link_targets: HashSet<usize>,
     written: HashMap<usize, PathBuf>,
+    written_ids: HashMap<(u64, u64), usize>,
     umask: u32,
 }
 
@@ -674,6 +678,9 @@ impl Extraction {
         mark: Option<Vec<u8>>,
         dest: &Path,
     ) -> Self {
+        let link_targets = (0..reader.entries().len())
+            .filter_map(|index| reader.hard_link_target(index))
+            .collect();
         Self {
             archive,
             reader,
@@ -684,8 +691,30 @@ impl Extraction {
             links: Vec::new(),
             dirs: Vec::new(),
             created: HashSet::new(),
+            link_targets,
             written: HashMap::new(),
+            written_ids: HashMap::new(),
             umask: read_umask(),
+        }
+    }
+
+    // The file `replaced` may be one written for an earlier entry, whose name
+    // the file system does not tell from this one, as with `A` and `a`, and no
+    // longer has that entry's content. It is found by what it is, since the
+    // names differ and comparing every path kept would take a time that grows
+    // with their number for each file replaced. Only the entries links name
+    // are kept, so that the others cost no lookup of what they are.
+    fn remember(&mut self, index: usize, path: PathBuf, replaced: Option<(u64, u64)>) {
+        if let Some(id) = replaced
+            && let Some(target) = self.written_ids.remove(&id)
+        {
+            self.written.remove(&target);
+        }
+        if self.link_targets.contains(&index)
+            && let Ok(id) = file_id(&path)
+        {
+            self.written_ids.insert(id, index);
+            self.written.insert(index, path);
         }
     }
 }
@@ -1170,6 +1199,32 @@ mod tests {
             fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
             assert_eq!(fs::read(path).unwrap(), b"data");
         }
+    }
+
+    // Only where the file system takes `A` and `a` for one name.
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn a_hard_link_to_a_file_later_overwritten_under_another_spelling_keeps_its_content() {
+        let dir = TempDir::new().unwrap();
+        let archive = dir.path().join("a.tar");
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        write_tar(
+            &archive,
+            &[
+                ("A", EntryType::Regular, "", b"1"),
+                ("a", EntryType::Regular, "", b"2"),
+                ("L", EntryType::Link, "A", b""),
+            ],
+        );
+
+        let (outcome, _, _) = run(
+            &extract(&[archive], &dest),
+            [Reply::Overwrite { all: false }],
+        );
+
+        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
+        assert_eq!(fs::read(dest.join("L")).unwrap(), b"1");
     }
 
     #[cfg(unix)]
