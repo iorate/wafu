@@ -1635,10 +1635,7 @@ fn v_on_a_link_inside_an_archive_is_refused() {
     assert!(harness.view().preview.is_none());
     assert_eq!(
         harness.log(),
-        [format!(
-            "Cannot open {}/link: a link inside an archive leads nowhere until extracted",
-            shown(LEFT, "a.zip")
-        )]
+        ["Cannot open a.zip:/link: a link inside an archive leads nowhere until extracted"]
     );
 }
 

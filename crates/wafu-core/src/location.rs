@@ -340,21 +340,29 @@ impl Location {
     pub fn child_display(&self, name: &OsStr) -> String {
         match &self.archive {
             None => self.base.join(name).to_string_lossy().into_owned(),
-            Some(_) => format!("{self}/{}", name.to_string_lossy()),
+            Some(archive) => {
+                let separator = if archive.inner.is_empty() { "" } else { "/" };
+                format!("{self}{separator}{}", name.to_string_lossy())
+            }
         }
     }
 }
 
 impl fmt::Display for Location {
+    // An archive reads as a root named after its file, like a drive. The
+    // directory holding it is left out, so the path never mixes the
+    // separator of the OS with the `/` of the archive, and stays short
+    // enough for the inner part to fit in a pane's header.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.base.display())?;
-        if let Some(archive) = &self.archive {
-            let entries = archive.outer.iter().flat_map(|holder| &holder.entry);
-            for segment in entries.chain(&archive.inner) {
-                write!(f, "/{segment}")?;
-            }
+        let Some(archive) = &self.archive else {
+            return write!(f, "{}", self.base.display());
+        };
+        let file = self.base.file_name().unwrap_or(self.base.as_os_str());
+        write!(f, "{}:/", file.to_string_lossy())?;
+        for holder in &archive.outer {
+            write!(f, "{}:/", holder.entry.join("/"))?;
         }
-        Ok(())
+        write!(f, "{}", archive.inner.join("/"))
     }
 }
 
@@ -479,10 +487,14 @@ mod tests {
     }
 
     #[test]
-    fn child_display_joins_with_a_slash_inside_an_archive() {
+    fn child_display_inside_an_archive_follows_the_place_without_doubling_the_root_slash() {
         assert_eq!(
             inside(&["d"]).child_display(OsStr::new("f.txt")),
-            "/a/b/c.zip/d/f.txt"
+            "c.zip:/d/f.txt"
+        );
+        assert_eq!(
+            inside(&[]).child_display(OsStr::new("f.txt")),
+            "c.zip:/f.txt"
         );
         assert_eq!(
             Location::new(PathBuf::from("/a/b")).child_display(OsStr::new("f.txt")),
@@ -491,8 +503,15 @@ mod tests {
     }
 
     #[test]
-    fn display_of_a_nested_archive_goes_through_the_outer_entries() {
-        assert_eq!(nested(&["x"]).to_string(), "/a/b/c.zip/d/n.tar.gz/x");
+    fn display_inside_an_archive_starts_at_a_root_named_after_the_file() {
+        assert_eq!(inside(&[]).to_string(), "c.zip:/");
+        assert_eq!(inside(&["d", "e"]).to_string(), "c.zip:/d/e");
+    }
+
+    #[test]
+    fn display_of_a_nested_archive_marks_each_archive_as_a_root() {
+        assert_eq!(nested(&[]).to_string(), "c.zip:/d/n.tar.gz:/");
+        assert_eq!(nested(&["x"]).to_string(), "c.zip:/d/n.tar.gz:/x");
     }
 
     #[test]

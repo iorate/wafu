@@ -941,10 +941,11 @@ fn archive_shown(location: &Location) -> PathBuf {
 
 // The archive at `level` of a location, as `archive_shown` names it.
 pub(super) fn level_shown(location: &Location, level: usize) -> PathBuf {
-    match location.level_root(level) {
-        Some(root) if level > 0 => PathBuf::from(root.to_string()),
-        _ => location.base.clone(),
-    }
+    let entry = location
+        .level_root(level)
+        .filter(|_| level > 0)
+        .and_then(|root| Some(root.parent()?.child_display(&root.leaf_name()?)));
+    entry.map_or_else(|| location.base.clone(), PathBuf::from)
 }
 
 pub(super) fn is_link_in_archive(location: &Location, kind: EntryKind) -> bool {
