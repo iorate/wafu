@@ -128,6 +128,8 @@ impl App {
             let dir = pane.location().dir();
             let sort = pane.sort();
             PaneState {
+                // A pane that has shown nothing yet saves no path, even while
+                // its first listing is on the way.
                 path: (!dir.as_os_str().is_empty()).then(|| dir.to_path_buf()),
                 sort: Some(sort.key.name().to_owned()),
                 descending: Some(sort.descending),
@@ -152,6 +154,8 @@ impl App {
         }
     }
 
+    // The only place the state is saved: a quit the OS forces (logout,
+    // shutdown) saves nothing.
     pub(super) fn quit(&mut self, save: bool, effects: &mut Vec<Effect>) {
         if save {
             effects.push(Effect::SaveState(self.state_file()));

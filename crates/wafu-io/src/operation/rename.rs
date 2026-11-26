@@ -85,6 +85,8 @@ enum Step {
     Cycle(Vec<usize>),
 }
 
+// Names match exactly: a chain only a case-insensitive file system could
+// resolve is refused, the safe side.
 fn blockers(pairs: &[(String, String)]) -> Vec<Option<usize>> {
     let olds: HashMap<Cow<'_, str>, usize> = pairs
         .iter()

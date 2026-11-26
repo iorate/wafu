@@ -362,7 +362,9 @@ impl Write for Encoder {
 
 // The index of the archive, in one pass. The crate resolves the GNU and PAX
 // extensions, so long names arrive whole and their carrier entries do not
-// show up.
+// show up. It reads them whole, whatever size they declare: capping that
+// would mean walking the blocks here as the crate does. Neither this nor
+// `skip_to` checks for a cancellation.
 fn scan<R: Read>(
     entries: Entries<'_, R>,
 ) -> Result<(Vec<ArchiveEntry>, Vec<Content>), ArchiveError> {

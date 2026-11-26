@@ -382,6 +382,9 @@ impl Worker<'_> {
                     set_entry_metadata(path, &entry, extraction.umask);
                     Ok(())
                 })?;
+                // Kept even if a later entry replaces the file (`A`, then `a`
+                // where case is ignored): too rare to track file identities
+                // for.
                 extraction.written.insert(index, dst.path);
             }
             ArchiveEntryKind::Symlink => {

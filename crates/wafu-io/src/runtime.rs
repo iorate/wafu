@@ -169,6 +169,8 @@ impl Runtime {
             // A reader abandoned with a preview stuck in it gets no message,
             // but lets go of its archive when its thread ends.
             Effect::ReleasePreview => self.preview.release_preview(),
+            // On the UI thread: a mount that does not answer holds the window,
+            // which is accepted rather than threading the watcher.
             Effect::Watch { side, path } => {
                 lock(&self.watcher).watch(side, path, &self.on_event);
             }
@@ -191,6 +193,7 @@ impl Runtime {
                 cwd,
             } => self.spawn(name, program, args, &cwd),
             // A failure here has nowhere to go: the application is quitting.
+            // A path that is not UTF-8 fails the whole save.
             Effect::SaveState(state) => {
                 let _ = write_state(&self.paths.state, &state);
             }
