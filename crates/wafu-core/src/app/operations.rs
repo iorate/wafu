@@ -270,8 +270,14 @@ impl App {
         {
             return;
         }
+        let cancelling = self
+            .operation
+            .as_ref()
+            .is_some_and(|operation| operation.quit_after);
         let resume = self.popup.take();
-        self.popup = Some(Popup::Choice(ChoicePopup::quit_during_operation(resume)));
+        self.popup = Some(Popup::Choice(ChoicePopup::quit_during_operation(
+            resume, cancelling,
+        )));
     }
 
     pub(super) fn continue_operation(&mut self, resume: Option<Box<Popup>>) {
@@ -279,9 +285,17 @@ impl App {
     }
 
     pub(super) fn cancel_and_quit(&mut self, effects: &mut Vec<Effect>) {
-        if let Some(operation) = &mut self.operation {
-            operation.quit_after = true;
+        let Some(operation) = &mut self.operation else {
+            return;
+        };
+        // A worker blocked in a system call, as on a mount that stopped
+        // responding, never reports that it finished, so a second confirmation
+        // quits without waiting for it.
+        if operation.quit_after {
+            self.quit(true, effects);
+            return;
         }
+        operation.quit_after = true;
         self.cancel_operation(effects);
     }
 
