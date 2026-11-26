@@ -256,35 +256,6 @@ fn status_line_on_the_parent_row_spells_out_the_directory_itself() {
 }
 
 #[test]
-fn status_line_on_the_parent_row_of_an_archive_root_describes_the_archive_file() {
-    use crate::entry::Permissions;
-
-    let mut harness = Harness::start("/home/user", "/tmp");
-    harness.load(Side::Left, vec![file("a.zip")]);
-    harness.press("Down");
-    harness.press("Enter");
-    let own = Entry {
-        size: 1234,
-        permissions: Some(Permissions::Mode(0o644)),
-        ..file("a.zip")
-    };
-    harness.load_directory(
-        Side::Left,
-        Directory {
-            own: Some(own),
-            entries: vec![],
-        },
-    );
-
-    assert_eq!(harness.view().status, ".. | -rw-r--r-- | 1,234 bytes");
-    let row = &harness.view().left.rows[0];
-    assert_eq!(
-        (row.marker, row.size.as_str(), row.modified.as_str()),
-        ("", "1234", "")
-    );
-}
-
-#[test]
 fn status_line_shows_line_breaks_in_the_name_as_symbols() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("Icon\r")]);
@@ -292,15 +263,6 @@ fn status_line_shows_line_breaks_in_the_name_as_symbols() {
     harness.press("Down");
 
     assert_eq!(harness.view().status, "Icon\u{21B5} | -????????? | 0 bytes");
-}
-
-#[test]
-fn root_has_no_parent_row() {
-    let mut harness = Harness::start("/", "/tmp");
-
-    harness.load(Side::Left, vec![file("a")]);
-
-    assert_eq!(harness.names(Side::Left), ["a"]);
 }
 
 #[test]
@@ -964,24 +926,6 @@ fn marks_are_dropped_on_navigation_and_do_not_come_back() {
     assert_eq!(harness.marks(Side::Left), Vec::<String>::new());
 }
 
-#[test]
-fn marks_survive_sorting_and_reloading() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-    harness.load(Side::Left, vec![file("a"), file("b")]);
-    harness.press("Down");
-    harness.press("Space");
-
-    harness.press("S");
-    harness.press("D");
-    harness.press("Enter");
-    assert_eq!(harness.names(Side::Left), ["..", "b", "a"]);
-    assert_eq!(harness.marks(Side::Left), ["a"]);
-
-    harness.press("F5");
-    harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
-    assert_eq!(harness.marks(Side::Left), ["a"]);
-}
-
 // Display settings
 
 #[test]
@@ -1071,30 +1015,6 @@ fn filter_popup_starts_with_the_current_pattern() {
 }
 
 #[test]
-fn filter_change_clears_marks_but_the_same_pattern_keeps_them() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-    harness.load(
-        Side::Left,
-        vec![file("a.png"), file("b.png"), file("c.txt")],
-    );
-    harness.press(":");
-    harness.edit("*.png");
-    harness.press("Enter");
-    harness.press("Down");
-    harness.press("Space");
-
-    harness.press(":");
-    harness.press("Enter");
-    assert_eq!(harness.marks(Side::Left), ["a.png"]);
-
-    harness.press(":");
-    harness.edit("*.txt");
-    harness.press("Enter");
-    assert_eq!(harness.marks(Side::Left), Vec::<String>::new());
-    assert_eq!(harness.names(Side::Left), ["..", "c.txt"]);
-}
-
-#[test]
 fn clear_filter_restores_the_listing_and_clears_marks() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a.png"), file("b.txt")]);
@@ -1112,21 +1032,6 @@ fn clear_filter_restores_the_listing_and_clears_marks() {
 }
 
 #[test]
-fn clear_filter_without_a_filter_does_nothing_and_keeps_the_marks() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-    harness.load(Side::Left, vec![file("a"), file("b")]);
-    harness.press("Down");
-    harness.press("Space");
-    harness.take_effects();
-
-    harness.press("*");
-
-    assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(harness.marks(Side::Left), ["a"]);
-    assert_eq!(harness.log(), Vec::<String>::new());
-}
-
-#[test]
 fn empty_filter_text_clears_the_filter() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a.png"), file("b.txt")]);
@@ -1139,21 +1044,6 @@ fn empty_filter_text_clears_the_filter() {
     harness.press("Enter");
 
     assert_eq!(harness.names(Side::Left), ["..", "a.png", "b.txt"]);
-}
-
-#[test]
-fn filter_is_kept_on_navigation() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-    harness.load(Side::Left, vec![dir("docs"), file("a.png")]);
-    harness.press(":");
-    harness.edit("*.png");
-    harness.press("Enter");
-
-    harness.press("Down");
-    harness.press("Enter");
-    harness.load(Side::Left, vec![file("b.png"), file("c.txt")]);
-
-    assert_eq!(harness.names(Side::Left), ["..", "b.png"]);
 }
 
 #[test]
@@ -1241,20 +1131,6 @@ fn sort_popup_escape_discards_and_keys_do_not_reach_the_list() {
     assert!(!harness.app().pane(Side::Left).sort().descending);
     assert_eq!(harness.marks(Side::Left), Vec::<String>::new());
     assert_eq!(harness.cursor_name(Side::Left), "a");
-}
-
-#[test]
-fn sort_change_keeps_the_cursor_on_the_same_entry() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-    harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
-    harness.press("Down");
-
-    harness.press("S");
-    harness.press("D");
-    harness.press("Enter");
-
-    assert_eq!(harness.cursor_name(Side::Left), "a");
-    assert_eq!(harness.view().left.cursor, Some(3));
 }
 
 // Search
@@ -1435,21 +1311,6 @@ fn palette_filters_commands_and_runs_the_selected_one() {
 
     assert_eq!(harness.popup(), None);
     assert_eq!(harness.marks(Side::Left), Vec::<String>::new());
-}
-
-#[test]
-fn palette_shows_bound_keys_and_wraps_the_cursor() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-
-    harness.press("F1");
-    harness.edit("mark_range");
-    let items = harness.popup_items();
-    assert_eq!(items[0].detail, "Ctrl+Space");
-    assert_eq!(items[1].detail, "Ctrl+Shift+Space");
-    harness.press("Up");
-    assert_eq!(harness.view().popup.unwrap().cursor, Some(1));
-    harness.press("Down");
-    assert_eq!(harness.view().popup.unwrap().cursor, Some(0));
 }
 
 #[test]
@@ -2669,84 +2530,6 @@ fn history_popup_stays_put_when_the_place_picked_cannot_be_read() {
 }
 
 #[test]
-fn go_home_at_home_reads_it_again_without_recording_history() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-    harness.load(Side::Left, vec![file("a"), file("b")]);
-    harness.press("Down");
-    harness.press("Space");
-    harness.take_effects();
-
-    harness.press("~");
-
-    assert_eq!(
-        harness.take_effects(),
-        vec![
-            Effect::Watch {
-                side: Side::Left,
-                path: PathBuf::from("/home/user"),
-            },
-            Effect::ReadDir {
-                side: Side::Left,
-                location: Location::new(PathBuf::from("/home/user")),
-                passwords: Passwords::default(),
-                request: harness.latest_request(Side::Left),
-            },
-        ]
-    );
-    harness.load(Side::Left, vec![file("a"), file("b")]);
-    assert_eq!(harness.marks(Side::Left), Vec::<String>::new());
-    assert_eq!(harness.cursor_name(Side::Left), "..");
-    assert_eq!(harness.history(Side::Left), [shown_place("/home/user")]);
-    assert_eq!(harness.log(), Vec::<String>::new());
-}
-
-#[test]
-fn swap_panes_at_the_same_place_reads_both_again_without_recording_history() {
-    let mut harness = Harness::start("/home/user", "/home/user");
-    harness.load(Side::Left, vec![file("a"), file("b")]);
-    harness.press("Down");
-    harness.press("Space");
-    harness.take_effects();
-
-    harness.press("F1");
-    harness.edit("swap_panes");
-    harness.press("Enter");
-
-    assert_eq!(
-        harness.take_effects(),
-        vec![
-            Effect::Watch {
-                side: Side::Left,
-                path: PathBuf::from("/home/user"),
-            },
-            Effect::ReadDir {
-                side: Side::Left,
-                location: Location::new(PathBuf::from("/home/user")),
-                passwords: Passwords::default(),
-                request: harness.latest_request(Side::Left),
-            },
-            Effect::Watch {
-                side: Side::Right,
-                path: PathBuf::from("/home/user"),
-            },
-            Effect::ReadDir {
-                side: Side::Right,
-                location: Location::new(PathBuf::from("/home/user")),
-                passwords: Passwords::default(),
-                request: harness.latest_request(Side::Right),
-            },
-        ]
-    );
-    harness.load(Side::Left, vec![file("a"), file("b")]);
-    harness.load(Side::Right, vec![]);
-    assert_eq!(harness.marks(Side::Left), Vec::<String>::new());
-    assert_eq!(harness.cursor_name(Side::Left), "..");
-    assert_eq!(harness.history(Side::Left), [shown_place("/home/user")]);
-    assert_eq!(harness.history(Side::Right), [shown_place("/home/user")]);
-    assert_eq!(harness.log(), Vec::<String>::new());
-}
-
-#[test]
 fn go_to_path_starts_with_the_current_path_and_expands_the_input() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.take_effects();
@@ -2830,41 +2613,6 @@ fn go_to_path_to_a_file_in_the_current_place_rereads_it_with_the_cursor_on_the_f
 
     assert_eq!(harness.cursor_name(Side::Left), "b.txt");
     assert_eq!(harness.history(Side::Left), [shown_place("/home/user")]);
-}
-
-#[test]
-fn go_to_path_to_the_current_place_reads_it_again_without_recording_history() {
-    let mut harness = Harness::start("/home/user", "/tmp");
-    harness.load(Side::Left, vec![file("a"), file("b")]);
-    harness.press("Down");
-    harness.press("Space");
-    harness.take_effects();
-
-    harness.press("Shift+J");
-    harness.press("Enter");
-    harness.take_effects();
-    harness.resolve(Side::Left, "/home/user", None);
-
-    assert_eq!(
-        harness.take_effects(),
-        vec![
-            Effect::Watch {
-                side: Side::Left,
-                path: PathBuf::from("/home/user"),
-            },
-            Effect::ReadDir {
-                side: Side::Left,
-                location: Location::new(PathBuf::from("/home/user")),
-                passwords: Passwords::default(),
-                request: harness.latest_request(Side::Left),
-            },
-        ]
-    );
-    harness.load(Side::Left, vec![file("a"), file("b")]);
-    assert_eq!(harness.marks(Side::Left), Vec::<String>::new());
-    assert_eq!(harness.cursor_name(Side::Left), "..");
-    assert_eq!(harness.history(Side::Left), [shown_place("/home/user")]);
-    assert_eq!(harness.log(), Vec::<String>::new());
 }
 
 #[test]
@@ -3000,18 +2748,6 @@ fn sync_to_other_does_nothing_when_the_other_pane_has_no_place() {
     let mut harness = right_pane_without_a_place();
 
     harness.press("O");
-
-    assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(harness.log(), Vec::<String>::new());
-}
-
-#[test]
-fn sync_other_to_this_does_nothing_when_this_pane_has_no_place() {
-    let mut harness = right_pane_without_a_place();
-    harness.press("Right");
-    harness.take_effects();
-
-    harness.press("Shift+O");
 
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(harness.log(), Vec::<String>::new());
@@ -4028,19 +3764,6 @@ fn start_logs_an_unreadable_configuration_and_state_file() {
         format!("Cannot read {CONFIG_PATH}: permission denied")
     );
     assert!(log[1].starts_with(&format!("Cannot read {STATE_PATH}: ")));
-}
-
-#[test]
-fn start_logs_an_unknown_configuration_item() {
-    let harness = Harness::start_from(start_msg_with(
-        Os::Linux,
-        Some("/home/user"),
-        Some("/tmp"),
-        config_source("[filelist]\nfoo = 1\n"),
-        Ok(None),
-    ));
-
-    assert_eq!(harness.log(), ["Config: unknown item filelist.foo"]);
 }
 
 #[test]

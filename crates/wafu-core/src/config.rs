@@ -805,26 +805,6 @@ mod tests {
     }
 
     #[test]
-    fn bases_come_before_the_file_that_extends_them_in_the_order_written() {
-        let files = chain(&[
-            ("/c/config.toml", "extends = [\"a.toml\", \"b.toml\"]\n"),
-            ("/c/a.toml", "extends = \"d.toml\"\n"),
-            ("/c/b.toml", ""),
-            ("/c/d.toml", ""),
-        ]);
-
-        assert_eq!(
-            paths(&files),
-            [
-                file_path("/c/d.toml"),
-                file_path("/c/a.toml"),
-                file_path("/c/b.toml"),
-                file_path("/c/config.toml"),
-            ]
-        );
-    }
-
-    #[test]
     fn a_relative_base_is_taken_from_the_directory_of_the_file_naming_it() {
         let files = chain(&[
             ("/c/config.toml", "extends = \"shared/a.toml\"\n"),

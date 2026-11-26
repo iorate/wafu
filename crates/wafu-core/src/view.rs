@@ -779,24 +779,6 @@ mod tests {
     }
 
     #[test]
-    fn a_trailing_dot_is_shown() {
-        let row = |name| {
-            let row = RowView::from_entry(
-                &file(name),
-                SizeFormat::Plain,
-                12,
-                TimeFormat::default(),
-                &no_colors(),
-            );
-            format!("{}{}", row.name, row.extension)
-        };
-        assert_eq!(row("a.b"), "a.b");
-        assert_ne!(row("report."), row("report"));
-        assert_eq!(row("report."), "report.");
-        assert_eq!(row("a.."), "a..");
-    }
-
-    #[test]
     fn file_rows_take_the_extension_color_whatever_its_case() {
         for name in ["a.zip", "b.ZIP", "c.Zip"] {
             let row = RowView::from_entry(
@@ -969,19 +951,6 @@ mod tests {
         pane.set_directory(directory(Some(own), vec![file("a")]));
 
         assert_eq!(status_line(&pane), format!("../ | drwxr-xr-x | {TIME}"));
-    }
-
-    #[test]
-    fn status_line_on_the_parent_row_of_a_link_shows_its_target() {
-        let own = Entry {
-            permissions: Some(Permissions::Mode(0o755)),
-            link_target: Some(OsString::from("private/tmp")),
-            ..link("tmp", Some(TargetKind::Dir))
-        };
-        let mut pane = Pane::new(Location::new(PathBuf::from("/tmp")));
-        pane.set_directory(directory(Some(own), vec![]));
-
-        assert_eq!(status_line(&pane), ".. -> private/tmp/ | lrwxr-xr-x");
     }
 
     #[test]

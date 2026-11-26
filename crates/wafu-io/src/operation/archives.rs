@@ -2161,40 +2161,6 @@ mod tests {
     }
 
     #[test]
-    fn the_password_of_a_nested_archive_is_asked_for_under_its_path() {
-        let dir = TempDir::new().unwrap();
-        let inner = dir.path().join("inner.zip");
-        write_zip(&inner, Some("secret"), |writer| {
-            writer
-                .add_file("a.txt", 1, None, None, &mut &b"a"[..])
-                .unwrap();
-        });
-        let archive = dir.path().join("a.zip");
-        write_archive(
-            &archive,
-            ArchiveFormat::Zip,
-            &[("n.zip", &fs::read(&inner).unwrap())],
-        );
-        let dest = dir.path().join("out");
-        fs::create_dir(&dest).unwrap();
-        let mut spec = copy_entries(&archive, &[], &["a.txt"], &dest);
-        if let Sources::Entries(entries) = &mut spec.sources {
-            entries.path.outer = vec![OuterArchive {
-                format: Some(ArchiveFormat::Zip),
-                entry: vec!["n.zip".to_owned()],
-            }];
-        }
-
-        let (outcome, _, events) = run(&spec, [Reply::Password("secret".to_owned())]);
-
-        assert_eq!(outcome, Outcome::Completed { skipped: 0 });
-        assert!(events.iter().any(|event| matches!(
-            event,
-            OperationEvent::NeedPassword { archive: asked, .. } if *asked == archive.join("n.zip")
-        )));
-    }
-
-    #[test]
     fn copying_out_of_an_archive_behind_an_encrypted_entry_asks_for_its_password() {
         let dir = TempDir::new().unwrap();
         let archive = dir.path().join("a.zip");

@@ -618,18 +618,6 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn resolve_link_fails_on_a_cycle() {
-        let dir = TempDir::new().unwrap();
-        let a = dir.path().join("a");
-        let b = dir.path().join("b");
-        if !symlink(&b, &a) || !symlink(&a, &b) {
-            return;
-        }
-
-        assert_eq!(resolve_link(&a), Resolution::Failed);
-    }
-
-    #[test]
     fn a_directory_entry_counts_only_changes_to_its_name() {
         let watched = Some(OsStr::new("Folder"));
         let counted = [

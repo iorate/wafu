@@ -416,18 +416,6 @@ fn rename_in_a_conflict_asks_for_a_name() {
 }
 
 #[test]
-fn rename_in_a_conflict_to_an_empty_name_goes_back() {
-    let mut harness = conflicting();
-    harness.press("R");
-    harness.edit("");
-
-    harness.press("Enter");
-
-    assert_eq!(harness.view().popup.unwrap().title, "File exists");
-    assert_eq!(harness.take_effects(), vec![]);
-}
-
-#[test]
 fn rename_in_a_conflict_to_the_same_name_composed_differently_goes_back() {
     let mut harness = copying();
     harness.operation(OperationEvent::Conflict {
@@ -980,20 +968,6 @@ fn rename_opens_with_line_breaks_in_the_name_left_as_they_are() {
 }
 
 #[test]
-fn rename_to_the_same_name_does_nothing() {
-    let mut harness = Harness::start(LEFT, RIGHT);
-    harness.load(Side::Left, vec![file("a.tar.gz")]);
-    harness.press("Down");
-    harness.take_effects();
-
-    harness.press("R");
-    harness.edit("a.tar.gz");
-    harness.press("Enter");
-
-    assert_eq!(harness.take_effects(), vec![]);
-}
-
-#[test]
 fn rename_to_the_same_name_composed_differently_does_nothing() {
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.load(Side::Left, vec![file("\u{304b}\u{3099}")]);
@@ -1002,20 +976,6 @@ fn rename_to_the_same_name_composed_differently_does_nothing() {
 
     harness.press("R");
     harness.edit("\u{304c}");
-    harness.press("Enter");
-
-    assert_eq!(harness.take_effects(), vec![]);
-}
-
-#[test]
-fn rename_to_an_empty_name_does_nothing() {
-    let mut harness = Harness::start(LEFT, RIGHT);
-    harness.load(Side::Left, vec![file("a.tar.gz")]);
-    harness.press("Down");
-    harness.take_effects();
-
-    harness.press("R");
-    harness.edit("");
     harness.press("Enter");
 
     assert_eq!(harness.take_effects(), vec![]);

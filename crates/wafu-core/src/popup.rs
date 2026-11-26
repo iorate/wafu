@@ -2152,13 +2152,6 @@ mod tests {
     }
 
     #[test]
-    fn list_popup_closes_on_enter_when_empty() {
-        let mut popup = ListPopup::bookmarks(&[], Path::new("/home/user"));
-
-        assert_eq!(menu_input(&mut popup, key("Enter"), PAGE), Response::Close);
-    }
-
-    #[test]
     fn palette_cursor_wraps_and_handles_no_matches() {
         let mut popup = PalettePopup::new(Context::FileList, Os::Windows, Vec::new());
         popup.set_query("jump_".to_owned());

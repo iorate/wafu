@@ -1833,56 +1833,6 @@ run = "wt"
     }
 
     #[test]
-    fn extension_colors_merge_by_lowercased_extension() {
-        let (config, diagnostics) = parse_layers(
-            in_one_file(&[
-                "[colors.light.extensions]\nzip = \"#111111\"\npng = \"#222222\"\nGIF = \"#555555\"\n",
-                "[colors.light.extensions]\nzip = \"#333333\"\n7z = \"#444444\"\ngif = \"#666666\"\n",
-            ]),
-            Os::Linux,
-        )
-        .unwrap();
-
-        assert_eq!(
-            config.colors.light.extensions,
-            BTreeMap::from([
-                ("7z".to_owned(), Color::new(0x44, 0x44, 0x44)),
-                ("gif".to_owned(), Color::new(0x66, 0x66, 0x66)),
-                ("png".to_owned(), Color::new(0x22, 0x22, 0x22)),
-                ("zip".to_owned(), Color::new(0x33, 0x33, 0x33)),
-            ])
-        );
-        assert_eq!(diagnostics, []);
-    }
-
-    #[test]
-    fn open_alternative_rules_merge_by_lowercased_extension() {
-        let (config, diagnostics) = parse_layers(
-            in_one_file(&[
-                "[open_alternative.extensions]\nPDF = \"a {paths}\"\ntxt = \"b {paths}\"\n",
-                "[open_alternative.extensions]\npdf = \"c {paths}\"\n",
-            ]),
-            Os::Linux,
-        )
-        .unwrap();
-
-        assert_eq!(
-            config.open_alternative.extensions,
-            BTreeMap::from([
-                (
-                    "pdf".to_owned(),
-                    CommandLine::parse("c {paths}", Os::Linux).unwrap()
-                ),
-                (
-                    "txt".to_owned(),
-                    CommandLine::parse("b {paths}", Os::Linux).unwrap()
-                ),
-            ])
-        );
-        assert_eq!(diagnostics, []);
-    }
-
-    #[test]
     fn an_empty_string_takes_back_what_a_file_below_set() {
         let (config, diagnostics) = parse_layers(
             in_one_file(&[

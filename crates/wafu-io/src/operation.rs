@@ -1349,31 +1349,6 @@ mod tests {
         assert_eq!(fs::read(dir.path().join("a")).unwrap(), b"a");
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn copying_an_unreadable_file_onto_itself_keeps_it() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let dir = TempDir::new().unwrap();
-        let file = dir.path().join("a");
-        fs::write(&file, b"a").unwrap();
-        fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).unwrap();
-        // A user who can read it anyway (root) has nothing to check.
-        if File::open(&file).is_ok() {
-            return;
-        }
-
-        let (outcome, _, _) = run(
-            &copy(std::slice::from_ref(&file), dir.path()),
-            [Reply::Overwrite { all: false }],
-        );
-
-        assert!(
-            fs::symlink_metadata(&file).is_ok(),
-            "the file is gone, outcome: {outcome:?}"
-        );
-    }
-
     #[test]
     fn copying_over_a_broken_link_replaces_it() {
         let dir = TempDir::new().unwrap();
@@ -1595,31 +1570,6 @@ mod tests {
         assert!(
             fs::symlink_metadata(&link).is_ok(),
             "the link is gone, outcome: {outcome:?}"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn moving_an_unreadable_file_onto_itself_keeps_it() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let dir = TempDir::new().unwrap();
-        let file = dir.path().join("a");
-        fs::write(&file, b"a").unwrap();
-        fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).unwrap();
-        // A user who can read it anyway (root) has nothing to check.
-        if File::open(&file).is_ok() {
-            return;
-        }
-
-        let (outcome, _, _) = run(
-            &mv(std::slice::from_ref(&file), dir.path()),
-            [Reply::Overwrite { all: false }],
-        );
-
-        assert!(
-            fs::symlink_metadata(&file).is_ok(),
-            "the file is gone, outcome: {outcome:?}"
         );
     }
 

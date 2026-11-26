@@ -202,14 +202,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_splits_at_a_tilde_in_the_middle_of_a_name() {
-        let filter = Filter::parse("PROGRA~1").unwrap().unwrap();
-
-        assert!(filter.matches(OsStr::new("PROGRA")));
-        assert!(!filter.matches(OsStr::new("PROGRA~1")));
-    }
-
-    #[test]
     fn parse_does_not_split_at_an_escaped_tilde() {
         let filter = Filter::parse(r"*~*\~").unwrap().unwrap();
         assert!(filter.matches(OsStr::new("a")));

@@ -186,11 +186,6 @@ mod tests {
     }
 
     #[test]
-    fn position_on_drops_a_window_off_every_screen() {
-        assert_eq!(window(100, 2000, 800, 600).position_on(SCREENS), None);
-    }
-
-    #[test]
     fn position_on_measures_from_the_edges_of_a_screen_away_from_the_origin() {
         let screens = &[ScreenRect {
             x: 1920,

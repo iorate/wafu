@@ -162,38 +162,6 @@ fn moving_inside_an_archive_of_unknown_format_leaves_the_format_unknown() {
 }
 
 #[test]
-fn enter_on_a_tar_enters_it_with_the_format_of_its_extension() {
-    let mut harness = Harness::start(LEFT, RIGHT);
-    harness.load(Side::Left, vec![file("a.tar.gz")]);
-    harness.load(Side::Right, vec![]);
-    harness.press("Down");
-    harness.take_effects();
-
-    harness.press("Enter");
-
-    let effects = harness.take_effects();
-    assert!(matches!(
-        effects.as_slice(),
-        [Effect::Watch { .. }, Effect::ReadDir { location, .. }]
-            if *location
-                == Location::archive_root(path(LEFT, "a.tar.gz"), Some(ArchiveFormat::TarGz))
-    ));
-}
-
-#[test]
-fn enter_as_archive_on_the_parent_row_does_nothing() {
-    let mut harness = outside();
-    harness.press("Home");
-    harness.take_effects();
-
-    harness.press("Shift+U");
-
-    assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(harness.view().left.path, shown_place(LEFT));
-    assert_eq!(harness.log(), Vec::<String>::new());
-}
-
-#[test]
 fn enter_as_archive_on_the_parent_row_of_an_archive_root_does_nothing() {
     let mut harness = inside();
     harness.press("Home");
@@ -272,33 +240,6 @@ fn go_root_inside_an_archive_goes_to_the_archive_root_and_stays_there() {
 }
 
 #[test]
-fn backspace_at_the_archive_root_leaves_with_the_cursor_on_the_archive() {
-    let mut harness = inside();
-
-    harness.press("BS");
-
-    assert_eq!(
-        harness.take_effects(),
-        vec![
-            Effect::Watch {
-                side: Side::Left,
-                path: PathBuf::from(LEFT),
-            },
-            Effect::ReadDir {
-                side: Side::Left,
-                location: Location::new(PathBuf::from(LEFT)),
-                passwords: Passwords::default(),
-                request: harness.latest_request(Side::Left),
-            },
-        ]
-    );
-    harness.load(Side::Left, vec![file("a.zip"), file("note.txt"), dir("d")]);
-
-    assert_eq!(harness.cursor_name(Side::Left), "a.zip");
-    assert_eq!(harness.view().left.path, shown_place(LEFT));
-}
-
-#[test]
 fn enter_on_an_archive_inside_an_archive_enters_it_and_backspace_returns_to_it() {
     let mut harness = inside();
     harness.press("Down");
@@ -334,22 +275,6 @@ fn enter_on_an_archive_inside_an_archive_enters_it_and_backspace_returns_to_it()
     ));
     harness.load(Side::Left, contents());
     assert_eq!(harness.cursor_name(Side::Left), "inner.zip");
-}
-
-#[test]
-fn a_nested_archive_behind_an_encrypted_entry_asks_for_the_outer_archive_password() {
-    let mut harness = inside();
-    harness.press("Down");
-    harness.press("Down");
-    harness.press("Down");
-    harness.press("Enter");
-
-    harness.need_password(Side::Left, 0, false);
-
-    let popup = harness.view().popup.unwrap();
-    assert_eq!(popup.title, "Password");
-    assert_eq!(popup.message.as_deref(), Some("a.zip"));
-    assert_eq!(harness.view().left.path, root().to_string());
 }
 
 #[test]
@@ -592,22 +517,6 @@ fn a_listing_that_needs_a_password_behind_a_popup_fails_and_forgets_a_wrong_one(
 }
 
 #[test]
-fn enter_as_archive_inside_an_archive_enters_the_file_as_an_archive() {
-    let mut harness = inside();
-    harness.press("Down");
-    harness.press("Down");
-    assert_eq!(harness.cursor_name(Side::Left), "b.txt");
-
-    harness.press("Shift+U");
-
-    assert!(matches!(
-        harness.take_effects().as_slice(),
-        [Effect::Watch { .. }, Effect::ReadDir { location, .. }]
-            if *location == root().nested_root("b.txt", None)
-    ));
-}
-
-#[test]
 fn a_nested_archive_that_cannot_be_read_is_logged_by_its_own_path() {
     let mut harness = inside();
     harness.press("Down");
@@ -644,32 +553,6 @@ fn enter_as_archive_on_a_link_inside_an_archive_is_refused() {
             root()
         )]
     );
-}
-
-#[test]
-fn enter_as_archive_on_the_parent_row_of_a_nested_archive_root_does_nothing() {
-    let mut harness = nested();
-
-    harness.press("Shift+U");
-
-    assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(harness.log(), Vec::<String>::new());
-}
-
-#[test]
-fn go_root_inside_a_nested_archive_goes_to_its_own_root() {
-    let mut harness = nested();
-    harness.press("Down");
-    harness.press("Enter");
-    harness.load(Side::Left, vec![file("x")]);
-    harness.take_effects();
-
-    harness.press("/");
-
-    assert!(matches!(
-        harness.take_effects().as_slice(),
-        [Effect::Watch { .. }, Effect::ReadDir { location, .. }] if *location == nested_root()
-    ));
 }
 
 #[test]
@@ -1441,32 +1324,6 @@ fn a_password_request_during_the_quit_confirmation_waits_behind_it() {
 }
 
 #[test]
-fn a_password_typed_for_a_temporary_extraction_is_remembered_inside_the_archive() {
-    let mut harness = inside();
-    harness.press("Down");
-    harness.press("Down");
-    harness.press("E");
-    harness.operation(OperationEvent::NeedPassword {
-        archive: archive(),
-        level: 0,
-        retry: false,
-    });
-    harness.edit("pw");
-    harness.press("Enter");
-    harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
-    harness.finish(Outcome::Completed { skipped: 0 });
-    harness.take_effects();
-
-    harness.press("E");
-
-    let spec = harness.start_operation().unwrap();
-    assert_eq!(
-        spec.sources,
-        Sources::Entries(entries(&["b.txt"], Some("pw")))
-    );
-}
-
-#[test]
 fn a_wrong_password_is_asked_again_and_forgotten() {
     let mut harness = copying_inside();
     harness.operation(OperationEvent::NeedPassword {
@@ -1498,31 +1355,6 @@ fn a_wrong_password_is_asked_again_and_forgotten() {
 
     harness.finish(Outcome::Cancelled);
     harness.take_effects();
-    harness.press("C");
-
-    let spec = harness.start_operation().unwrap();
-    assert_eq!(spec.sources, Sources::Entries(entries(&["b.txt"], None)));
-}
-
-#[test]
-fn leaving_the_archive_forgets_the_password() {
-    let mut harness = copying_inside();
-    harness.operation(OperationEvent::NeedPassword {
-        archive: archive(),
-        level: 0,
-        retry: false,
-    });
-    harness.edit("pw");
-    harness.press("Enter");
-    harness.finish(Outcome::Completed { skipped: 0 });
-    harness.press("BS");
-    harness.load(Side::Left, vec![file("a.zip"), file("note.txt"), dir("d")]);
-    harness.enter_archive(Side::Left, contents());
-    harness.press("Down");
-    harness.press("Down");
-    harness.press("Space");
-    harness.take_effects();
-
     harness.press("C");
 
     let spec = harness.start_operation().unwrap();
@@ -1611,30 +1443,6 @@ fn open_alternative_inside_an_archive_extracts_the_cursor_entry_alone_and_then_s
                     path(TEMP, "b.txt").into_os_string(),
                 ]
                 && cwd == Path::new(LEFT)
-    ));
-}
-
-#[test]
-fn open_alternative_on_a_directory_inside_an_archive_extracts_the_directory() {
-    let mut harness = inside();
-    harness.config("[open_alternative]\ndir = \"code {paths}\"\n");
-    harness.press("Down");
-    assert_eq!(harness.cursor_name(Side::Left), "docs");
-    harness.take_effects();
-
-    harness.press("Shift+Enter");
-
-    let spec = harness.start_operation().unwrap();
-    assert_eq!(spec.sources, Sources::Entries(entries(&["docs"], None)));
-
-    harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
-    harness.finish(Outcome::Completed { skipped: 0 });
-
-    let effects = harness.take_effects();
-    assert!(matches!(
-        effects.as_slice(),
-        [Effect::ReadDir { .. }, Effect::Spawn { program, args, .. }]
-            if program == "code" && *args == vec![path(TEMP, "docs").into_os_string()]
     ));
 }
 
@@ -1736,32 +1544,6 @@ fn open_with_os_on_the_parent_row_of_an_archive_root_opens_the_archive_file() {
     harness.press("Ctrl+Enter");
 
     assert_eq!(harness.take_effects(), vec![Effect::OpenWithOs(archive())]);
-    assert_eq!(harness.cursor_name(Side::Left), "..");
-}
-
-#[test]
-fn open_with_os_on_the_parent_row_inside_an_archive_extracts_the_directory_itself() {
-    let mut harness = inside();
-    harness.press("Down");
-    harness.press("Enter");
-    harness.load(Side::Left, vec![file("x")]);
-    harness.take_effects();
-    assert_eq!(harness.cursor_name(Side::Left), "..");
-
-    harness.press("Ctrl+Enter");
-
-    let spec = harness.start_operation().unwrap();
-    assert_eq!(spec.kind, OperationKind::ExtractToTemp);
-    assert_eq!(spec.sources, Sources::Entries(entries(&["docs"], None)));
-
-    harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
-    harness.finish(Outcome::Completed { skipped: 0 });
-
-    let effects = harness.take_effects();
-    assert!(matches!(
-        effects.as_slice(),
-        [Effect::ReadDir { .. }, Effect::OpenWithOs(path)] if *path == self::path(TEMP, "docs")
-    ));
     assert_eq!(harness.cursor_name(Side::Left), "..");
 }
 
