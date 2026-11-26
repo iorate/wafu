@@ -85,6 +85,8 @@ enum Step {
     Cycle(Vec<usize>),
 }
 
+// Names match after NFC, with case: a chain only a case-insensitive file
+// system links up (`a` to `b`, `B` to `c`) is refused as taken.
 fn blockers(pairs: &[(String, String)]) -> Vec<Option<usize>> {
     let olds: HashMap<Cow<'_, str>, usize> = pairs
         .iter()

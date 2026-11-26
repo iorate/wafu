@@ -14,6 +14,8 @@ const UTF8_CODE_PAGE: u32 = 65001;
 
 // Decodes an entry name: UTF-8 when it is valid, else the system's default
 // encoding (the ANSI code page on Windows), with unreadable parts replaced.
+// ANSI rather than OEM: the two are the same code page in CJK and Thai
+// locales.
 pub(crate) fn decode_name(raw: &[u8]) -> String {
     match std::str::from_utf8(raw) {
         Ok(name) => name.to_owned(),
@@ -23,7 +25,9 @@ pub(crate) fn decode_name(raw: &[u8]) -> String {
 
 // Splits a name at `/` and `\` (old Windows tools wrote the latter),
 // dropping empty parts such as the trailing separator of a directory and
-// `.` parts such as a leading `./`.
+// `.` parts such as a leading `./`. A `\` in a Unix name is split as well:
+// tar does not record the system that wrote it, and a zip's record is not
+// used for this.
 pub(crate) fn split_name(name: &str) -> Vec<String> {
     name.split(['/', '\\'])
         .filter(|part| !part.is_empty() && *part != ".")

@@ -182,6 +182,7 @@ impl App {
                     && is_image_name(&entry.name)
             })
             .map(|entry| entry.name.clone());
+        // By name only: a file rewritten in place is not read again.
         if target == preview.shown {
             return;
         }

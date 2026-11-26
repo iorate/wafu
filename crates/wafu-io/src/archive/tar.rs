@@ -262,7 +262,8 @@ impl Stream {
         Self { source, pos: 0 }
     }
 
-    // Moves forward to `target`, which is never behind the position.
+    // Moves forward to `target`, which is never behind the position. A
+    // cancellation is not seen while skipping.
     fn skip_to(&mut self, target: u64) -> io::Result<()> {
         match &mut self.source {
             Source::Plain(file) => {
@@ -362,7 +363,9 @@ impl Write for Encoder {
 
 // The index of the archive, in one pass. The crate resolves the GNU and PAX
 // extensions, so long names arrive whole and their carrier entries do not
-// show up.
+// show up. The crate reads them whole, whatever size they declare: capping
+// that would mean walking the blocks here as the crate does. A cancellation
+// is not seen until the scan ends.
 fn scan<R: Read>(
     entries: Entries<'_, R>,
 ) -> Result<(Vec<ArchiveEntry>, Vec<Content>), ArchiveError> {
