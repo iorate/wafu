@@ -769,6 +769,12 @@ impl App {
             self.log.push(error.to_string());
             return;
         }
+        if is_link_in_archive(&location, entry.kind) {
+            let path = PathBuf::from(location.child_display(&entry.name));
+            let error = AppError::LinkInArchive { verb: "run", path };
+            self.log.push(error.to_string());
+            return;
+        }
         let executable = entry.kind.is_executable();
         if location.in_archive() {
             let temp = Temp {

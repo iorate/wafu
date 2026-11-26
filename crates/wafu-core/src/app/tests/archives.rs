@@ -1809,6 +1809,25 @@ fn run_file_inside_an_archive_extracts_the_cursor_entry_alone_and_then_opens_the
 }
 
 #[test]
+fn run_file_on_a_link_inside_an_archive_is_refused() {
+    let mut harness = outside();
+    harness.enter_archive(Side::Left, vec![link("link")]);
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("X");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log(),
+        [format!(
+            "Cannot run {}/link: a link inside an archive leads nowhere until extracted",
+            root()
+        )]
+    );
+}
+
+#[test]
 fn run_command_inside_an_archive_without_paths_starts_at_once_in_the_directory_holding_it() {
     let mut harness = inside();
     harness.press("Down");
