@@ -802,15 +802,17 @@ fn take_extends(table: &mut Table, diagnostics: &mut Vec<Diagnostic>) -> Vec<Str
     };
     match table.remove("extends") {
         None => Vec::new(),
+        // Left unwritten, as an empty string is for other string items. Read
+        // as a path, it would name the directory of the file itself.
+        Some(Value::String(path)) if path.is_empty() => Vec::new(),
         Some(Value::String(path)) => vec![path],
         Some(Value::Array(items)) => items
             .into_iter()
             .enumerate()
-            .filter_map(|(index, item)| {
-                if let Value::String(path) = item {
-                    Some(path)
-                } else {
-                    invalid(format!("extends[{index}]"), "a string");
+            .filter_map(|(index, item)| match item {
+                Value::String(path) if !path.is_empty() => Some(path),
+                _ => {
+                    invalid(format!("extends[{index}]"), "a non-empty string");
                     None
                 }
             })
@@ -1938,14 +1940,21 @@ pdf = ""
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(extends("extends = 1\n"), Vec::<String>::new());
 
-        let text = "extends = [\"a.toml\", 1]\n";
+        let text = "extends = [\"a.toml\", 1, \"\"]\n";
         let (_, diagnostics) = parse(text, Os::Linux).unwrap();
         assert_eq!(
             diagnostics[0].to_string(),
-            "Config: invalid value for extends[1] (expected a string)"
+            "Config: invalid value for extends[1] (expected a non-empty string)"
         );
-        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(paths(&diagnostics), ["extends[1]", "extends[2]"]);
         assert_eq!(extends(text), ["a.toml"]);
+    }
+
+    #[test]
+    fn an_empty_extends_names_no_file() {
+        let (_, diagnostics) = parse("extends = \"\"\n", Os::Linux).unwrap();
+        assert_eq!(diagnostics, []);
+        assert_eq!(extends("extends = \"\"\n"), Vec::<String>::new());
     }
 
     fn paths(diagnostics: &[Diagnostic]) -> Vec<&str> {
