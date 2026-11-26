@@ -107,6 +107,8 @@ pub enum AppError {
         path: PathBuf,
         reason: &'static str,
     },
+    #[error("Cannot {verb} {}: a link inside an archive leads nowhere until extracted", path.display())]
+    LinkInArchive { verb: &'static str, path: PathBuf },
     #[error("Cannot create {}: {source}", path.display())]
     CreateFailed { path: PathBuf, source: IoError },
     #[error("Cannot create {}: {reason}", path.display())]

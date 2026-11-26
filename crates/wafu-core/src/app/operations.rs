@@ -1,6 +1,7 @@
 use std::ffi::{OsStr, OsString};
 use std::path::{Component, Path, PathBuf};
 
+use super::navigation::is_link_in_archive;
 use super::{App, Change, Effect, MenuAnchor, Os, PreviewSource, Side, SpawnName};
 use crate::command::{Command, Context};
 use crate::entry::Entry;
@@ -696,6 +697,12 @@ impl App {
             self.log.push(AppError::NotRegularFile { path }.to_string());
             return;
         }
+        if is_link_in_archive(&location, entry.kind) {
+            let path = PathBuf::from(location.child_display(&entry.name));
+            let error = AppError::LinkInArchive { verb: "edit", path };
+            self.log.push(error.to_string());
+            return;
+        }
         if location.in_archive() {
             let temp = Temp {
                 action: TempAction::Edit,
@@ -737,6 +744,12 @@ impl App {
             return;
         };
         if let Some(error) = self.bad_target("open", &location, [entry.name.as_os_str()]) {
+            self.log.push(error.to_string());
+            return;
+        }
+        if is_link_in_archive(&location, entry.kind) {
+            let path = PathBuf::from(location.child_display(&entry.name));
+            let error = AppError::LinkInArchive { verb: "open", path };
             self.log.push(error.to_string());
             return;
         }
@@ -805,6 +818,19 @@ impl App {
             .marked_entries()
             .map(|entry| entry.name.clone())
             .collect();
+        let symlink = pane
+            .cursor_entry()
+            .into_iter()
+            .chain(pane.marked_entries())
+            .find(|entry| is_link_in_archive(&location, entry.kind));
+        if let Some(entry) = symlink {
+            let error = AppError::LinkInArchive {
+                verb: "run a command on",
+                path: PathBuf::from(location.child_display(&entry.name)),
+            };
+            self.log.push(error.to_string());
+            return;
+        }
         let (from, cursor, extracted) = match pane.cursor_target() {
             Some((at, entry)) if at == location => {
                 let mut names = marked.clone();
