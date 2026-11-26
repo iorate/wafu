@@ -193,7 +193,8 @@ impl Runtime {
                 cwd,
             } => self.spawn(name, program, args, &cwd),
             // A failure here has nowhere to go: the application is quitting.
-            // A path that is not UTF-8 fails the whole save.
+            // A pane path or history entry that is not UTF-8 fails the whole
+            // save, since TOML cannot hold it.
             Effect::SaveState(state) => {
                 let _ = write_state(&self.paths.state, &state);
             }

@@ -988,8 +988,9 @@ impl App {
         Self::spawn_editor(&self.config.programs.editor, &expansion, effects);
     }
 
-    // A pane showing what was renamed follows it to its new name. One below
-    // it is left as after a rename made outside wafu.
+    // A pane showing what was renamed follows it to its new name. One
+    // showing a place inside it is not followed, as after a rename made
+    // outside wafu.
     fn follow_renamed(&mut self, renamed: &[(PathBuf, PathBuf)], effects: &mut Vec<Effect>) {
         for side in [Side::Left, Side::Right] {
             let pane = &self.panes[side.index()];

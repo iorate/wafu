@@ -383,8 +383,8 @@ impl Worker<'_> {
                     Ok(())
                 })?;
                 // Kept even if a later entry replaces the file (`A`, then `a`
-                // where case is ignored): too rare to track file identities
-                // for.
+                // where case is ignored), so a hard link to the first copies
+                // the second: too rare to track file identities for.
                 extraction.written.insert(index, dst.path);
             }
             ArchiveEntryKind::Symlink => {
