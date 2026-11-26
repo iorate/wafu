@@ -9,25 +9,40 @@ pub(crate) fn spawn(
     cwd: Option<&Path>,
     env: &[(OsString, OsString)],
 ) -> std::io::Result<Child> {
-    let mut command = Command::new(program);
-    command
-        .args(args)
-        .envs(env.iter().map(|(key, value)| (key, value)));
-    if let Some(cwd) = cwd {
-        command.current_dir(cwd);
-    }
-    // On Unix the child's output would otherwise land in the terminal that
-    // started wafu. On Windows the streams are left alone and no creation
-    // flag is set, so that a console program gets a console of its own, as
-    // when started from Explorer. Standard error is never piped: descendants
-    // inheriting the pipe would keep it open after the child has ended.
-    if !cfg!(windows) {
+    let program = program.as_ref();
+    let build = |program: &OsStr| {
+        let mut command = Command::new(program);
         command
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .args(args)
+            .envs(env.iter().map(|(key, value)| (key, value)));
+        if let Some(cwd) = cwd {
+            command.current_dir(cwd);
+        }
+        // On Unix the child's output would otherwise land in the terminal that
+        // started wafu. On Windows the streams are left alone and no creation
+        // flag is set, so that a console program gets a console of its own, as
+        // when started from Explorer. Standard error is never piped: descendants
+        // inheriting the pipe would keep it open after the child has ended.
+        if !cfg!(windows) {
+            command
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+        }
+        command
+    };
+    match build(program).spawn() {
+        // std looks for a bare name only with `.exe` appended, so the other
+        // extensions of `PATHEXT` are tried here, as for `code.cmd`.
+        #[cfg(windows)]
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            match find_with_pathext(program, env) {
+                Some(path) => build(path.as_os_str()).spawn(),
+                None => Err(error),
+            }
+        }
+        result => result,
     }
-    command.spawn()
 }
 
 // Reaping the child keeps it from lingering as a zombie on Unix. The child
@@ -135,6 +150,45 @@ fn command_line(args: &[OsString]) -> Vec<u16> {
     line
 }
 
+#[cfg(windows)]
+fn find_with_pathext(program: &OsStr, env: &[(OsString, OsString)]) -> Option<std::path::PathBuf> {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+    let bare = program
+        .encode_wide()
+        .all(|c| c != u16::from(b'\\') && c != u16::from(b'/') && c != u16::from(b'.'));
+    if !bare {
+        return None;
+    }
+    let path = child_var(env, "PATH")?;
+    let pathext: Vec<u16> = child_var(env, "PATHEXT")?.encode_wide().collect();
+    // An empty element would stand for the current directory in `PATH` and
+    // for the bare name in `PATHEXT`; std searches neither.
+    std::env::split_paths(&path)
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .find_map(|dir| {
+            pathext
+                .split(|&c| c == u16::from(b';'))
+                .filter(|ext| !ext.is_empty())
+                .find_map(|ext| {
+                    let mut name = program.to_owned();
+                    name.push(OsString::from_wide(ext));
+                    let candidate = dir.join(name);
+                    candidate.is_file().then_some(candidate)
+                })
+        })
+}
+
+// Names are case-insensitive on Windows, and the last of equal names is the
+// one the child gets.
+#[cfg(windows)]
+fn child_var(env: &[(OsString, OsString)], name: &str) -> Option<OsString> {
+    env.iter()
+        .rfind(|(key, _)| key.eq_ignore_ascii_case(name))
+        .map(|(_, value)| value.clone())
+        .or_else(|| std::env::var_os(name))
+}
+
 #[cfg(test)]
 mod tests {
     use tempfile::TempDir;
@@ -148,6 +202,18 @@ mod tests {
 
         assert!(spawn("wafu-no-such-program", &["x"], Some(dir.path()), &[]).is_err());
         assert!(spawn(program, args, Some(&dir.path().join("gone")), &[]).is_err());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_bare_name_finds_a_batch_file_on_the_path() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("wafu-hello.cmd"), "@exit 0\r\n").unwrap();
+        let env = [(OsString::from("PATH"), dir.path().as_os_str().to_owned())];
+
+        let mut child = spawn("wafu-hello", &[] as &[&str], None, &env).unwrap();
+
+        assert!(child.wait().unwrap().success());
     }
 
     // The child inherits the test's console on Windows, so anything it printed
