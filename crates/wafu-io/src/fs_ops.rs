@@ -64,8 +64,6 @@ pub(crate) fn is_same_file(a: &Path, b: &Path) -> io::Result<bool> {
             .unwrap_or(false))
 }
 
-// What tells the entry at a path from every other on the machine while it
-// exists, whatever the name it is reached by. A link is not followed.
 #[cfg(unix)]
 pub(crate) fn file_id(path: &Path) -> io::Result<(u64, u64)> {
     use std::os::unix::fs::MetadataExt;
@@ -74,6 +72,8 @@ pub(crate) fn file_id(path: &Path) -> io::Result<(u64, u64)> {
     Ok((meta.dev(), meta.ino()))
 }
 
+// Asked of the system directly, since a `same_file::Handle` keeps the file
+// open for as long as it is kept.
 #[cfg(windows)]
 #[allow(unsafe_code)]
 pub(crate) fn file_id(path: &Path) -> io::Result<(u64, u64)> {

@@ -354,7 +354,7 @@ impl Worker<'_> {
                 // A hard link is extracted as a copy. Its content comes before
                 // it in a tar, so reading it there would start the stream over;
                 // the file already written has it too, unless the mode it was
-                // given keeps it from being read.
+                // given keeps it from being read or a later entry replaced it.
                 let copy_of = extraction
                     .reader
                     .hard_link_target(index)
@@ -650,8 +650,6 @@ struct Extraction {
     links: Vec<(Destination, String, usize, PathBuf)>,
     dirs: Vec<(PathBuf, ArchiveEntry)>,
     created: HashSet<PathBuf>,
-    // The entries hard links share their content with, where each was
-    // written, and which of them a file there is.
     link_targets: HashSet<usize>,
     written: HashMap<usize, PathBuf>,
     written_ids: HashMap<(u64, u64), usize>,
@@ -700,12 +698,12 @@ impl Extraction {
         }
     }
 
-    // Keeps where an entry was written for the hard links to it to copy.
     // The file `replaced` may be one written for an earlier entry, whose name
     // the file system does not tell from this one, as with `A` and `a`, and no
     // longer has that entry's content. It is found by what it is, since the
     // names differ and comparing every path kept would take a time that grows
-    // with their number for each file replaced.
+    // with their number for each file replaced. Only the entries links name
+    // are kept, so that the others cost no lookup of what they are.
     fn remember(&mut self, index: usize, path: PathBuf, replaced: Option<(u64, u64)>) {
         if let Some(id) = replaced
             && let Some(target) = self.written_ids.remove(&id)
