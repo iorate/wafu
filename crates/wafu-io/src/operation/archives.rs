@@ -563,8 +563,9 @@ impl Worker<'_> {
         if meta.is_symlink() {
             let target = fs::read_link(path)
                 .map_err(fail(path))?
-                .to_string_lossy()
-                .into_owned();
+                .into_os_string()
+                .into_string()
+                .map_err(|_| failure(path, "the link target is not valid UTF-8"))?;
             // Link targets are stored with `/`, the separator of the archive,
             // and turned back on extraction.
             #[cfg(windows)]
@@ -719,11 +720,12 @@ fn archive_name(path: &Path, base: &Path) -> Result<String, Stop> {
     let relative = path
         .strip_prefix(base)
         .map_err(|_| failure(path, "not under its base"))?;
-    Ok(relative
+    let components = relative
         .components()
-        .map(|component| component.as_os_str().to_string_lossy().into_owned())
-        .collect::<Vec<_>>()
-        .join("/"))
+        .map(|component| component.as_os_str().to_str())
+        .collect::<Option<Vec<_>>>()
+        .ok_or_else(|| failure(path, "the name is not valid UTF-8"))?;
+    Ok(components.join("/"))
 }
 
 // The name comes from the core or from an archive's name, and neither may
@@ -2507,6 +2509,55 @@ mod tests {
         assert_eq!(error.to_string(), "not a regular file");
     }
 
+    // macOS refuses to create a file whose name is not UTF-8.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn compress_fails_at_a_name_that_is_not_utf_8() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let dir = TempDir::new().unwrap();
+        let src = dir.path().join("src");
+        fs::create_dir(&src).unwrap();
+        let file = src.join(OsStr::from_bytes(b"\xff.txt"));
+        fs::write(&file, b"a").unwrap();
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+
+        let (outcome, _, _) = run(
+            &compress(std::slice::from_ref(&src), &dest, "x.zip", None),
+            [],
+        );
+
+        let Outcome::Failed { path, error, .. } = outcome else {
+            panic!("expected a failure, got {outcome:?}");
+        };
+        assert_eq!(path, file);
+        assert_eq!(error.to_string(), "the name is not valid UTF-8");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn compress_fails_at_a_link_whose_target_is_not_utf_8() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let dir = TempDir::new().unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(OsStr::from_bytes(b"\xff.txt"), &link).unwrap();
+        let dest = dir.path().join("out");
+        fs::create_dir(&dest).unwrap();
+
+        let (outcome, _, _) = run(
+            &compress(std::slice::from_ref(&link), &dest, "x.zip", None),
+            [],
+        );
+
+        let Outcome::Failed { path, error, .. } = outcome else {
+            panic!("expected a failure, got {outcome:?}");
+        };
+        assert_eq!(path, link);
+        assert_eq!(error.to_string(), "the link target is not valid UTF-8");
+    }
+
     #[test]
     fn compress_fails_at_an_output_name_that_leads_out_of_the_destination() {
         let dir = TempDir::new().unwrap();
@@ -2717,6 +2768,17 @@ mod tests {
         assert!(matches!(outcome, Outcome::Failed { .. }), "{outcome:?}");
         assert_eq!(fs::read(dest.join("x.zip")).unwrap(), b"old");
         assert_eq!(fs::read_dir(&dest).unwrap().count(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_name_that_is_not_utf_8_has_no_archive_name() {
+        use std::os::unix::ffi::OsStrExt;
+
+        let base = Path::new("/base");
+        let path = base.join(OsStr::from_bytes(b"\xff.txt"));
+
+        assert!(archive_name(&path, base).is_err());
     }
 
     #[test]
