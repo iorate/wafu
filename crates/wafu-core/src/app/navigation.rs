@@ -5,6 +5,7 @@ use super::{App, Effect, Os, ReadError, Resolved, Side, SpawnName};
 use crate::command::Command;
 use crate::entry::{Directory, EntryKind};
 use crate::error::{AppError, IoError};
+use crate::history::Step;
 use crate::location::{ArchiveFormat, Location, Passwords};
 use crate::pane::{DrivePurpose, HistoryMove, InFlight, Pane, RequestId};
 use crate::path::{drive_letter, normalize, root_of};
@@ -241,6 +242,15 @@ impl App {
                         }
                         .to_string(),
                     );
+                    if let HistoryMove::Position {
+                        pos,
+                        step: Some(step),
+                    } = history
+                        && self.step_history(side, pos, step, effects)
+                    {
+                        return false;
+                    }
+                    let pane = &mut self.panes[side.index()];
                     Self::rewatch(side, pane, effects);
                     pane.set_reload_pending(false);
                     self.refresh(side, effects);
@@ -658,13 +668,13 @@ impl App {
     }
 
     pub(super) fn history_back(&mut self, effects: &mut Vec<Effect>) {
-        let target = self.active_pane().history().back();
-        self.go_to_history(target.map(|(pos, path)| (pos, path.to_path_buf())), effects);
+        let pos = self.active_pane().history().pos();
+        self.step_history(self.active, pos, Step::Back, effects);
     }
 
     pub(super) fn history_forward(&mut self, effects: &mut Vec<Effect>) {
-        let target = self.active_pane().history().forward();
-        self.go_to_history(target.map(|(pos, path)| (pos, path.to_path_buf())), effects);
+        let pos = self.active_pane().history().pos();
+        self.step_history(self.active, pos, Step::Forward, effects);
     }
 
     pub(super) fn go_to_history(
@@ -677,10 +687,34 @@ impl App {
                 self.active,
                 Location::new(path),
                 None,
-                HistoryMove::Position(pos),
+                HistoryMove::Position { pos, step: None },
                 effects,
             );
         }
+    }
+
+    fn step_history(
+        &mut self,
+        side: Side,
+        from: usize,
+        step: Step,
+        effects: &mut Vec<Effect>,
+    ) -> bool {
+        let Some((pos, path)) = self.panes[side.index()].history().beside(from, step) else {
+            return false;
+        };
+        let target = Location::new(path.to_path_buf());
+        self.navigate(
+            side,
+            target,
+            None,
+            HistoryMove::Position {
+                pos,
+                step: Some(step),
+            },
+            effects,
+        );
+        true
     }
 
     pub(super) fn sync_to_other(&mut self, effects: &mut Vec<Effect>) {

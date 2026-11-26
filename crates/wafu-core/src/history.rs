@@ -1,5 +1,12 @@
 use std::path::{Path, PathBuf};
 
+/// A direction to move through the history in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Step {
+    Back,
+    Forward,
+}
+
 /// The places a pane has visited, browser style: a list and a position in it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct History {
@@ -51,17 +58,13 @@ impl History {
         self.pos
     }
 
-    /// The previous place and its position, if any.
+    /// The place one step from `pos` towards `step` and its position, if any.
     #[must_use]
-    pub fn back(&self) -> Option<(usize, &Path)> {
-        let pos = self.pos.checked_sub(1)?;
-        Some((pos, self.items[pos].as_path()))
-    }
-
-    /// The next place and its position, if any.
-    #[must_use]
-    pub fn forward(&self) -> Option<(usize, &Path)> {
-        let pos = self.pos + 1;
+    pub fn beside(&self, pos: usize, step: Step) -> Option<(usize, &Path)> {
+        let pos = match step {
+            Step::Back => pos.checked_sub(1)?,
+            Step::Forward => pos + 1,
+        };
         Some((pos, self.items.get(pos)?.as_path()))
     }
 
@@ -127,14 +130,17 @@ mod tests {
     }
 
     #[test]
-    fn back_returns_the_previous_place_and_stops_at_the_oldest() {
+    fn a_step_back_returns_the_previous_place_and_stops_at_the_oldest() {
         let mut history = History::new();
         history.visit(PathBuf::from("/a"));
         history.visit(PathBuf::from("/b"));
 
-        assert_eq!(history.back(), Some((0, Path::new("/a"))));
+        assert_eq!(
+            history.beside(history.pos(), Step::Back),
+            Some((0, Path::new("/a")))
+        );
         history.set_pos(0);
-        assert_eq!(history.back(), None);
+        assert_eq!(history.beside(history.pos(), Step::Back), None);
     }
 
     #[test]
@@ -172,7 +178,10 @@ mod tests {
 
         history.set_pos(0);
         assert_eq!(history.pos(), 0);
-        assert_eq!(history.forward(), Some((1, Path::new("/b"))));
+        assert_eq!(
+            history.beside(history.pos(), Step::Forward),
+            Some((1, Path::new("/b")))
+        );
 
         history.set_pos(5);
         assert_eq!(history.pos(), 0);
@@ -213,7 +222,7 @@ mod tests {
 
         assert_eq!(history.items(), &places(3)[1..]);
         assert_eq!(history.pos(), 1);
-        assert_eq!(history.forward(), None);
+        assert_eq!(history.beside(history.pos(), Step::Forward), None);
     }
 
     fn places(count: usize) -> Vec<PathBuf> {

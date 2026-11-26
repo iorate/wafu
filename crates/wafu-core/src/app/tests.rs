@@ -2364,21 +2364,67 @@ fn history_back_and_forward_move_without_recording_and_stop_at_an_end() {
 }
 
 #[test]
-fn failed_history_move_keeps_the_position() {
+fn history_back_skips_a_place_that_cannot_be_read_keeping_it_in_the_history() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.press("BS");
     harness.load(Side::Left, vec![]);
-    assert_eq!(harness.app().pane(Side::Left).history().pos(), 1);
+    harness.press("BS");
+    harness.load(Side::Left, vec![]);
+    harness.press("Ctrl+Shift+Left");
+    harness.take_effects();
 
+    harness.fail_load(Side::Left, "gone");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![
+            Effect::Watch {
+                side: Side::Left,
+                path: PathBuf::from("/home/user"),
+            },
+            Effect::ReadDir {
+                side: Side::Left,
+                location: Location::new(PathBuf::from("/home/user")),
+                passwords: Passwords::default(),
+                request: harness.latest_request(Side::Left),
+            },
+        ]
+    );
+    harness.load(Side::Left, vec![]);
+    assert_eq!(harness.view().left.path, shown_place("/home/user"));
+    assert_eq!(harness.app().pane(Side::Left).history().pos(), 0);
+    assert_eq!(
+        harness.history(Side::Left),
+        [
+            shown_place("/home/user"),
+            shown_place("/home"),
+            shown_place("/")
+        ]
+    );
+    assert_eq!(
+        harness.log(),
+        [format!("Cannot read {}: gone", shown_place("/home"))]
+    );
+}
+
+#[test]
+fn history_back_with_nothing_readable_to_the_oldest_keeps_the_place_and_position() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.press("BS");
+    harness.load(Side::Left, vec![]);
+    harness.press("BS");
+    harness.load(Side::Left, vec![]);
     harness.press("Ctrl+Shift+Left");
     harness.fail_load(Side::Left, "gone");
 
-    assert_eq!(harness.view().left.path, shown_place("/home"));
-    assert_eq!(harness.app().pane(Side::Left).history().pos(), 1);
-    assert_eq!(
-        harness.history(Side::Left),
-        [shown_place("/home/user"), shown_place("/home")]
-    );
+    harness.fail_load(Side::Left, "gone");
+
+    assert_eq!(harness.view().left.path, shown_place("/"));
+    assert_eq!(harness.app().pane(Side::Left).history().pos(), 2);
+    assert!(matches!(
+        harness.app().pane(Side::Left).loading(),
+        Some(InFlight::Refresh { .. })
+    ));
 }
 
 #[test]
@@ -2548,6 +2594,28 @@ fn history_popup_moves_to_the_row_that_was_current_once_the_history_moved_on() {
         ["/a".to_owned(), "/b".to_owned(), shown_place("/")]
     );
     assert_eq!(harness.app().pane(Side::Left).history().pos(), 1);
+}
+
+#[test]
+fn history_popup_stays_put_when_the_place_picked_cannot_be_read() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.press("BS");
+    harness.load(Side::Left, vec![]);
+    harness.press("BS");
+    harness.load(Side::Left, vec![]);
+    harness.press("H");
+    harness.press("Down");
+    harness.press("Enter");
+    harness.take_effects();
+
+    harness.fail_load(Side::Left, "gone");
+
+    assert_eq!(harness.view().left.path, shown_place("/"));
+    assert_eq!(harness.app().pane(Side::Left).history().pos(), 2);
+    assert!(matches!(
+        harness.app().pane(Side::Left).loading(),
+        Some(InFlight::Refresh { .. })
+    ));
 }
 
 #[test]
