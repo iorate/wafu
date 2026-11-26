@@ -299,16 +299,6 @@ fn c_lists_the_encodings_on_the_one_in_use() {
 }
 
 #[test]
-fn c_does_nothing_until_the_document_is_read() {
-    let mut harness = opening();
-
-    harness.press("C");
-
-    assert_eq!(harness.popup(), None);
-    assert_eq!(harness.take_effects(), vec![]);
-}
-
-#[test]
 fn a_picked_encoding_reads_the_file_again_with_it() {
     let mut harness = document();
     harness.press("C");

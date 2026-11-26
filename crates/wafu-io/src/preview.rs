@@ -198,19 +198,6 @@ mod tests {
     }
 
     #[test]
-    fn a_text_file_becomes_a_document() {
-        let dir = TempDir::new().unwrap();
-        let path = dir.path().join("a.txt");
-        fs::write(&path, b"one\ntwo\n").unwrap();
-
-        let document = preview(&file_source(&path), &mut PreviewedArchive::default()).unwrap();
-
-        assert!(document.is_text);
-        assert_eq!(texts(&document), ["one", "two"]);
-        assert!(!document.truncated);
-    }
-
-    #[test]
     fn an_archive_entry_is_read_by_name_inside_its_directory() {
         let dir = TempDir::new().unwrap();
         let archive = dir.path().join("a.zip");

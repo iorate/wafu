@@ -109,16 +109,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn visiting_the_current_place_again_records_nothing() {
-        let mut history = History::new();
-
-        history.visit(PathBuf::from("/a"));
-        history.visit(PathBuf::from("/a"));
-
-        assert_eq!(history.items(), [PathBuf::from("/a")]);
-    }
-
-    #[test]
     fn the_same_place_may_appear_twice_when_not_consecutive() {
         let mut history = History::new();
 

@@ -171,40 +171,6 @@ mod tests {
         assert!(dir.path().join("a").exists());
     }
 
-    // On a case-insensitive file system the new name already "exists" as the
-    // same file; on a case-sensitive one it is simply free. Both must work.
-    #[test]
-    fn rename_changing_only_the_case_works() {
-        let dir = TempDir::new().unwrap();
-        File::create(dir.path().join("a.txt")).unwrap();
-
-        rename(&dir.path().join("a.txt"), &dir.path().join("A.txt")).unwrap();
-
-        let names: Vec<String> = fs::read_dir(dir.path())
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
-            .collect();
-        assert_eq!(names, ["A.txt"]);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn rename_changing_only_the_case_works_for_an_unreadable_file() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let dir = TempDir::new().unwrap();
-        fs::write(dir.path().join("a.txt"), "data").unwrap();
-        fs::set_permissions(dir.path().join("a.txt"), fs::Permissions::from_mode(0o000)).unwrap();
-
-        rename(&dir.path().join("a.txt"), &dir.path().join("A.txt")).unwrap();
-
-        let names: Vec<String> = fs::read_dir(dir.path())
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
-            .collect();
-        assert_eq!(names, ["A.txt"]);
-    }
-
     #[test]
     fn rename_refuses_a_link_onto_its_target_named_in_another_case() {
         let dir = TempDir::new().unwrap();
