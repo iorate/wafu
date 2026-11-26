@@ -779,6 +779,24 @@ mod tests {
     }
 
     #[test]
+    fn a_trailing_dot_is_shown() {
+        let row = |name| {
+            let row = RowView::from_entry(
+                &file(name),
+                SizeFormat::Plain,
+                12,
+                TimeFormat::default(),
+                &no_colors(),
+            );
+            format!("{}{}", row.name, row.extension)
+        };
+        assert_eq!(row("a.b"), "a.b");
+        assert_ne!(row("report."), row("report"));
+        assert_eq!(row("report."), "report.");
+        assert_eq!(row("a.."), "a..");
+    }
+
+    #[test]
     fn file_rows_take_the_extension_color_whatever_its_case() {
         for name in ["a.zip", "b.ZIP", "c.Zip"] {
             let row = RowView::from_entry(
