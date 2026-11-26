@@ -30,7 +30,7 @@ editor = "code {paths}"
 
 - The configuration file applies over what it extends, and each file in an array applies over the ones before it.
 - Tables merge item by item, and the key tables (`[keys.filelist]` and the like) key by key. An array, such as `bookmarks`, replaces the one below it as a whole.
-- An empty string takes back what a file below set, as if no file had written the item: `pdf = ""` under `[open_alternative.extensions]` leaves `pdf` without a rule, and `editor = ""` brings back the default editor.
+- For an item written as a string, such as a color or a command line, and for a value in an extension or key table, an empty string takes back what a file below set, as if no file had written the item: `pdf = ""` under `[open_alternative.extensions]` leaves `pdf` without a rule, and `editor = ""` brings back the default editor. The `run` of a command is the exception: an empty one is reported as invalid. An item that is `true` or `false` or a number is not taken back this way; write the value you want instead.
 - A path that is `~` or starts with `~/` (on Windows also `~\`) is taken from your home directory; any other relative path is taken from the directory of the file that names it. If that file is a symbolic link, this is the directory the link is in, not the one it points to.
 - A file you extend may have an `extends` of its own. A file that ends up extending itself is an error.
 - If a file you extend is missing, cannot be read, or has a syntax error, the error is reported in the log with that file's path, and the whole configuration is ignored, as for a syntax error in the configuration file. Only the configuration file itself is ever created.
