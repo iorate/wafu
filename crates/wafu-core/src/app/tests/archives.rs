@@ -626,24 +626,24 @@ fn a_nested_archive_that_cannot_be_read_is_logged_by_its_own_path() {
 }
 
 #[test]
-fn enter_as_archive_on_a_link_inside_an_archive_does_nothing() {
+fn enter_as_archive_on_a_link_inside_an_archive_is_refused() {
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.load(Side::Left, vec![file("a.zip")]);
     harness.press("Down");
-    let link = Entry {
-        kind: EntryKind::Symlink {
-            target: Some(TargetKind::File { executable: false }),
-        },
-        ..file("link.zip")
-    };
-    harness.enter_archive(Side::Left, vec![link]);
+    harness.enter_archive(Side::Left, vec![link("link.zip")]);
     harness.press("Down");
     harness.take_effects();
 
     harness.press("Shift+U");
 
     assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(harness.log(), Vec::<String>::new());
+    assert_eq!(
+        harness.log(),
+        [format!(
+            "Cannot open {}/link.zip: a link inside an archive leads nowhere until extracted",
+            root()
+        )]
+    );
 }
 
 #[test]
@@ -701,15 +701,9 @@ fn commands_that_change_things_are_refused_on_the_parent_row_of_a_nested_archive
 }
 
 #[test]
-fn enter_on_a_link_named_like_an_archive_inside_an_archive_does_nothing() {
+fn enter_on_a_link_named_like_an_archive_inside_an_archive_is_refused() {
     let mut harness = outside();
-    let link = Entry {
-        kind: EntryKind::Symlink {
-            target: Some(TargetKind::File { executable: false }),
-        },
-        ..file("link.zip")
-    };
-    harness.enter_archive(Side::Left, vec![link]);
+    harness.enter_archive(Side::Left, vec![link("link.zip")]);
     harness.press("Down");
     harness.take_effects();
     assert_eq!(harness.cursor_name(Side::Left), "link.zip");
@@ -718,7 +712,13 @@ fn enter_on_a_link_named_like_an_archive_inside_an_archive_does_nothing() {
 
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(harness.view().left.path, root().to_string());
-    assert_eq!(harness.log(), Vec::<String>::new());
+    assert_eq!(
+        harness.log(),
+        [format!(
+            "Cannot open {}/link.zip: a link inside an archive leads nowhere until extracted",
+            root()
+        )]
+    );
 }
 
 #[test]
@@ -1662,20 +1662,23 @@ fn open_alternative_inside_an_archive_with_a_line_without_paths_starts_at_once()
 fn open_alternative_on_a_link_inside_an_archive_does_what_open_does() {
     let mut harness = outside();
     harness.config("[open_alternative.extensions]\ntxt = \"view {paths}\"\n");
-    let link = Entry {
-        kind: EntryKind::Symlink {
-            target: Some(TargetKind::File { executable: false }),
-        },
-        ..file("link.txt")
-    };
-    harness.enter_archive(Side::Left, vec![link]);
+    harness.enter_archive(Side::Left, vec![link("link.txt")]);
     harness.press("Down");
     harness.take_effects();
 
     harness.press("Shift+Enter");
 
     assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(harness.log(), ["Reloaded config"]);
+    assert_eq!(
+        harness.log(),
+        [
+            "Reloaded config".to_owned(),
+            format!(
+                "Cannot open {}/link.txt: a link inside an archive leads nowhere until extracted",
+                root()
+            ),
+        ]
+    );
 }
 
 #[test]
