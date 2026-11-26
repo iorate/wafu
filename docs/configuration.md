@@ -30,7 +30,7 @@ editor = "code {paths}"
 
 - The configuration file applies over what it extends, and each file in an array applies over the ones before it.
 - Tables merge item by item, and the key tables (`[keys.filelist]` and the like) key by key. An array, such as `bookmarks`, replaces the one below it as a whole.
-- For an item written as a string, such as a color or a command line, and for a value in an extension or key table, an empty string takes back what a file below set, as if no file had written the item: `pdf = ""` under `[open_alternative.extensions]` leaves `pdf` without a rule, and `editor = ""` brings back the default editor. The `run` of a command is the exception: an empty one is reported as invalid. An item that is `true` or `false` or a number is not taken back this way; write the value you want instead.
+- For an item written as a string, such as a color or a command line, and for a value in an extension or key table, an empty string takes back what a file below set, as if no file had written the item: `pdf = ""` under `[open_alternative.extensions]` leaves `pdf` without a rule, and `editor = ""` brings back the default editor. An item that is `true` or `false` or a number is not taken back this way; write the value you want instead.
 - A path that is `~` or starts with `~/` (on Windows also `~\`) is taken from your home directory; any other relative path is taken from the directory of the file that names it. If that file is a symbolic link, this is the directory the link is in, not the one it points to.
 - A file you extend may have an `extends` of its own. A file that ends up extending itself is an error.
 - If a file you extend is missing, cannot be read, or has a syntax error, the error is reported in the log with that file's path, and the whole configuration is ignored, as for a syntax error in the configuration file. Only the configuration file itself is ever created.
@@ -247,17 +247,19 @@ path = "~/projects"
 
 ## Commands
 
-`[commands.NAME]` defines an external command with its command line in `run`. Bind it to a key in `[keys.filelist]` as `"$NAME"`.
+`NAME = "..."` under `[commands]` defines an external command with its command line. Bind it to a key in `[keys.filelist]` as `"$NAME"`.
 
 ```toml
-[commands.open_terminal]
-run = "wt -d {dir}"
+[commands]
+open_terminal = "wt -d {dir}"
 
 [keys.filelist]
 "F2" = "$open_terminal"
 ```
 
 `wt` in the example is Windows Terminal.
+
+A command can also be written as a table with the line in `run`: `open_terminal = { run = "wt -d {dir}" }`, or `[commands.open_terminal]` with `run = "..."` under it. An empty string in either form leaves the command undefined, which is how a file takes back a command that a file it [extends](#sharing-settings-between-machines) defined.
 
 The command runs without a shell, in the directory of the active pane. The line is split into arguments by the OS's own quoting rules:
 
@@ -311,7 +313,7 @@ The command lines follow the rules of [external commands](#commands), with the i
 - A key you bind replaces the built-in binding of that key only; all other built-in bindings stay.
 - `"nop"` unbinds the key.
 - `""` gives the key back its built-in binding.
-- `"$NAME"` runs `[commands.NAME]`.
+- `"$NAME"` runs the command `NAME` of `[commands]`.
 - A command that does not work in the context is reported and ignored.
 
 The command palette (`F1`) lists the commands available where you are, with the keys bound to them.

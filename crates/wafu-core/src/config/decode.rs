@@ -619,18 +619,30 @@ fn read_commands(root: &mut Reader<'_>, config: &mut Config, os: Os) {
         return;
     };
     for (name, value) in commands.entries() {
-        let Value::Table(table) = value else {
-            commands.invalid(&name, "a table");
-            continue;
+        let line = match value {
+            Value::String(text) if text.is_empty() => None,
+            Value::String(text) => commands.command_line(&name, &text, os),
+            Value::Table(table) => {
+                let path = commands.path_of(&name);
+                let mut reader = Reader::new(table, path, commands.diagnostics);
+                let line = if reader.take_unset("run") {
+                    None
+                } else {
+                    reader
+                        .required_string("run")
+                        .and_then(|run| reader.command_line("run", &run, os))
+                };
+                reader.finish();
+                line
+            }
+            _ => {
+                commands.invalid(&name, "a string or a table");
+                None
+            }
         };
-        let path = commands.path_of(&name);
-        let mut reader = Reader::new(table, path, commands.diagnostics);
-        if let Some(run) = reader.required_string("run")
-            && let Some(line) = reader.command_line("run", &run, os)
-        {
+        if let Some(line) = line {
             config.commands.insert(name, line);
         }
-        reader.finish();
     }
     commands.finish();
 }
@@ -1657,6 +1669,41 @@ bookmarks = [
     }
 
     #[test]
+    fn a_command_is_a_line_or_a_table_with_run() {
+        let text = r#"
+[commands]
+broken = "x 'unterminated"
+line = "wt -d {dir}"
+number = 3
+[commands.table]
+run = "wt -d {dir}"
+"#;
+
+        let (config, diagnostics) = parse(text, Os::Linux).unwrap();
+
+        assert_eq!(
+            config
+                .commands
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            ["line", "table"]
+        );
+        assert_eq!(config.commands["line"], config.commands["table"]);
+        assert_eq!(paths(&diagnostics), ["commands.broken", "commands.number"]);
+        assert!(matches!(
+            diagnostics[0].kind,
+            DiagnosticKind::InvalidCommandLine(_)
+        ));
+        assert_eq!(
+            diagnostics[1].kind,
+            DiagnosticKind::InvalidValue {
+                expected: "a string or a table".to_owned()
+            }
+        );
+    }
+
+    #[test]
     fn definitions_without_a_required_item_are_dropped_alone() {
         let text = r#"
 [[bookmarks]]
@@ -1664,8 +1711,6 @@ name = "none"
 [[bookmarks]]
 name = "a"
 path = "/a"
-[commands.empty]
-run = ""
 [commands.norun]
 [commands.term]
 run = "wt"
@@ -1687,12 +1732,7 @@ run = "wt"
         );
         assert_eq!(
             paths(&diagnostics),
-            [
-                "bookmarks[0]",
-                "commands.empty.run",
-                "commands.norun",
-                "keys.filelist.F1"
-            ]
+            ["bookmarks[0]", "commands.norun", "keys.filelist.F1"]
         );
         assert_eq!(
             diagnostics[0].kind,
@@ -1702,12 +1742,6 @@ run = "wt"
         );
         assert_eq!(
             diagnostics[1].kind,
-            DiagnosticKind::InvalidValue {
-                expected: "a non-empty string".to_owned()
-            }
-        );
-        assert_eq!(
-            diagnostics[2].kind,
             DiagnosticKind::MissingItem {
                 item: "run".to_owned()
             }
@@ -1869,6 +1903,12 @@ dir = "code {paths}"
 [open_alternative.extensions]
 PDF = "view {paths}"
 txt = "edit {paths}"
+[commands]
+term = "wt"
+[commands.build]
+run = "make"
+[commands.keep]
+run = "keep"
 [keys.filelist]
 "c" = "move"
 "##,
@@ -1887,6 +1927,10 @@ zip = ""
 dir = ""
 [open_alternative.extensions]
 pdf = ""
+[commands]
+term = ""
+[commands.build]
+run = ""
 [keys.filelist]
 "C" = ""
 "#,
@@ -1914,6 +1958,14 @@ pdf = ""
                 .map(String::as_str)
                 .collect::<Vec<_>>(),
             ["txt"]
+        );
+        assert_eq!(
+            config
+                .commands
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            ["keep"]
         );
         let key: Key = "c".parse().unwrap();
         assert_eq!(
