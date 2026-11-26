@@ -175,6 +175,10 @@ export component PaneWidget {
     function report-rows() {
         root.visible-rows = floor(list.visible-height / Theme.row-height);
         root.viewport-rows-changed(root.visible-rows);
+        // At the end the list moves the rows down to fill its height and does
+        // not move them back when it gets shorter, which with an unchanged
+        // top row would cut off the last row.
+        list.content-y = -root.scroll-top * Theme.row-height;
     }
 
     measure-gap := Cell {
