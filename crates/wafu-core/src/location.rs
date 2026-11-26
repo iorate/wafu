@@ -346,6 +346,19 @@ impl Location {
             }
         }
     }
+
+    /// The file of the archive at `level`, for showing: the outermost one by
+    /// its path on disk, one inside another by the entry it is in its holder,
+    /// as [`Self::child_display`] writes it. `base` at level 0, outside an
+    /// archive, or past the innermost level.
+    #[must_use]
+    pub fn level_file_display(&self, level: usize) -> PathBuf {
+        let entry = self
+            .level_root(level)
+            .filter(|_| level > 0)
+            .and_then(|root| Some(root.parent()?.child_display(&root.leaf_name()?)));
+        entry.map_or_else(|| self.base.clone(), PathBuf::from)
+    }
 }
 
 impl fmt::Display for Location {
@@ -500,6 +513,14 @@ mod tests {
             Location::new(PathBuf::from("/a/b")).child_display(OsStr::new("f.txt")),
             PathBuf::from("/a/b").join("f.txt").to_string_lossy()
         );
+    }
+
+    #[test]
+    fn level_file_display_names_a_nested_archive_as_its_entry_and_the_outermost_by_its_path() {
+        let place = nested(&["x"]);
+
+        assert_eq!(place.level_file_display(0), Path::new("/a/b/c.zip"));
+        assert_eq!(place.level_file_display(1), Path::new("c.zip:/d/n.tar.gz"));
     }
 
     #[test]
