@@ -541,7 +541,7 @@ impl PreviewSource {
     }
 
     // The place of the entry read, or the file's own place outside archives.
-    fn location(&self) -> Location {
+    pub(super) fn location(&self) -> Location {
         Location {
             base: self.path.clone(),
             archive: self.entry.as_ref().map(|(archive, _)| archive.clone()),
