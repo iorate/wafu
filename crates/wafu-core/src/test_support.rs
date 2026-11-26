@@ -503,13 +503,15 @@ impl Harness {
         )
     }
 
+    // Leaves out the line every start logs.
     pub(crate) fn log(&self) -> Vec<String> {
-        self.view()
-            .log
-            .lines
-            .iter()
-            .map(ToString::to_string)
-            .collect()
+        let view = self.view();
+        let lines = &view.log.lines[..];
+        let lines = match lines.split_first() {
+            Some((first, rest)) if first.starts_with("Started wafu ") => rest,
+            _ => lines,
+        };
+        lines.iter().map(ToString::to_string).collect()
     }
 
     pub(crate) fn archive_passwords(&self, side: Side) -> Passwords {

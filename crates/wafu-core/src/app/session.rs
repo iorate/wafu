@@ -41,6 +41,8 @@ impl App {
             Pane::new(Location::new(PathBuf::new())),
             Pane::new(Location::new(PathBuf::new())),
         ];
+        self.log
+            .push(format!("Started wafu {}", env!("CARGO_PKG_VERSION")));
         self.load_config(config);
         let state = match state {
             Ok(state) => state,

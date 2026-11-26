@@ -1371,7 +1371,7 @@ fn typing_keeps_the_popup_generation_and_reopening_changes_it() {
 #[test]
 fn log_scroll_range_follows_the_log_height_from_the_start() {
     let mut harness = Harness::start("/a/b/c/d/e/f/g/h", "/tmp");
-    for _ in 0..7 {
+    for _ in 0..6 {
         harness.press("BS");
         harness.fail_load(Side::Left, "boom");
     }
@@ -1393,11 +1393,11 @@ fn log_keys_scroll_and_clear() {
     for _ in 0..4 {
         harness.press("Alt+Down");
     }
-    for _ in 0..4 {
+    for _ in 0..3 {
         harness.press("BS");
         harness.fail_load(Side::Left, "boom");
     }
-    assert_eq!(harness.log().len(), 4);
+    assert_eq!(harness.view().log.lines.len(), 4);
     assert_eq!(harness.view().log.scroll_top, 2);
 
     harness.press("Shift+Up");
@@ -1805,7 +1805,7 @@ fn wheel_over_the_log_scrolls_it() {
     for _ in 0..4 {
         harness.press("Alt+Down");
     }
-    for _ in 0..4 {
+    for _ in 0..3 {
         harness.press("BS");
         harness.fail_load(Side::Left, "boom");
     }
@@ -1824,7 +1824,7 @@ fn scrollbar_drag_over_the_log_scrolls_it_and_stops_following_the_tail() {
     for _ in 0..4 {
         harness.press("Alt+Down");
     }
-    for _ in 0..4 {
+    for _ in 0..3 {
         harness.press("BS");
         harness.fail_load(Side::Left, "boom");
     }
@@ -3732,7 +3732,7 @@ fn start_keeps_only_the_newest_saved_places_within_max_history() {
 }
 
 #[test]
-fn start_logs_a_created_configuration() {
+fn start_logs_the_version_and_then_a_created_configuration() {
     let harness = Harness::start_from(start_msg_with(
         Os::Linux,
         Some("/home/user"),
@@ -3741,7 +3741,20 @@ fn start_logs_a_created_configuration() {
         Ok(None),
     ));
 
-    assert_eq!(harness.log(), [format!("Created {CONFIG_PATH}")]);
+    let lines: Vec<String> = harness
+        .view()
+        .log
+        .lines
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            format!("Started wafu {}", env!("CARGO_PKG_VERSION")),
+            format!("Created {CONFIG_PATH}")
+        ]
+    );
 }
 
 #[test]
@@ -4575,7 +4588,7 @@ fn theme_light_loaded() -> Harness {
 // Seven lines in the log, which shows six rows.
 fn log_of_seven() -> Harness {
     let mut harness = Harness::start("/a/b/c/d/e/f/g/h", "/tmp");
-    for _ in 0..7 {
+    for _ in 0..6 {
         harness.press("BS");
         harness.fail_load(Side::Left, "boom");
     }
