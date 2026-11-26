@@ -1292,6 +1292,27 @@ run = "x 'unterminated"
     }
 
     #[test]
+    fn keys_that_no_key_press_gives_are_reported() {
+        let (config, diagnostics) = parse(
+            "[keys.filelist]\n\" \" = \"copy\"\n\"\\t\" = \"move\"\n\"Ctrl+ \" = \"move\"\n\"Space\" = \"delete\"\n",
+            Os::Linux,
+        )
+        .unwrap();
+
+        let invalid: Vec<_> = diagnostics
+            .iter()
+            .filter(|diagnostic| matches!(diagnostic.kind, DiagnosticKind::InvalidKey { .. }))
+            .collect();
+        assert_eq!(invalid.len(), 3, "{diagnostics:?}");
+        assert_eq!(diagnostics.len(), 3, "{diagnostics:?}");
+        let space: Key = "Space".parse().unwrap();
+        assert_eq!(
+            config.keys.lookup(Context::FileList, &space),
+            Some(Command::Delete)
+        );
+    }
+
+    #[test]
     fn spellings_of_one_key_in_a_table_are_all_ignored() {
         let text = r#"
 [keys.filelist]
