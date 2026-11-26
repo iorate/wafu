@@ -13,7 +13,7 @@ use crate::operation::{
 };
 use crate::popup::Popup;
 use crate::test_support::{
-    Harness, LEFT, RIGHT, dir, executable, file, path, shown, shown_place, special,
+    APP_NAME, Harness, LEFT, RIGHT, dir, executable, file, path, shown, shown_place, special,
 };
 use crate::view::ItemKind;
 
@@ -2144,7 +2144,7 @@ fn right_click_on_windows_puts_the_cursor_on_the_row_and_opens_the_menu_at_the_p
 
     assert!(harness.view().left.active);
     assert_eq!(harness.cursor_name(Side::Left), "b");
-    assert_eq!(harness.view().title, format!("wafu - {WIN_LEFT}"));
+    assert_eq!(harness.view().title, format!("{WIN_LEFT} - {APP_NAME}"));
     assert_eq!(
         harness.take_effects(),
         vec![Effect::ShellMenu {
@@ -2183,7 +2183,7 @@ fn right_click_past_the_rows_only_activates_the_pane() {
 
     assert!(harness.view().left.active);
     assert_eq!(harness.cursor_name(Side::Left), "..");
-    assert_eq!(harness.view().title, format!("wafu - {WIN_LEFT}"));
+    assert_eq!(harness.view().title, format!("{WIN_LEFT} - {APP_NAME}"));
     assert_eq!(harness.take_effects(), vec![]);
 }
 

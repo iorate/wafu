@@ -13,7 +13,7 @@ use crate::operation::{
 };
 use crate::path::normalize;
 use crate::test_support::{
-    Harness, LEFT, RIGHT, dir, executable, file, passwords, path, shown, shown_place,
+    APP_NAME, Harness, LEFT, RIGHT, dir, executable, file, passwords, path, shown, shown_place,
 };
 
 const TEMP: &str = "/tmp/wafu/x1";
@@ -44,7 +44,7 @@ fn enter_on_a_zip_watches_the_archive_and_shows_its_path() {
     harness.load(Side::Left, contents());
 
     assert_eq!(harness.view().left.path, root().to_string());
-    assert_eq!(harness.view().title, format!("wafu - {}", root()));
+    assert_eq!(harness.view().title, format!("a.zip:/ - {APP_NAME}"));
     assert_eq!(
         harness.names(Side::Left),
         ["..", "docs", "b.txt", "inner.zip", "secret.txt"]
@@ -188,7 +188,7 @@ fn directories_inside_an_archive_descend_and_backspace_returns_with_the_cursor()
             if *path == archive() && *location == root().child("docs")
     ));
     harness.load(Side::Left, vec![file("x")]);
-    assert_eq!(harness.view().left.path, format!("{}/docs", root()));
+    assert_eq!(harness.view().left.path, "a.zip:/docs");
     assert_eq!(harness.names(Side::Left), ["..", "x"]);
     harness.take_effects();
 
@@ -265,7 +265,7 @@ fn enter_on_an_archive_inside_an_archive_enters_it_and_backspace_returns_to_it()
         ]
     );
     harness.load(Side::Left, nested_contents());
-    assert_eq!(harness.view().left.path, format!("{}/inner.zip", root()));
+    assert_eq!(harness.view().left.path, "a.zip:/inner.zip:/");
 
     harness.press("BS");
 
@@ -527,10 +527,7 @@ fn a_nested_archive_that_cannot_be_read_is_logged_by_its_own_path() {
 
     assert_eq!(
         harness.log(),
-        [format!(
-            "Cannot read {}/b.txt: unknown archive format",
-            root()
-        )]
+        ["Cannot read a.zip:/b.txt: unknown archive format"]
     );
 }
 
@@ -548,10 +545,7 @@ fn enter_as_archive_on_a_link_inside_an_archive_is_refused() {
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(
         harness.log(),
-        [format!(
-            "Cannot open {}/link.zip: a link inside an archive leads nowhere until extracted",
-            root()
-        )]
+        ["Cannot open a.zip:/link.zip: a link inside an archive leads nowhere until extracted"]
     );
 }
 
@@ -597,10 +591,7 @@ fn enter_on_a_link_named_like_an_archive_inside_an_archive_is_refused() {
     assert_eq!(harness.view().left.path, root().to_string());
     assert_eq!(
         harness.log(),
-        [format!(
-            "Cannot open {}/link.zip: a link inside an archive leads nowhere until extracted",
-            root()
-        )]
+        ["Cannot open a.zip:/link.zip: a link inside an archive leads nowhere until extracted"]
     );
 }
 
@@ -772,10 +763,9 @@ fn copy_inside_an_archive_extracts_the_marked_entries_to_the_other_side() {
 #[test]
 fn a_skipped_entry_is_logged_and_keeps_its_mark() {
     let mut harness = copying_inside();
-    let entry = archive().join("b.txt");
 
     harness.operation(OperationEvent::Skipped {
-        path: entry.clone(),
+        path: PathBuf::from("a.zip:/b.txt"),
         error: IoError::new("the entry name is unsafe"),
     });
     harness.finish(Outcome::Completed { skipped: 1 });
@@ -784,8 +774,8 @@ fn a_skipped_entry_is_logged_and_keeps_its_mark() {
     assert_eq!(
         log[log.len() - 2..],
         [
-            format!("Skipped {}: the entry name is unsafe", entry.display()),
-            "Copied b.txt (1 skipped)".to_owned(),
+            "Skipped a.zip:/b.txt: the entry name is unsafe",
+            "Copied b.txt (1 skipped)",
         ]
     );
     assert_eq!(harness.marks(Side::Left), ["b.txt"]);
@@ -1267,7 +1257,7 @@ fn a_password_typed_for_an_archive_being_extracted_is_not_remembered() {
     harness.press("Down");
     harness.press("U");
     harness.operation(OperationEvent::NeedPassword {
-        archive: root().nested_root("inner.zip", None).to_string().into(),
+        archive: "a.zip:/inner.zip".into(),
         level: 1,
         retry: false,
     });
@@ -1286,7 +1276,7 @@ fn the_parent_row_of_a_nested_archive_root_is_extracted_without_the_nested_archi
     harness.press("Space");
     harness.press("C");
     harness.operation(OperationEvent::NeedPassword {
-        archive: nested_root().to_string().into(),
+        archive: "a.zip:/inner.zip".into(),
         level: 1,
         retry: false,
     });
@@ -1498,10 +1488,8 @@ fn open_alternative_on_a_link_inside_an_archive_does_what_open_does() {
         harness.log(),
         [
             "Reloaded config".to_owned(),
-            format!(
-                "Cannot open {}/link.txt: a link inside an archive leads nowhere until extracted",
-                root()
-            ),
+            "Cannot open a.zip:/link.txt: a link inside an archive leads nowhere until extracted"
+                .to_owned(),
         ]
     );
 }
@@ -1562,8 +1550,7 @@ fn edit_and_open_with_os_on_a_link_inside_an_archive_are_refused() {
         assert_eq!(
             harness.log(),
             [format!(
-                "Cannot {verb} {}/link.txt: a link inside an archive leads nowhere until extracted",
-                root()
+                "Cannot {verb} a.zip:/link.txt: a link inside an archive leads nowhere until extracted",
             )],
             "{key}"
         );
@@ -1622,10 +1609,7 @@ fn run_file_on_a_link_inside_an_archive_is_refused() {
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(
         harness.log(),
-        [format!(
-            "Cannot run {}/link: a link inside an archive leads nowhere until extracted",
-            root()
-        )]
+        ["Cannot run a.zip:/link: a link inside an archive leads nowhere until extracted"]
     );
 }
 
@@ -1846,10 +1830,7 @@ fn an_external_command_on_a_link_inside_an_archive_is_refused() {
         harness.log(),
         [
             "Reloaded config".to_owned(),
-            format!(
-                "Cannot run a command on {}/link.txt: a link inside an archive leads nowhere until extracted",
-                root()
-            ),
+            "Cannot run a command on a.zip:/link.txt: a link inside an archive leads nowhere until extracted".to_owned(),
         ]
     );
     assert_eq!(harness.take_effects(), vec![]);
@@ -1873,10 +1854,7 @@ fn an_external_command_with_a_link_among_the_marks_inside_an_archive_is_refused_
         harness.log(),
         [
             "Reloaded config".to_owned(),
-            format!(
-                "Cannot run a command on {}/link.txt: a link inside an archive leads nowhere until extracted",
-                root()
-            ),
+            "Cannot run a command on a.zip:/link.txt: a link inside an archive leads nowhere until extracted".to_owned(),
         ]
     );
     assert_eq!(harness.take_effects(), vec![]);
@@ -1927,7 +1905,7 @@ fn a_failed_temporary_extraction_starts_nothing() {
     );
     assert_eq!(
         harness.log().last().cloned(),
-        Some(format!("Cannot edit {}/b.txt: disk full", root()))
+        Some("Cannot edit a.zip:/b.txt: disk full".to_owned())
     );
 }
 
@@ -1954,7 +1932,7 @@ fn a_temporary_extraction_with_skipped_entries_starts_nothing() {
     );
     assert_eq!(
         harness.log().last().cloned(),
-        Some(format!("Cannot edit {}/b.txt: 1 entry was skipped", root()))
+        Some("Cannot edit a.zip:/b.txt: 1 entry was skipped".to_owned())
     );
 }
 
@@ -1987,7 +1965,7 @@ fn a_temporary_extraction_that_ends_without_starting_is_logged_as_the_command() 
                     path: path(TEMP, "b.txt"),
                     error: IoError::new("disk full"),
                 });
-                format!("Cannot {verb} {}/b.txt: disk full", root())
+                format!("Cannot {verb} a.zip:/b.txt: disk full")
             };
 
             assert_eq!(harness.log().last(), Some(&expected), "{key}");
@@ -2242,7 +2220,7 @@ fn copy_path_inside_an_archive_spells_the_path_through_the_archive() {
 
     assert_eq!(
         harness.take_effects(),
-        vec![Effect::Clipboard(format!("{}/b.txt", root()))]
+        vec![Effect::Clipboard("a.zip:/b.txt".to_owned())]
     );
 }
 

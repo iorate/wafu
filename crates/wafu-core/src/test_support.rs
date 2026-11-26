@@ -17,6 +17,7 @@ use crate::preview::{Document, ImageData};
 use crate::state::{StateError, StateFile};
 use crate::view::{PopupItem, PreviewContent, View};
 
+pub(crate) const APP_NAME: &str = concat!("wafu ", env!("CARGO_PKG_VERSION"));
 pub(crate) const HOME: &str = "/home/user";
 pub(crate) const LEFT: &str = HOME;
 pub(crate) const RIGHT: &str = "/tmp";

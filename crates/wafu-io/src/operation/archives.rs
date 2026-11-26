@@ -9,7 +9,7 @@ use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::SystemTime;
 
 use wafu_core::{
-    ArchiveEntries, ArchiveFormat, ArchivePath, IoError, OperationEvent, OperationSpec,
+    ArchiveEntries, ArchiveFormat, ArchivePath, IoError, Location, OperationEvent, OperationSpec,
     OuterArchive, Passwords, Reply,
 };
 
@@ -67,7 +67,8 @@ impl Worker<'_> {
                 format: ArchiveFormat::from_name(OsStr::new(name)),
                 inner: Vec::new(),
             };
-            let shown = nested_shown(&entries.archive, &path);
+            let shown =
+                innermost_root(&entries.archive, &path).level_file_display(path.outer.len());
             self.extract_whole(
                 index,
                 &shown,
@@ -157,7 +158,7 @@ impl Worker<'_> {
         {
             let mut components = prefix.clone();
             components.push(missing.clone());
-            return Err(failure(&shown(&extraction.archive, &components), NOT_FOUND));
+            return Err(failure(&shown(&extraction.root, &components), NOT_FOUND));
         }
         // In archive order, since a tar is read front to back and going back
         // reads it again from the start.
@@ -240,7 +241,9 @@ impl Worker<'_> {
         mut passwords: Passwords,
         dest: &Path,
     ) -> Result<Extraction, Stop> {
-        let archive = nested_shown(base, path);
+        let root = innermost_root(base, path);
+        let innermost = path.outer.len();
+        let archive = root.level_file_display(innermost);
         // A cancel is taken off the replies when seen, so it is remembered
         // to tell the error it causes from others.
         let cancelled = Cell::new(false);
@@ -251,13 +254,12 @@ impl Worker<'_> {
             cancelled.get()
         };
         let stamp = Stamp::of(base).map_err(fail(&archive))?;
-        let innermost = path.outer.len();
         loop {
             let (level, retry) = match self.nested.open(base, stamp, path, &passwords, &check) {
                 Ok(opened) => {
                     let password = passwords.get(innermost).map(ToOwned::to_owned);
                     return Ok(Extraction::new(
-                        archive,
+                        root,
                         opened.reader,
                         innermost,
                         password,
@@ -278,7 +280,7 @@ impl Worker<'_> {
                     return Err(failure(&archive, &error.to_string()));
                 }
             };
-            let password = self.ask_password(&level_shown(base, path, level), level, retry)?;
+            let password = self.ask_password(&root.level_file_display(level), level, retry)?;
             passwords.set(level, Some(password));
         }
     }
@@ -311,7 +313,7 @@ impl Worker<'_> {
     // components of its name left off.
     fn write_one(&mut self, extraction: &mut Extraction, index: usize, skip: usize) -> Step {
         let entry = extraction.reader.entries()[index].clone();
-        let shown = shown(&extraction.archive, &entry.components);
+        let shown = shown(&extraction.root, &entry.components);
         self.begin(&shown)?;
         let relative = &entry.components[skip..];
         if relative.is_empty() {
@@ -487,8 +489,8 @@ impl Worker<'_> {
                 Err(ArchiveError::WrongPassword) => true,
                 Err(error) => return Err(entry_error(shown, error)),
             };
-            extraction.password =
-                Some(self.ask_password(&extraction.archive, extraction.level, retry)?);
+            let archive = extraction.root.level_file_display(extraction.level);
+            extraction.password = Some(self.ask_password(&archive, extraction.level, retry)?);
         }
     }
 
@@ -647,7 +649,7 @@ impl Read for Cancellable<'_> {
 // destination, and directory times and permissions are set once their
 // contents are in.
 struct Extraction {
-    archive: PathBuf,
+    root: Location,
     reader: Box<dyn ArchiveReader>,
     // The level of the archive among those read to reach it, and its password.
     level: usize,
@@ -670,7 +672,7 @@ impl Extraction {
         let reader =
             open_archive(archive, format).map_err(|error| failure(archive, &error.to_string()))?;
         Ok(Self::new(
-            archive.to_path_buf(),
+            Location::archive_root(archive.to_path_buf(), format),
             reader,
             0,
             None,
@@ -680,7 +682,7 @@ impl Extraction {
     }
 
     fn new(
-        archive: PathBuf,
+        root: Location,
         reader: Box<dyn ArchiveReader>,
         level: usize,
         password: Option<String>,
@@ -688,7 +690,7 @@ impl Extraction {
         dest: &Path,
     ) -> Self {
         Self {
-            archive,
+            root,
             reader,
             level,
             password,
@@ -704,26 +706,21 @@ impl Extraction {
     }
 }
 
-// A nested archive is named by the path of the entries leading to it, as
-// its entries are.
-fn nested_shown(base: &Path, path: &ArchivePath) -> PathBuf {
-    level_shown(base, path, path.outer.len())
+fn innermost_root(base: &Path, path: &ArchivePath) -> Location {
+    Location {
+        base: base.to_path_buf(),
+        archive: Some(ArchivePath {
+            inner: Vec::new(),
+            ..path.clone()
+        }),
+    }
 }
 
-fn level_shown(base: &Path, path: &ArchivePath, level: usize) -> PathBuf {
-    path.outer[..level]
+fn shown(root: &Location, components: &[String]) -> PathBuf {
+    let place = components
         .iter()
-        .fold(base.to_path_buf(), |shown_path, outer| {
-            shown(&shown_path, &outer.entry)
-        })
-}
-
-fn shown(archive: &Path, components: &[String]) -> PathBuf {
-    components
-        .iter()
-        .fold(archive.to_path_buf(), |path, component| {
-            path.join(component)
-        })
+        .fold(root.clone(), |place, component| place.child(component));
+    PathBuf::from(place.to_string())
 }
 
 fn archive_name(path: &Path, base: &Path) -> Result<String, Stop> {
@@ -1047,7 +1044,7 @@ mod tests {
         );
         assert!(matches!(
             events.first(),
-            Some(OperationEvent::Progress { current, done: 0 }) if *current == archive.join("d")
+            Some(OperationEvent::Progress { current, done: 0 }) if current == Path::new("a.zip:/d")
         ));
     }
 
@@ -1092,10 +1089,10 @@ mod tests {
         assert_eq!(
             asked,
             [
-                archive.join("d").join("x"),
-                archive.join("a.txt"),
-                archive.join("d").join("y"),
-                archive.join("b.txt"),
+                Path::new("a.tar:/d/x"),
+                Path::new("a.tar:/a.txt"),
+                Path::new("a.tar:/d/y"),
+                Path::new("a.tar:/b.txt"),
             ]
         );
         assert_eq!(done_indices(&events), [0, 1, 2]);
@@ -1655,15 +1652,15 @@ mod tests {
             skipped,
             [
                 (
-                    archive.join("d").join("holes.bin"),
+                    PathBuf::from("a.tar:/d/holes.bin"),
                     "sparse entries are not supported".to_owned()
                 ),
                 (
-                    archive.join("big"),
+                    PathBuf::from("a.tar:/big"),
                     "multi-volume archives are not supported".to_owned()
                 ),
                 (
-                    archive.join("e").join("lost"),
+                    PathBuf::from("a.tar:/e/lost"),
                     "the target of the hard link is not in the archive".to_owned()
                 ),
             ]
@@ -2132,7 +2129,7 @@ mod tests {
         assert!(matches!(
             outcome,
             Outcome::Failed { path, error, .. }
-                if path == archive.join("missing") && error.to_string() == "not found in the archive"
+                if path == Path::new("a.zip:/missing") && error.to_string() == "not found in the archive"
         ));
     }
 
@@ -2153,11 +2150,16 @@ mod tests {
             entries.path.format = Some(ArchiveFormat::TarGz);
         }
 
-        let (outcome, done, _) = run(&spec, []);
+        let (outcome, done, events) = run(&spec, []);
 
         assert_eq!(outcome, Outcome::Completed { skipped: 0 });
         assert_eq!(done, 1);
         assert_eq!(fs::read(dest.join("f.txt")).unwrap(), b"nested");
+        assert!(matches!(
+            events.first(),
+            Some(OperationEvent::Progress { current, .. })
+                if current == Path::new("a.zip:/x/n.tar.gz:/d/f.txt")
+        ));
     }
 
     #[test]
@@ -2218,7 +2220,7 @@ mod tests {
         );
 
         assert_eq!(outcome, Outcome::Completed { skipped: 0 });
-        assert_eq!(asked(&events), [(archive.join("n.zip"), 1, false)]);
+        assert_eq!(asked(&events), [(PathBuf::from("a.zip:/n.zip"), 1, false)]);
         assert_eq!(fs::read(dest.join("f.txt")).unwrap(), b"f");
     }
 
@@ -2316,7 +2318,7 @@ mod tests {
                 matches!(
                     &outcome,
                     Outcome::Failed { path, error }
-                        if *path == archive.join(name) && error.to_string() == message
+                        if *path == Path::new(&format!("a.zip:/{name}")) && error.to_string() == message
                 ),
                 "{outcome:?}"
             );

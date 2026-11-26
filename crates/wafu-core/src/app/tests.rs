@@ -11,8 +11,8 @@ use crate::listing::{SortKey, SortSpec};
 use crate::pane::InFlight;
 use crate::state::{CompareState, PaneState, StateFile};
 use crate::test_support::{
-    CONFIG_PATH, HOME, Harness, STATE_PATH, config_file, config_source, config_text, dir, file,
-    rows_at, shown, shown_place, special, start_msg, start_msg_with,
+    APP_NAME, CONFIG_PATH, HOME, Harness, STATE_PATH, config_file, config_source, config_text, dir,
+    file, rows_at, shown, shown_place, special, start_msg, start_msg_with,
 };
 use crate::view::{ExtensionColor, InputField, ItemKind, RowKind};
 
@@ -47,7 +47,7 @@ fn start_resolves_both_panes_then_watches_and_reads_them() {
             },
         ]
     );
-    assert_eq!(harness.view().title, "wafu");
+    assert_eq!(harness.view().title, APP_NAME);
 
     harness.resolve(Side::Left, "/home/user", None);
 
@@ -73,7 +73,7 @@ fn start_resolves_both_panes_then_watches_and_reads_them() {
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(
         harness.view().title,
-        format!("wafu - {}", shown_place("/home/user"))
+        format!("{} - {APP_NAME}", shown_place("/home/user"))
     );
     assert_eq!(harness.view().left.path, shown_place("/home/user"));
     assert_eq!(harness.names(Side::Left), ["..", "a"]);
@@ -329,7 +329,7 @@ fn focus_and_switch_change_the_active_pane_and_title() {
     assert!(harness.view().right.active);
     assert_eq!(
         harness.view().title,
-        format!("wafu - {}", shown_place("/tmp"))
+        format!("{} - {APP_NAME}", shown_place("/tmp"))
     );
 
     harness.press("Tab");
@@ -337,7 +337,7 @@ fn focus_and_switch_change_the_active_pane_and_title() {
     assert!(harness.view().left.active);
     assert_eq!(
         harness.view().title,
-        format!("wafu - {}", shown_place("/home/user"))
+        format!("{} - {APP_NAME}", shown_place("/home/user"))
     );
 }
 
@@ -386,7 +386,10 @@ fn navigating_keeps_the_old_listing_until_the_new_one_arrives() {
 
     let view = harness.view();
     assert_eq!(view.left.path, shown_place("/home/user"));
-    assert_eq!(view.title, format!("wafu - {}", shown_place("/home/user")));
+    assert_eq!(
+        view.title,
+        format!("{} - {APP_NAME}", shown_place("/home/user"))
+    );
     assert_eq!(harness.names(Side::Left), ["..", "docs"]);
     assert_eq!(harness.marks(Side::Left), ["docs"]);
     let popup = view.popup.unwrap();
@@ -447,7 +450,7 @@ fn title_shows_line_breaks_in_the_location_as_symbols() {
 
     assert_eq!(
         harness.view().title,
-        format!("wafu - {}", shown("/home/user", "a\u{21B5}b"))
+        format!("{} - {APP_NAME}", shown("/home/user", "a\u{21B5}b"))
     );
 }
 
@@ -1736,7 +1739,7 @@ fn double_click_past_the_last_row_only_activates_the_pane() {
     assert_eq!(harness.view().right.path, shown_place("/tmp"));
     assert_eq!(
         harness.view().title,
-        format!("wafu - {}", shown_place("/tmp"))
+        format!("{} - {APP_NAME}", shown_place("/tmp"))
     );
     assert_eq!(harness.take_effects(), vec![]);
 }
@@ -4201,14 +4204,14 @@ fn the_title_says_when_the_process_is_elevated() {
     };
     start.elevated = true;
     let mut harness = Harness::start_from(Msg::Start(start));
-    assert_eq!(harness.view().title, "wafu (Administrator)");
+    assert_eq!(harness.view().title, format!("{APP_NAME} (Administrator)"));
 
     harness.resolve(Side::Left, "/home/user", None);
     harness.load(Side::Left, Vec::new());
 
     assert_eq!(
         harness.view().title,
-        format!("wafu (Administrator) - {}", shown_place("/home/user"))
+        format!("{} - {APP_NAME} (Administrator)", shown_place("/home/user"))
     );
 }
 

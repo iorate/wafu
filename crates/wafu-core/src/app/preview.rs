@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use encoding_rs::Encoding;
 
-use super::navigation::{is_link_in_archive, level_shown};
+use super::navigation::is_link_in_archive;
 use super::{App, Effect, MouseInput, PreviewSource, ReadError, Side};
 use crate::command::{Command, Context};
 use crate::config::ImagePlacement;
@@ -505,7 +505,7 @@ impl App {
             self.active_pane_mut().set_archive_password(level, None);
         }
         self.popup = Some(Popup::Input(InputPopup::password(
-            level_shown(location, level),
+            location.level_file_display(level),
             level,
             retry,
             PasswordPurpose::Preview,

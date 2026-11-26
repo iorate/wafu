@@ -304,7 +304,7 @@ impl App {
         if retry && level < location.shared_levels(pane.location()) {
             pane.set_archive_password(level, None);
         }
-        let archive = level_shown(&location, level);
+        let archive = location.level_file_display(level);
         if self.operation.is_some() || self.popup.is_some() {
             let reason = if retry {
                 "wrong password"
@@ -936,15 +936,7 @@ impl App {
 // nested archive that archive, as the user sees its path, since `base` is then
 // only the outermost file.
 fn archive_shown(location: &Location) -> PathBuf {
-    level_shown(location, location.levels().saturating_sub(1))
-}
-
-// The archive at `level` of a location, as `archive_shown` names it.
-pub(super) fn level_shown(location: &Location, level: usize) -> PathBuf {
-    match location.level_root(level) {
-        Some(root) if level > 0 => PathBuf::from(root.to_string()),
-        _ => location.base.clone(),
-    }
+    location.level_file_display(location.levels().saturating_sub(1))
 }
 
 pub(super) fn is_link_in_archive(location: &Location, kind: EntryKind) -> bool {
