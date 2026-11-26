@@ -348,8 +348,12 @@ impl Pane {
     }
 
     pub fn set_viewport_rows(&mut self, rows: usize) {
+        let cursor_was_visible = self.cursor_is_visible();
         self.viewport_rows = rows.max(1);
-        self.ensure_cursor_visible();
+        self.scroll_top = self.scroll_top.min(self.max_scroll_top());
+        if cursor_was_visible {
+            self.ensure_cursor_visible();
+        }
     }
 
     pub fn set_cursor(&mut self, row: usize) {
@@ -775,13 +779,20 @@ impl Pane {
     }
 
     fn after_listing_change(&mut self, follow: Option<OsString>) {
+        let cursor_was_visible = self.cursor_is_visible();
         self.prune_marks();
         self.rebuild_rows();
         self.cursor = follow
             .and_then(|name| self.row_of(&name))
             .unwrap_or_else(|| self.cursor.min(self.row_count().saturating_sub(1)));
         self.scroll_top = self.scroll_top.min(self.max_scroll_top());
-        self.ensure_cursor_visible();
+        if cursor_was_visible {
+            self.ensure_cursor_visible();
+        }
+    }
+
+    fn cursor_is_visible(&self) -> bool {
+        (self.scroll_top..self.scroll_top + self.viewport_rows).contains(&self.cursor)
     }
 
     fn prune_marks(&mut self) {
@@ -953,6 +964,29 @@ mod tests {
 
         assert_eq!(pane.scroll_top(), 3);
         assert_eq!(marked(&pane), ["e"]);
+    }
+
+    #[test]
+    fn a_reload_keeps_a_wheel_scroll() {
+        let names: Vec<String> = (0..20).map(|i| format!("f{i:02}")).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut pane = pane_with("/", &names);
+        pane.set_viewport_rows(5);
+        pane.scroll_by(10);
+
+        pane.set_directory(entries(&names));
+
+        assert_eq!((pane.cursor(), pane.scroll_top()), (0, 10));
+    }
+
+    #[test]
+    fn a_reload_scrolls_to_a_visible_cursor_entry_that_moved_out_of_view() {
+        let mut pane = pane_with("/", &["x", "y"]);
+        pane.set_viewport_rows(2);
+
+        pane.set_directory(entries(&["a", "b", "c", "x", "y"]));
+
+        assert_eq!((pane.cursor(), pane.scroll_top()), (3, 2));
     }
 
     #[test]
@@ -1147,6 +1181,35 @@ mod tests {
         pane.set_viewport_rows(0);
 
         assert_eq!(pane.scroll_top(), pane.cursor());
+    }
+
+    #[test]
+    fn a_viewport_change_keeps_a_wheel_scroll() {
+        let names: Vec<String> = (0..20).map(|i| format!("f{i:02}")).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut pane = pane_with("/", &names);
+        pane.set_viewport_rows(5);
+        pane.scroll_by(10);
+
+        pane.set_viewport_rows(6);
+
+        assert_eq!((pane.cursor(), pane.scroll_top()), (0, 10));
+    }
+
+    #[test]
+    fn growing_the_viewport_pulls_the_view_back_to_the_last_page() {
+        let mut pane = pane_with("/", &["a", "b", "c", "d", "e"]);
+        pane.set_viewport_rows(2);
+        pane.cursor_bottom();
+        assert_eq!(pane.scroll_top(), 3);
+
+        pane.set_viewport_rows(5);
+
+        assert_eq!(
+            pane.scroll_top(),
+            0,
+            "all five rows fit, yet the top stays at 3"
+        );
     }
 
     #[test]
