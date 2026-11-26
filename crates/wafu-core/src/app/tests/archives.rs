@@ -2102,7 +2102,7 @@ fn a_cancelled_temporary_extraction_starts_nothing() {
     );
     assert_eq!(
         harness.log().last().map(String::as_str),
-        Some("Extract cancelled")
+        Some("Edit cancelled")
     );
 }
 
@@ -2128,10 +2128,7 @@ fn a_failed_temporary_extraction_starts_nothing() {
     );
     assert_eq!(
         harness.log().last().cloned(),
-        Some(format!(
-            "Cannot extract {}: disk full",
-            path(TEMP, "b.txt").display()
-        ))
+        Some(format!("Cannot edit {}/b.txt: disk full", root()))
     );
 }
 
@@ -2157,8 +2154,70 @@ fn a_temporary_extraction_with_skipped_entries_starts_nothing() {
             .any(|effect| matches!(effect, Effect::Spawn { .. }))
     );
     assert_eq!(
+        harness.log().last().cloned(),
+        Some(format!("Cannot edit {}/b.txt: 1 entry was skipped", root()))
+    );
+}
+
+#[test]
+fn a_temporary_extraction_that_ends_without_starting_is_logged_as_the_command() {
+    for (key, cancelled, verb) in [
+        ("Ctrl+Enter", "Open cancelled", "open"),
+        ("Shift+Enter", "Open cancelled", "open"),
+        ("X", "Run cancelled", "run"),
+        ("F9", "Command cancelled", "run a command on"),
+    ] {
+        for cancel in [true, false] {
+            let mut harness = outside();
+            harness.config(
+                "[open_alternative.extensions]\ntxt = \"view {paths}\"\n\
+                 [commands.view]\nrun = \"view {paths}\"\n[keys.filelist]\nF9 = \"$view\"\n",
+            );
+            harness.enter_archive(Side::Left, contents());
+            harness.press("Down");
+            harness.press("Down");
+            assert_eq!(harness.cursor_name(Side::Left), "b.txt");
+            harness.press(key);
+            harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
+
+            let expected = if cancel {
+                harness.finish(Outcome::Cancelled);
+                cancelled.to_owned()
+            } else {
+                harness.finish(Outcome::Failed {
+                    path: path(TEMP, "b.txt"),
+                    error: IoError::new("disk full"),
+                });
+                format!("Cannot {verb} {}/b.txt: disk full", root())
+            };
+
+            assert_eq!(harness.log().last(), Some(&expected), "{key}");
+        }
+    }
+}
+
+#[test]
+fn a_temporary_extraction_of_several_marked_entries_is_logged_with_their_number() {
+    let mut harness = outside();
+    harness.config("[commands.view]\nrun = \"view {paths}\"\n[keys.filelist]\nF9 = \"$view\"\n");
+    harness.enter_archive(Side::Left, contents());
+    harness.press("Down");
+    harness.press("Space");
+    harness.press("Space");
+    harness.press("F9");
+    harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
+    for name in ["docs", "b.txt"] {
+        harness.operation(OperationEvent::Skipped {
+            path: path(TEMP, name),
+            error: IoError::new("sparse entries are not supported"),
+        });
+    }
+
+    harness.finish(Outcome::Completed { skipped: 2 });
+
+    assert_eq!(
         harness.log().last().map(String::as_str),
-        Some("Extracted b.txt (1 skipped)")
+        Some("Cannot run a command on 2 items: 2 entries were skipped")
     );
 }
 

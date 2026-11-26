@@ -12,7 +12,7 @@ use crate::key::{Key, KeyBase, NamedKey};
 use crate::location::{ArchiveFormat, Location, Passwords};
 use crate::operation::{
     ArchiveEntries, ArchiveOutput, FindQuery, OperationEvent, OperationKind, OperationSpec,
-    Outcome, OutcomeLine, Renames, Reply, Sources,
+    Outcome, OutcomeLine, Renames, Reply, Sources, plural,
 };
 use crate::pane::HistoryMove;
 use crate::popup::{
@@ -704,6 +704,7 @@ impl App {
         if location.in_archive() {
             let temp = Temp {
                 action: TempAction::Edit,
+                from: location.clone(),
                 cursor: Some(TempPath::Extracted(entry.name.clone())),
                 marked: Vec::new(),
                 targets: vec![entry.name.clone()],
@@ -717,9 +718,11 @@ impl App {
     }
 
     pub(super) fn edit_source(&mut self, source: PreviewSource, effects: &mut Vec<Effect>) {
+        let from = source.location();
         if let Some((path, name)) = source.entry {
             let temp = Temp {
                 action: TempAction::Edit,
+                from,
                 cursor: Some(TempPath::Extracted(OsString::from(&name))),
                 marked: Vec::new(),
                 targets: vec![OsString::from(&name)],
@@ -751,7 +754,8 @@ impl App {
         }
         if location.in_archive() {
             let entries = self.archive_entries(&location, std::slice::from_ref(&entry.name));
-            self.start_temp(Self::temp_open(entry.name), entries, effects);
+            let temp = Self::temp_open(&location, entry.name);
+            self.start_temp(temp, entries, effects);
         } else {
             effects.push(Effect::OpenWithOs(location.base.join(&entry.name)));
         }
@@ -773,6 +777,7 @@ impl App {
         if location.in_archive() {
             let temp = Temp {
                 action: TempAction::RunFile { executable },
+                from: location.clone(),
                 cursor: Some(TempPath::Extracted(entry.name.clone())),
                 marked: Vec::new(),
                 targets: vec![entry.name.clone()],
@@ -860,6 +865,7 @@ impl App {
         };
         let temp = Temp {
             action: TempAction::Spawn { name, line },
+            from: from.clone(),
             cursor,
             marked,
             targets,
@@ -886,6 +892,7 @@ impl App {
         if location.in_archive() && line.uses_paths() {
             let temp = Temp {
                 action: TempAction::Spawn { name, line },
+                from: location.clone(),
                 cursor: Some(TempPath::Extracted(entry.name.clone())),
                 marked: Vec::new(),
                 targets: vec![entry.name.clone()],
@@ -1042,9 +1049,10 @@ impl App {
         Some(other.base.clone())
     }
 
-    fn temp_open(name: OsString) -> Temp {
+    fn temp_open(location: &Location, name: OsString) -> Temp {
         Temp {
             action: TempAction::OpenWithOs,
+            from: location.clone(),
             cursor: Some(TempPath::Extracted(name.clone())),
             marked: Vec::new(),
             targets: vec![name],
@@ -1172,6 +1180,9 @@ impl App {
                 .as_ref()
                 .is_some_and(|temp| !temp.entry_skipped);
         let line = || {
+            if let Some(line) = operation.temp.as_ref().and_then(|temp| temp.line(outcome)) {
+                return line;
+            }
             let line = OutcomeLine {
                 kind: operation.kind,
                 outcome,
@@ -1355,11 +1366,33 @@ pub(crate) struct Operation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Temp {
     action: TempAction,
+    from: Location,
     cursor: Option<TempPath>,
     marked: Vec<OsString>,
     // The entries `{paths}` stands for.
     targets: Vec<OsString>,
     entry_skipped: bool,
+}
+
+impl Temp {
+    // The extraction is a step of the command the user ran, so a line that
+    // tells how it ended names that command and what it was run on.
+    fn line(&self, outcome: &Outcome) -> Option<String> {
+        let (verb, noun) = self.action.words();
+        let subject = match self.targets.as_slice() {
+            [name] => self.from.child_display(name),
+            targets => format!("{} items", targets.len()),
+        };
+        match outcome {
+            Outcome::Completed { skipped } => Some(format!(
+                "Cannot {verb} {subject}: {skipped} {} skipped",
+                plural(*skipped, "entry was", "entries were")
+            )),
+            Outcome::Cancelled => Some(format!("{noun} cancelled")),
+            Outcome::Failed { error, .. } => Some(format!("Cannot {verb} {subject}: {error}")),
+            Outcome::Found { .. } | Outcome::Measured { .. } => None,
+        }
+    }
 }
 
 // What `{cursor_path}` stands for once the extraction is done.
@@ -1377,6 +1410,21 @@ enum TempAction {
     OpenWithOs,
     RunFile { executable: bool },
     Spawn { name: SpawnName, line: CommandLine },
+}
+
+impl TempAction {
+    fn words(&self) -> (&'static str, &'static str) {
+        match self {
+            Self::Edit => ("edit", "Edit"),
+            Self::OpenWithOs
+            | Self::Spawn {
+                name: SpawnName::Command(Command::OpenAlternative),
+                ..
+            } => ("open", "Open"),
+            Self::RunFile { .. } => ("run", "Run"),
+            Self::Spawn { .. } => ("run a command on", "Command"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
