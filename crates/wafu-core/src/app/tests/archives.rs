@@ -13,7 +13,7 @@ use crate::operation::{
 };
 use crate::path::normalize;
 use crate::test_support::{
-    Harness, LEFT, RIGHT, dir, executable, file, passwords, path, shown, shown_place,
+    APP_NAME, Harness, LEFT, RIGHT, dir, executable, file, passwords, path, shown, shown_place,
 };
 
 const TEMP: &str = "/tmp/wafu/x1";
@@ -44,7 +44,7 @@ fn enter_on_a_zip_watches_the_archive_and_shows_its_path() {
     harness.load(Side::Left, contents());
 
     assert_eq!(harness.view().left.path, root().to_string());
-    assert_eq!(harness.view().title, format!("wafu - {}", root()));
+    assert_eq!(harness.view().title, format!("a.zip:/ - {APP_NAME}"));
     assert_eq!(
         harness.names(Side::Left),
         ["..", "docs", "b.txt", "inner.zip", "secret.txt"]
@@ -763,10 +763,9 @@ fn copy_inside_an_archive_extracts_the_marked_entries_to_the_other_side() {
 #[test]
 fn a_skipped_entry_is_logged_and_keeps_its_mark() {
     let mut harness = copying_inside();
-    let entry = archive().join("b.txt");
 
     harness.operation(OperationEvent::Skipped {
-        path: entry.clone(),
+        path: PathBuf::from("a.zip:/b.txt"),
         error: IoError::new("the entry name is unsafe"),
     });
     harness.finish(Outcome::Completed { skipped: 1 });
@@ -775,8 +774,8 @@ fn a_skipped_entry_is_logged_and_keeps_its_mark() {
     assert_eq!(
         log[log.len() - 2..],
         [
-            format!("Skipped {}: the entry name is unsafe", entry.display()),
-            "Copied b.txt (1 skipped)".to_owned(),
+            "Skipped a.zip:/b.txt: the entry name is unsafe",
+            "Copied b.txt (1 skipped)",
         ]
     );
     assert_eq!(harness.marks(Side::Left), ["b.txt"]);

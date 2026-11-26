@@ -931,15 +931,17 @@ impl App {
 
     fn title(&self) -> String {
         let name = if self.elevated {
-            "wafu (Administrator)"
+            concat!("wafu ", env!("CARGO_PKG_VERSION"), " (Administrator)")
         } else {
-            "wafu"
+            concat!("wafu ", env!("CARGO_PKG_VERSION"))
         };
         let path = show_line_breaks(self.active_pane().location().to_string());
         if path.is_empty() {
             name.to_owned()
         } else {
-            format!("{name} - {path}")
+            // The path comes first because task bars and window switchers
+            // cut a long title at its end.
+            format!("{path} - {name}")
         }
     }
 }
