@@ -64,41 +64,6 @@ pub(crate) fn is_same_file(a: &Path, b: &Path) -> io::Result<bool> {
             .unwrap_or(false))
 }
 
-#[cfg(unix)]
-pub(crate) fn file_id(path: &Path) -> io::Result<(u64, u64)> {
-    use std::os::unix::fs::MetadataExt;
-
-    let meta = fs::symlink_metadata(path)?;
-    Ok((meta.dev(), meta.ino()))
-}
-
-// Asked of the system directly, since a `same_file::Handle` keeps the file
-// open for as long as it is kept.
-#[cfg(windows)]
-#[allow(unsafe_code)]
-pub(crate) fn file_id(path: &Path) -> io::Result<(u64, u64)> {
-    use std::os::windows::fs::OpenOptionsExt;
-    use std::os::windows::io::AsRawHandle;
-
-    use windows::Win32::Foundation::HANDLE;
-    use windows::Win32::Storage::FileSystem::{
-        BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
-        GetFileInformationByHandle,
-    };
-
-    let file = OpenOptions::new()
-        .access_mode(0)
-        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0 | FILE_FLAG_OPEN_REPARSE_POINT.0)
-        .open(path)?;
-    let mut info = BY_HANDLE_FILE_INFORMATION::default();
-    // SAFETY: the handle stays open for the call, and `info` is writable.
-    unsafe { GetFileInformationByHandle(HANDLE(file.as_raw_handle()), &raw mut info) }?;
-    Ok((
-        u64::from(info.dwVolumeSerialNumber),
-        u64::from(info.nFileIndexHigh) << 32 | u64::from(info.nFileIndexLow),
-    ))
-}
-
 pub(crate) fn mkdir(path: &Path) -> io::Result<()> {
     if fs::symlink_metadata(path).is_ok() {
         return Err(already_exists());
