@@ -2011,6 +2011,9 @@ fn open_with_os_in_an_empty_root_does_nothing() {
 #[test]
 fn copy_log_copies_every_kept_line_and_nothing_when_empty() {
     let mut harness = three_files();
+    harness.press("F1");
+    harness.edit("clear_log");
+    harness.press("Enter");
     harness.take_effects();
 
     harness.press("F1");
