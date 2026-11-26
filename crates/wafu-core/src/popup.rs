@@ -626,14 +626,21 @@ impl ChoicePopup {
         }
     }
 
-    /// Asks whether to quit while an operation runs; the first answer cancels it and quits.
+    /// Asks whether to quit while an operation runs. The first answer cancels it and quits
+    /// once it has stopped; with `cancelling`, the popup asks again while that is still
+    /// pending, and the first answer quits without waiting.
     #[must_use]
-    pub fn quit_during_operation(resume: Option<Popup>) -> Self {
+    pub fn quit_during_operation(resume: Option<Popup>, cancelling: bool) -> Self {
+        let message = if cancelling {
+            "The cancellation has not finished; partial files may be left behind"
+        } else {
+            "An operation is in progress"
+        };
         Self {
             kind: ChoiceKind::QuitDuringOperation {
                 resume: resume.map(Box::new),
             },
-            message: "An operation is in progress".to_owned(),
+            message: message.to_owned(),
             cursor: 1,
         }
     }
@@ -1725,7 +1732,7 @@ mod tests {
 
     #[test]
     fn choice_cursor_skips_the_separator_and_wraps() {
-        let mut popup = ChoicePopup::quit_during_operation(None);
+        let mut popup = ChoicePopup::quit_during_operation(None, false);
         assert_eq!(popup.cursor, 1);
         popup.cursor_up();
         assert_eq!(popup.cursor, 2);

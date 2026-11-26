@@ -538,6 +538,31 @@ fn closing_the_window_during_an_operation_asks_first() {
 }
 
 #[test]
+fn a_second_confirmed_quit_ends_a_cancellation_that_never_finishes() {
+    let mut harness = copying();
+    harness.send(Msg::CloseRequested);
+    harness.press("Y");
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::OperationReply(Reply::Cancel)]
+    );
+    assert_eq!(harness.view().popup.unwrap().title, "Cancelling");
+
+    harness.send(Msg::CloseRequested);
+    let popup = harness.view().popup.unwrap();
+    assert_eq!(popup.title, "Quit");
+    assert_eq!(
+        popup.message.as_deref(),
+        Some("The cancellation has not finished; partial files may be left behind")
+    );
+    harness.press("Y");
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::SaveState(_), Effect::Quit]
+    ));
+}
+
+#[test]
 fn closing_the_window_while_renaming_in_a_conflict_puts_the_input_back_on_continue() {
     let mut harness = conflicting();
     harness.press("R");
