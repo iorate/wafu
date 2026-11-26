@@ -1659,6 +1659,23 @@ fn open_alternative_inside_an_archive_with_a_line_without_paths_starts_at_once()
 }
 
 #[test]
+fn open_alternative_on_the_parent_row_of_an_archive_root_starts_on_the_archive_file() {
+    let mut harness = inside();
+    harness.config("[open_alternative.extensions]\nzip = \"z {paths}\"\n");
+    harness.take_effects();
+    assert_eq!(harness.cursor_name(Side::Left), "..");
+
+    harness.press("Shift+Enter");
+
+    let effects = harness.take_effects();
+    assert!(matches!(
+        effects.as_slice(),
+        [Effect::Spawn { program, args, .. }]
+            if program == "z" && *args == vec![archive().into_os_string()]
+    ));
+}
+
+#[test]
 fn open_alternative_on_a_link_inside_an_archive_does_what_open_does() {
     let mut harness = outside();
     harness.config("[open_alternative.extensions]\ntxt = \"view {paths}\"\n");

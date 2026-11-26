@@ -537,26 +537,26 @@ impl App {
     }
 
     pub(super) fn open_alternative(&mut self, effects: &mut Vec<Effect>) {
-        let pane = self.active_pane();
-        let location = pane.location().clone();
-        let Some(entry) = pane.cursor_entry().cloned() else {
-            self.open_entry(effects);
-            return;
-        };
         let alternative = &self.config.open_alternative;
-        let line = if entry.kind.is_dir_like() {
-            alternative.dir.as_ref()
-        } else if entry.kind.is_broken_link()
-            || entry.kind.is_special()
-            || is_link_in_archive(&location, entry.kind)
-        {
-            None
-        } else {
-            let (_, extension) = entry.split_name();
-            alternative.extensions.get(&extension.to_ascii_lowercase())
-        };
-        match line.cloned() {
-            Some(line) => {
+        let target = self
+            .active_pane()
+            .cursor_target()
+            .and_then(|(location, entry)| {
+                let line = if entry.kind.is_dir_like() {
+                    alternative.dir.as_ref()
+                } else if entry.kind.is_broken_link()
+                    || entry.kind.is_special()
+                    || is_link_in_archive(&location, entry.kind)
+                {
+                    None
+                } else {
+                    let (_, extension) = entry.split_name();
+                    alternative.extensions.get(&extension.to_ascii_lowercase())
+                };
+                Some((line?.clone(), location, entry))
+            });
+        match target {
+            Some((line, location, entry)) => {
                 let name = SpawnName::Command(Command::OpenAlternative);
                 self.start_on_entry(name, line, &location, &entry, effects);
             }
