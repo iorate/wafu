@@ -25,6 +25,7 @@ mod log;
 mod operation;
 mod pane;
 mod path;
+mod placeholder;
 mod popup;
 mod preview;
 mod scroll;

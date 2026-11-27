@@ -1,10 +1,9 @@
 use std::collections::HashSet;
 use std::fmt::Write;
 
-use thiserror::Error;
-
 use crate::app::Os;
 use crate::entry::Entry;
+use crate::placeholder::{Piece, pieces};
 use crate::text::{name_problem, nfc};
 
 /// What the new names of a batch rename are made from.
@@ -13,7 +12,7 @@ pub enum RenameInput<'a> {
     /// Every occurrence of `find` in the whole name, ignoring case, becomes
     /// `replace` as written.
     Replace { find: &'a str, replace: &'a str },
-    /// A template of the whole name, with `{name}`, `{ext}`, and counters
+    /// A template of the whole name, with `{stem}`, `{ext}`, and counters
     /// such as `{001}`.
     Template(&'a str),
 }
@@ -44,7 +43,7 @@ impl RenamePlan {
                 .iter()
                 .map(|target| replace_in(&target.name.to_string_lossy(), find, replace))
                 .collect(),
-            RenameInput::Template(text) => match parse_template(text) {
+            RenameInput::Template(text) => match pieces(text, field) {
                 Ok(template) => targets
                     .iter()
                     .enumerate()
@@ -53,7 +52,7 @@ impl RenamePlan {
                 Err(error) => {
                     return Self {
                         names: vec![None; targets.len()],
-                        error: Some(error.to_string()),
+                        error: Some(capitalized(&error.to_string())),
                     };
                 }
             },
@@ -68,22 +67,11 @@ impl RenamePlan {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Piece {
-    Text(String),
-    Name,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Field {
+    Stem,
     Ext,
     Counter { start: u64, width: usize },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-enum TemplateError {
-    #[error("Unknown placeholder {{{0}}}")]
-    UnknownPlaceholder(String),
-    #[error("Unclosed {{")]
-    Unclosed,
-    #[error("Unmatched }}")]
-    Unmatched,
 }
 
 fn replace_in(name: &str, find: &str, replace: &str) -> String {
@@ -126,55 +114,30 @@ fn lowercase(text: &str) -> String {
     text.chars().flat_map(char::to_lowercase).collect()
 }
 
-fn parse_template(text: &str) -> Result<Vec<Piece>, TemplateError> {
-    let mut pieces = Vec::new();
-    let mut literal = String::new();
-    let mut rest = text;
-    while let Some(c) = rest.chars().next() {
-        rest = &rest[c.len_utf8()..];
-        match c {
-            '{' => {
-                if let Some(after) = rest.strip_prefix('{') {
-                    literal.push('{');
-                    rest = after;
-                    continue;
-                }
-                let (inside, after) = rest.split_once('}').ok_or(TemplateError::Unclosed)?;
-                rest = after;
-                if !literal.is_empty() {
-                    pieces.push(Piece::Text(std::mem::take(&mut literal)));
-                }
-                pieces.push(placeholder(inside)?);
-            }
-            '}' => {
-                rest = rest.strip_prefix('}').ok_or(TemplateError::Unmatched)?;
-                literal.push('}');
-            }
-            _ => literal.push(c),
-        }
-    }
-    if !literal.is_empty() {
-        pieces.push(Piece::Text(literal));
-    }
-    Ok(pieces)
-}
-
-fn placeholder(inside: &str) -> Result<Piece, TemplateError> {
+fn field(inside: &str) -> Option<Field> {
     match inside {
-        "name" => Ok(Piece::Name),
-        "ext" => Ok(Piece::Ext),
+        "stem" => Some(Field::Stem),
+        "ext" => Some(Field::Ext),
         // Eighteen digits always fit in a `u64`, with room left for counting up.
         _ if (1..=18).contains(&inside.len()) && inside.bytes().all(|b| b.is_ascii_digit()) => {
-            Ok(Piece::Counter {
+            Some(Field::Counter {
                 start: inside.parse().expect("ASCII digits fit in a u64"),
                 width: inside.len(),
             })
         }
-        _ => Err(TemplateError::UnknownPlaceholder(inside.to_owned())),
+        _ => None,
     }
 }
 
-fn apply_template(template: &[Piece], target: &Entry, index: usize) -> String {
+// The errors are worded for a log line, where they follow a colon.
+fn capitalized(text: &str) -> String {
+    let mut chars = text.chars();
+    chars.next().map_or_else(String::new, |first| {
+        first.to_uppercase().chain(chars).collect()
+    })
+}
+
+fn apply_template(template: &[Piece<Field>], target: &Entry, index: usize) -> String {
     let name = target.name.to_string_lossy();
     let (stem, extension) = match target.stem_len() {
         Some(len) => name.split_at(len),
@@ -184,9 +147,9 @@ fn apply_template(template: &[Piece], target: &Entry, index: usize) -> String {
     for piece in template {
         match piece {
             Piece::Text(text) => renamed.push_str(text),
-            Piece::Name => renamed.push_str(stem),
-            Piece::Ext => renamed.push_str(extension),
-            Piece::Counter { start, width } => {
+            Piece::Placeholder(Field::Stem) => renamed.push_str(stem),
+            Piece::Placeholder(Field::Ext) => renamed.push_str(extension),
+            Piece::Placeholder(Field::Counter { start, width }) => {
                 let number = start + index as u64;
                 write!(renamed, "{number:0width$}").expect("writing to a String cannot fail");
             }
@@ -291,33 +254,10 @@ mod tests {
     }
 
     #[test]
-    fn parse_template_rejects_bad_formats() {
-        let cases = [
-            ("{x}", "Unknown placeholder {x}"),
-            ("{NAME}", "Unknown placeholder {NAME}"),
-            ("{ name }", "Unknown placeholder { name }"),
-            ("{}", "Unknown placeholder {}"),
-            ("{-1}", "Unknown placeholder {-1}"),
-            (
-                "{1234567890123456789}",
-                "Unknown placeholder {1234567890123456789}",
-            ),
-            ("{a{b}", "Unknown placeholder {a{b}"),
-            ("{name", "Unclosed {"),
-            ("a}", "Unmatched }"),
-            ("{{name}", "Unmatched }"),
-            ("}{", "Unmatched }"),
-        ];
-        for (text, expected) in cases {
-            let error = parse_template(text).expect_err(text);
-            assert_eq!(error.to_string(), expected, "{text:?}");
+    fn field_rejects_other_names_and_counters_over_eighteen_digits() {
+        for inside in ["1234567890123456789", "-1", "STEM", ""] {
+            assert_eq!(field(inside), None, "{inside:?}");
         }
-    }
-
-    #[test]
-    fn template_reads_escaped_braces_around_a_placeholder() {
-        assert_eq!(apply("{{{name}}}", &file("a.txt"), 0), "{a}");
-        assert_eq!(apply("{{name}}", &file("a.txt"), 0), "{name}");
     }
 
     #[test]
@@ -341,21 +281,21 @@ mod tests {
             ),
         ];
         for (entry, expected) in cases {
-            assert_eq!(apply("<{name}|{ext}>", &entry, 0), expected, "{entry:?}");
+            assert_eq!(apply("<{stem}|{ext}>", &entry, 0), expected, "{entry:?}");
         }
     }
 
     #[test]
-    fn template_name_and_ext_give_the_composed_original() {
+    fn template_stem_and_ext_give_the_composed_original() {
         assert_eq!(
-            apply("{name}{ext}", &file("e\u{301}.t\u{30c}"), 0),
+            apply("{stem}{ext}", &file("e\u{301}.t\u{30c}"), 0),
             "\u{e9}.\u{165}"
         );
     }
 
     #[test]
     fn template_does_not_read_the_name_again() {
-        assert_eq!(apply("{name}", &file("{ext}.txt"), 0), "{ext}");
+        assert_eq!(apply("{stem}", &file("{ext}.txt"), 0), "{ext}");
     }
 
     #[test]
@@ -437,17 +377,17 @@ mod tests {
         let cases = [
             (
                 [file("A.txt"), file("a.jpg")],
-                "{name}",
+                "{stem}",
                 "a.jpg \u{2192} a: duplicate name",
             ),
             (
                 [file("e\u{301}.txt"), file("\u{e9}.jpg")],
-                "{name}",
+                "{stem}",
                 "\u{e9}.jpg \u{2192} \u{e9}: duplicate name",
             ),
             (
                 [file("a\u{3a3}.txt"), file("a\u{3c3}.jpg")],
-                "{name}",
+                "{stem}",
                 "a\u{3c3}.jpg \u{2192} a\u{3c3}: duplicate name",
             ),
         ];
@@ -537,7 +477,7 @@ mod tests {
     }
 
     fn apply(template: &str, target: &Entry, index: usize) -> String {
-        apply_template(&parse_template(template).unwrap(), target, index)
+        apply_template(&pieces(template, field).unwrap(), target, index)
     }
 
     fn replace<'a>(find: &'a str, replace: &'a str) -> RenameInput<'a> {

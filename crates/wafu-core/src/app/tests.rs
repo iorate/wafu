@@ -4297,6 +4297,24 @@ fn external_commands_expand_placeholders_and_report_their_start() {
 }
 
 #[test]
+fn an_external_command_with_an_empty_placeholder_is_not_started() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+    harness.config(
+        "[commands.pack]\ncommand_line = \"7z a out.zip {marked_paths}\"\n[keys.filelist]\n\"F2\" = \"$pack\"\n",
+    );
+    harness.load(Side::Left, vec![file("a")]);
+    harness.take_effects();
+
+    harness.press("F2");
+
+    assert_eq!(harness.take_effects(), Vec::new());
+    assert_eq!(
+        harness.log().last().map(String::as_str),
+        Some("Cannot start 7z: {marked_paths} is empty")
+    );
+}
+
+#[test]
 fn programs_wait_for_the_login_shell_environment_in_order() {
     let mut harness = start_with_term(Os::Linux, false, "");
     assert!(harness.take_effects().contains(&Effect::LoadShellEnv));
@@ -4454,7 +4472,7 @@ fn edit_config_opens_the_configuration_in_the_editor() {
     let mut harness = Harness::start_with_config(
         "/home/user",
         "/tmp",
-        "[programs]\neditor = \"code -w {paths}\"\n",
+        "[programs]\neditor = \"code -w {path}\"\n",
     );
     harness.take_effects();
 

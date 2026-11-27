@@ -27,7 +27,7 @@ To keep shared settings in one file, such as one in your dotfiles, and only what
 extends = "~/dotfiles/wafu/common.toml"      # or an array: extends = ["a.toml", "b.toml"]
 
 [programs]
-editor = "code {paths}"
+editor = "code {path}"
 ```
 
 - The configuration file applies over what it extends, and each file in an array applies over the ones before it.
@@ -83,7 +83,7 @@ max_bytes = 67108864
 max_lines = 1000
 
 [programs]
-# editor = "notepad {paths}" on Windows, "open -t {paths}" on macOS, "xdg-open {paths}" on Linux
+# editor = "notepad {path}" on Windows, "open -t {path}" on macOS, "xdg-open {path}" on Linux
 use_login_shell_env = true
 
 [font]
@@ -192,7 +192,7 @@ There are no default bookmarks, external commands, [`open_alternative` programs]
 
 | Item | Value | Meaning |
 |---|---|---|
-| `editor` | a string | The command line that opens a file for editing, used by `edit`, `new_text`, `preview_edit`, and `edit_config`. `{paths}` is the file. It follows the rules of [external commands](#commands). |
+| `editor` | a string | The command line that opens a file for editing, used by `edit`, `new_text`, `preview_edit`, and `edit_config`. It follows the rules of [external commands](#commands), with `{path}`, the file, as its only placeholder. |
 | `use_login_shell_env` | true or false | macOS and Linux: give the programs wafu starts the environment of your login shell. |
 
 <!-- /generated -->
@@ -311,14 +311,22 @@ These placeholders are replaced when the command runs:
 | Placeholder | Becomes |
 |---|---|
 | `{cursor_path}` | The item under the cursor (on the `..` row, the current directory) |
-| `{marked_paths}` | The marked items, one argument each (none when nothing is marked) |
+| `{marked_paths}` | The marked items |
 | `{paths}` | The marked items, or the item under the cursor when nothing is marked |
 | `{dir}` | The directory of the active pane |
 | `{other_dir}` | The directory of the other pane |
 
-A placeholder must be a whole argument: `{dir}` is replaced, but `--dir={dir}` is passed as written, as is any other text in braces. Paths are full paths. Inside an archive, a line that uses `{cursor_path}`, `{marked_paths}`, or `{paths}` first extracts the items to a temporary directory, and those placeholders name the extracted files. `{dir}` is then the directory that holds the archive file, the outermost one for an archive inside an archive.
+A placeholder is replaced wherever it stands in an argument: `-o{other_dir}` and `--dir={dir}` work. Quoting does not turn it into text. `{marked_paths}` and `{paths}` are lists: an argument that holds one is repeated for each path, so `{paths}` becomes one argument per item and `--add={marked_paths}` becomes `--add=/a --add=/b`. An argument can hold only one list. The program, the first word of the line, cannot hold a placeholder.
 
-The same rules apply to `editor`.
+To write a brace as text, double it: `{{` and `}}`. Any other brace is an error, as is a name in braces that is not in the table.
+
+When a placeholder in the line has no value, such as `{marked_paths}` with nothing marked, the command is not started and the log says which placeholder was empty.
+
+Paths are full paths. Inside an archive, a line that uses `{cursor_path}`, `{marked_paths}`, or `{paths}` first extracts the items to a temporary directory, and those placeholders name the extracted files. There, on a `..` row other than the one at the root of the outermost archive, `{cursor_path}` is empty while items are marked. `{dir}` is then the directory that holds the archive file, the outermost one for an archive inside an archive.
+
+The same rules apply to the lines typed into the dialogs of `run` and `run_command_line`. `run` doubles the braces in the path it starts out with.
+
+`editor` and the lines of [alternative open](#alternative-open) follow these rules too, but run on one file rather than on the pane, so their only placeholder is `{path}`, that file. The placeholders in the table are errors there.
 
 ## Alternative open
 
@@ -326,10 +334,10 @@ The same rules apply to `editor`.
 
 ```toml
 [open_alternative]
-dir = "code {paths}"
+dir = "code {path}"
 
 [open_alternative.extensions]
-pdf = "sumatrapdf {paths}"
+pdf = "sumatrapdf {path}"
 ```
 
 - `dir` is the command line for directories, and links to them.
@@ -338,7 +346,7 @@ pdf = "sumatrapdf {paths}"
 - Anything without a rule, broken links, special files, and links inside an archive are opened as `open` does.
 - Both are empty by default.
 
-The command lines follow the rules of [external commands](#commands), with the item under the cursor as the only target: `{paths}` and `{cursor_path}` are that item, and `{marked_paths}` is empty, whatever is marked. Inside an archive, a line that uses `{cursor_path}`, `{marked_paths}`, or `{paths}` first extracts the item to a temporary directory, as for external commands.
+The command lines follow the rules of [external commands](#commands), with `{path}`, the item under the cursor, as their only placeholder. Inside an archive, a line that uses `{path}` first extracts the item to a temporary directory, as for external commands.
 
 ## Keys
 

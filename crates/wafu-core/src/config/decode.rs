@@ -218,6 +218,12 @@ impl<'a> Reader<'a> {
         self.checked(key, line)
     }
 
+    fn file_line(&mut self, key: &str, text: &str, os: Os) -> Option<CommandLine> {
+        let line =
+            CommandLine::parse_for_file(text, os).map_err(DiagnosticKind::InvalidCommandLine);
+        self.checked(key, line)
+    }
+
     fn entries(&mut self) -> Vec<(String, Value)> {
         std::mem::take(&mut self.table).into_iter().collect()
     }
@@ -455,7 +461,7 @@ fn read_open_alternative(root: &mut Reader<'_>, config: &mut Config, os: Os) {
     };
     let OpenAlternativeConfig { dir, extensions } = &mut config.open_alternative;
     if let Some(text) = table.string("dir")
-        && let Some(line) = table.command_line("dir", &text, os)
+        && let Some(line) = table.file_line("dir", &text, os)
     {
         *dir = Some(line);
     }
@@ -465,7 +471,7 @@ fn read_open_alternative(root: &mut Reader<'_>, config: &mut Config, os: Os) {
                 reader.invalid(key, "a string");
                 return None;
             };
-            reader.command_line(key, &text, os)
+            reader.file_line(key, &text, os)
         });
         reader.finish();
     }
@@ -679,7 +685,7 @@ placement_from_right = "other_pane"
 hide_log = true
 
 [programs]
-editor = "notepad {paths}"
+editor = "notepad {path}"
 
 [font]                         # the default
 family = "..."
@@ -719,10 +725,10 @@ path = "~/Downloads"
 command_line = "wt -d {dir}"
 
 [open_alternative]
-dir = "code {paths}"
+dir = "code {path}"
 
 [open_alternative.extensions]
-pdf = "sumatrapdf {paths}"
+pdf = "sumatrapdf {path}"
 
 [keys.filelist]
 "F2" = "$open_terminal"
@@ -749,7 +755,7 @@ pdf = "sumatrapdf {paths}"
         );
         assert_eq!(
             config.programs.editor,
-            CommandLine::parse("notepad {paths}", Os::Linux).unwrap()
+            CommandLine::parse_for_file("notepad {path}", Os::Linux).unwrap()
         );
         assert_eq!(
             config.preview,
@@ -785,10 +791,10 @@ pdf = "sumatrapdf {paths}"
         assert_eq!(
             config.open_alternative,
             OpenAlternativeConfig {
-                dir: Some(CommandLine::parse("code {paths}", Os::Linux).unwrap()),
+                dir: Some(CommandLine::parse_for_file("code {path}", Os::Linux).unwrap()),
                 extensions: BTreeMap::from([(
                     "pdf".to_owned(),
-                    CommandLine::parse("sumatrapdf {paths}", Os::Linux).unwrap()
+                    CommandLine::parse_for_file("sumatrapdf {path}", Os::Linux).unwrap()
                 )]),
             }
         );
@@ -845,11 +851,15 @@ pdf = "sumatrapdf {paths}"
 
         assert_eq!(diagnostics, Vec::new());
         assert_eq!(
-            config.programs.editor.expand(&Expansion::default()),
+            config
+                .programs
+                .editor
+                .expand(&Expansion::default())
+                .unwrap(),
             ["'a", "b'"].map(OsString::from)
         );
         assert_eq!(
-            config.commands["x"].expand(&Expansion::default()),
+            config.commands["x"].expand(&Expansion::default()).unwrap(),
             ["'a", "b'"].map(OsString::from)
         );
     }
@@ -1286,7 +1296,7 @@ jpeg = "#eeeeee"
 dir = "x 'unterminated"
 other = 1
 [open_alternative.extensions]
-PDF = "view {paths}"
+PDF = "view {path}"
 "" = "view"
 "tar.gz" = "view"
 md = " "
@@ -1303,7 +1313,7 @@ jpg = "b"
                 dir: None,
                 extensions: BTreeMap::from([(
                     "pdf".to_owned(),
-                    CommandLine::parse("view {paths}", Os::Linux).unwrap()
+                    CommandLine::parse_for_file("view {path}", Os::Linux).unwrap()
                 )]),
             }
         );
@@ -1671,7 +1681,7 @@ command_line = "wt"
 [filelist]
 size_format = "human"
 [programs]
-editor = "code {paths}"
+editor = "code {path}"
 [font]
 family = "Menlo"
 [colors.light]
@@ -1680,10 +1690,10 @@ fg = "#111111"
 ZIP = "#222222"
 png = "#333333"
 [open_alternative]
-dir = "code {paths}"
+dir = "code {path}"
 [open_alternative.extensions]
-PDF = "view {paths}"
-txt = "edit {paths}"
+PDF = "view {path}"
+txt = "edit {path}"
 [commands]
 term = "wt"
 [commands.build]

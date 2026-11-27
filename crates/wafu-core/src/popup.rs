@@ -112,8 +112,9 @@ const CONFLICT_ROWS: [(ConflictRow, &str, Option<char>); 7] = [
 ];
 
 const REPLACE_HINT: &str = "Replaces every occurrence, ignoring case";
-const TEMPLATE_HINT: &str = "Placeholders: {name}, {ext}, {001} (counter from 001)";
-const INITIAL_TEMPLATE: &str = "{name}{ext}";
+const TEMPLATE_HINT: &str =
+    "Placeholders: {stem} (name without extension), {ext}, {001} (counter from 001)";
+const INITIAL_TEMPLATE: &str = "{stem}{ext}";
 
 /// A modal that takes all keys while it is open.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -964,9 +965,9 @@ impl RenamePopup {
                     ..InputField::new(String::new())
                 },
             ],
-            // Typing replaces the name and keeps the extension, as in `rename`.
+            // Typing replaces the stem and keeps the extension, as in `rename`.
             RenameMode::Template => vec![InputField {
-                select: Some((0, "{name}".len())),
+                select: Some((0, "{stem}".len())),
                 ..InputField::new(INITIAL_TEMPLATE.to_owned())
             }],
         };

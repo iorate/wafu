@@ -173,7 +173,7 @@ pub(super) const PROGRAMS: &[Setting<ProgramsConfig>] = &[
         "editor",
         Line,
         editor,
-        "The command line that opens a file for editing, used by `edit`, `new_text`, `preview_edit`, and `edit_config`. `{paths}` is the file. It follows the rules of [external commands](#commands)."
+        "The command line that opens a file for editing, used by `edit`, `new_text`, `preview_edit`, and `edit_config`. It follows the rules of [external commands](#commands), with `{path}`, the file, as its only placeholder."
     ),
     setting!(
         "use_login_shell_env",
@@ -530,7 +530,7 @@ impl Kind for Line {
 
     fn parse(&self, value: Value, os: Os) -> Result<CommandLine, DiagnosticKind> {
         let text = Text.parse(value, os)?;
-        CommandLine::parse(&text, os).map_err(DiagnosticKind::InvalidCommandLine)
+        CommandLine::parse_for_file(&text, os).map_err(DiagnosticKind::InvalidCommandLine)
     }
 
     fn write(&self, value: &CommandLine) -> Option<Value> {

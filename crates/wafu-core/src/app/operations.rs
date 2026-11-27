@@ -599,11 +599,10 @@ impl App {
                     effects.push(Effect::CreateFile(path));
                 } else {
                     let expansion = Expansion {
-                        paths: vec![path],
                         dir: base,
-                        ..self.expansion()
+                        ..self.file_expansion(path)
                     };
-                    Self::spawn_editor(&self.config.programs.editor, &expansion, effects);
+                    self.spawn_editor(&expansion, effects);
                 }
             }
             InputKind::ConflictRename { .. }
@@ -667,11 +666,10 @@ impl App {
                     && edit == path
                 {
                     let expansion = Expansion {
-                        paths: vec![path.clone()],
                         dir,
-                        ..self.expansion()
+                        ..self.file_expansion(path.clone())
                     };
-                    Self::spawn_editor(&self.config.programs.editor, &expansion, effects);
+                    self.spawn_editor(&expansion, effects);
                 }
                 if let Some(dir) = path.parent() {
                     self.show_created(dir, path.file_name().map(OsString::from), effects);
@@ -820,7 +818,7 @@ impl App {
         }
         let location = pane.location().clone();
         if !location.in_archive() || !line.uses_paths() {
-            Self::spawn(name, &line, &self.expansion(), effects);
+            self.spawn(name, &line, &self.expansion(), effects);
             return;
         }
         let marked: Vec<OsString> = pane
@@ -858,8 +856,13 @@ impl App {
             }
             _ => (location, None, marked.clone()),
         };
-        if extracted.is_empty() {
-            Self::spawn(name, &line, &self.expansion(), effects);
+        let mut expansion = self.expansion();
+        if cursor.is_none() {
+            expansion.cursor_path = None;
+        }
+        // A line that is not going to start has nothing extracted for it.
+        if extracted.is_empty() || line.expand(&expansion).is_err() {
+            self.spawn(name, &line, &expansion, effects);
             return;
         }
         let targets = if marked.is_empty() {
@@ -905,14 +908,8 @@ impl App {
             let entries = self.archive_entries(location, std::slice::from_ref(&entry.name));
             self.start_temp(temp, entries, effects);
         } else {
-            let path = location.base.join(&entry.name);
-            let expansion = Expansion {
-                cursor_path: Some(path.clone()),
-                marked_paths: Vec::new(),
-                paths: vec![path],
-                ..self.expansion()
-            };
-            Self::spawn(name, &line, &expansion, effects);
+            let expansion = self.file_expansion(location.base.join(&entry.name));
+            self.spawn(name, &line, &expansion, effects);
         }
     }
 
@@ -1130,14 +1127,9 @@ impl App {
         })
     }
 
-    fn edit_file(&self, path: PathBuf, effects: &mut Vec<Effect>) {
-        let expansion = Expansion {
-            cursor_path: Some(path.clone()),
-            marked_paths: Vec::new(),
-            paths: vec![path],
-            ..self.expansion()
-        };
-        Self::spawn_editor(&self.config.programs.editor, &expansion, effects);
+    fn edit_file(&mut self, path: PathBuf, effects: &mut Vec<Effect>) {
+        let expansion = self.file_expansion(path);
+        self.spawn_editor(&expansion, effects);
     }
 
     // A pane showing what was renamed follows it to its new name. One
@@ -1362,11 +1354,13 @@ impl App {
 
     fn run_temp_action(&mut self, temp: Temp, dir: &Path, effects: &mut Vec<Effect>) {
         let to_temp = |name: &OsString| dir.join(name);
+        let cursor_path = temp.cursor.as_ref().map(|cursor| match cursor {
+            TempPath::Extracted(name) => to_temp(name),
+            TempPath::Real(path) => path.clone(),
+        });
         let expansion = Expansion {
-            cursor_path: temp.cursor.as_ref().map(|cursor| match cursor {
-                TempPath::Extracted(name) => to_temp(name),
-                TempPath::Real(path) => path.clone(),
-            }),
+            path: cursor_path.clone(),
+            cursor_path,
             marked_paths: temp.marked.iter().map(to_temp).collect(),
             paths: temp.targets.iter().map(to_temp).collect(),
             dir: self.active_pane().location().dir().to_path_buf(),
@@ -1378,7 +1372,7 @@ impl App {
         };
         match temp.action {
             TempAction::Edit => {
-                Self::spawn_editor(&self.config.programs.editor, &expansion, effects);
+                self.spawn_editor(&expansion, effects);
             }
             TempAction::OpenWithOs => {
                 if let Some(path) = expansion.paths.first() {
@@ -1390,7 +1384,7 @@ impl App {
                     self.open_run(path, executable);
                 }
             }
-            TempAction::Spawn { name, line } => Self::spawn(name, &line, &expansion, effects),
+            TempAction::Spawn { name, line } => self.spawn(name, &line, &expansion, effects),
         }
     }
 
@@ -1527,7 +1521,7 @@ impl Temp {
     }
 }
 
-// What `{cursor_path}` stands for once the extraction is done.
+// What `{cursor_path}` and `{path}` stand for once the extraction is done.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum TempPath {
     // An extracted entry, by its name under the temporary directory.

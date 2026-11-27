@@ -10,7 +10,9 @@ use crate::compare::{CompareCondition, CompareSpec};
 use crate::config::{Config, parse_config};
 use crate::entry::Entry;
 use crate::error::{AppError, IoError};
-use crate::external::{CommandLine, Expansion, format_line, quote_arg, quote_program};
+use crate::external::{
+    CommandLine, Expansion, escape_braces, format_line, quote_arg, quote_program,
+};
 use crate::history::History;
 use crate::listing::{SortKey, SortSpec};
 use crate::location::Location;
@@ -189,9 +191,10 @@ impl App {
 
     // The path is quoted to read back as one word: as the program when it can
     // be started, so that arguments go after it, and otherwise as an argument,
-    // so that a program goes before it.
+    // so that a program goes before it. Its braces are doubled so that a name
+    // like `{dir}` is not taken for a placeholder.
     pub(super) fn open_run(&mut self, path: &Path, executable: bool) {
-        let path = path.to_string_lossy();
+        let path = escape_braces(&path.to_string_lossy());
         let (text, caret) = if executable {
             let text = format!("{} ", quote_program(&path, self.os));
             let caret = text.len();
@@ -219,11 +222,8 @@ impl App {
     }
 
     pub(super) fn edit_config(&mut self, effects: &mut Vec<Effect>) {
-        let expansion = Expansion {
-            paths: vec![self.config_path.clone()],
-            ..self.expansion()
-        };
-        Self::spawn_editor(&self.config.programs.editor, &expansion, effects);
+        let expansion = self.file_expansion(self.config_path.clone());
+        self.spawn_editor(&expansion, effects);
     }
 
     pub(super) fn spawned(&mut self, kind: SpawnKind, error: Option<IoError>) {
@@ -357,9 +357,9 @@ impl App {
     }
 
     // The placeholder values for the active pane. Inside an archive the paths
-    // of entries do not exist on disk until they are extracted, so there this
-    // serves only a line that uses no such path, or a cursor on the archive
-    // file itself with nothing marked.
+    // of entries do not exist on disk until they are extracted, so there a
+    // line that uses them is started with these values only when it needs
+    // nothing extracted.
     pub(super) fn expansion(&self) -> Expansion {
         let pane = self.active_pane();
         let full = |location: &Location, entry: &Entry| location.base.join(&entry.name);
@@ -384,29 +384,41 @@ impl App {
                 .location()
                 .dir()
                 .to_path_buf(),
+            path: None,
         }
     }
 
-    pub(super) fn spawn_editor(
-        line: &CommandLine,
-        expansion: &Expansion,
-        effects: &mut Vec<Effect>,
-    ) {
-        Self::spawn(SpawnName::Editor, line, expansion, effects);
+    pub(super) fn file_expansion(&self, path: PathBuf) -> Expansion {
+        Expansion {
+            path: Some(path),
+            ..self.expansion()
+        }
+    }
+
+    pub(super) fn spawn_editor(&mut self, expansion: &Expansion, effects: &mut Vec<Effect>) {
+        let line = self.config.programs.editor.clone();
+        self.spawn(SpawnName::Editor, &line, expansion, effects);
     }
 
     pub(super) fn spawn(
+        &mut self,
         name: SpawnName,
         line: &CommandLine,
         expansion: &Expansion,
         effects: &mut Vec<Effect>,
     ) {
-        effects.push(Effect::Spawn {
-            name,
-            program: line.program().to_owned(),
-            args: line.expand(expansion),
-            cwd: expansion.dir.clone(),
-        });
+        let program = line.program().to_owned();
+        match line.expand(expansion) {
+            Ok(args) => effects.push(Effect::Spawn {
+                name,
+                program,
+                args,
+                cwd: expansion.dir.clone(),
+            }),
+            Err(source) => self
+                .log
+                .push(AppError::EmptyPlaceholder { program, source }.to_string()),
+        }
     }
 }
 
