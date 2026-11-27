@@ -786,8 +786,6 @@ impl App {
         }
     }
 
-    // A line uses one kind of path placeholder, so what it runs on is the
-    // entries of one place: inside an archive, one extraction.
     pub(super) fn start_line(
         &mut self,
         name: SpawnName,
@@ -1452,7 +1450,6 @@ pub(crate) struct Operation {
 struct Temp {
     action: TempAction,
     from: Location,
-    // The entries the path placeholder of the line stands for.
     targets: Vec<OsString>,
     entry_skipped: bool,
 }

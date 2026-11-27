@@ -161,8 +161,11 @@ impl CommandLine {
                 Ok(pieces)
             })
             .collect::<Result<_, _>>()?;
-        // The cursor row and the marks can be entries of two places, and one
-        // extraction from an archive takes entries of one place only.
+        // With one kind, a line runs on entries of one place, which is all
+        // that one extraction from an archive takes: on the `..` row, the
+        // cursor row is an entry of the place above the marks. `{marked_paths}`
+        // with `{paths}` would stay in one place, and is refused to keep the
+        // rule to one kind.
         let mixed = {
             let mut kinds = path_placeholders(&args);
             kinds

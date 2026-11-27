@@ -2737,6 +2737,30 @@ fn a_command_line_with_paths_refuses_a_name_ending_with_a_dot() {
 }
 
 #[test]
+fn a_command_line_is_not_refused_for_a_name_it_does_not_use() {
+    let mut harness = Harness::start_on(Os::Windows, WIN_LEFT, WIN_RIGHT);
+    harness.load(Side::Left, vec![file("a"), file("notes.")]);
+    harness.press("Down");
+    harness.press("Space");
+    harness.take_effects();
+    assert_eq!(harness.cursor_name(Side::Left), "notes.");
+
+    harness.press("Shift+X");
+    harness.edit("tool {marked_paths}");
+    harness.press("Enter");
+
+    assert_eq!(
+        harness.take_effects(),
+        vec![Effect::Spawn {
+            name: SpawnName::Command(Command::RunCommandLine),
+            program: "tool".to_owned(),
+            args: vec![path(WIN_LEFT, "a").into_os_string()],
+            cwd: PathBuf::from(WIN_LEFT),
+        }]
+    );
+}
+
+#[test]
 fn commands_on_the_cursor_entry_refuse_a_name_ending_with_a_dot() {
     for (key, verb) in [
         ("V", "open"),
