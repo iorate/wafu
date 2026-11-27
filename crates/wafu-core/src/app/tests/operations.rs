@@ -1479,7 +1479,7 @@ fn new_text_refuses_a_name_that_is_a_path() {
 #[test]
 fn new_text_names_and_opens_the_file_in_the_place_the_popup_was_opened_in() {
     let mut harness =
-        Harness::start_with_config(LEFT, RIGHT, "[programs]\neditor = \"ed {dir} {paths}\"\n");
+        Harness::start_with_config(LEFT, RIGHT, "[programs]\neditor = \"ed {path}\"\n");
     harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
     harness.press("Shift+E");
     harness.vanish(Side::Left, "/home", vec![file("a")]);
@@ -1498,10 +1498,7 @@ fn new_text_names_and_opens_the_file_in_the_place_the_popup_was_opened_in() {
         vec![Effect::Spawn {
             name: SpawnName::Editor,
             program: "ed".to_owned(),
-            args: vec![
-                OsString::from(shown_place(LEFT)),
-                path(LEFT, "notes.txt").into_os_string()
-            ],
+            args: vec![path(LEFT, "notes.txt").into_os_string()],
             cwd: PathBuf::from(LEFT),
         }]
     );
@@ -1512,7 +1509,7 @@ fn new_text_without_creating_opens_the_editor_in_the_place_the_popup_was_opened_
     let mut harness = Harness::start_with_config(
         LEFT,
         RIGHT,
-        "[filelist]\nnew_text_creates_file = false\n[programs]\neditor = \"ed {dir} {other_dir} {paths} {cursor_path}\"\n",
+        "[filelist]\nnew_text_creates_file = false\n[programs]\neditor = \"ed {path}\"\n",
     );
     harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
     harness.press("Shift+E");
@@ -1527,12 +1524,7 @@ fn new_text_without_creating_opens_the_editor_in_the_place_the_popup_was_opened_
         vec![Effect::Spawn {
             name: SpawnName::Editor,
             program: "ed".to_owned(),
-            args: vec![
-                OsString::from(shown_place(LEFT)),
-                OsString::from(shown_place(RIGHT)),
-                OsString::from(shown(LEFT, "notes.txt")),
-                OsString::from(shown(LEFT, "notes.txt")),
-            ],
+            args: vec![OsString::from(shown(LEFT, "notes.txt"))],
             cwd: PathBuf::from(LEFT),
         }]
     );
@@ -1655,7 +1647,7 @@ fn open_alternative_starts_the_rule_for_the_extension_on_the_cursor_entry_alone(
     let mut harness = Harness::start_with_config(
         LEFT,
         RIGHT,
-        "[open_alternative.extensions]\npdf = \"view {cursor_path} {paths} {dir} {other_dir}\"\n",
+        "[open_alternative.extensions]\npdf = \"view {path}\"\n",
     );
     harness.load(Side::Left, vec![file("a.pdf"), file("b.PDF")]);
     harness.press("Down");
@@ -1670,12 +1662,7 @@ fn open_alternative_starts_the_rule_for_the_extension_on_the_cursor_entry_alone(
         vec![Effect::Spawn {
             name: SpawnName::Command(Command::OpenAlternative),
             program: "view".to_owned(),
-            args: vec![
-                OsString::from(shown(LEFT, "b.PDF")),
-                OsString::from(shown(LEFT, "b.PDF")),
-                OsString::from(shown_place(LEFT)),
-                OsString::from(shown_place(RIGHT)),
-            ],
+            args: vec![OsString::from(shown(LEFT, "b.PDF"))],
             cwd: PathBuf::from(LEFT),
         }]
     );
@@ -1684,7 +1671,7 @@ fn open_alternative_starts_the_rule_for_the_extension_on_the_cursor_entry_alone(
 #[test]
 fn open_alternative_starts_the_dir_rule_on_a_directory() {
     let mut harness =
-        Harness::start_with_config(LEFT, RIGHT, "[open_alternative]\ndir = \"code {paths}\"\n");
+        Harness::start_with_config(LEFT, RIGHT, "[open_alternative]\ndir = \"code {path}\"\n");
     harness.load(Side::Left, vec![dir("d")]);
     harness.press("Down");
     harness.take_effects();
@@ -1705,7 +1692,7 @@ fn open_alternative_starts_the_dir_rule_on_a_directory() {
 #[test]
 fn open_alternative_on_the_parent_row_starts_the_dir_rule_on_the_directory_itself() {
     let mut harness =
-        Harness::start_with_config(LEFT, RIGHT, "[open_alternative]\ndir = \"code {paths}\"\n");
+        Harness::start_with_config(LEFT, RIGHT, "[open_alternative]\ndir = \"code {path}\"\n");
     harness.load(Side::Left, vec![dir("d")]);
     harness.take_effects();
     assert_eq!(harness.cursor_name(Side::Left), "..");
@@ -1728,7 +1715,7 @@ fn open_alternative_rules_win_over_entering_an_archive_and_running_a_program() {
     let mut harness = Harness::start_with_config(
         LEFT,
         RIGHT,
-        "[open_alternative.extensions]\nzip = \"z {paths}\"\nsh = \"s {paths}\"\n",
+        "[open_alternative.extensions]\nzip = \"z {path}\"\nsh = \"s {path}\"\n",
     );
     harness.load(Side::Left, vec![file("a.zip"), executable("run.sh")]);
     harness.press("Down");
@@ -1765,47 +1752,47 @@ fn open_alternative_without_a_rule_does_what_open_does() {
     };
     let cases = [
         (
-            "[open_alternative.extensions]\ntxt = \"alt {paths}\"\n",
+            "[open_alternative.extensions]\ntxt = \"alt {path}\"\n",
             dir("d"),
             0,
         ),
         (
-            "[open_alternative.extensions]\ntxt = \"alt {paths}\"\n",
+            "[open_alternative.extensions]\ntxt = \"alt {path}\"\n",
             dir("d"),
             1,
         ),
         (
-            "[open_alternative.extensions]\ntxt = \"alt {paths}\"\n",
+            "[open_alternative.extensions]\ntxt = \"alt {path}\"\n",
             file("a.md"),
             1,
         ),
         (
-            "[open_alternative.extensions]\ntxt = \"alt {paths}\"\n",
+            "[open_alternative.extensions]\ntxt = \"alt {path}\"\n",
             file("txt"),
             1,
         ),
         (
-            "[open_alternative]\ndir = \"alt {paths}\"\n",
+            "[open_alternative]\ndir = \"alt {path}\"\n",
             file("a.txt"),
             1,
         ),
         (
-            "[open_alternative.extensions]\ntxt = \"alt {paths}\"\n",
+            "[open_alternative.extensions]\ntxt = \"alt {path}\"\n",
             broken,
             1,
         ),
         (
-            "[open_alternative.extensions]\ntxt = \"alt {paths}\"\n",
+            "[open_alternative.extensions]\ntxt = \"alt {path}\"\n",
             special("p.txt", SpecialKind::Fifo),
             1,
         ),
         (
-            "[open_alternative.extensions]\ntxt = \"alt {paths}\"\n",
+            "[open_alternative.extensions]\ntxt = \"alt {path}\"\n",
             file("a.zip"),
             1,
         ),
         (
-            "[open_alternative.extensions]\ntxt = \"alt {paths}\"\n",
+            "[open_alternative.extensions]\ntxt = \"alt {path}\"\n",
             executable("run"),
             1,
         ),
@@ -2779,7 +2766,7 @@ fn commands_on_the_cursor_entry_refuse_a_name_ending_with_a_dot() {
 #[test]
 fn open_alternative_with_a_line_that_uses_paths_refuses_a_name_ending_with_a_dot() {
     let mut harness = windows_with(dir("notes."));
-    harness.config("[open_alternative]\ndir = \"alt {paths}\"\n");
+    harness.config("[open_alternative]\ndir = \"alt {path}\"\n");
     harness.take_effects();
 
     harness.press("Shift+Enter");

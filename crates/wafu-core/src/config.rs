@@ -607,11 +607,11 @@ pub(crate) fn monospace_family(os: Os) -> &'static str {
 
 fn default_editor(os: Os) -> CommandLine {
     let text = match os {
-        Os::Windows => "notepad {paths}",
-        Os::MacOs => "open -t {paths}",
-        Os::Linux => "xdg-open {paths}",
+        Os::Windows => "notepad {path}",
+        Os::MacOs => "open -t {path}",
+        Os::Linux => "xdg-open {path}",
     };
-    CommandLine::parse(text, os).expect("the default editor should parse")
+    CommandLine::parse_for_file(text, os).expect("the default editor should parse")
 }
 
 fn with_commas(digits: &str) -> String {

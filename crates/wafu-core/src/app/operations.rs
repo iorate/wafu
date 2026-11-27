@@ -860,7 +860,7 @@ impl App {
         if cursor.is_none() {
             expansion.cursor_path = None;
         }
-        // An empty placeholder is reported before anything is extracted for it.
+        // A line that is not going to start has nothing extracted for it.
         if extracted.is_empty() || line.expand(&expansion).is_err() {
             self.spawn(name, &line, &expansion, effects);
             return;
@@ -896,9 +896,7 @@ impl App {
             self.log.push(error.to_string());
             return;
         }
-        let expansion = self.file_expansion(location.base.join(&entry.name));
-        // An empty placeholder is reported before anything is extracted for it.
-        if location.in_archive() && line.uses_paths() && line.expand(&expansion).is_ok() {
+        if location.in_archive() && line.uses_paths() {
             let temp = Temp {
                 action: TempAction::Spawn { name, line },
                 from: location.clone(),
@@ -910,6 +908,7 @@ impl App {
             let entries = self.archive_entries(location, std::slice::from_ref(&entry.name));
             self.start_temp(temp, entries, effects);
         } else {
+            let expansion = self.file_expansion(location.base.join(&entry.name));
             self.spawn(name, &line, &expansion, effects);
         }
     }
@@ -1355,11 +1354,13 @@ impl App {
 
     fn run_temp_action(&mut self, temp: Temp, dir: &Path, effects: &mut Vec<Effect>) {
         let to_temp = |name: &OsString| dir.join(name);
+        let cursor_path = temp.cursor.as_ref().map(|cursor| match cursor {
+            TempPath::Extracted(name) => to_temp(name),
+            TempPath::Real(path) => path.clone(),
+        });
         let expansion = Expansion {
-            cursor_path: temp.cursor.as_ref().map(|cursor| match cursor {
-                TempPath::Extracted(name) => to_temp(name),
-                TempPath::Real(path) => path.clone(),
-            }),
+            path: cursor_path.clone(),
+            cursor_path,
             marked_paths: temp.marked.iter().map(to_temp).collect(),
             paths: temp.targets.iter().map(to_temp).collect(),
             dir: self.active_pane().location().dir().to_path_buf(),

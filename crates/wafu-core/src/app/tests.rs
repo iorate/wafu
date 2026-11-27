@@ -4472,7 +4472,7 @@ fn edit_config_opens_the_configuration_in_the_editor() {
     let mut harness = Harness::start_with_config(
         "/home/user",
         "/tmp",
-        "[programs]\neditor = \"code -w {paths} {cursor_path}\"\n",
+        "[programs]\neditor = \"code -w {path}\"\n",
     );
     harness.take_effects();
 
@@ -4483,11 +4483,7 @@ fn edit_config_opens_the_configuration_in_the_editor() {
         vec![Effect::Spawn {
             name: SpawnName::Editor,
             program: "code".to_owned(),
-            args: vec![
-                OsString::from("-w"),
-                OsString::from(CONFIG_PATH),
-                OsString::from(CONFIG_PATH),
-            ],
+            args: vec![OsString::from("-w"), OsString::from(CONFIG_PATH)],
             cwd: PathBuf::from(HOME),
         }]
     );

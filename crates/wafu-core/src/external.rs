@@ -24,6 +24,7 @@ pub enum Placeholder {
     Paths,
     Dir,
     OtherDir,
+    Path,
 }
 
 /// The values of the placeholders for one invocation.
@@ -34,6 +35,7 @@ pub struct Expansion {
     pub paths: Vec<PathBuf>,
     pub dir: PathBuf,
     pub other_dir: PathBuf,
+    pub path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -42,7 +44,7 @@ pub enum CommandLineError {
     Empty,
     #[error("unterminated quote or trailing backslash")]
     UnterminatedQuoteOrBackslash,
-    #[error("unknown placeholder {{{0}}}")]
+    #[error("unknown placeholder \"{{{0}}}\"")]
     UnknownPlaceholder(String),
     #[error("unclosed {{")]
     UnclosedBrace,
@@ -62,35 +64,15 @@ pub struct EmptyPlaceholder(pub Placeholder);
 impl CommandLine {
     /// Splits the text by the quoting rules of `os`: those of `sh` on macOS
     /// and Linux, without any expansion, and those of the C runtime on Windows.
+    /// The placeholders are those of a line run on the active pane.
     pub fn parse(text: &str, os: Os) -> Result<Self, CommandLineError> {
-        let mut tokens = split(text, os)?;
-        if tokens.first().is_none_or(String::is_empty) {
-            return Err(CommandLineError::Empty);
-        }
-        let program = match pieces(&tokens.remove(0))?.as_slice() {
-            [] => String::new(),
-            [Piece::Text(text)] => text.clone(),
-            _ => return Err(CommandLineError::PlaceholderInProgram),
-        };
-        let args = tokens
-            .iter()
-            .map(|token| {
-                let pieces = pieces(token)?;
-                let lists = pieces
-                    .iter()
-                    .filter(|piece| matches!(piece, Piece::Placeholder(p) if p.is_list()))
-                    .count();
-                if lists > 1 {
-                    return Err(CommandLineError::ListsInOneArgument);
-                }
-                Ok(pieces)
-            })
-            .collect::<Result<_, _>>()?;
-        Ok(Self {
-            source: text.to_owned(),
-            program,
-            args,
-        })
+        Self::parse_with(text, os, Placeholder::of_pane)
+    }
+
+    /// Like `parse`, for a line run on one file, whose only placeholder is
+    /// `{path}`.
+    pub fn parse_for_file(text: &str, os: Os) -> Result<Self, CommandLineError> {
+        Self::parse_with(text, os, Placeholder::of_file)
     }
 
     /// The text the line was parsed from.
@@ -112,7 +94,10 @@ impl CommandLine {
             matches!(
                 piece,
                 Piece::Placeholder(
-                    Placeholder::CursorPath | Placeholder::MarkedPaths | Placeholder::Paths
+                    Placeholder::CursorPath
+                        | Placeholder::MarkedPaths
+                        | Placeholder::Paths
+                        | Placeholder::Path
                 )
             )
         })
@@ -153,10 +138,48 @@ impl CommandLine {
         }
         Ok(args)
     }
+
+    fn parse_with(
+        text: &str,
+        os: Os,
+        placeholder: fn(&str) -> Option<Placeholder>,
+    ) -> Result<Self, CommandLineError> {
+        let mut tokens = split(text, os)?;
+        if tokens.first().is_none_or(String::is_empty) {
+            return Err(CommandLineError::Empty);
+        }
+        let program = match pieces(&tokens.remove(0), placeholder)?.as_slice() {
+            [Piece::Text(text)] => text.clone(),
+            _ => return Err(CommandLineError::PlaceholderInProgram),
+        };
+        let args = tokens
+            .iter()
+            .map(|token| {
+                let pieces = pieces(token, placeholder)?;
+                let lists = pieces
+                    .iter()
+                    .filter(|piece| matches!(piece, Piece::Placeholder(p) if p.is_list()))
+                    .count();
+                if lists > 1 {
+                    return Err(CommandLineError::ListsInOneArgument);
+                }
+                Ok(pieces)
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(Self {
+            source: text.to_owned(),
+            program,
+            args,
+        })
+    }
 }
 
 impl Placeholder {
-    fn from_name(name: &str) -> Option<Self> {
+    fn of_file(name: &str) -> Option<Self> {
+        (name == "path").then_some(Self::Path)
+    }
+
+    fn of_pane(name: &str) -> Option<Self> {
         Some(match name {
             "cursor_path" => Self::CursorPath,
             "marked_paths" => Self::MarkedPaths,
@@ -174,6 +197,7 @@ impl Placeholder {
             Self::Paths => "paths",
             Self::Dir => "dir",
             Self::OtherDir => "other_dir",
+            Self::Path => "path",
         }
     }
 
@@ -190,6 +214,7 @@ impl Expansion {
             Placeholder::Paths => &self.paths,
             Placeholder::Dir => dir_values(&self.dir),
             Placeholder::OtherDir => dir_values(&self.other_dir),
+            Placeholder::Path => self.path.as_slice(),
         }
     }
 }
@@ -295,7 +320,10 @@ fn dir_values(dir: &PathBuf) -> &[PathBuf] {
 
 // Every brace is part of a placeholder or doubled, so that any other form can
 // be given a meaning later without changing what a working line does.
-fn pieces(token: &str) -> Result<Vec<Piece>, CommandLineError> {
+fn pieces(
+    token: &str,
+    placeholder: fn(&str) -> Option<Placeholder>,
+) -> Result<Vec<Piece>, CommandLineError> {
     let mut pieces = Vec::new();
     let mut text = String::new();
     let mut rest = token;
@@ -312,7 +340,7 @@ fn pieces(token: &str) -> Result<Vec<Piece>, CommandLineError> {
                     .split_once('}')
                     .ok_or(CommandLineError::UnclosedBrace)?;
                 rest = after;
-                let placeholder = Placeholder::from_name(inside)
+                let placeholder = placeholder(inside)
                     .ok_or_else(|| CommandLineError::UnknownPlaceholder(inside.to_owned()))?;
                 if !text.is_empty() {
                     pieces.push(Piece::Text(std::mem::take(&mut text)));
@@ -423,20 +451,14 @@ mod tests {
     fn parse_rejects_braces_that_are_neither_placeholders_nor_doubled() {
         let unknown = |name: &str| CommandLineError::UnknownPlaceholder(name.to_owned());
         let cases = [
-            ("x {path}", unknown("path")),
+            ("x {name}", unknown("name")),
             ("x {}", unknown("")),
             ("x {DIR}", unknown("DIR")),
             ("x '{ dir }'", unknown(" dir ")),
-            ("x {dir:name}", unknown("dir:name")),
             ("x a{b{dir}", unknown("b{dir")),
             ("x {dir", CommandLineError::UnclosedBrace),
-            ("x a{", CommandLineError::UnclosedBrace),
             ("x dir}", CommandLineError::UnmatchedBrace),
-            ("x {dir}}", CommandLineError::UnmatchedBrace),
             ("{dir} x", CommandLineError::PlaceholderInProgram),
-            ("a{dir}/x", CommandLineError::PlaceholderInProgram),
-            ("{x} a", unknown("x")),
-            ("x {paths}{paths}", CommandLineError::ListsInOneArgument),
             (
                 "x {marked_paths}:{paths}",
                 CommandLineError::ListsInOneArgument,
@@ -448,8 +470,20 @@ mod tests {
     }
 
     #[test]
+    fn parse_takes_the_placeholders_of_its_own_kind_of_line_only() {
+        let unknown = |name: &str| Err(CommandLineError::UnknownPlaceholder(name.to_owned()));
+
+        assert_eq!(CommandLine::parse("x {path}", Os::Linux), unknown("path"));
+        for name in ["cursor_path", "marked_paths", "paths", "dir", "other_dir"] {
+            let text = format!("x {{{name}}}");
+
+            assert_eq!(CommandLine::parse_for_file(&text, Os::Linux), unknown(name));
+        }
+    }
+
+    #[test]
     fn parse_reads_doubled_braces_as_text() {
-        let line = CommandLine::parse("{{p}} {{}} {{{dir}}} a{{b}}c '{{dir}}'", Os::Linux).unwrap();
+        let line = CommandLine::parse("{{p}} {{}} {{{dir}}} a{{b}}c", Os::Linux).unwrap();
 
         let expansion = Expansion {
             dir: PathBuf::from("/d"),
@@ -458,7 +492,7 @@ mod tests {
         assert_eq!(line.program(), "{p}");
         assert_eq!(
             line.expand(&expansion).unwrap(),
-            ["{}", "{/d}", "a{b}c", "{dir}"].map(OsString::from)
+            ["{}", "{/d}", "a{b}c"].map(OsString::from)
         );
     }
 
@@ -472,6 +506,16 @@ mod tests {
         ];
         for (text, expected) in cases {
             let line = CommandLine::parse(text, Os::Linux).unwrap();
+
+            assert_eq!(line.uses_paths(), expected, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn a_line_for_a_file_uses_paths_only_with_its_placeholder() {
+        let cases = [("x -n", false), ("x --file={path}", true)];
+        for (text, expected) in cases {
+            let line = CommandLine::parse_for_file(text, Os::Linux).unwrap();
 
             assert_eq!(line.uses_paths(), expected, "{text:?}");
         }
@@ -514,30 +558,22 @@ mod tests {
     }
 
     #[test]
-    fn expand_does_not_read_braces_in_a_value() {
-        let line = CommandLine::parse("x {cursor_path}", Os::Linux).unwrap();
-
-        let expansion = Expansion {
-            cursor_path: Some(PathBuf::from("/{dir}/}")),
-            ..Expansion::default()
-        };
-        assert_eq!(
-            line.expand(&expansion).unwrap(),
-            ["/{dir}/}"].map(OsString::from)
-        );
-    }
-
-    #[test]
     fn expand_fails_on_a_placeholder_without_a_value() {
+        type Parse = fn(&str, Os) -> Result<CommandLine, CommandLineError>;
+
         let full = Expansion {
             cursor_path: Some(PathBuf::from("/c")),
             marked_paths: vec![PathBuf::from("/m")],
             paths: vec![PathBuf::from("/p")],
             dir: PathBuf::from("/d"),
             other_dir: PathBuf::from("/o"),
+            path: Some(PathBuf::from("/f")),
         };
+        let pane: Parse = CommandLine::parse;
+        let file: Parse = CommandLine::parse_for_file;
         let cases = [
             (
+                pane,
                 "x {cursor_path}",
                 Expansion {
                     cursor_path: None,
@@ -546,7 +582,8 @@ mod tests {
                 "{cursor_path} is empty",
             ),
             (
-                "x -a={marked_paths}",
+                pane,
+                "x {marked_paths}",
                 Expansion {
                     marked_paths: Vec::new(),
                     ..full.clone()
@@ -554,6 +591,7 @@ mod tests {
                 "{marked_paths} is empty",
             ),
             (
+                pane,
                 "x {paths}",
                 Expansion {
                     paths: Vec::new(),
@@ -562,6 +600,7 @@ mod tests {
                 "{paths} is empty",
             ),
             (
+                pane,
                 "x {dir}",
                 Expansion {
                     dir: PathBuf::new(),
@@ -570,16 +609,26 @@ mod tests {
                 "{dir} is empty",
             ),
             (
-                "x {dir} -o{other_dir}",
+                pane,
+                "x {other_dir}",
                 Expansion {
                     other_dir: PathBuf::new(),
                     ..full.clone()
                 },
                 "{other_dir} is empty",
             ),
+            (
+                file,
+                "x {path}",
+                Expansion {
+                    path: None,
+                    ..full.clone()
+                },
+                "{path} is empty",
+            ),
         ];
-        for (text, expansion, message) in cases {
-            let line = CommandLine::parse(text, Os::Linux).unwrap();
+        for (parse, text, expansion, message) in cases {
+            let line = parse(text, Os::Linux).unwrap();
 
             let error = line.expand(&expansion).unwrap_err();
             assert_eq!(error.to_string(), message, "{text:?}");

@@ -384,15 +384,13 @@ impl App {
                 .location()
                 .dir()
                 .to_path_buf(),
+            path: None,
         }
     }
 
-    // The placeholder values for a line whose only target is one file.
     pub(super) fn file_expansion(&self, path: PathBuf) -> Expansion {
         Expansion {
-            cursor_path: Some(path.clone()),
-            marked_paths: Vec::new(),
-            paths: vec![path],
+            path: Some(path),
             ..self.expansion()
         }
     }

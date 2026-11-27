@@ -1431,7 +1431,7 @@ fn edit_inside_an_archive_keeps_the_marks_of_the_extracted_entries() {
 #[test]
 fn open_alternative_inside_an_archive_extracts_the_cursor_entry_alone_and_then_starts() {
     let mut harness = inside();
-    harness.config("[open_alternative.extensions]\ntxt = \"view {cursor_path} {paths}\"\n");
+    harness.config("[open_alternative.extensions]\ntxt = \"view {path}\"\n");
     harness.press("Down");
     harness.press("Space");
     assert_eq!(harness.cursor_name(Side::Left), "b.txt");
@@ -1452,35 +1452,15 @@ fn open_alternative_inside_an_archive_extracts_the_cursor_entry_alone_and_then_s
         [Effect::ReadDir { .. }, Effect::Spawn { name, program, args, cwd }]
             if *name == SpawnName::Command(Command::OpenAlternative)
                 && program == "view"
-                && *args == vec![
-                    path(TEMP, "b.txt").into_os_string(),
-                    path(TEMP, "b.txt").into_os_string(),
-                ]
+                && *args == vec![path(TEMP, "b.txt").into_os_string()]
                 && cwd == Path::new(LEFT)
     ));
 }
 
 #[test]
-fn open_alternative_inside_an_archive_with_an_empty_placeholder_extracts_nothing() {
-    let mut harness = inside();
-    harness.config("[open_alternative.extensions]\ntxt = \"view {paths} {marked_paths}\"\n");
-    harness.press("Down");
-    harness.press("Space");
-    harness.take_effects();
-
-    harness.press("Shift+Enter");
-
-    assert_eq!(harness.take_effects(), Vec::new());
-    assert_eq!(
-        harness.log().last().map(String::as_str),
-        Some("Cannot start view: {marked_paths} is empty")
-    );
-}
-
-#[test]
 fn open_alternative_inside_an_archive_with_a_line_without_paths_starts_at_once() {
     let mut harness = inside();
-    harness.config("[open_alternative]\ndir = \"term {dir}\"\n");
+    harness.config("[open_alternative]\ndir = \"term -n\"\n");
     harness.press("Down");
     harness.take_effects();
 
@@ -1491,7 +1471,7 @@ fn open_alternative_inside_an_archive_with_a_line_without_paths_starts_at_once()
         vec![Effect::Spawn {
             name: SpawnName::Command(Command::OpenAlternative),
             program: "term".to_owned(),
-            args: vec![OsString::from(shown_place(LEFT))],
+            args: vec![OsString::from("-n")],
             cwd: PathBuf::from(LEFT),
         }]
     );
@@ -1500,7 +1480,7 @@ fn open_alternative_inside_an_archive_with_a_line_without_paths_starts_at_once()
 #[test]
 fn open_alternative_on_the_parent_row_of_an_archive_root_starts_on_the_archive_file() {
     let mut harness = inside();
-    harness.config("[open_alternative.extensions]\nzip = \"z {paths}\"\n");
+    harness.config("[open_alternative.extensions]\nzip = \"z {path}\"\n");
     harness.take_effects();
     assert_eq!(harness.cursor_name(Side::Left), "..");
 
@@ -1517,7 +1497,7 @@ fn open_alternative_on_the_parent_row_of_an_archive_root_starts_on_the_archive_f
 #[test]
 fn open_alternative_on_a_link_inside_an_archive_does_what_open_does() {
     let mut harness = outside();
-    harness.config("[open_alternative.extensions]\ntxt = \"view {paths}\"\n");
+    harness.config("[open_alternative.extensions]\ntxt = \"view {path}\"\n");
     harness.enter_archive(Side::Left, vec![link("link.txt")]);
     harness.press("Down");
     harness.take_effects();
@@ -2015,7 +1995,7 @@ fn a_temporary_extraction_that_ends_without_starting_is_logged_as_the_command() 
         for cancel in [true, false] {
             let mut harness = outside();
             harness.config(
-                "[open_alternative.extensions]\ntxt = \"view {paths}\"\n\
+                "[open_alternative.extensions]\ntxt = \"view {path}\"\n\
                  [commands.view]\ncommand_line = \"view {paths}\"\n[keys.filelist]\nF9 = \"$view\"\n",
             );
             harness.enter_archive(Side::Left, contents());
