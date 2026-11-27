@@ -67,6 +67,12 @@ sudo apt install libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libxkbcom
 
 Settings, colors, bookmarks, external commands, and key bindings live in a TOML file, which is reloaded when it is saved. See [docs/configuration.md](https://github.com/iorate/wafu/blob/main/docs/configuration.md).
 
+## Acknowledgments
+
+The user interface is built with [Slint](https://slint.dev).
+
+[![Made with Slint](https://raw.githubusercontent.com/slint-ui/slint/master/logo/MadeWithSlint-logo-whitebg.png)](https://slint.dev)
+
 ## License
 
 Licensed under either of
@@ -75,5 +81,3 @@ Licensed under either of
 - MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
 
 at your option.
-
-[![Made with Slint](https://raw.githubusercontent.com/slint-ui/slint/master/logo/MadeWithSlint-logo-whitebg.png)](https://slint.dev)
