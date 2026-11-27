@@ -41,7 +41,8 @@ pub use app::{
 pub use command::Command;
 pub use commands_doc::commands_doc;
 pub use config::{
-    CONFIG_TEMPLATE, Color, Colors, SizeFormat, Theme, byte_count, read_config_chain,
+    CONFIG_TEMPLATE, Color, Colors, SizeFormat, Theme, byte_count, configuration_doc,
+    read_config_chain,
 };
 pub use entry::{
     Directory, Entry, EntryKind, LocalDateTime, Permissions, SpecialKind, TargetKind, Timestamp,
