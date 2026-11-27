@@ -307,7 +307,7 @@ fn read_filelist(root: &mut Reader<'_>, config: &mut Config) {
     };
     let settings = &mut config.filelist;
     for (key, setting) in [
-        ("mkdir_enters_dir", &mut settings.mkdir_enters_dir),
+        ("new_dir_enters_dir", &mut settings.new_dir_enters_dir),
         ("new_text_creates_file", &mut settings.new_text_creates_file),
         ("extract_creates_dir", &mut settings.extract_creates_dir),
         ("require_marks", &mut settings.require_marks),
@@ -852,7 +852,7 @@ mod tests {
     const FILE: &str = "/c/config.toml";
     const EXAMPLE: &str = r##"
 [filelist]
-mkdir_enters_dir = true
+new_dir_enters_dir = true
 new_text_creates_file = false
 extract_creates_dir = false
 require_marks = false
@@ -1001,18 +1001,18 @@ pdf = "sumatrapdf {paths}"
 
     #[test]
     fn syntax_errors_carry_the_line_number() {
-        let error = parse("[filelist]\nmkdir_enters_dir = \n", Os::Linux).unwrap_err();
+        let error = parse("[filelist]\nnew_dir_enters_dir = \n", Os::Linux).unwrap_err();
 
         assert_eq!(error.line, 2);
     }
 
     #[test]
     fn unknown_items_are_reported_and_the_rest_is_read() {
-        let text = "[filelist]\nfoo = 1\nmkdir_enters_dir = false\n[colors.light]\nbar = 2\n[nothing]\nx = 1\n";
+        let text = "[filelist]\nfoo = 1\nnew_dir_enters_dir = false\n[colors.light]\nbar = 2\n[nothing]\nx = 1\n";
 
         let (config, diagnostics) = parse(text, Os::Linux).unwrap();
 
-        assert!(!config.filelist.mkdir_enters_dir);
+        assert!(!config.filelist.new_dir_enters_dir);
         assert_eq!(
             paths(&diagnostics),
             ["filelist.foo", "colors.light.bar", "nothing"]
@@ -1790,8 +1790,8 @@ run = "wt"
         let (config, diagnostics) = parse_layers(
             in_one_file(&[
                 "[filelist]\nrequire_marks = false\nsize_format = \"comma\"\n",
-                "extends = \"a.toml\"\n[filelist]\nsize_format = \"human\"\nmkdir_enters_dir = false\n",
-                "extends = [\"b.toml\"]\n[filelist]\nmkdir_enters_dir = true\n",
+                "extends = \"a.toml\"\n[filelist]\nsize_format = \"human\"\nnew_dir_enters_dir = false\n",
+                "extends = [\"b.toml\"]\n[filelist]\nnew_dir_enters_dir = true\n",
             ]),
             Os::Linux,
         )
@@ -1800,7 +1800,7 @@ run = "wt"
         assert_eq!(diagnostics, Vec::new());
         assert!(!config.filelist.require_marks);
         assert_eq!(config.filelist.size_format, SizeFormat::Human);
-        assert!(config.filelist.mkdir_enters_dir);
+        assert!(config.filelist.new_dir_enters_dir);
     }
 
     #[test]

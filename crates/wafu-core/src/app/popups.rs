@@ -52,11 +52,11 @@ impl App {
             InputKind::MarkGlob
             | InputKind::Find { .. }
             | InputKind::Rename { .. }
-            | InputKind::Mkdir { .. }
+            | InputKind::NewDir { .. }
             | InputKind::NewFile { .. }
             | InputKind::NewText { .. }
             | InputKind::RunFile
-            | InputKind::RunCommand
+            | InputKind::RunCommandLine
             | InputKind::ConflictRename { .. }
             | InputKind::ArchivePassword { .. }
             | InputKind::Compress { .. } => String::new(),
@@ -542,7 +542,7 @@ impl App {
                 return;
             }
             InputKind::Rename { .. }
-            | InputKind::Mkdir { .. }
+            | InputKind::NewDir { .. }
             | InputKind::NewFile { .. }
             | InputKind::NewText { .. } => {
                 self.confirm_name(popup.kind, &text, effects);
@@ -552,7 +552,7 @@ impl App {
                 self.run_line(Command::RunFile, &text, effects);
                 return;
             }
-            InputKind::RunCommand => {
+            InputKind::RunCommandLine => {
                 self.run_line(Command::RunCommandLine, &text, effects);
                 return;
             }

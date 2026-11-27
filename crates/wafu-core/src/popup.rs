@@ -194,7 +194,7 @@ pub enum InputKind {
         dir: PathBuf,
         original: OsString,
     },
-    Mkdir {
+    NewDir {
         dir: PathBuf,
     },
     NewFile {
@@ -205,8 +205,8 @@ pub enum InputKind {
     },
     /// A command line to start in the active pane's directory, from `run_file`.
     RunFile,
-    /// A command line to start in the active pane's directory, from `run_command`.
-    RunCommand,
+    /// A command line to start in the active pane's directory, from `run_command_line`.
+    RunCommandLine,
     /// The "Rename" choice of a conflict; Esc goes back to the conflict popup.
     ConflictRename {
         source: PathBuf,
@@ -600,10 +600,10 @@ impl InputKind {
             Self::GoToPath { .. } => "Go to path",
             Self::Find { .. } => "Find",
             Self::Rename { .. } | Self::ConflictRename { .. } => "Rename",
-            Self::Mkdir { .. } => "Make directory",
+            Self::NewDir { .. } => "New directory",
             Self::NewFile { .. } => "New file",
             Self::NewText { .. } => "New text",
-            Self::RunFile | Self::RunCommand => "Run",
+            Self::RunFile | Self::RunCommandLine => "Run",
             Self::ArchivePassword { .. } => "Password",
             Self::Compress { here: false, .. } => "Compress",
             Self::Compress { here: true, .. } => "Compress (here)",

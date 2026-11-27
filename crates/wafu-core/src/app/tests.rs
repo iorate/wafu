@@ -895,7 +895,7 @@ fn mark_compare_without_a_location_on_the_other_pane_is_logged() {
 }
 
 #[test]
-fn next_mark_and_prev_mark_move_to_the_nearest_mark_in_their_direction() {
+fn mark_next_and_mark_prev_move_to_the_nearest_mark_in_their_direction() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
     harness.press("Down");
