@@ -26,7 +26,9 @@ use crate::archive::{
 #[cfg(windows)]
 use crate::color_scheme::{ColorSchemeWatch, watch_color_scheme};
 use crate::drives::drives;
-use crate::fs_ops::{create_file, mkdir, open_with_os, rename, set_clipboard};
+use crate::fs_ops::{
+    clipboard_files, create_file, mkdir, open_with_os, rename, set_clipboard, set_clipboard_files,
+};
 use crate::operation::run_operation;
 use crate::preview::{PreviewedArchive, load_image, load_preview};
 use crate::read_dir::{own_entry, read_dir_with};
@@ -359,6 +361,15 @@ impl Runtime {
             Effect::Clipboard(text) => {
                 let error = io_error(set_clipboard(&mut lock(&self.clipboard), &text));
                 (self.on_event)(IoEvent::ClipboardSet { text, error });
+            }
+            Effect::ClipboardFiles(paths) => {
+                let error = io_error(set_clipboard_files(&mut lock(&self.clipboard), &paths));
+                (self.on_event)(IoEvent::ClipboardFilesSet { paths, error });
+            }
+            Effect::ReadClipboardFiles { dest } => {
+                let result = clipboard_files(&mut lock(&self.clipboard))
+                    .map_err(|error| IoError::new(error.to_string()));
+                (self.on_event)(IoEvent::ClipboardFilesRead { dest, result });
             }
             Effect::OpenWithOs(path) => {
                 let error = io_error(open_with_os(&path));

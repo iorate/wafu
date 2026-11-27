@@ -180,6 +180,9 @@ pub enum Outcome {
 /// The log line for an outcome.
 pub struct OutcomeLine<'a> {
     pub kind: OperationKind,
+    /// Whether the operation is a copy from the clipboard, which the line
+    /// calls a paste.
+    pub paste: bool,
     pub outcome: &'a Outcome,
     /// The names of what the operation was started on.
     pub targets: &'a [OsString],
@@ -274,9 +277,14 @@ impl OperationKind {
 impl fmt::Display for OutcomeLine<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let kind = self.kind;
+        let (verb, past, noun) = if self.paste {
+            ("paste", "Pasted", "Paste")
+        } else {
+            (kind.verb(), kind.past(), kind.noun())
+        };
         match self.outcome {
             Outcome::Completed { skipped } => {
-                write!(f, "{} {}", kind.past(), Subject(self.targets))?;
+                write!(f, "{past} {}", Subject(self.targets))?;
                 if kind == OperationKind::Trash {
                     f.write_str(" to the trash")?;
                 }
@@ -285,11 +293,11 @@ impl fmt::Display for OutcomeLine<'_> {
                 }
                 Ok(())
             }
-            Outcome::Cancelled => write!(f, "{} cancelled", kind.noun()),
+            Outcome::Cancelled => write!(f, "{noun} cancelled"),
             Outcome::Found { paths, .. } => {
                 let count = paths.len();
                 let unit = plural(count, "match", "matches");
-                write!(f, "{} stopped at {count} {unit}", kind.noun())
+                write!(f, "{noun} stopped at {count} {unit}")
             }
             Outcome::Measured {
                 files,
@@ -323,13 +331,13 @@ impl fmt::Display for OutcomeLine<'_> {
                 Ok(())
             }
             Outcome::Failed { path, error } => {
-                write!(f, "Cannot {} {}: {error}", kind.verb(), path.display())
+                write!(f, "Cannot {verb} {}: {error}", path.display())
             }
         }
     }
 }
 
-struct Subject<'a>(&'a [OsString]);
+pub(crate) struct Subject<'a>(pub(crate) &'a [OsString]);
 
 impl fmt::Display for Subject<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -359,6 +367,7 @@ mod tests {
         let line = |kind, outcome: &Outcome, targets: &[OsString]| {
             OutcomeLine {
                 kind,
+                paste: false,
                 outcome,
                 targets,
             }
@@ -446,9 +455,41 @@ mod tests {
     }
 
     #[test]
+    fn paste_lines_call_the_copy_a_paste() {
+        let three = [
+            OsString::from("a"),
+            OsString::from("b"),
+            OsString::from("c"),
+        ];
+        let line = |outcome: &Outcome| {
+            OutcomeLine {
+                kind: OperationKind::Copy,
+                paste: true,
+                outcome,
+                targets: &three,
+            }
+            .to_string()
+        };
+
+        assert_eq!(
+            line(&Outcome::Completed { skipped: 2 }),
+            "Pasted 3 items (2 skipped)"
+        );
+        assert_eq!(line(&Outcome::Cancelled), "Paste cancelled");
+        assert_eq!(
+            line(&Outcome::Failed {
+                path: PathBuf::from("/a/b"),
+                error: IoError::new("permission denied"),
+            }),
+            "Cannot paste /a/b: permission denied"
+        );
+    }
+
+    #[test]
     fn a_find_stopped_at_one_match_says_match() {
         let line = OutcomeLine {
             kind: OperationKind::Find,
+            paste: false,
             outcome: &Outcome::Found {
                 paths: vec![PathBuf::from("a")],
                 truncated: true,
@@ -466,6 +507,7 @@ mod tests {
         let line = |kind, outcome: &Outcome, targets: &[OsString]| {
             OutcomeLine {
                 kind,
+                paste: false,
                 outcome,
                 targets,
             }

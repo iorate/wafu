@@ -1,7 +1,7 @@
 use std::ffi::OsStr;
 use std::fs::{self, OpenOptions};
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use wafu_core::nfc;
 
@@ -90,28 +90,50 @@ pub(crate) fn open_with_os(path: &Path) -> io::Result<()> {
     open::that_detached(path)
 }
 
-// The clipboard is created on first use and kept, since on X11 the text is
-// only served while it exists.
 pub(crate) fn set_clipboard(
     clipboard: &mut Option<arboard::Clipboard>,
     text: &str,
 ) -> Result<(), arboard::Error> {
+    with_clipboard(clipboard, |clipboard| clipboard.set_text(text))
+}
+
+pub(crate) fn set_clipboard_files(
+    clipboard: &mut Option<arboard::Clipboard>,
+    paths: &[PathBuf],
+) -> Result<(), arboard::Error> {
+    with_clipboard(clipboard, |clipboard| clipboard.set().file_list(paths))
+}
+
+// Holding no files is not an error here, so the clipboard is kept: making it
+// again would lose, on X11, the text wafu put on it.
+pub(crate) fn clipboard_files(
+    clipboard: &mut Option<arboard::Clipboard>,
+) -> Result<Vec<PathBuf>, arboard::Error> {
+    with_clipboard(clipboard, |clipboard| match clipboard.get().file_list() {
+        Err(arboard::Error::ContentNotAvailable) => Ok(Vec::new()),
+        result => result,
+    })
+}
+
+pub(crate) fn already_exists() -> io::Error {
+    io::Error::new(io::ErrorKind::AlreadyExists, "already exists")
+}
+
+// The clipboard is created on first use and kept, since on X11 what wafu
+// puts on it is only served while it exists.
+fn with_clipboard<T>(
+    clipboard: &mut Option<arboard::Clipboard>,
+    run: impl FnOnce(&mut arboard::Clipboard) -> Result<T, arboard::Error>,
+) -> Result<T, arboard::Error> {
     if clipboard.is_none() {
         *clipboard = Some(arboard::Clipboard::new()?);
     }
-    let result = clipboard
-        .as_mut()
-        .expect("the clipboard was just created")
-        .set_text(text);
+    let result = run(clipboard.as_mut().expect("the clipboard was just created"));
     if result.is_err() {
         // A broken clipboard is made again next time.
         *clipboard = None;
     }
     result
-}
-
-pub(crate) fn already_exists() -> io::Error {
-    io::Error::new(io::ErrorKind::AlreadyExists, "already exists")
 }
 
 fn differ_only_in_case(a: &Path, b: &Path) -> bool {

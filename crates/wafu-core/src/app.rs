@@ -13,7 +13,7 @@ use crate::error::{AppError, IoError};
 use crate::key::{Key, KeyBase, KeyInput, NamedKey};
 use crate::location::{ArchivePath, Location, Passwords};
 use crate::log::Log;
-use crate::operation::{OperationEvent, OperationSpec, Reply};
+use crate::operation::{OperationEvent, OperationSpec, Reply, Subject};
 use crate::pane::{DrivePurpose, Pane, RequestId};
 use crate::popup::{InputKind, Popup};
 use crate::preview::{Document, ImageData};
@@ -267,6 +267,13 @@ pub enum Effect {
     CreateFile(PathBuf),
     /// Puts text on the clipboard.
     Clipboard(String),
+    /// Puts the paths on the clipboard as a list of files.
+    ClipboardFiles(Vec<PathBuf>),
+    /// Reads the list of files on the clipboard, to paste into `dest`; it
+    /// reports through `IoEvent::ClipboardFilesRead`.
+    ReadClipboardFiles {
+        dest: PathBuf,
+    },
     /// Opens the path with whatever the OS associates with it.
     OpenWithOs(PathBuf),
     /// Shows the OS's context menu for the paths (Windows only).
@@ -444,6 +451,16 @@ pub enum IoEvent {
     ClipboardSet {
         text: String,
         error: Option<IoError>,
+    },
+    ClipboardFilesSet {
+        paths: Vec<PathBuf>,
+        error: Option<IoError>,
+    },
+    /// The answer to `Effect::ReadClipboardFiles`. The list is empty when the
+    /// clipboard holds no files.
+    ClipboardFilesRead {
+        dest: PathBuf,
+        result: Result<Vec<PathBuf>, IoError>,
     },
     Opened {
         path: PathBuf,
@@ -771,6 +788,7 @@ impl App {
             Command::QuitWithoutSaving => self.quit(false, effects),
             Command::RunFile => self.run_file(effects),
             Command::RunCommandLine => self.open_input(InputKind::RunCommand),
+            Command::PasteFiles => self.paste_files(effects),
             Command::External(name) => self.run_external(&name, effects),
             Command::OpenWithOs
             | Command::Copy
@@ -786,6 +804,7 @@ impl App {
             | Command::Edit
             | Command::CopyPath
             | Command::CopyName
+            | Command::CopyFiles
             | Command::ShellMenu
             | Command::EnterAsArchive
             | Command::Extract
@@ -910,6 +929,22 @@ impl App {
                         format!("Copied {lines} lines to clipboard")
                     });
                 }
+            }
+            IoEvent::ClipboardFilesSet { paths, error } => {
+                if let Some(source) = error {
+                    self.log
+                        .push(AppError::ClipboardFailed { source }.to_string());
+                } else {
+                    let names: Vec<OsString> = paths
+                        .iter()
+                        .map(|path| path.file_name().unwrap_or_default().to_owned())
+                        .collect();
+                    self.log
+                        .push(format!("Copied {} to clipboard", Subject(&names)));
+                }
+            }
+            IoEvent::ClipboardFilesRead { dest, result } => {
+                self.clipboard_files_read(dest, result, effects);
             }
             IoEvent::Opened { path, error } => {
                 if let Some(source) = error {

@@ -66,6 +66,7 @@ impl App {
             Command::Edit => self.edit(effects),
             Command::CopyPath => self.copy_to_clipboard(true, effects),
             Command::CopyName => self.copy_to_clipboard(false, effects),
+            Command::CopyFiles => self.copy_files(effects),
             Command::ShellMenu if self.os != Os::Windows => {
                 self.log.push(AppError::WindowsOnly { command }.to_string());
             }
@@ -358,7 +359,10 @@ impl App {
                 operation.done = done;
             }
             OperationEvent::ItemDone { index } => {
+                // The names of a paste are those of what it copies, not of
+                // items in the pane.
                 if operation.kind != OperationKind::ExtractToTemp
+                    && !operation.paste
                     && let Some(name) = operation.names.get(index)
                 {
                     self.panes[operation.side.index()].unmark(name);
@@ -930,6 +934,81 @@ impl App {
         effects.push(Effect::Clipboard(lines.join("\n")));
     }
 
+    pub(super) fn copy_files(&mut self, effects: &mut Vec<Effect>) {
+        let Some(targets) = self.active_pane().targets() else {
+            return;
+        };
+        let names = targets.entries.iter().map(|entry| entry.name.as_os_str());
+        if let Some(error) = self.bad_target("copy", &targets.location, names) {
+            self.log.push(error.to_string());
+            return;
+        }
+        let paths = targets
+            .entries
+            .iter()
+            .map(|entry| targets.location.base.join(&entry.name))
+            .collect();
+        effects.push(Effect::ClipboardFiles(paths));
+    }
+
+    // A paste always copies, even what another application cut: arboard can
+    // neither read nor write the mark that says files were cut, so a cut
+    // would need code of wafu's own for each clipboard, and macOS has no such
+    // mark at all. Moving is what `move` is for.
+    pub(super) fn paste_files(&mut self, effects: &mut Vec<Effect>) {
+        let location = self.active_pane().location();
+        if location.in_archive() {
+            self.log.push(AppError::PasteIntoArchive.to_string());
+            return;
+        }
+        if location.base.as_os_str().is_empty() {
+            self.log.push(AppError::NoPasteLocation.to_string());
+            return;
+        }
+        let dest = location.base.clone();
+        effects.push(Effect::ReadClipboardFiles { dest });
+    }
+
+    pub(super) fn clipboard_files_read(
+        &mut self,
+        dest: PathBuf,
+        result: Result<Vec<PathBuf>, IoError>,
+        effects: &mut Vec<Effect>,
+    ) {
+        let paths = match result {
+            Ok(paths) if paths.is_empty() => {
+                self.log.push(AppError::NoFilesToPaste.to_string());
+                return;
+            }
+            Ok(paths) => paths,
+            Err(source) => {
+                self.log.push(AppError::PasteFailed { source }.to_string());
+                return;
+            }
+        };
+        // The answer comes back through the event loop, so a key pressed in
+        // between may have started an operation or opened a popup.
+        if self.operation.is_some() || self.popup.is_some() {
+            self.log.push(AppError::PasteInterrupted.to_string());
+            return;
+        }
+        let names = paths
+            .iter()
+            .map(|path| path.file_name().unwrap_or_default().to_owned())
+            .collect();
+        self.start_operation(
+            OperationKind::Copy,
+            dest.clone(),
+            names,
+            Sources::Paths(paths),
+            Some(dest),
+            effects,
+        );
+        if let Some(operation) = &mut self.operation {
+            operation.paste = true;
+        }
+    }
+
     // The passwords the pane knows for the archive levels `location` shares
     // with the pane's.
     pub(super) fn passwords_for(&self, location: &Location) -> Passwords {
@@ -1149,6 +1228,7 @@ impl App {
             temp_dir: None,
             remembered_levels,
             renames: None,
+            paste: false,
         });
     }
 
@@ -1185,6 +1265,7 @@ impl App {
             }
             let line = OutcomeLine {
                 kind: operation.kind,
+                paste: operation.paste,
                 outcome,
                 targets: &operation.names,
             }
@@ -1361,6 +1442,9 @@ pub(crate) struct Operation {
     // unpacked by an extract is past them.
     remembered_levels: usize,
     renames: Option<RenameProgress>,
+    // A copy from the clipboard into the pane. Its sources may be anywhere,
+    // and only `dest` changes, so `source_dir` is `dest`.
+    paste: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1468,7 +1552,9 @@ fn requires_marks(command: &Command) -> bool {
 // The commands that work on the entries of an archive without changing it;
 // `extract` unpacks the entries that are archives into the other pane.
 // `calculate_size` and `calculate_size_on_disk` would not change it either,
-// but they only add up files on disk.
+// but they only add up files on disk. `copy_files` would need the entries
+// extracted first, and putting something on the clipboard, as `copy_path`
+// does, should not involve waiting, password prompts, or temporary files.
 fn allowed_in_archive(command: &Command) -> bool {
     matches!(
         command,

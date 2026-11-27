@@ -115,6 +115,16 @@ pub enum AppError {
     BadCreateName { path: PathBuf, reason: &'static str },
     #[error("Cannot copy to the clipboard: {source}")]
     ClipboardFailed { source: IoError },
+    #[error("Cannot paste: the pane is inside an archive")]
+    PasteIntoArchive,
+    #[error("Cannot paste: the pane has no location")]
+    NoPasteLocation,
+    #[error("Cannot paste: the clipboard has no files")]
+    NoFilesToPaste,
+    #[error("Cannot paste: another command is in progress")]
+    PasteInterrupted,
+    #[error("Cannot paste: {source}")]
+    PasteFailed { source: IoError },
     #[error("Cannot open {}: {source}", path.display())]
     OpenFailed { path: PathBuf, source: IoError },
     #[error("Cannot preview {}: {source}", path.display())]

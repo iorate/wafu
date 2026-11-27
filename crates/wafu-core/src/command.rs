@@ -86,6 +86,8 @@ const NAMES: &[(Command, &str)] = &[
     (Command::RunCommandLine, "run_command"),
     (Command::CopyPath, "copy_path"),
     (Command::CopyName, "copy_name"),
+    (Command::CopyFiles, "copy_files"),
+    (Command::PasteFiles, "paste_files"),
     (Command::ShellMenu, "shell_menu"),
     (Command::EnterAsArchive, "enter_as_archive"),
     (Command::Extract, "extract"),
@@ -199,6 +201,11 @@ pub enum Command {
     RunCommandLine,
     CopyPath,
     CopyName,
+    /// Puts the targets on the clipboard as files, for pasting in another
+    /// application or with `paste_files`.
+    CopyFiles,
+    /// Copies the files on the clipboard into the active pane's directory.
+    PasteFiles,
     ShellMenu,
     EnterAsArchive,
     Extract,
@@ -305,6 +312,7 @@ impl Command {
     }
 
     // Every variant is listed, so that a new command has to choose its target.
+    #[allow(clippy::too_many_lines)]
     fn target(&self) -> Target {
         match self {
             Self::ClosePreview => Target::AnyPreview,
@@ -403,6 +411,8 @@ impl Command {
             | Self::OpenWithOs
             | Self::CopyPath
             | Self::CopyName
+            | Self::CopyFiles
+            | Self::PasteFiles
             | Self::MarkCompare
             | Self::External(_)
             | Self::Nop => Target::Files,
