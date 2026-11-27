@@ -89,6 +89,7 @@ export component AppWindow inherits Window {
     callback row-clicked(side: int, row: int);
     callback row-double-clicked(side: int, row: int);
     callback row-right-clicked(side: int, row: int, x: length, y: length);
+    callback row-dragged(side: int, row: int);
     callback wheel(side: int, delta: length);
     callback scroll-to(side: int, top: int);
     callback log-wheel(delta: length);
@@ -336,6 +337,9 @@ export component AppWindow inherits Window {
                     row-right-clicked(row, x, y) => {
                         root.row-right-clicked(0, row, x, y);
                     }
+                    row-dragged(row) => {
+                        root.row-dragged(0, row);
+                    }
                     wheel(delta) => {
                         root.wheel(0, delta);
                     }
@@ -376,6 +380,9 @@ export component AppWindow inherits Window {
                     }
                     row-right-clicked(row, x, y) => {
                         root.row-right-clicked(1, row, x, y);
+                    }
+                    row-dragged(row) => {
+                        root.row-dragged(1, row);
                     }
                     wheel(delta) => {
                         root.wheel(1, delta);

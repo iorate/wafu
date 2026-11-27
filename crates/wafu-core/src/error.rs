@@ -133,6 +133,12 @@ pub enum AppError {
     PreviewFailed { path: PathBuf, source: IoError },
     #[error("Cannot show the shell menu: {source}")]
     ShellMenuFailed { source: IoError },
+    #[error("Cannot drag: not available inside an archive")]
+    DragInArchive,
+    #[error("Cannot drag {}: a link cannot be dragged to another application", path.display())]
+    LinkDragged { path: PathBuf },
+    #[error("Cannot drag {target}: {source}")]
+    DragFailed { target: String, source: IoError },
 }
 
 struct Ended<'a>(&'a SpawnName);

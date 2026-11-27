@@ -137,6 +137,7 @@ export component PaneWidget {
     callback row-double-clicked(row: int);
     // The pointer position is in window coordinates, for a menu at the pointer.
     callback row-right-clicked(row: int, x: length, y: length);
+    callback row-dragged(row: int);
     callback wheel(delta: length);
     callback scroll-to(top: int);
 
@@ -285,6 +286,7 @@ export component PaneWidget {
                 height: parent.height;
 
                 property <bool> right-pressed;
+                property <bool> drag-reported;
 
                 clicked => {
                     root.row-clicked(root.row-at(self.mouse-y));
@@ -294,9 +296,22 @@ export component PaneWidget {
                     root.row-double-clicked(root.row-at(self.mouse-y));
                 }
 
+                // `pressed` follows the left button alone, while `moved` comes
+                // for any button held.
+                moved => {
+                    if self.pressed && !self.drag-reported
+                        && pow((self.mouse-x - self.pressed-x) / 1px, 2) + pow((self.mouse-y - self.pressed-y) / 1px, 2) > 16 {
+                        self.drag-reported = true;
+                        root.row-dragged(root.row-at(self.pressed-y));
+                    }
+                }
+
                 // On release, as the shell does, so that a menu opened by the
                 // press is not dismissed by the release.
                 pointer-event(event) => {
+                    if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                        self.drag-reported = false;
+                    }
                     if event.button != PointerEventButton.right {
                         return;
                     }

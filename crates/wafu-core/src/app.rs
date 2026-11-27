@@ -92,6 +92,9 @@ pub enum MouseInput {
     DoubleClick { side: Side, row: usize },
     /// A right click on a pane, sent when the button is released.
     RightClick { side: Side, row: usize },
+    /// The left button was pressed on a row of a pane and moved far enough
+    /// to drag; sent once for each press, with the row pressed on.
+    DragStart { side: Side, row: usize },
     /// Wheel movement over a pane, in rows; positive scrolls down.
     Wheel { side: Side, rows: i32 },
     /// The scrollbar was dragged to put `top` at the first visible row. It
@@ -281,6 +284,10 @@ pub enum Effect {
         paths: Vec<PathBuf>,
         anchor: MenuAnchor,
     },
+    /// Drags the paths out of the window to other applications, which may
+    /// only copy them (Windows only); it reports through
+    /// `IoEvent::DragFinished`.
+    DragFiles(Vec<PathBuf>),
     /// Opens the OS's dialog for picking a directory, starting at `dir`; it
     /// reports through `IoEvent::DirectoryPicked`.
     PickDirectory {
@@ -468,6 +475,12 @@ pub enum IoEvent {
     },
     /// The shell menu was closed, or could not be shown.
     ShellMenuClosed {
+        error: Option<IoError>,
+    },
+    /// The drag of the paths ended, whether dropped or cancelled, or could
+    /// not start.
+    DragFinished {
+        paths: Vec<PathBuf>,
         error: Option<IoError>,
     },
     /// The directory dialog was closed. `path` is `None` when it was
@@ -833,6 +846,18 @@ impl App {
                     }
                 }
             }
+            // A fixed gesture rather than a command: the OS starts a drag only
+            // while the button is held, which no key or palette entry can do.
+            MouseInput::DragStart { side, row } => {
+                // Elsewhere nothing happens and nothing is said, since an
+                // error would add a line to the log whenever a click moves a
+                // little; the release still acts as the click.
+                if self.os == Os::Windows && row < self.panes[side.index()].row_count() {
+                    self.active = side;
+                    self.panes[side.index()].set_cursor(row);
+                    self.drag_files(effects);
+                }
+            }
             MouseInput::DoubleClick { side, row } => {
                 self.active = side;
                 let pane = &mut self.panes[side.index()];
@@ -956,6 +981,16 @@ impl App {
                 if let Some(source) = error {
                     self.log
                         .push(AppError::ShellMenuFailed { source }.to_string());
+                }
+            }
+            IoEvent::DragFinished { paths, error } => {
+                if let Some(source) = error {
+                    let target = match paths.as_slice() {
+                        [path] => path.display().to_string(),
+                        paths => format!("{} items", paths.len()),
+                    };
+                    self.log
+                        .push(AppError::DragFailed { target, source }.to_string());
                 }
             }
             IoEvent::DirectoryPicked { request, path } => {

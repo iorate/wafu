@@ -4,6 +4,7 @@ use std::rc::{Rc, Weak};
 use std::sync::Arc;
 use std::time::Duration;
 
+use slint::platform::WindowEvent;
 use slint::{
     CloseRequestResponse, ComponentHandle, LogicalPosition, LogicalSize, Model, ModelRc,
     PhysicalPosition, PhysicalSize, RenderingState, Rgba8Pixel, SharedPixelBuffer, SharedString,
@@ -185,6 +186,7 @@ impl Ui {
         for effect in effects {
             match effect {
                 Effect::ShellMenu { paths, anchor } => self.shell_menu(paths, anchor),
+                Effect::DragFiles(paths) => self.drag_files(paths),
                 Effect::PickDirectory { dir, request } => self.pick_directory(dir, request),
                 // The OS may show a dialog for the operation, and only the
                 // window knows its handle for owning it.
@@ -240,6 +242,25 @@ impl Ui {
                 let (x, y) = ui.menu_position(anchor);
                 let error = show_shell_menu(&ui.window, &paths, x, y);
                 ui.dispatch(Msg::Io(IoEvent::ShellMenuClosed { error }));
+            }
+        });
+    }
+
+    // The drag runs a modal loop of its own, so it is started from the event
+    // loop like the shell menu.
+    fn drag_files(self: &Rc<Self>, paths: Vec<PathBuf>) {
+        let weak = Rc::downgrade(self);
+        self.run_after_render(move || {
+            if let Some(ui) = weak.upgrade() {
+                let error = drag_files(&ui.window, &paths);
+                // The drag's loop takes the release of the button, so the
+                // list would keep the mouse grab and take the next click,
+                // even one on the other pane. Leaving the window lets go of
+                // the press without a click.
+                ui.window
+                    .window()
+                    .dispatch_event(WindowEvent::PointerExited);
+                ui.dispatch(Msg::Io(IoEvent::DragFinished { paths, error }));
             }
         });
     }
@@ -411,6 +432,16 @@ impl Ui {
             if let Some(ui) = Weak::upgrade(&weak) {
                 ui.last_pointer.set((x, y));
                 ui.dispatch(Msg::Mouse(MouseInput::RightClick {
+                    side: side_of(side),
+                    row: row_of(row),
+                }));
+            }
+        });
+
+        let weak = Rc::downgrade(ui);
+        ui.window.on_row_dragged(move |side, row| {
+            if let Some(ui) = Weak::upgrade(&weak) {
+                ui.dispatch(Msg::Mouse(MouseInput::DragStart {
                     side: side_of(side),
                     row: row_of(row),
                 }));
@@ -1144,6 +1175,21 @@ fn show_shell_menu(window: &AppWindow, paths: &[PathBuf], x: f32, y: f32) -> Opt
 
 #[cfg(not(windows))]
 fn show_shell_menu(_window: &AppWindow, _paths: &[PathBuf], _x: f32, _y: f32) -> Option<IoError> {
+    None
+}
+
+#[cfg(windows)]
+fn drag_files(window: &AppWindow, paths: &[PathBuf]) -> Option<IoError> {
+    let Some(hwnd) = window_handle(window) else {
+        return Some(IoError::new("the window has no handle"));
+    };
+    wafu_io::drag_files(hwnd, paths)
+        .err()
+        .map(|error| IoError::new(error.to_string()))
+}
+
+#[cfg(not(windows))]
+fn drag_files(_window: &AppWindow, _paths: &[PathBuf]) -> Option<IoError> {
     None
 }
 

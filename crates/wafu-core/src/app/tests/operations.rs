@@ -2294,6 +2294,132 @@ fn a_failed_copy_files_is_logged() {
 }
 
 #[test]
+fn drag_on_windows_activates_the_pane_and_drags_the_row_pressed_on() {
+    let mut harness = windows_files();
+    harness.press("Tab");
+    harness.take_effects();
+
+    harness.drag(Side::Left, 2);
+
+    assert!(harness.view().left.active);
+    assert_eq!(harness.cursor_name(Side::Left), "b");
+    assert_eq!(
+        harness.take_effects(),
+        [Effect::DragFiles(vec![path(WIN_LEFT, "b")])]
+    );
+    assert_eq!(harness.log(), Vec::<String>::new());
+}
+
+#[test]
+fn drag_takes_the_marks_without_the_row_pressed_on_and_keeps_them() {
+    let mut harness = windows_files();
+    harness.press("Down");
+    harness.press("Space");
+    harness.take_effects();
+
+    harness.drag(Side::Left, 3);
+
+    assert_eq!(harness.cursor_name(Side::Left), "c");
+    assert_eq!(
+        harness.take_effects(),
+        [Effect::DragFiles(vec![path(WIN_LEFT, "a")])]
+    );
+    assert_eq!(harness.marks(Side::Left), ["a"]);
+}
+
+#[test]
+fn drag_past_the_rows_does_nothing() {
+    let mut harness = windows_files();
+    harness.press("Tab");
+    harness.take_effects();
+
+    harness.drag(Side::Left, 7);
+
+    assert!(!harness.view().left.active);
+    assert_eq!(harness.take_effects(), vec![]);
+}
+
+#[test]
+fn drag_outside_windows_does_nothing_and_says_nothing() {
+    let mut harness = three_files();
+    harness.take_effects();
+
+    harness.drag(Side::Left, 2);
+
+    assert_eq!(harness.cursor_name(Side::Left), "..");
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.log(), Vec::<String>::new());
+}
+
+#[test]
+fn drag_refuses_a_link_among_the_marks() {
+    let mut harness = Harness::start_on(Os::Windows, WIN_LEFT, WIN_RIGHT);
+    let link = Entry {
+        kind: EntryKind::Symlink { target: None },
+        ..file("b")
+    };
+    harness.load(Side::Left, vec![file("a"), link]);
+    harness.press("Down");
+    harness.press("Space");
+    harness.press("Space");
+    harness.take_effects();
+
+    harness.drag(Side::Left, 1);
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log(),
+        [format!(
+            "Cannot drag {}: a link cannot be dragged to another application",
+            path(WIN_LEFT, "b").display()
+        )]
+    );
+}
+
+#[test]
+fn drag_on_windows_refuses_a_name_ending_with_a_dot() {
+    let mut harness = windows_with(file("notes."));
+
+    harness.drag(Side::Left, 1);
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log(),
+        [format!(
+            "Cannot drag {}: ends with a dot or a space, which Windows does not allow",
+            path(WIN_LEFT, "notes.").display()
+        )]
+    );
+}
+
+#[test]
+fn a_failed_drag_is_logged_with_its_target_and_a_finished_one_is_not() {
+    let mut harness = windows_files();
+
+    harness.send(Msg::Io(IoEvent::DragFinished {
+        paths: vec![path(WIN_LEFT, "a")],
+        error: None,
+    }));
+    assert_eq!(harness.log(), Vec::<String>::new());
+
+    harness.send(Msg::Io(IoEvent::DragFinished {
+        paths: vec![path(WIN_LEFT, "a")],
+        error: Some(IoError::new("busy")),
+    }));
+    harness.send(Msg::Io(IoEvent::DragFinished {
+        paths: vec![path(WIN_LEFT, "a"), path(WIN_LEFT, "b")],
+        error: Some(IoError::new("busy")),
+    }));
+    assert_eq!(
+        harness.log(),
+        [
+            format!("Cannot drag {}: busy", path(WIN_LEFT, "a").display()),
+            "Cannot drag 2 items: busy".to_owned(),
+        ]
+    );
+}
+
+#[test]
 fn paste_files_copies_the_files_on_the_clipboard_into_the_active_pane() {
     let mut harness = three_files();
     harness.take_effects();
