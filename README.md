@@ -7,16 +7,14 @@ A keyboard-driven dual-pane file manager for Windows, macOS, and Linux, built wi
 ## Features
 
 - **Everything from the keyboard.** Most commands are a single key, and <kbd>F1</kbd> lists the commands with their keys.
+- **Quick navigation.** Incremental search, glob filters, recursive find by name, per-pane history, and bookmarks.
 - **Archives open like directories.** Browse, preview, and extract zip and tar archives, including archives inside archives.
 - **Batch rename with a live preview.** Rename the marked files by find and replace or from a template with a counter, and see every new name before it is applied.
-
-  ![The template rename popup with the template kyoto_{001}{ext}, listing each marked photo's old name beside its new one, starting with IMG_0408.jpg and kyoto_001.jpg](https://raw.githubusercontent.com/iorate/wafu/main/docs/images/rename.png)
-
 - **Image and text previews.** An image is shown beside the file list and follows the cursor. Any file can be opened as text or as a hex dump.
 
-  ![A photo of hills at sunset previewed in the right half of the window, beside the list of photos it was opened from, one of which is marked](https://raw.githubusercontent.com/iorate/wafu/main/docs/images/preview.png)
+![The template rename popup with the template kyoto_{001}{ext}, listing each marked photo's old name beside its new one, starting with IMG_0408.jpg and kyoto_001.jpg](https://raw.githubusercontent.com/iorate/wafu/main/docs/images/rename.png)
 
-- **Quick navigation.** Incremental search, glob filters, recursive find by name, per-pane history, and bookmarks.
+![A photo of hills at sunset previewed in the right half of the window, beside the list of photos it was opened from, one of which is marked](https://raw.githubusercontent.com/iorate/wafu/main/docs/images/preview.png)
 
 ## Installation
 
