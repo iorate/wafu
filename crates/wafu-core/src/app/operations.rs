@@ -4,7 +4,7 @@ use std::path::{Component, Path, PathBuf};
 use super::navigation::link_in_archive;
 use super::{App, Change, Effect, MenuAnchor, Os, PreviewSource, Side, SpawnName};
 use crate::command::{Command, Context};
-use crate::entry::Entry;
+use crate::entry::{Entry, EntryKind};
 use crate::error::{AppError, IoError};
 use crate::external::{CommandLine, Expansion};
 use crate::filter::Filter;
@@ -941,6 +941,19 @@ impl App {
         let names = targets.entries.iter().map(|entry| entry.name.as_os_str());
         if let Some(error) = self.bad_target("copy", &targets.location, names) {
             self.log.push(error.to_string());
+            return;
+        }
+        // arboard resolves every path before putting it on the clipboard, so
+        // a link would be pasted as its target, under the target's name, and
+        // a broken one would be silently left out.
+        if let Some(link) = targets
+            .entries
+            .iter()
+            .find(|entry| matches!(entry.kind, EntryKind::Symlink { .. }))
+        {
+            let path = targets.location.base.join(&link.name);
+            self.log
+                .push(AppError::LinkToClipboard { path }.to_string());
             return;
         }
         let paths = targets

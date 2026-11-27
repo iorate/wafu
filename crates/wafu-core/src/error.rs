@@ -115,6 +115,8 @@ pub enum AppError {
     BadCreateName { path: PathBuf, reason: &'static str },
     #[error("Cannot copy to the clipboard: {source}")]
     ClipboardFailed { source: IoError },
+    #[error("Cannot copy {}: a link cannot be put on the clipboard", path.display())]
+    LinkToClipboard { path: PathBuf },
     #[error("Cannot paste: the pane is inside an archive")]
     PasteIntoArchive,
     #[error("Cannot paste: the pane has no location")]

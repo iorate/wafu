@@ -2434,6 +2434,31 @@ fn files_read_from_the_clipboard_under_a_popup_are_not_pasted() {
 }
 
 #[test]
+fn copy_files_refuses_a_link_among_the_marks() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    let link = Entry {
+        kind: EntryKind::Symlink { target: None },
+        ..file("b")
+    };
+    harness.load(Side::Left, vec![file("a"), link]);
+    harness.press("Down");
+    harness.press("Space");
+    harness.press("Space");
+    harness.take_effects();
+
+    harness.press("Alt+C");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log(),
+        [format!(
+            "Cannot copy {}: a link cannot be put on the clipboard",
+            path(LEFT, "b").display()
+        )]
+    );
+}
+
+#[test]
 fn copy_files_on_windows_refuses_a_name_ending_with_a_dot() {
     let mut harness = windows_with(file("notes."));
 
