@@ -285,7 +285,7 @@ pub enum Effect {
         anchor: MenuAnchor,
     },
     /// Drags the paths out of the window to other applications, which may
-    /// only copy them (Windows only); it reports through
+    /// only copy them (Windows and macOS); it reports through
     /// `IoEvent::DragFinished`.
     DragFiles(Vec<PathBuf>),
     /// Opens the OS's dialog for picking a directory, starting at `dir`; it
@@ -477,8 +477,9 @@ pub enum IoEvent {
     ShellMenuClosed {
         error: Option<IoError>,
     },
-    /// The drag of the paths ended, whether dropped or cancelled, or could
-    /// not start.
+    /// The drag of the paths could not start, or is no longer wafu's to run:
+    /// on Windows it ended, whether dropped or cancelled, and on macOS it
+    /// was handed to the event loop, which reports no end.
     DragFinished {
         paths: Vec<PathBuf>,
         error: Option<IoError>,
@@ -849,10 +850,12 @@ impl App {
             // A fixed gesture rather than a command: the OS starts a drag only
             // while the button is held, which no key or palette entry can do.
             MouseInput::DragStart { side, row } => {
-                // Elsewhere nothing happens and nothing is said, since an
+                // On Linux nothing happens and nothing is said, since an
                 // error would add a line to the log whenever a click moves a
                 // little; the release still acts as the click.
-                if self.os == Os::Windows && row < self.panes[side.index()].row_count() {
+                if matches!(self.os, Os::Windows | Os::MacOs)
+                    && row < self.panes[side.index()].row_count()
+                {
                     self.active = side;
                     self.panes[side.index()].set_cursor(row);
                     self.drag_files(effects);

@@ -31,6 +31,10 @@ icu_normalizer = "2.4.0"
 ignore = "0.4.35"
 image = { version = "0.25.10", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png", "webp"] }
 notify = "9.0.0"
+objc2 = "0.6.5"
+# Without the default features, which bind every class of the framework.
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std"] }
 open = "5.4.5"
 raw-window-handle = "0.6.2"
 # The default xdg-portal backend on Linux needs no GTK development packages to
@@ -47,8 +51,8 @@ toml = "1.2.2"
 trash = "5.4.0"
 windows = "0.62.2"
 winresource = "0.1.34"
-# Reads and writes the quarantine mark on macOS without unsafe code, which
-# wafu-io keeps to Windows API calls.
+# Reads and writes the quarantine mark on macOS without unsafe code of
+# wafu-io's own.
 xattr = { version = "1.7.0", default-features = false }
 zip = { version = "9.8.2", default-features = false, features = ["aes-crypto", "bzip2", "deflate", "deflate64"] }
 wafu-core = { version = "=0.4.0", path = "crates/wafu-core" }
