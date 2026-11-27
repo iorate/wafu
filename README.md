@@ -16,7 +16,6 @@ A keyboard-driven dual-pane file manager for Windows, macOS, and Linux, built wi
 
   ![A photo of hills at sunset previewed in the right half of the window, beside the list of photos it was opened from, one of which is marked](https://raw.githubusercontent.com/iorate/wafu/main/docs/images/preview.png)
 
-- **Compare the two panes.** Mark what the other pane is missing or has an older copy of, then copy it over.
 - **Quick navigation.** Incremental search, glob filters, recursive find by name, per-pane history, and bookmarks.
 
 ## Installation
