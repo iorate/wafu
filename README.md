@@ -1,8 +1,21 @@
 # wafu
 
-A keyboard-driven dual-pane file manager for Windows, macOS, and Linux, built with Rust and Slint.
+A keyboard-driven dual-pane file manager for Windows, macOS, and Linux, built with Rust and Slint. Modeled on [あふｗ](https://afxw.sakura.ne.jp/).
 
-[![Made with Slint](https://raw.githubusercontent.com/slint-ui/slint/master/logo/MadeWithSlint-logo-whitebg.png)](https://slint.dev)
+![wafu with a project directory in the left pane, three files marked and the cursor on README.md, a downloads directory in the right pane, and the log below them](https://raw.githubusercontent.com/iorate/wafu/main/docs/images/main.png)
+
+## Features
+
+- **Everything from the keyboard.** Most commands are a single key, and <kbd>F1</kbd> lists the commands with their keys.
+- **File operations across the panes.** Copy or move the marked files to the other pane, delete them, or move them to the trash.
+- **Quick navigation.** Incremental search, glob filters, recursive find by name, per-pane history, and bookmarks.
+- **Archives open like directories.** Browse, preview, and extract zip and tar archives, including archives inside archives.
+- **Batch rename with a live preview.** Rename the marked files by find and replace or from a template with a counter, and see every new name before it is applied.
+- **Image and text previews.** Images are previewed beside the file list, and any file can be opened as text or as a hex dump.
+
+![The template rename popup with the template kyoto_{001}{ext}, listing each marked photo's old name beside its new one, starting with IMG_0408.jpg and kyoto_001.jpg](https://raw.githubusercontent.com/iorate/wafu/main/docs/images/rename.png)
+
+![A photo of hills at sunset previewed in the right half of the window, beside the list of photos it was opened from](https://raw.githubusercontent.com/iorate/wafu/main/docs/images/preview.png)
 
 ## Installation
 
@@ -53,7 +66,13 @@ sudo apt install libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libxkbcom
 
 ## Configuration
 
-Settings, colors, bookmarks, external commands, and key bindings live in a TOML file. See [docs/configuration.md](https://github.com/iorate/wafu/blob/main/docs/configuration.md).
+Settings, colors, bookmarks, external commands, and key bindings live in a TOML file, which is reloaded when it is saved. See [docs/configuration.md](https://github.com/iorate/wafu/blob/main/docs/configuration.md).
+
+## Acknowledgments
+
+The user interface is built with [Slint](https://slint.dev).
+
+[![Made with Slint](https://raw.githubusercontent.com/slint-ui/slint/master/logo/MadeWithSlint-logo-whitebg.png)](https://slint.dev)
 
 ## License
 
