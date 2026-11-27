@@ -22,13 +22,13 @@ tar = { version = "0.4.46", default-features = false }
 arboard = { version = "3.7.0", default-features = false, features = ["wayland-data-control"] }
 chardetng = "1.0.0"
 chrono = "0.4.45"
-clap = "4.6.8"
+clap = "4.6.9"
 dirs = "7.0.0"
 encoding_rs = "0.8.44"
-globset = "0.4.21"
+globset = "0.4.22"
 icu_collator = "2.4.0"
 icu_normalizer = "2.4.0"
-ignore = "0.4.34"
+ignore = "0.4.35"
 image = { version = "0.25.10", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png", "webp"] }
 notify = "9.0.0"
 open = "5.4.5"
@@ -43,14 +43,14 @@ slint = { version = "1.19.0", features = ["raw-window-handle-06"] }
 slint-build = "1.19.0"
 tempfile = "3.27.0"
 thiserror = "2.0.21"
-toml = "1.2.1"
+toml = "1.2.2"
 trash = "5.4.0"
 windows = "0.62.2"
 winresource = "0.1.34"
 # Reads and writes the quarantine mark on macOS without unsafe code, which
 # wafu-io keeps to Windows API calls.
 xattr = { version = "1.7.0", default-features = false }
-zip = { version = "9.7.0", default-features = false, features = ["aes-crypto", "bzip2", "deflate", "deflate64"] }
+zip = { version = "9.8.2", default-features = false, features = ["aes-crypto", "bzip2", "deflate", "deflate64"] }
 wafu-core = { version = "=0.4.0", path = "crates/wafu-core" }
 wafu-io = { version = "=0.4.0", path = "crates/wafu-io" }
 
