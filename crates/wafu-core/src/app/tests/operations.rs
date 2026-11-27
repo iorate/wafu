@@ -1236,12 +1236,12 @@ fn a_change_reloads_every_pane_showing_the_directory() {
 }
 
 #[test]
-fn mkdir_creates_nested_directories_and_enters_the_new_one() {
+fn new_dir_creates_nested_directories_and_enters_the_new_one() {
     let mut harness = three_files();
     harness.take_effects();
 
     harness.press("K");
-    assert_eq!(harness.view().popup.unwrap().title, "Make directory");
+    assert_eq!(harness.view().popup.unwrap().title, "New directory");
     harness.edit("a/b/c");
     harness.press("Enter");
 
@@ -1259,7 +1259,7 @@ fn mkdir_creates_nested_directories_and_enters_the_new_one() {
 }
 
 #[test]
-fn mkdir_refuses_a_path_that_leads_out_of_the_directory() {
+fn new_dir_refuses_a_path_that_leads_out_of_the_directory() {
     for name in ["/etc/x", "a/../../x"] {
         let mut harness = Harness::start(LEFT, RIGHT);
         harness.take_effects();
@@ -1280,7 +1280,7 @@ fn mkdir_refuses_a_path_that_leads_out_of_the_directory() {
 }
 
 #[test]
-fn mkdir_skips_empty_and_dot_parts_of_the_path() {
+fn new_dir_skips_empty_and_dot_parts_of_the_path() {
     let mut harness = three_files();
     harness.take_effects();
 
@@ -1295,7 +1295,7 @@ fn mkdir_skips_empty_and_dot_parts_of_the_path() {
 }
 
 #[test]
-fn mkdir_on_windows_splits_the_path_at_backslashes_too() {
+fn new_dir_on_windows_splits_the_path_at_backslashes_too() {
     let mut harness = windows_files();
 
     harness.press("K");
@@ -1309,7 +1309,7 @@ fn mkdir_on_windows_splits_the_path_at_backslashes_too() {
 }
 
 #[test]
-fn mkdir_enters_the_folded_place_of_what_was_made() {
+fn new_dir_enters_the_folded_place_of_what_was_made() {
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.take_effects();
 
@@ -1323,9 +1323,9 @@ fn mkdir_enters_the_folded_place_of_what_was_made() {
 }
 
 #[test]
-fn mkdir_without_entering_puts_the_cursor_on_the_first_component() {
+fn new_dir_without_entering_puts_the_cursor_on_the_first_component() {
     let mut harness =
-        Harness::start_with_config(LEFT, RIGHT, "[filelist]\nmkdir_enters_dir = false\n");
+        Harness::start_with_config(LEFT, RIGHT, "[filelist]\nnew_dir_enters_dir = false\n");
     harness.load(Side::Left, vec![file("x")]);
     harness.take_effects();
 
@@ -1346,7 +1346,7 @@ fn mkdir_without_entering_puts_the_cursor_on_the_first_component() {
 }
 
 #[test]
-fn mkdir_makes_the_directory_in_the_place_the_popup_was_opened_in() {
+fn new_dir_makes_the_directory_in_the_place_the_popup_was_opened_in() {
     let mut harness = three_files();
     harness.press("K");
     harness.vanish(Side::Left, "/home", vec![file("a")]);
@@ -1359,7 +1359,7 @@ fn mkdir_makes_the_directory_in_the_place_the_popup_was_opened_in() {
 }
 
 #[test]
-fn a_failed_mkdir_is_logged() {
+fn a_failed_new_dir_is_logged() {
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.load(Side::Left, vec![file("x")]);
     harness.take_effects();
@@ -1946,7 +1946,7 @@ fn run_file_on_anything_else_puts_the_caret_before_its_quoted_path() {
 }
 
 #[test]
-fn run_command_starts_the_line_with_its_placeholders_filled_in_the_pane_directory() {
+fn run_command_line_starts_the_line_with_its_placeholders_filled_in_the_pane_directory() {
     let mut harness = three_files();
     harness.press("Down");
     harness.press("Space");
@@ -1993,7 +1993,10 @@ fn a_command_line_without_a_program_is_logged() {
     harness.press("Enter");
 
     assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(harness.log(), ["Cannot run run_command: no program given"]);
+    assert_eq!(
+        harness.log(),
+        ["Cannot run run_command_line: no program given"]
+    );
 }
 
 #[test]

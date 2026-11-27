@@ -399,13 +399,13 @@ impl Pane {
         self.ensure_cursor_visible();
     }
 
-    pub fn page_up(&mut self) {
+    pub fn cursor_page_up(&mut self) {
         self.scroll_top = self.scroll_top.saturating_sub(self.viewport_rows);
         self.cursor = self.cursor.saturating_sub(self.viewport_rows);
         self.ensure_cursor_visible();
     }
 
-    pub fn page_down(&mut self) {
+    pub fn cursor_page_down(&mut self) {
         let count = self.row_count();
         self.scroll_top = (self.scroll_top + self.viewport_rows).min(self.max_scroll_top());
         self.cursor = (self.cursor + self.viewport_rows).min(count.saturating_sub(1));
@@ -500,7 +500,7 @@ impl Pane {
     }
 
     /// Moves to the next marked row, wrapping around.
-    pub fn next_mark(&mut self) {
+    pub fn mark_next(&mut self) {
         if let Some(row) = self.find_row_from(self.cursor + 1, Self::row_is_marked) {
             self.cursor = row;
             self.ensure_cursor_visible();
@@ -508,7 +508,7 @@ impl Pane {
     }
 
     /// Moves to the previous marked row, wrapping around.
-    pub fn prev_mark(&mut self) {
+    pub fn mark_prev(&mut self) {
         let start = self
             .cursor
             .checked_sub(1)
@@ -1254,14 +1254,14 @@ mod tests {
 
         pane.cursor_up();
         pane.cursor_down();
-        pane.page_up();
-        pane.page_down();
+        pane.cursor_page_up();
+        pane.cursor_page_down();
         pane.cursor_top();
         pane.cursor_bottom();
         pane.mark_down();
         pane.mark_up();
-        pane.next_mark();
-        pane.prev_mark();
+        pane.mark_next();
+        pane.mark_prev();
         pane.jump_to('a');
 
         assert_eq!(pane.cursor(), 0);
@@ -1269,45 +1269,45 @@ mod tests {
     }
 
     #[test]
-    fn page_down_stops_at_last_row() {
+    fn cursor_page_down_stops_at_last_row() {
         let mut pane = pane_with("/", &["a", "b", "c", "d", "e"]);
         pane.set_viewport_rows(3);
 
-        pane.page_down();
+        pane.cursor_page_down();
         assert_eq!(pane.cursor(), 3);
-        pane.page_down();
+        pane.cursor_page_down();
         assert_eq!(pane.cursor(), 4);
-        pane.page_down();
+        pane.cursor_page_down();
         assert_eq!(pane.cursor(), 4);
     }
 
     #[test]
-    fn page_up_stops_at_first_row() {
+    fn cursor_page_up_stops_at_first_row() {
         let mut pane = pane_with("/", &["a", "b", "c", "d", "e"]);
         pane.set_viewport_rows(3);
         pane.cursor_bottom();
 
-        pane.page_up();
+        pane.cursor_page_up();
         assert_eq!(pane.cursor(), 1);
-        pane.page_up();
+        pane.cursor_page_up();
         assert_eq!(pane.cursor(), 0);
-        pane.page_up();
+        pane.cursor_page_up();
         assert_eq!(pane.cursor(), 0);
     }
 
     #[test]
-    fn page_down_and_up_move_the_view_by_a_page_and_keep_the_cursor_position() {
+    fn cursor_page_down_and_up_move_the_view_by_a_page_and_keep_the_cursor_position() {
         let mut pane = pane_with("/", &["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"]);
         pane.set_viewport_rows(4);
         pane.cursor_down();
 
-        pane.page_down();
+        pane.cursor_page_down();
         assert_eq!((pane.scroll_top(), pane.cursor()), (4, 5));
-        pane.page_down();
+        pane.cursor_page_down();
         assert_eq!((pane.scroll_top(), pane.cursor()), (6, 9));
-        pane.page_up();
+        pane.cursor_page_up();
         assert_eq!((pane.scroll_top(), pane.cursor()), (2, 5));
-        pane.page_up();
+        pane.cursor_page_up();
         assert_eq!((pane.scroll_top(), pane.cursor()), (0, 1));
     }
 
@@ -1455,7 +1455,7 @@ mod tests {
     }
 
     #[test]
-    fn next_and_prev_mark_wrap_around() {
+    fn mark_next_and_mark_prev_wrap_around() {
         let mut pane = pane_with("/home", &["a", "b", "c"]);
         pane.set_cursor(1);
         pane.mark_down();
@@ -1463,15 +1463,15 @@ mod tests {
         pane.mark_down();
         pane.set_cursor(0);
 
-        pane.next_mark();
+        pane.mark_next();
         assert_eq!(pane.cursor(), 1);
-        pane.next_mark();
+        pane.mark_next();
         assert_eq!(pane.cursor(), 3);
-        pane.next_mark();
+        pane.mark_next();
         assert_eq!(pane.cursor(), 1);
-        pane.prev_mark();
+        pane.mark_prev();
         assert_eq!(pane.cursor(), 3);
-        pane.prev_mark();
+        pane.mark_prev();
         assert_eq!(pane.cursor(), 1);
     }
 

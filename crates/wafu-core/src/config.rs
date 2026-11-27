@@ -62,7 +62,7 @@ pub struct Bookmark {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct FileListConfig {
-    pub mkdir_enters_dir: bool,
+    pub new_dir_enters_dir: bool,
     pub new_text_creates_file: bool,
     pub extract_creates_dir: bool,
     pub require_marks: bool,
@@ -371,7 +371,7 @@ impl Config {
     pub fn default_for(os: Os) -> Self {
         Self {
             filelist: FileListConfig {
-                mkdir_enters_dir: true,
+                new_dir_enters_dir: true,
                 // On by default because the macOS `open -t` does nothing for a
                 // file that does not exist.
                 new_text_creates_file: true,

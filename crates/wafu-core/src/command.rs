@@ -28,8 +28,8 @@ const NAMES: &[(Command, &str)] = &[
     (Command::SwapPanes, "swap_panes"),
     (Command::CursorUp, "cursor_up"),
     (Command::CursorDown, "cursor_down"),
-    (Command::PageUp, "page_up"),
-    (Command::PageDown, "page_down"),
+    (Command::CursorPageUp, "cursor_page_up"),
+    (Command::CursorPageDown, "cursor_page_down"),
     (Command::CursorTop, "cursor_top"),
     (Command::CursorBottom, "cursor_bottom"),
     (Command::Search, "search"),
@@ -41,16 +41,16 @@ const NAMES: &[(Command, &str)] = &[
     (Command::InvertMarksAll, "invert_marks_all"),
     (Command::MarkGlob, "mark_glob"),
     (Command::MarkCompare, "mark_compare"),
-    (Command::NextMark, "next_mark"),
-    (Command::PrevMark, "prev_mark"),
+    (Command::MarkNext, "mark_next"),
+    (Command::MarkPrev, "mark_prev"),
     (Command::ClearMarks, "clear_marks"),
     (Command::Sort, "sort"),
     (Command::ToggleHidden, "toggle_hidden"),
     (Command::Filter, "filter"),
     (Command::ClearFilter, "clear_filter"),
     (Command::Reload, "reload"),
-    (Command::PaneShrinkLeft, "pane_shrink_left"),
-    (Command::PaneGrowLeft, "pane_grow_left"),
+    (Command::SplitLeft, "split_left"),
+    (Command::SplitRight, "split_right"),
     (Command::LogShrink, "log_shrink"),
     (Command::LogGrow, "log_grow"),
     (Command::LogScrollUp, "log_scroll_up"),
@@ -78,12 +78,12 @@ const NAMES: &[(Command, &str)] = &[
     (Command::Rename, "rename"),
     (Command::RenameReplace, "rename_replace"),
     (Command::RenameTemplate, "rename_template"),
-    (Command::Mkdir, "mkdir"),
+    (Command::NewDir, "new_dir"),
     (Command::NewFile, "new_file"),
     (Command::NewText, "new_text"),
     (Command::Edit, "edit"),
     (Command::RunFile, "run_file"),
-    (Command::RunCommandLine, "run_command"),
+    (Command::RunCommandLine, "run_command_line"),
     (Command::CopyPath, "copy_path"),
     (Command::CopyName, "copy_name"),
     (Command::CopyFiles, "copy_files"),
@@ -136,8 +136,8 @@ pub enum Command {
     SwapPanes,
     CursorUp,
     CursorDown,
-    PageUp,
-    PageDown,
+    CursorPageUp,
+    CursorPageDown,
     CursorTop,
     CursorBottom,
     Search,
@@ -151,16 +151,16 @@ pub enum Command {
     InvertMarksAll,
     MarkGlob,
     MarkCompare,
-    NextMark,
-    PrevMark,
+    MarkNext,
+    MarkPrev,
     ClearMarks,
     Sort,
     ToggleHidden,
     Filter,
     ClearFilter,
     Reload,
-    PaneShrinkLeft,
-    PaneGrowLeft,
+    SplitLeft,
+    SplitRight,
     LogShrink,
     LogGrow,
     LogScrollUp,
@@ -191,7 +191,7 @@ pub enum Command {
     Rename,
     RenameReplace,
     RenameTemplate,
-    Mkdir,
+    NewDir,
     NewFile,
     NewText,
     Edit,
@@ -341,11 +341,11 @@ impl Command {
             | Self::Quit
             | Self::QuitWithoutSaving
             | Self::EditConfig => Target::App,
-            Self::PaneShrinkLeft | Self::PaneGrowLeft => Target::Split,
+            Self::SplitLeft | Self::SplitRight => Target::Split,
             Self::CursorUp
             | Self::CursorDown
-            | Self::PageUp
-            | Self::PageDown
+            | Self::CursorPageUp
+            | Self::CursorPageDown
             | Self::CursorTop
             | Self::CursorBottom
             | Self::Search
@@ -357,8 +357,8 @@ impl Command {
             | Self::InvertMarks
             | Self::InvertMarksAll
             | Self::MarkGlob
-            | Self::NextMark
-            | Self::PrevMark
+            | Self::MarkNext
+            | Self::MarkPrev
             | Self::ClearMarks => Target::Cursor,
             Self::Sort | Self::ToggleHidden | Self::Filter | Self::ClearFilter | Self::Reload => {
                 Target::ListView
@@ -395,7 +395,7 @@ impl Command {
             | Self::Rename
             | Self::RenameReplace
             | Self::RenameTemplate
-            | Self::Mkdir
+            | Self::NewDir
             | Self::NewFile
             | Self::NewText
             | Self::Edit
@@ -485,7 +485,7 @@ mod tests {
                 Command::Quit,
                 &[Context::FileList, Context::Image, Context::Text],
             ),
-            (Command::PaneGrowLeft, &[Context::FileList, Context::Image]),
+            (Command::SplitRight, &[Context::FileList, Context::Image]),
             (Command::Jump('a'), &[Context::FileList, Context::Image]),
             (Command::Sort, &[Context::FileList]),
             (Command::Open, &[Context::FileList]),

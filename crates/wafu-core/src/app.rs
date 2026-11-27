@@ -738,8 +738,8 @@ impl App {
             Command::SwitchPane => self.active = side.other(),
             Command::CursorUp => pane.cursor_up(),
             Command::CursorDown => pane.cursor_down(),
-            Command::PageUp => pane.page_up(),
-            Command::PageDown => pane.page_down(),
+            Command::CursorPageUp => pane.cursor_page_up(),
+            Command::CursorPageDown => pane.cursor_page_down(),
             Command::CursorTop => pane.cursor_top(),
             Command::CursorBottom => pane.cursor_bottom(),
             Command::Search => self.open_search(),
@@ -752,8 +752,8 @@ impl App {
             Command::InvertMarksAll => pane.invert_marks(true),
             Command::MarkGlob => self.open_input(InputKind::MarkGlob),
             Command::MarkCompare => self.open_compare(),
-            Command::NextMark => pane.next_mark(),
-            Command::PrevMark => pane.prev_mark(),
+            Command::MarkNext => pane.mark_next(),
+            Command::MarkPrev => pane.mark_prev(),
             Command::ClearMarks => pane.clear_marks(),
             Command::Sort => self.open_sort(),
             Command::ToggleHidden => pane.toggle_hidden(),
@@ -762,8 +762,8 @@ impl App {
                 pane.set_filter(None);
             }
             Command::Reload => self.reload(side, effects),
-            Command::PaneShrinkLeft => self.split_to(self.split_percent - SPLIT_STEP),
-            Command::PaneGrowLeft => self.split_to(self.split_percent + SPLIT_STEP),
+            Command::SplitLeft => self.split_to(self.split_percent - SPLIT_STEP),
+            Command::SplitRight => self.split_to(self.split_percent + SPLIT_STEP),
             Command::LogShrink => self.log_rows_to(self.log.viewport_rows().saturating_sub(1)),
             Command::LogGrow => self.log_rows_to(self.log.viewport_rows() + 1),
             Command::LogScrollUp => self.log.scroll_up(),
@@ -801,7 +801,7 @@ impl App {
             Command::Quit => self.quit(true, effects),
             Command::QuitWithoutSaving => self.quit(false, effects),
             Command::RunFile => self.run_file(effects),
-            Command::RunCommandLine => self.open_input(InputKind::RunCommand),
+            Command::RunCommandLine => self.open_input(InputKind::RunCommandLine),
             Command::PasteFiles => self.paste_files(effects),
             Command::External(name) => self.run_external(&name, effects),
             Command::OpenWithOs
@@ -812,7 +812,7 @@ impl App {
             | Command::Rename
             | Command::RenameReplace
             | Command::RenameTemplate
-            | Command::Mkdir
+            | Command::NewDir
             | Command::NewFile
             | Command::NewText
             | Command::Edit

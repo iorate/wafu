@@ -629,7 +629,7 @@ fn commands_that_change_things_are_refused_inside_an_archive() {
             "Cannot run rename: not available inside an archive",
             "Cannot run rename_replace: not available inside an archive",
             "Cannot run rename_template: not available inside an archive",
-            "Cannot run mkdir: not available inside an archive",
+            "Cannot run new_dir: not available inside an archive",
             "Cannot run new_text: not available inside an archive",
             "Cannot run compress: not available inside an archive",
             "Cannot run new_file: not available inside an archive",
@@ -1640,7 +1640,7 @@ fn run_file_on_a_link_inside_an_archive_is_refused() {
 }
 
 #[test]
-fn run_command_inside_an_archive_without_paths_starts_at_once_in_the_directory_holding_it() {
+fn run_command_line_inside_an_archive_without_paths_starts_at_once_in_the_directory_holding_it() {
     let mut harness = inside();
     harness.press("Down");
     harness.press("Space");
@@ -1661,7 +1661,7 @@ fn run_command_inside_an_archive_without_paths_starts_at_once_in_the_directory_h
 }
 
 #[test]
-fn run_command_inside_an_archive_with_paths_extracts_them_and_then_starts() {
+fn run_command_line_inside_an_archive_with_paths_extracts_them_and_then_starts() {
     let mut harness = inside();
     harness.press("Down");
     harness.press("Down");

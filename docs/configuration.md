@@ -50,7 +50,7 @@ path = "~/work"
 
 ```toml
 [filelist]
-mkdir_enters_dir = true
+new_dir_enters_dir = true
 new_text_creates_file = true
 extract_creates_dir = true
 require_marks = true
@@ -125,7 +125,7 @@ There are no default bookmarks, external commands, [`open_alternative` programs]
 
 | Item | Meaning |
 |---|---|
-| `mkdir_enters_dir` | Enter the directory that `mkdir` created. |
+| `new_dir_enters_dir` | Enter the directory that `new_dir` created. |
 | `new_text_creates_file` | `new_text` creates the file before opening it in the editor. |
 | `extract_creates_dir` | `extract` and `extract_here` put the contents in a directory named after the archive. |
 | `require_marks` | `copy`, `move`, `delete`, and `trash` act only on marked items, never on the cursor item alone. |

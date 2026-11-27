@@ -54,7 +54,7 @@ impl App {
             Command::Rename => self.open_rename(),
             Command::RenameReplace => self.open_batch_rename(RenameMode::Replace),
             Command::RenameTemplate => self.open_batch_rename(RenameMode::Template),
-            Command::Mkdir => self.open_input(InputKind::Mkdir {
+            Command::NewDir => self.open_input(InputKind::NewDir {
                 dir: self.active_pane().location().base.clone(),
             }),
             Command::NewFile => self.open_input(InputKind::NewFile {
@@ -537,7 +537,7 @@ impl App {
         }
         let base = match &kind {
             InputKind::Rename { dir, .. }
-            | InputKind::Mkdir { dir }
+            | InputKind::NewDir { dir }
             | InputKind::NewFile { dir }
             | InputKind::NewText { dir } => dir.clone(),
             InputKind::ConflictRename { .. }
@@ -546,7 +546,7 @@ impl App {
             | InputKind::GoToPath { .. }
             | InputKind::Find { .. }
             | InputKind::RunFile
-            | InputKind::RunCommand
+            | InputKind::RunCommandLine
             | InputKind::ArchivePassword { .. }
             | InputKind::Compress { .. } => return,
         };
@@ -574,7 +574,7 @@ impl App {
                     });
                 }
             }
-            InputKind::Mkdir { .. } => {
+            InputKind::NewDir { .. } => {
                 let checked = dir_below(&base, text, self.os);
                 if let Some(path) = self.created_path(&base, text, checked) {
                     effects.push(Effect::Mkdir(path));
@@ -612,7 +612,7 @@ impl App {
             | InputKind::GoToPath { .. }
             | InputKind::Find { .. }
             | InputKind::RunFile
-            | InputKind::RunCommand
+            | InputKind::RunCommandLine
             | InputKind::ArchivePassword { .. }
             | InputKind::Compress { .. } => {}
         }
@@ -647,7 +647,7 @@ impl App {
             }
             (Change::DirCreated(path), None) => {
                 self.log.push(self.created_line(&path));
-                if self.config.filelist.mkdir_enters_dir {
+                if self.config.filelist.new_dir_enters_dir {
                     self.navigate(
                         self.active,
                         Location::new(path),
@@ -1076,7 +1076,7 @@ impl App {
             // On the `..` row of an archive root the target of `extract_here`
             // and `compress_here` is outside the archive, but the pane does
             // not show where the result would land.
-            Command::Mkdir
+            Command::NewDir
             | Command::NewFile
             | Command::NewText
             | Command::ExtractHere
@@ -1622,7 +1622,7 @@ fn rename_selection(entry: &Entry) -> Option<(usize, usize)> {
 }
 
 // The first path component of `path` below `base`, which is where the cursor
-// goes after `mkdir a/b/c`.
+// goes after `new_dir` makes `a/b/c`.
 fn first_component_under(path: &Path, base: &Path) -> Option<OsString> {
     let rest = path.strip_prefix(base).ok()?;
     match rest.components().next() {
