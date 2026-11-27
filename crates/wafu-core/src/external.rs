@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 use crate::app::Os;
+use crate::placeholder::{Piece, PlaceholderError, pieces};
 
 /// A command line: the program and its arguments, split before the
 /// placeholders are filled in.
@@ -13,7 +14,7 @@ use crate::app::Os;
 pub struct CommandLine {
     source: String,
     program: String,
-    args: Vec<Vec<Piece>>,
+    args: Vec<Vec<Piece<Placeholder>>>,
 }
 
 /// What a placeholder stands for.
@@ -44,12 +45,8 @@ pub enum CommandLineError {
     Empty,
     #[error("unterminated quote or trailing backslash")]
     UnterminatedQuoteOrBackslash,
-    #[error("unknown placeholder \"{{{0}}}\"")]
-    UnknownPlaceholder(String),
-    #[error("unclosed {{")]
-    UnclosedBrace,
-    #[error("unmatched }}")]
-    UnmatchedBrace,
+    #[error(transparent)]
+    Placeholder(#[from] PlaceholderError),
     #[error("placeholder in the program")]
     PlaceholderInProgram,
     #[error("more than one list of paths in an argument")]
@@ -236,12 +233,6 @@ pub(crate) fn escape_braces(text: &str) -> String {
     text.replace('{', "{{").replace('}', "}}")
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Piece {
-    Text(String),
-    Placeholder(Placeholder),
-}
-
 // The rules follow the `Os` value rather than `cfg` so that both sets are
 // compiled and tested on every host.
 fn split(text: &str, os: Os) -> Result<Vec<String>, CommandLineError> {
@@ -316,50 +307,6 @@ fn dir_values(dir: &PathBuf) -> &[PathBuf] {
     } else {
         std::slice::from_ref(dir)
     }
-}
-
-// Every brace is part of a placeholder or doubled, so that any other form can
-// be given a meaning later without changing what a working line does.
-fn pieces(
-    token: &str,
-    placeholder: fn(&str) -> Option<Placeholder>,
-) -> Result<Vec<Piece>, CommandLineError> {
-    let mut pieces = Vec::new();
-    let mut text = String::new();
-    let mut rest = token;
-    while let Some(c) = rest.chars().next() {
-        rest = &rest[c.len_utf8()..];
-        match c {
-            '{' => {
-                if let Some(after) = rest.strip_prefix('{') {
-                    text.push('{');
-                    rest = after;
-                    continue;
-                }
-                let (inside, after) = rest
-                    .split_once('}')
-                    .ok_or(CommandLineError::UnclosedBrace)?;
-                rest = after;
-                let placeholder = placeholder(inside)
-                    .ok_or_else(|| CommandLineError::UnknownPlaceholder(inside.to_owned()))?;
-                if !text.is_empty() {
-                    pieces.push(Piece::Text(std::mem::take(&mut text)));
-                }
-                pieces.push(Piece::Placeholder(placeholder));
-            }
-            '}' => {
-                rest = rest
-                    .strip_prefix('}')
-                    .ok_or(CommandLineError::UnmatchedBrace)?;
-                text.push('}');
-            }
-            _ => text.push(c),
-        }
-    }
-    if !text.is_empty() {
-        pieces.push(Piece::Text(text));
-    }
-    Ok(pieces)
 }
 
 pub(crate) fn quote_program(text: &str, os: Os) -> Cow<'_, str> {
@@ -448,16 +395,12 @@ mod tests {
     }
 
     #[test]
-    fn parse_rejects_braces_that_are_neither_placeholders_nor_doubled() {
-        let unknown = |name: &str| CommandLineError::UnknownPlaceholder(name.to_owned());
+    fn parse_rejects_bad_placeholders() {
         let cases = [
-            ("x {name}", unknown("name")),
-            ("x {}", unknown("")),
-            ("x {DIR}", unknown("DIR")),
-            ("x '{ dir }'", unknown(" dir ")),
-            ("x a{b{dir}", unknown("b{dir")),
-            ("x {dir", CommandLineError::UnclosedBrace),
-            ("x dir}", CommandLineError::UnmatchedBrace),
+            (
+                "x {dir",
+                CommandLineError::Placeholder(PlaceholderError::Unclosed),
+            ),
             ("{dir} x", CommandLineError::PlaceholderInProgram),
             (
                 "x {marked_paths}:{paths}",
@@ -471,7 +414,11 @@ mod tests {
 
     #[test]
     fn parse_takes_the_placeholders_of_its_own_kind_of_line_only() {
-        let unknown = |name: &str| Err(CommandLineError::UnknownPlaceholder(name.to_owned()));
+        let unknown = |name: &str| {
+            Err(CommandLineError::Placeholder(PlaceholderError::Unknown(
+                name.to_owned(),
+            )))
+        };
 
         assert_eq!(CommandLine::parse("x {path}", Os::Linux), unknown("path"));
         for name in ["cursor_path", "marked_paths", "paths", "dir", "other_dir"] {
