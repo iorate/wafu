@@ -399,6 +399,10 @@ impl Harness {
         self.send(Msg::Mouse(MouseInput::RightClick { side, row }));
     }
 
+    pub(crate) fn drag(&mut self, side: Side, row: usize) {
+        self.send(Msg::Mouse(MouseInput::DragStart { side, row }));
+    }
+
     // Enters the archive under the cursor with Enter and answers the read
     // with the given entries.
     pub(crate) fn enter_archive(&mut self, side: Side, entries: Vec<Entry>) {

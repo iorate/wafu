@@ -10,6 +10,8 @@ mod color_scheme;
 #[cfg(windows)]
 mod com;
 mod config;
+#[cfg(windows)]
+mod drag;
 mod drives;
 mod elevation;
 mod fs_ops;
@@ -36,6 +38,8 @@ mod window_icon;
 mod window_place;
 
 pub use config::read_or_create;
+#[cfg(windows)]
+pub use drag::drag_files;
 pub use elevation::is_elevated;
 #[cfg(windows)]
 pub use message::show_message;

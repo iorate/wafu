@@ -964,6 +964,41 @@ impl App {
         effects.push(Effect::ClipboardFiles(paths));
     }
 
+    pub(super) fn drag_files(&mut self, effects: &mut Vec<Effect>) {
+        let Some(targets) = self.active_pane().targets() else {
+            return;
+        };
+        // Nothing is extracted to drag it out: the drag has to start while
+        // the button is held, which leaves no time to wait for an extraction
+        // or to ask for a password.
+        if targets.location.in_archive() {
+            self.log.push(AppError::DragInArchive.to_string());
+            return;
+        }
+        let names = targets.entries.iter().map(|entry| entry.name.as_os_str());
+        if let Some(error) = self.bad_target("drag", &targets.location, names) {
+            self.log.push(error.to_string());
+            return;
+        }
+        // Refused as by `copy_files`, so that the two ways of handing files
+        // to another application take the same ones.
+        if let Some(link) = targets
+            .entries
+            .iter()
+            .find(|entry| matches!(entry.kind, EntryKind::Symlink { .. }))
+        {
+            let path = targets.location.base.join(&link.name);
+            self.log.push(AppError::LinkDragged { path }.to_string());
+            return;
+        }
+        let paths = targets
+            .entries
+            .iter()
+            .map(|entry| targets.location.base.join(&entry.name))
+            .collect();
+        effects.push(Effect::DragFiles(paths));
+    }
+
     // A paste always copies, even what another application cut: arboard can
     // neither read nor write the mark that says files were cut, so a cut
     // would need code of wafu's own for each clipboard, and macOS has no such

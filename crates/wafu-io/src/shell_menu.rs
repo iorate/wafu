@@ -15,7 +15,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenuEx, WM_DRAWITEM, WM_INITMENUPOPUP,
     WM_LBUTTONDOWN, WM_MEASUREITEM, WM_MENUCHAR, WM_RBUTTONDBLCLK,
 };
-use windows::core::{HSTRING, Interface, PCSTR, PCWSTR};
+use windows::core::{GUID, HSTRING, Interface, PCSTR, PCWSTR};
 
 use crate::com::ComScope;
 
@@ -54,7 +54,7 @@ pub fn shell_menu(
     }
     let hwnd = HWND(window as *mut _);
     let _com = ComScope::enter();
-    let menu = context_menu(paths)?;
+    let menu: IContextMenu = bind_items(paths, &BHID_SFUIObject)?;
     // SAFETY: the function takes no arguments and returns an owned menu handle.
     let hmenu = unsafe { CreatePopupMenu() }?;
     let result = track(hwnd, &menu, hmenu, paths[0].as_ref(), x, y);
@@ -63,16 +63,15 @@ pub fn shell_menu(
     result
 }
 
-enum Handler {
-    V3(IContextMenu3),
-    V2(IContextMenu2),
-}
-
-// The context menu handler of the paths, which all lie in the same directory.
-// An item array binds the handler for several items at once, without the
-// parent folder and child item lists that `IShellFolder::GetUIObjectOf` wants.
+// A handler of the paths, which all lie in the same directory, such as their
+// context menu or data object. An item array binds the handler for several
+// items at once, without the parent folder and child item lists that
+// `IShellFolder::GetUIObjectOf` wants.
 #[allow(unsafe_code)]
-fn context_menu(paths: &[impl AsRef<Path>]) -> Result<IContextMenu, ShellMenuError> {
+pub(crate) fn bind_items<T: Interface>(
+    paths: &[impl AsRef<Path>],
+    handler: &GUID,
+) -> windows::core::Result<T> {
     let mut pidls: Vec<*const ITEMIDLIST> = Vec::with_capacity(paths.len());
     let parse = |path: &Path| -> windows::core::Result<*const ITEMIDLIST> {
         let name = HSTRING::from(path.as_os_str());
@@ -88,14 +87,19 @@ fn context_menu(paths: &[impl AsRef<Path>]) -> Result<IContextMenu, ShellMenuErr
         }
         // SAFETY: every pointer in `pidls` is a valid item list.
         let array: IShellItemArray = unsafe { SHCreateShellItemArrayFromIDLists(&pidls) }?;
-        // SAFETY: a bind context is optional and the handler id is a documented constant.
-        unsafe { array.BindToHandler::<_, IContextMenu>(None, &BHID_SFUIObject) }
+        // SAFETY: a bind context is optional and the callers pass a documented handler id.
+        unsafe { array.BindToHandler::<_, T>(None, handler) }
     })();
     for pidl in pidls {
         // SAFETY: each item list came from `SHParseDisplayName` and is used no more.
         unsafe { ILFree(Some(pidl)) };
     }
-    Ok(array?)
+    array
+}
+
+enum Handler {
+    V3(IContextMenu3),
+    V2(IContextMenu2),
 }
 
 // Fills the menu, shows it, and runs the chosen command.

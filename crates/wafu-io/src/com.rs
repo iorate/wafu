@@ -1,4 +1,5 @@
 use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize};
+use windows::Win32::System::Ole::{OleInitialize, OleUninitialize};
 
 // Enters a single-threaded apartment for the scope if the thread is not in one yet.
 pub(crate) struct ComScope {
@@ -25,6 +26,33 @@ impl Drop for ComScope {
         if self.initialized {
             // SAFETY: paired with the successful `CoInitializeEx` in `enter`.
             unsafe { CoUninitialize() };
+        }
+    }
+}
+
+// Enters OLE for the scope, which drag and drop needs on top of COM; an
+// initialization already in force is kept and balanced.
+pub(crate) struct OleScope {
+    initialized: bool,
+}
+
+impl OleScope {
+    #[allow(unsafe_code)]
+    pub(crate) fn enter() -> Self {
+        // SAFETY: the call only affects this thread's OLE state and is balanced in `drop`.
+        let result = unsafe { OleInitialize(None) };
+        Self {
+            initialized: result.is_ok(),
+        }
+    }
+}
+
+impl Drop for OleScope {
+    #[allow(unsafe_code)]
+    fn drop(&mut self) {
+        if self.initialized {
+            // SAFETY: paired with the successful `OleInitialize` in `enter`.
+            unsafe { OleUninitialize() };
         }
     }
 }

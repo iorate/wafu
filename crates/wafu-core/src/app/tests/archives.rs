@@ -680,6 +680,24 @@ fn right_click_inside_an_archive_on_windows_is_refused() {
 }
 
 #[test]
+fn drag_inside_an_archive_on_windows_is_refused() {
+    let mut harness = Harness::start_on(Os::Windows, r"C:\Users\me", r"D:\");
+    harness.load(Side::Left, vec![file("a.zip")]);
+    harness.press("Down");
+    harness.enter_archive(Side::Left, contents());
+    harness.take_effects();
+
+    harness.drag(Side::Left, 2);
+
+    assert_eq!(harness.cursor_name(Side::Left), "b.txt");
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log(),
+        ["Cannot drag: not available inside an archive"]
+    );
+}
+
+#[test]
 fn a_name_ending_with_a_dot_inside_an_archive_on_windows_is_not_refused() {
     let mut harness = Harness::start_on(Os::Windows, r"C:\Users\me", r"D:\");
     harness.load(Side::Left, vec![file("a.zip")]);
