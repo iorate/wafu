@@ -51,6 +51,8 @@ pub enum CommandLineError {
     PlaceholderInProgram,
     #[error("more than one list of paths in an argument")]
     ListsInOneArgument,
+    #[error("more than one of {{cursor_path}}, {{marked_paths}}, and {{paths}}")]
+    PathPlaceholdersMixed,
 }
 
 /// A placeholder that has no value, which keeps the line from being started.
@@ -83,21 +85,17 @@ impl CommandLine {
         &self.program
     }
 
-    /// Whether an argument stands for paths of entries, which inside an
-    /// archive have to be extracted first.
+    /// The placeholder for paths of entries that the line uses, which inside
+    /// an archive have to be extracted first. A line has one kind at most.
+    #[must_use]
+    pub fn paths_placeholder(&self) -> Option<Placeholder> {
+        path_placeholders(&self.args).next()
+    }
+
+    /// Whether the line uses a placeholder for paths of entries.
     #[must_use]
     pub fn uses_paths(&self) -> bool {
-        self.args.iter().flatten().any(|piece| {
-            matches!(
-                piece,
-                Piece::Placeholder(
-                    Placeholder::CursorPath
-                        | Placeholder::MarkedPaths
-                        | Placeholder::Paths
-                        | Placeholder::Path
-                )
-            )
-        })
+        self.paths_placeholder().is_some()
     }
 
     /// The arguments with the placeholders filled in. An argument that holds
@@ -149,7 +147,7 @@ impl CommandLine {
             [Piece::Text(text)] => text.clone(),
             _ => return Err(CommandLineError::PlaceholderInProgram),
         };
-        let args = tokens
+        let args: Vec<_> = tokens
             .iter()
             .map(|token| {
                 let pieces = pieces(token, placeholder)?;
@@ -163,6 +161,17 @@ impl CommandLine {
                 Ok(pieces)
             })
             .collect::<Result<_, _>>()?;
+        // The cursor row and the marks can be entries of two places, and one
+        // extraction from an archive takes entries of one place only.
+        let mixed = {
+            let mut kinds = path_placeholders(&args);
+            kinds
+                .next()
+                .is_some_and(|first| kinds.any(|kind| kind != first))
+        };
+        if mixed {
+            return Err(CommandLineError::PathPlaceholdersMixed);
+        }
         Ok(Self {
             source: text.to_owned(),
             program,
@@ -201,6 +210,13 @@ impl Placeholder {
     fn is_list(self) -> bool {
         matches!(self, Self::MarkedPaths | Self::Paths)
     }
+
+    fn is_path(self) -> bool {
+        matches!(
+            self,
+            Self::CursorPath | Self::MarkedPaths | Self::Paths | Self::Path
+        )
+    }
 }
 
 impl Expansion {
@@ -227,6 +243,13 @@ pub fn format_line(program: &str, args: &[OsString], os: Os) -> String {
         .chain(args)
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+fn path_placeholders(args: &[Vec<Piece<Placeholder>>]) -> impl Iterator<Item = Placeholder> {
+    args.iter().flatten().filter_map(|piece| match piece {
+        Piece::Placeholder(placeholder) if placeholder.is_path() => Some(*placeholder),
+        _ => None,
+    })
 }
 
 pub(crate) fn escape_braces(text: &str) -> String {
@@ -398,9 +421,18 @@ mod tests {
     fn parse_rejects_bad_placeholders() {
         let cases = [
             ("{dir} x", CommandLineError::PlaceholderInProgram),
+            ("x {paths}:{paths}", CommandLineError::ListsInOneArgument),
             (
-                "x {marked_paths}:{paths}",
-                CommandLineError::ListsInOneArgument,
+                "x {cursor_path} {marked_paths}",
+                CommandLineError::PathPlaceholdersMixed,
+            ),
+            (
+                "x {cursor_path} {paths}",
+                CommandLineError::PathPlaceholdersMixed,
+            ),
+            (
+                "x {paths} -- {marked_paths}",
+                CommandLineError::PathPlaceholdersMixed,
             ),
         ];
         for (text, error) in cases {
@@ -432,17 +464,17 @@ mod tests {
     }
 
     #[test]
-    fn uses_paths_is_true_only_for_a_placeholder_of_entry_paths() {
+    fn paths_placeholder_is_the_one_kind_for_entry_paths_that_the_line_uses() {
         let cases = [
-            ("x {cursor_path}", true),
-            ("x {marked_paths}", true),
-            ("x {paths}", true),
-            ("x {dir} {other_dir}", false),
+            ("x {cursor_path}", Some(Placeholder::CursorPath)),
+            ("x {marked_paths}", Some(Placeholder::MarkedPaths)),
+            ("x {dir} {paths} {paths}", Some(Placeholder::Paths)),
+            ("x {dir} {other_dir}", None),
         ];
         for (text, expected) in cases {
             let line = CommandLine::parse(text, Os::Linux).unwrap();
 
-            assert_eq!(line.uses_paths(), expected, "{text:?}");
+            assert_eq!(line.paths_placeholder(), expected, "{text:?}");
         }
     }
 
@@ -456,21 +488,20 @@ mod tests {
     #[test]
     fn expand_fills_in_placeholders_anywhere_in_an_argument() {
         let line = CommandLine::parse(
-            "x {dir} --dir={dir} \"{cursor_path}\" {dir}:{other_dir} {paths}",
+            "x {dir} --dir={dir} \"{cursor_path}\" {dir}:{other_dir}",
             Os::Linux,
         )
         .unwrap();
 
         let expansion = Expansion {
             cursor_path: Some(PathBuf::from("/c d")),
-            paths: vec![PathBuf::from("/p1"), PathBuf::from("/p2")],
             dir: PathBuf::from("/d"),
             other_dir: PathBuf::from("/o"),
             ..Expansion::default()
         };
         assert_eq!(
             line.expand(&expansion).unwrap(),
-            ["/d", "--dir=/d", "/c d", "/d:/o", "/p1", "/p2"].map(OsString::from)
+            ["/d", "--dir=/d", "/c d", "/d:/o"].map(OsString::from)
         );
     }
 

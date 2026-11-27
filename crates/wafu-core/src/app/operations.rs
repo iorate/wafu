@@ -6,7 +6,7 @@ use super::{App, Change, Effect, MenuAnchor, Os, PreviewSource, Side, SpawnName}
 use crate::command::{Command, Context};
 use crate::entry::{Entry, EntryKind};
 use crate::error::{AppError, IoError};
-use crate::external::{CommandLine, Expansion};
+use crate::external::{CommandLine, Expansion, Placeholder};
 use crate::filter::Filter;
 use crate::key::{Key, KeyBase, NamedKey};
 use crate::location::{ArchiveFormat, Location, Passwords};
@@ -14,7 +14,7 @@ use crate::operation::{
     ArchiveEntries, ArchiveOutput, FindQuery, OperationEvent, OperationKind, OperationSpec,
     Outcome, OutcomeLine, Renames, Reply, Sources, plural,
 };
-use crate::pane::HistoryMove;
+use crate::pane::{HistoryMove, Targets};
 use crate::popup::{
     ChoiceKind, ChoicePopup, ConflictPopup, InputKind, InputPopup, ListPopup, PasswordPurpose,
     Popup, RenameMode, RenamePopup,
@@ -707,8 +707,6 @@ impl App {
             let temp = Temp {
                 action: TempAction::Edit,
                 from: location.clone(),
-                cursor: Some(TempPath::Extracted(entry.name.clone())),
-                marked: Vec::new(),
                 targets: vec![entry.name.clone()],
                 entry_skipped: false,
             };
@@ -725,8 +723,6 @@ impl App {
             let temp = Temp {
                 action: TempAction::Edit,
                 from,
-                cursor: Some(TempPath::Extracted(OsString::from(&name))),
-                marked: Vec::new(),
                 targets: vec![OsString::from(&name)],
                 entry_skipped: false,
             };
@@ -780,8 +776,6 @@ impl App {
             let temp = Temp {
                 action: TempAction::Run { executable },
                 from: location.clone(),
-                cursor: Some(TempPath::Extracted(entry.name.clone())),
-                marked: Vec::new(),
                 targets: vec![entry.name.clone()],
                 entry_skipped: false,
             };
@@ -792,9 +786,8 @@ impl App {
         }
     }
 
-    // Inside an archive, a line that uses a path placeholder may use any of
-    // them, so the cursor entry and the marked entries are all extracted
-    // first, from one place in the archive.
+    // A line uses one kind of path placeholder, so what it runs on is the
+    // entries of one place: inside an archive, one extraction.
     pub(super) fn start_line(
         &mut self,
         name: SpawnName,
@@ -802,83 +795,55 @@ impl App {
         effects: &mut Vec<Effect>,
     ) {
         let pane = self.active_pane();
-        if line.uses_paths() {
-            let cursor = pane.cursor_target().and_then(|(at, entry)| {
-                self.bad_target("run a command on", &at, [entry.name.as_os_str()])
-            });
-            let error = cursor.or_else(|| {
-                let targets = pane.targets()?;
-                let names = targets.entries.iter().map(|entry| entry.name.as_os_str());
-                self.bad_target("run a command on", &targets.location, names)
-            });
-            if let Some(error) = error {
-                self.log.push(error.to_string());
-                return;
+        let targets = match line.paths_placeholder() {
+            None | Some(Placeholder::Dir | Placeholder::OtherDir) => None,
+            Some(Placeholder::MarkedPaths) => Some(Targets {
+                location: pane.location().clone(),
+                entries: pane.marked_entries().cloned().collect(),
+            }),
+            Some(Placeholder::Paths) => pane.targets(),
+            Some(Placeholder::CursorPath | Placeholder::Path) => {
+                pane.cursor_target().map(|(location, entry)| Targets {
+                    location,
+                    entries: vec![entry],
+                })
             }
-        }
-        let location = pane.location().clone();
-        if !location.in_archive() || !line.uses_paths() {
-            self.spawn(name, &line, &self.expansion(), effects);
+        };
+        let expansion = self.expansion();
+        let Some(targets) = targets else {
+            self.spawn(name, &line, &expansion, effects);
             return;
-        }
-        let marked: Vec<OsString> = pane
-            .marked_entries()
+        };
+        let names: Vec<OsString> = targets
+            .entries
+            .iter()
             .map(|entry| entry.name.clone())
             .collect();
-        let entries = pane.cursor_entry().into_iter().chain(pane.marked_entries());
-        if let Some(error) = link_in_archive("run a command on", &location, entries) {
+        let error = self
+            .bad_target(
+                "run a command on",
+                &targets.location,
+                names.iter().map(OsString::as_os_str),
+            )
+            .or_else(|| link_in_archive("run a command on", &targets.location, &targets.entries));
+        if let Some(error) = error {
             self.log.push(error.to_string());
             return;
         }
-        let (from, cursor, extracted) = match pane.cursor_target() {
-            Some((at, entry)) if at == location => {
-                let mut names = marked.clone();
-                if !names.contains(&entry.name) {
-                    names.push(entry.name.clone());
-                }
-                (at, Some(TempPath::Extracted(entry.name)), names)
-            }
-            // The `..` row at the archive root is the archive file itself,
-            // which needs no extraction.
-            Some((at, entry)) if !at.in_archive() => {
-                let path = at.base.join(&entry.name);
-                (location, Some(TempPath::Real(path)), marked.clone())
-            }
-            // The `..` row elsewhere in an archive is an entry of the place
-            // above: the directory the marks are in, which would extract
-            // everything in it, or at the root of an archive inside an
-            // archive, that archive. With marks, they are extracted alone and
-            // the cursor path is left out, since entries of two places cannot
-            // go in one extraction.
-            Some((at, entry)) if marked.is_empty() => {
-                let cursor = TempPath::Extracted(entry.name.clone());
-                (at, Some(cursor), vec![entry.name])
-            }
-            _ => (location, None, marked.clone()),
-        };
-        let mut expansion = self.expansion();
-        if cursor.is_none() {
-            expansion.cursor_path = None;
-        }
-        // A line that is not going to start has nothing extracted for it.
-        if extracted.is_empty() || line.expand(&expansion).is_err() {
+        // The `..` row at the root of an archive on disk is the archive file
+        // itself, which needs no extraction. A line that is not going to
+        // start has nothing extracted for it.
+        if !targets.location.in_archive() || line.expand(&expansion).is_err() {
             self.spawn(name, &line, &expansion, effects);
             return;
         }
-        let targets = if marked.is_empty() {
-            extracted.clone()
-        } else {
-            marked.clone()
-        };
+        let entries = self.archive_entries(&targets.location, &names);
         let temp = Temp {
             action: TempAction::Spawn { name, line },
-            from: from.clone(),
-            cursor,
-            marked,
-            targets,
+            from: targets.location,
+            targets: names,
             entry_skipped: false,
         };
-        let entries = self.archive_entries(&from, &extracted);
         self.start_temp(temp, entries, effects);
     }
 
@@ -900,8 +865,6 @@ impl App {
             let temp = Temp {
                 action: TempAction::Spawn { name, line },
                 from: location.clone(),
-                cursor: Some(TempPath::Extracted(entry.name.clone())),
-                marked: Vec::new(),
                 targets: vec![entry.name.clone()],
                 entry_skipped: false,
             };
@@ -1172,8 +1135,6 @@ impl App {
         Temp {
             action: TempAction::OpenWithOs,
             from: location.clone(),
-            cursor: Some(TempPath::Extracted(name.clone())),
-            marked: Vec::new(),
             targets: vec![name],
             entry_skipped: false,
         }
@@ -1353,16 +1314,14 @@ impl App {
     }
 
     fn run_temp_action(&mut self, temp: Temp, dir: &Path, effects: &mut Vec<Effect>) {
-        let to_temp = |name: &OsString| dir.join(name);
-        let cursor_path = temp.cursor.as_ref().map(|cursor| match cursor {
-            TempPath::Extracted(name) => to_temp(name),
-            TempPath::Real(path) => path.clone(),
-        });
+        let paths: Vec<PathBuf> = temp.targets.iter().map(|name| dir.join(name)).collect();
+        // A line uses one kind of path placeholder, and the targets are the
+        // entries that kind stands for.
         let expansion = Expansion {
-            path: cursor_path.clone(),
-            cursor_path,
-            marked_paths: temp.marked.iter().map(to_temp).collect(),
-            paths: temp.targets.iter().map(to_temp).collect(),
+            path: paths.first().cloned(),
+            cursor_path: paths.first().cloned(),
+            marked_paths: paths.clone(),
+            paths,
             dir: self.active_pane().location().dir().to_path_buf(),
             other_dir: self
                 .pane(self.active.other())
@@ -1493,9 +1452,7 @@ pub(crate) struct Operation {
 struct Temp {
     action: TempAction,
     from: Location,
-    cursor: Option<TempPath>,
-    marked: Vec<OsString>,
-    // The entries `{paths}` stands for.
+    // The entries the path placeholder of the line stands for.
     targets: Vec<OsString>,
     entry_skipped: bool,
 }
@@ -1519,15 +1476,6 @@ impl Temp {
             Outcome::Found { .. } | Outcome::Measured { .. } => None,
         }
     }
-}
-
-// What `{cursor_path}` and `{path}` stand for once the extraction is done.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum TempPath {
-    // An extracted entry, by its name under the temporary directory.
-    Extracted(OsString),
-    // A file outside the archive, used as it is.
-    Real(PathBuf),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

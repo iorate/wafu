@@ -318,11 +318,13 @@ These placeholders are replaced when the command runs:
 
 A placeholder is replaced wherever it stands in an argument: `-o{other_dir}` and `--dir={dir}` work. Quoting does not turn it into text. `{marked_paths}` and `{paths}` are lists: an argument that holds one is repeated for each path, so `{paths}` becomes one argument per item and `--add={marked_paths}` becomes `--add=/a --add=/b`. An argument can hold only one list. The program, the first word of the line, cannot hold a placeholder.
 
+A line can use only one of `{cursor_path}`, `{marked_paths}`, and `{paths}`, as many times as it needs.
+
 To write a brace as text, double it: `{{` and `}}`. Any other brace is an error, as is a name in braces that is not in the table.
 
 When a placeholder in the line has no value, such as `{marked_paths}` with nothing marked, the command is not started and the log says which placeholder was empty.
 
-Paths are full paths. Inside an archive, a line that uses `{cursor_path}`, `{marked_paths}`, or `{paths}` first extracts the items to a temporary directory, and those placeholders name the extracted files. There, on a `..` row other than the one at the root of the outermost archive, `{cursor_path}` is empty while items are marked. `{dir}` is then the directory that holds the archive file, the outermost one for an archive inside an archive.
+Paths are full paths. Inside an archive, a line that uses `{cursor_path}`, `{marked_paths}`, or `{paths}` first extracts the items to a temporary directory, and those placeholders name the extracted files. `{dir}` is then the directory that holds the archive file, the outermost one for an archive inside an archive.
 
 The same rules apply to the lines typed into the dialogs of `run` and `run_command_line`. `run` doubles the braces in the path it starts out with.
 
