@@ -965,7 +965,7 @@ impl RenamePopup {
                     ..InputField::new(String::new())
                 },
             ],
-            // Typing replaces the name and keeps the extension, as in `rename`.
+            // Typing replaces the stem and keeps the extension, as in `rename`.
             RenameMode::Template => vec![InputField {
                 select: Some((0, "{stem}".len())),
                 ..InputField::new(INITIAL_TEMPLATE.to_owned())

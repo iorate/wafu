@@ -37,7 +37,7 @@ fn rename_replace_opens_with_two_empty_fields_and_the_hint() {
 }
 
 #[test]
-fn rename_template_opens_with_the_name_placeholder_selected() {
+fn rename_template_opens_with_the_stem_placeholder_selected() {
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.load(Side::Left, vec![file("a.txt"), file("b.txt")]);
     harness.press("Down");

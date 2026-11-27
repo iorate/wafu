@@ -286,7 +286,7 @@ mod tests {
     }
 
     #[test]
-    fn template_name_and_ext_give_the_composed_original() {
+    fn template_stem_and_ext_give_the_composed_original() {
         assert_eq!(
             apply("{stem}{ext}", &file("e\u{301}.t\u{30c}"), 0),
             "\u{e9}.\u{165}"
