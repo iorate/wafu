@@ -4,11 +4,11 @@ use std::path::{Path, PathBuf};
 
 use toml::{Table, Value};
 
-use super::{
-    Bookmark, COLUMN_CHARS_MAX, Color, Colors, Config, Diagnostic, DiagnosticKind, FONT_SIZE_MAX,
-    FONT_SIZE_MIN, Font, ImagePlacement, OpenAlternativeConfig, SIZE_DIGITS_MAX, SIZE_DIGITS_MIN,
-    SizeFormat, SyntaxError, Theme,
+use super::settings::{
+    COLORS, COLORS_CONFIG, FILELIST, FONT, IMAGE_PREVIEW, Kind, LOG, PROGRAMS, Rgb, Setting,
+    TEXT_PREVIEW,
 };
+use super::{Bookmark, Config, Diagnostic, DiagnosticKind, OpenAlternativeConfig, SyntaxError};
 use crate::app::Os;
 use crate::command::{Command, Context};
 use crate::external::CommandLine;
@@ -49,12 +49,12 @@ pub(super) fn parse_layers<'a>(
     }
     let mut config = Config::default_for(os);
     let mut root = Reader::new(merged, String::new(), &mut diagnostics);
-    read_filelist(&mut root, &mut config);
-    read_preview(&mut root, &mut config);
-    read_log(&mut root, &mut config);
+    read_filelist(&mut root, &mut config, os);
+    read_preview(&mut root, &mut config, os);
+    read_log(&mut root, &mut config, os);
     read_programs(&mut root, &mut config, os);
-    read_font(&mut root, &mut config);
-    read_colors(&mut root, &mut config);
+    read_font(&mut root, &mut config, os);
+    read_colors(&mut root, &mut config, os);
     read_bookmarks(&mut root, &mut config, bookmarks_dir);
     read_commands(&mut root, &mut config, os);
     read_open_alternative(&mut root, &mut config, os);
@@ -131,6 +131,29 @@ impl<'a> Reader<'a> {
         }
     }
 
+    fn settings<T>(&mut self, settings: &[Setting<T>], target: &mut T, os: Os) {
+        for setting in settings {
+            if setting.empty_unsets && self.take_unset(setting.key) {
+                continue;
+            }
+            if let Some(value) = self.table.remove(setting.key) {
+                let read = (setting.read)(target, value, os);
+                self.checked(setting.key, read);
+            }
+        }
+    }
+
+    fn checked<T>(&mut self, key: &str, read: Result<T, DiagnosticKind>) -> Option<T> {
+        match read {
+            Ok(value) => Some(value),
+            Err(kind) => {
+                let path = self.path_of(key);
+                self.report(path, kind);
+                None
+            }
+        }
+    }
+
     // TOML has no null, so an empty string stands for an item that no file
     // has written: it is how a file takes back what a file it extends set.
     // Nothing takes an empty string as a value of its own. Items of an array
@@ -169,27 +192,6 @@ impl<'a> Reader<'a> {
         }
     }
 
-    fn bool(&mut self, key: &str) -> Option<bool> {
-        if let Value::Boolean(value) = self.table.remove(key)? {
-            Some(value)
-        } else {
-            self.invalid(key, "true or false");
-            None
-        }
-    }
-
-    fn choice<T>(
-        &mut self,
-        key: &str,
-        expected: &str,
-        parse: impl FnOnce(&str) -> Option<T>,
-    ) -> Option<T> {
-        if self.take_unset(key) {
-            return None;
-        }
-        self.parsed(key, expected, parse)
-    }
-
     // Reads a string and maps it; anything the mapping rejects is invalid.
     // The message names the choices even for a value of another type, since
     // that is what the user has to write.
@@ -209,84 +211,9 @@ impl<'a> Reader<'a> {
         value
     }
 
-    fn size(&mut self, key: &str) -> Option<u16> {
-        let expected = format!("an integer from {FONT_SIZE_MIN} to {FONT_SIZE_MAX}");
-        match self.table.remove(key)? {
-            Value::Integer(value)
-                if (i64::from(FONT_SIZE_MIN)..=i64::from(FONT_SIZE_MAX)).contains(&value) =>
-            {
-                u16::try_from(value).ok()
-            }
-            _ => {
-                self.invalid(key, &expected);
-                None
-            }
-        }
-    }
-
-    fn opacity(&mut self, key: &str) -> Option<u8> {
-        let fraction = match self.table.remove(key)? {
-            Value::Float(value) => value,
-            Value::Integer(0) => 0.0,
-            Value::Integer(1) => 1.0,
-            _ => f64::NAN,
-        };
-        if (0.0..=1.0).contains(&fraction) {
-            // From 0 to 100, since the fraction is from 0 to 1.
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            Some((fraction * 100.0).round() as u8)
-        } else {
-            self.invalid(key, "a number from 0 to 1");
-            None
-        }
-    }
-
-    fn limit(&mut self, key: &str) -> Option<usize> {
-        match self.table.remove(key)? {
-            Value::Integer(value) if value >= 1 => usize::try_from(value).ok(),
-            _ => {
-                self.invalid(key, "an integer of 1 or more");
-                None
-            }
-        }
-    }
-
-    fn non_negative(&mut self, key: &str) -> Option<u64> {
-        match self.table.remove(key)? {
-            Value::Integer(value) if value >= 0 => u64::try_from(value).ok(),
-            _ => {
-                self.invalid(key, "an integer of 0 or more");
-                None
-            }
-        }
-    }
-
-    fn count(&mut self, key: &str, min: usize, max: usize) -> Option<usize> {
-        let count = match self.table.remove(key)? {
-            Value::Integer(value) => usize::try_from(value)
-                .ok()
-                .filter(|count| (min..=max).contains(count)),
-            _ => None,
-        };
-        if count.is_none() {
-            self.invalid(key, &format!("an integer from {min} to {max}"));
-        }
-        count
-    }
-
-    fn color(&mut self, key: &str) -> Option<Color> {
-        self.choice(key, "a color like #rrggbb", Color::parse)
-    }
-
     fn command_line(&mut self, key: &str, text: &str, os: Os) -> Option<CommandLine> {
-        match CommandLine::parse(text, os) {
-            Ok(line) => Some(line),
-            Err(error) => {
-                let path = self.path_of(key);
-                self.report(path, DiagnosticKind::InvalidCommandLine(error));
-                None
-            }
-        }
+        let line = CommandLine::parse(text, os).map_err(DiagnosticKind::InvalidCommandLine);
+        self.checked(key, line)
     }
 
     fn entries(&mut self) -> Vec<(String, Value)> {
@@ -301,117 +228,43 @@ impl<'a> Reader<'a> {
     }
 }
 
-fn read_filelist(root: &mut Reader<'_>, config: &mut Config) {
-    let Some(mut filelist) = root.table("filelist") else {
-        return;
-    };
-    let settings = &mut config.filelist;
-    for (key, setting) in [
-        ("new_dir_enters_dir", &mut settings.new_dir_enters_dir),
-        ("new_text_creates_file", &mut settings.new_text_creates_file),
-        ("extract_creates_dir", &mut settings.extract_creates_dir),
-        ("require_marks", &mut settings.require_marks),
-        (
-            "search_matches_anywhere",
-            &mut settings.search_matches_anywhere,
-        ),
-        ("time_shows_full_year", &mut settings.time_format.full_year),
-        ("time_shows_seconds", &mut settings.time_format.seconds),
-    ] {
-        if let Some(value) = filelist.bool(key) {
-            *setting = value;
-        }
+fn read_filelist(root: &mut Reader<'_>, config: &mut Config, os: Os) {
+    if let Some(mut filelist) = root.table("filelist") {
+        filelist.settings(FILELIST, &mut config.filelist, os);
+        filelist.finish();
     }
-    if let Some(format) = filelist.choice(
-        "size_format",
-        "plain, comma, or human",
-        SizeFormat::from_name,
-    ) {
-        settings.size_format = format;
-    }
-    if let Some(digits) = filelist.count("size_digits", SIZE_DIGITS_MIN, SIZE_DIGITS_MAX) {
-        settings.size_digits = digits;
-    }
-    if let Some(chars) = filelist.count("extension_chars", 1, COLUMN_CHARS_MAX) {
-        settings.extension_chars = chars;
-    }
-    if let Some(chars) = filelist.count("min_name_chars", 1, COLUMN_CHARS_MAX) {
-        settings.min_name_chars = chars;
-    }
-    if let Some(max) = filelist.limit("max_history") {
-        settings.max_history = max;
-    }
-    if let Some(max) = filelist.limit("max_find_results") {
-        settings.max_find_results = max;
-    }
-    if let Some(ms) = filelist.non_negative("compare_tolerance_ms") {
-        settings.compare_tolerance_ms = ms;
-    }
-    filelist.finish();
 }
 
-fn read_preview(root: &mut Reader<'_>, config: &mut Config) {
+fn read_preview(root: &mut Reader<'_>, config: &mut Config, os: Os) {
     let Some(mut preview) = root.table("preview") else {
         return;
     };
     if let Some(mut text) = preview.table("text") {
-        if let Some(value) = text.bool("hide_log") {
-            config.preview.text.hide_log = value;
-        }
-        if let Some(max) = text.limit("max_bytes") {
-            config.preview.text.max_bytes = max;
-        }
+        text.settings(TEXT_PREVIEW, &mut config.preview.text, os);
         text.finish();
     }
     if let Some(mut image) = preview.table("image") {
-        let settings = &mut config.preview.image;
-        for (key, setting) in [
-            ("from_left", &mut settings.from_left),
-            ("from_right", &mut settings.from_right),
-        ] {
-            if let Some(placement) =
-                image.choice(key, "other_pane or both_panes", ImagePlacement::from_name)
-            {
-                *setting = placement;
-            }
-        }
-        if let Some(value) = image.bool("hide_log") {
-            settings.hide_log = value;
-        }
-        if let Some(max) = image.limit("max_bytes") {
-            settings.max_bytes = max;
-        }
+        image.settings(IMAGE_PREVIEW, &mut config.preview.image, os);
         image.finish();
     }
     preview.finish();
 }
 
-fn read_log(root: &mut Reader<'_>, config: &mut Config) {
-    let Some(mut log) = root.table("log") else {
-        return;
-    };
-    if let Some(max) = log.limit("max_lines") {
-        config.log.max_lines = max;
+fn read_log(root: &mut Reader<'_>, config: &mut Config, os: Os) {
+    if let Some(mut log) = root.table("log") {
+        log.settings(LOG, &mut config.log, os);
+        log.finish();
     }
-    log.finish();
 }
 
 fn read_programs(root: &mut Reader<'_>, config: &mut Config, os: Os) {
-    let Some(mut programs) = root.table("programs") else {
-        return;
-    };
-    if let Some(text) = programs.string("editor")
-        && let Some(editor) = programs.command_line("editor", &text, os)
-    {
-        config.programs.editor = editor;
+    if let Some(mut programs) = root.table("programs") {
+        programs.settings(PROGRAMS, &mut config.programs, os);
+        programs.finish();
     }
-    if let Some(value) = programs.bool("use_login_shell_env") {
-        config.programs.use_login_shell_env = value;
-    }
-    programs.finish();
 }
 
-fn read_font(root: &mut Reader<'_>, config: &mut Config) {
+fn read_font(root: &mut Reader<'_>, config: &mut Config, os: Os) {
     let Some(mut font) = root.table("font") else {
         return;
     };
@@ -426,33 +279,19 @@ fn read_font(root: &mut Reader<'_>, config: &mut Config) {
         ("popup", &mut fonts.popup),
     ] {
         if let Some(mut reader) = font.table(key) {
-            read_font_items(&mut reader, area);
+            reader.settings(FONT, area, os);
             reader.finish();
         }
     }
-    read_font_items(&mut font, &mut fonts.default);
+    font.settings(FONT, &mut fonts.default, os);
     font.finish();
 }
 
-fn read_font_items(reader: &mut Reader<'_>, font: &mut Font) {
-    if let Some(family) = reader.string("family") {
-        font.family = Some(family);
-    }
-    if let Some(size) = reader.size("size") {
-        font.size = Some(size);
-    }
-}
-
-fn read_colors(root: &mut Reader<'_>, config: &mut Config) {
+fn read_colors(root: &mut Reader<'_>, config: &mut Config, os: Os) {
     let Some(mut colors) = root.table("colors") else {
         return;
     };
-    if let Some(theme) = colors.choice("theme", "auto, light, or dark", Theme::from_name) {
-        config.colors.theme = theme;
-    }
-    if let Some(opacity) = colors.opacity("hidden_opacity") {
-        config.colors.hidden_opacity = opacity;
-    }
+    colors.settings(COLORS_CONFIG, &mut config.colors, os);
     for (key, set) in [
         ("light", &mut config.colors.light),
         ("dark", &mut config.colors.dark),
@@ -460,52 +299,13 @@ fn read_colors(root: &mut Reader<'_>, config: &mut Config) {
         let Some(mut reader) = colors.table(key) else {
             continue;
         };
-        let Colors {
-            fg,
-            bg,
-            line_number,
-            mark,
-            cursor,
-            cursor_inactive,
-            dir,
-            link,
-            exec,
-            broken,
-            fifo,
-            socket,
-            extensions,
-        } = set;
         if let Some(mut table) = reader.table("extensions") {
-            read_extensions(&mut table, extensions, |table, key, value| {
-                if let Value::String(color) = &value
-                    && let Some(color) = Color::parse(color)
-                {
-                    Some(color)
-                } else {
-                    table.invalid(key, "a color like #rrggbb");
-                    None
-                }
+            read_extensions(&mut table, &mut set.extensions, |table, key, value| {
+                table.checked(key, Rgb.parse(value, os))
             });
             table.finish();
         }
-        for (item, color) in [
-            ("fg", fg),
-            ("bg", bg),
-            ("line_number", line_number),
-            ("mark", mark),
-            ("cursor", cursor),
-            ("cursor_inactive", cursor_inactive),
-            ("dir", dir),
-            ("link", link),
-            ("exec", exec),
-            ("broken", broken),
-            ("fifo", fifo),
-            ("socket", socket),
-        ] {
-            if let Some(value) = reader.color(item) {
-                *color = value;
-            }
-        }
+        reader.settings(COLORS, set, os);
         reader.finish();
     }
     colors.finish();
@@ -846,7 +646,10 @@ mod tests {
     use std::ffi::OsString;
 
     use super::*;
-    use crate::config::{ImagePreviewConfig, PreviewConfig, TextPreviewConfig, TimeFormat};
+    use crate::config::{
+        Color, ImagePlacement, ImagePreviewConfig, PreviewConfig, SizeFormat, TextPreviewConfig,
+        TimeFormat,
+    };
     use crate::external::{CommandLineError, Expansion};
 
     const FILE: &str = "/c/config.toml";

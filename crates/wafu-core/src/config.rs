@@ -12,6 +12,7 @@ use crate::keymap::KeyMap;
 use crate::path::resolve_input;
 
 mod decode;
+mod settings;
 
 /// The configuration file written when there is none.
 // Only a link to the documentation: the file is never rewritten once created,
@@ -94,16 +95,6 @@ pub enum SizeFormat {
 }
 
 impl SizeFormat {
-    #[must_use]
-    pub fn from_name(name: &str) -> Option<Self> {
-        match name {
-            "plain" => Some(Self::Plain),
-            "comma" => Some(Self::Comma),
-            "human" => Some(Self::Human),
-            _ => None,
-        }
-    }
-
     /// A sample as wide as the size column holding `digits` digits, for
     /// sizing the column.
     #[must_use]
@@ -457,16 +448,6 @@ impl Config {
     }
 }
 
-impl ImagePlacement {
-    fn from_name(name: &str) -> Option<Self> {
-        Some(match name {
-            "other_pane" => Self::OtherPane,
-            "both_panes" => Self::BothPanes,
-            _ => return None,
-        })
-    }
-}
-
 impl Font {
     /// The font to use for an area: its own items, else the default's, else
     /// `family` and the built-in size.
@@ -479,17 +460,6 @@ impl Font {
                 .unwrap_or_else(|| family.to_owned()),
             self.size.or(default.size).unwrap_or(FONT_SIZE_DEFAULT),
         )
-    }
-}
-
-impl Theme {
-    fn from_name(name: &str) -> Option<Self> {
-        Some(match name {
-            "auto" => Self::Auto,
-            "light" => Self::Light,
-            "dark" => Self::Dark,
-            _ => return None,
-        })
     }
 }
 
