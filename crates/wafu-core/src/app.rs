@@ -725,17 +725,17 @@ impl App {
             Command::GoParent => self.go_parent(effects),
             Command::GoRoot => self.go_root(effects),
             Command::GoHome => self.go_home(effects),
-            Command::HistoryBack => self.history_back(effects),
-            Command::HistoryForward => self.history_forward(effects),
+            Command::GoBack => self.go_back(effects),
+            Command::GoForward => self.go_forward(effects),
             Command::Drives => self.list_drives(DrivePurpose::Show, command, effects),
-            Command::DrivePrev => self.list_drives(DrivePurpose::Prev, command, effects),
-            Command::DriveNext => self.list_drives(DrivePurpose::Next, command, effects),
+            Command::GoPrevDrive => self.list_drives(DrivePurpose::Prev, command, effects),
+            Command::GoNextDrive => self.list_drives(DrivePurpose::Next, command, effects),
             Command::SyncToOther => self.sync_to_other(effects),
-            Command::SyncOtherToThis => self.sync_other_to_this(effects),
+            Command::SyncFromOther => self.sync_from_other(effects),
             Command::SwapPanes => self.swap_panes(effects),
             Command::FocusLeft => self.active = Side::Left,
             Command::FocusRight => self.active = Side::Right,
-            Command::SwitchPane => self.active = side.other(),
+            Command::FocusOther => self.active = side.other(),
             Command::CursorUp => pane.cursor_up(),
             Command::CursorDown => pane.cursor_down(),
             Command::CursorPageUp => pane.cursor_page_up(),
@@ -752,8 +752,8 @@ impl App {
             Command::InvertMarksAll => pane.invert_marks(true),
             Command::MarkGlob => self.open_input(InputKind::MarkGlob),
             Command::MarkCompare => self.open_compare(),
-            Command::MarkNext => pane.mark_next(),
-            Command::MarkPrev => pane.mark_prev(),
+            Command::CursorNextMark => pane.cursor_next_mark(),
+            Command::CursorPrevMark => pane.cursor_prev_mark(),
             Command::ClearMarks => pane.clear_marks(),
             Command::Sort => self.open_sort(),
             Command::ToggleHidden => pane.toggle_hidden(),
@@ -772,8 +772,8 @@ impl App {
             Command::LogPageDown => self.log.page_down(),
             Command::LogTop => self.log.top(),
             Command::LogBottom => self.log.bottom(),
-            Command::ClearLog => self.log.clear(),
-            Command::CopyLog => self.copy_log(effects),
+            Command::LogClear => self.log.clear(),
+            Command::LogCopy => self.log_copy(effects),
             Command::PreviewScrollUp
             | Command::PreviewScrollDown
             | Command::PreviewPageUp
@@ -781,9 +781,9 @@ impl App {
             | Command::PreviewTop
             | Command::PreviewBottom
             | Command::PreviewToggleMode
-            | Command::PreviewEncoding
+            | Command::PreviewEncodings
             | Command::PreviewEdit
-            | Command::ClosePreview => self.run_preview_command(&command, effects),
+            | Command::PreviewClose => self.run_preview_command(&command, effects),
             Command::Palette => self.open_palette(),
             Command::GoToPath => self.open_input(InputKind::GoToPath {
                 dir: self.active_pane().location().base.clone(),
@@ -800,7 +800,7 @@ impl App {
             Command::NewWindowAsAdmin => self.new_window(true, effects),
             Command::Quit => self.quit(true, effects),
             Command::QuitWithoutSaving => self.quit(false, effects),
-            Command::RunFile => self.run_file(effects),
+            Command::Run => self.run(effects),
             Command::RunCommandLine => self.open_input(InputKind::RunCommandLine),
             Command::PasteFiles => self.paste_files(effects),
             Command::External(name) => self.run_external(&name, effects),
@@ -820,7 +820,7 @@ impl App {
             | Command::CopyName
             | Command::CopyFiles
             | Command::ShellMenu
-            | Command::EnterAsArchive
+            | Command::OpenAsArchive
             | Command::Extract
             | Command::ExtractHere
             | Command::Compress
@@ -895,7 +895,7 @@ impl App {
             .set_viewport_rows(rows.clamp(LOG_ROWS_MIN, LOG_ROWS_MAX));
     }
 
-    fn copy_log(&self, effects: &mut Vec<Effect>) {
+    fn log_copy(&self, effects: &mut Vec<Effect>) {
         let lines = self.log.lines();
         if !lines.is_empty() {
             effects.push(Effect::Clipboard(lines.join("\n")));

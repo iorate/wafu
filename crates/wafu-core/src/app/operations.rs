@@ -77,7 +77,7 @@ impl App {
                 };
                 self.shell_menu(anchor, effects);
             }
-            Command::EnterAsArchive => self.enter_as_archive(effects),
+            Command::OpenAsArchive => self.open_as_archive(effects),
             Command::Extract => self.start_extract(false, effects),
             Command::ExtractHere => self.start_extract(true, effects),
             Command::Compress => self.open_compress(false),
@@ -545,7 +545,7 @@ impl App {
             | InputKind::MarkGlob
             | InputKind::GoToPath { .. }
             | InputKind::Find { .. }
-            | InputKind::RunFile
+            | InputKind::Run
             | InputKind::RunCommandLine
             | InputKind::ArchivePassword { .. }
             | InputKind::Compress { .. } => return,
@@ -611,7 +611,7 @@ impl App {
             | InputKind::MarkGlob
             | InputKind::GoToPath { .. }
             | InputKind::Find { .. }
-            | InputKind::RunFile
+            | InputKind::Run
             | InputKind::RunCommandLine
             | InputKind::ArchivePassword { .. }
             | InputKind::Compress { .. } => {}
@@ -765,7 +765,7 @@ impl App {
         }
     }
 
-    pub(super) fn run_file(&mut self, effects: &mut Vec<Effect>) {
+    pub(super) fn run(&mut self, effects: &mut Vec<Effect>) {
         let Some((location, entry)) = self.active_pane().cursor_target() else {
             return;
         };
@@ -780,7 +780,7 @@ impl App {
         let executable = entry.kind.is_executable();
         if location.in_archive() {
             let temp = Temp {
-                action: TempAction::RunFile { executable },
+                action: TempAction::Run { executable },
                 from: location.clone(),
                 cursor: Some(TempPath::Extracted(entry.name.clone())),
                 marked: Vec::new(),
@@ -790,7 +790,7 @@ impl App {
             let entries = self.archive_entries(&location, std::slice::from_ref(&entry.name));
             self.start_temp(temp, entries, effects);
         } else {
-            self.open_run_file(&location.base.join(&entry.name), executable);
+            self.open_run(&location.base.join(&entry.name), executable);
         }
     }
 
@@ -1081,7 +1081,7 @@ impl App {
             | Command::NewText
             | Command::ExtractHere
             | Command::CompressHere => None,
-            Command::OpenWithOs | Command::Rename | Command::Edit | Command::EnterAsArchive => {
+            Command::OpenWithOs | Command::Rename | Command::Edit | Command::OpenAsArchive => {
                 pane.cursor_target().map(|(location, _)| location)
             }
             _ => pane.targets().map(|targets| targets.location),
@@ -1385,9 +1385,9 @@ impl App {
                     effects.push(Effect::OpenWithOs(path.clone()));
                 }
             }
-            TempAction::RunFile { executable } => {
+            TempAction::Run { executable } => {
                 if let Some(path) = expansion.paths.first() {
-                    self.open_run_file(path, executable);
+                    self.open_run(path, executable);
                 }
             }
             TempAction::Spawn { name, line } => Self::spawn(name, &line, &expansion, effects),
@@ -1540,7 +1540,7 @@ enum TempPath {
 enum TempAction {
     Edit,
     OpenWithOs,
-    RunFile { executable: bool },
+    Run { executable: bool },
     Spawn { name: SpawnName, line: CommandLine },
 }
 
@@ -1553,7 +1553,7 @@ impl TempAction {
                 name: SpawnName::Command(Command::OpenAlternative),
                 ..
             } => ("open", "Open"),
-            Self::RunFile { .. } => ("run", "Run"),
+            Self::Run { .. } => ("run", "Run"),
             Self::Spawn { .. } => ("run a command on", "Command"),
         }
     }
@@ -1611,7 +1611,7 @@ fn allowed_in_archive(command: &Command) -> bool {
             | Command::Edit
             | Command::CopyPath
             | Command::CopyName
-            | Command::EnterAsArchive
+            | Command::OpenAsArchive
             | Command::Extract
     )
 }

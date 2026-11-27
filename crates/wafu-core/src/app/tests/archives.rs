@@ -86,7 +86,7 @@ fn enter_on_a_link_named_like_an_archive_opens_its_target_as_an_archive() {
 }
 
 #[test]
-fn enter_as_archive_opens_any_file_but_not_a_directory() {
+fn open_as_archive_opens_any_file_but_not_a_directory() {
     let mut harness = outside();
     harness.press("Down");
     harness.take_effects();
@@ -111,7 +111,7 @@ fn enter_as_archive_opens_any_file_but_not_a_directory() {
 }
 
 #[test]
-fn enter_as_archive_takes_the_format_of_a_known_extension() {
+fn open_as_archive_takes_the_format_of_a_known_extension() {
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.load(Side::Left, vec![file("a.tar.xz")]);
     harness.press("Down");
@@ -162,7 +162,7 @@ fn moving_inside_an_archive_of_unknown_format_leaves_the_format_unknown() {
 }
 
 #[test]
-fn enter_as_archive_on_the_parent_row_of_an_archive_root_does_nothing() {
+fn open_as_archive_on_the_parent_row_of_an_archive_root_does_nothing() {
     let mut harness = inside();
     harness.press("Home");
     harness.take_effects();
@@ -383,7 +383,7 @@ fn moving_up_out_of_a_nested_archive_keeps_the_passwords_of_the_archives_above()
 }
 
 #[test]
-fn entering_another_archive_in_the_same_archive_keeps_its_password() {
+fn opening_another_archive_in_the_same_archive_keeps_its_password() {
     let mut harness = nested_with_password();
     harness.press("BS");
     harness.load(Side::Left, contents());
@@ -532,7 +532,7 @@ fn a_nested_archive_that_cannot_be_read_is_logged_by_its_own_path() {
 }
 
 #[test]
-fn enter_as_archive_on_a_link_inside_an_archive_is_refused() {
+fn open_as_archive_on_a_link_inside_an_archive_is_refused() {
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.load(Side::Left, vec![file("a.zip")]);
     harness.press("Down");
@@ -1600,7 +1600,7 @@ fn enter_on_an_executable_zip_enters_it() {
 }
 
 #[test]
-fn run_file_inside_an_archive_extracts_the_cursor_entry_alone_and_then_opens_the_dialog() {
+fn run_inside_an_archive_extracts_the_cursor_entry_alone_and_then_opens_the_dialog() {
     let mut harness = outside();
     harness.enter_archive(Side::Left, vec![file("b.txt"), executable("tool")]);
     harness.press("Down");
@@ -1624,7 +1624,7 @@ fn run_file_inside_an_archive_extracts_the_cursor_entry_alone_and_then_opens_the
 }
 
 #[test]
-fn run_file_on_a_link_inside_an_archive_is_refused() {
+fn run_on_a_link_inside_an_archive_is_refused() {
     let mut harness = outside();
     harness.enter_archive(Side::Left, vec![link("link")]);
     harness.press("Down");
@@ -2054,7 +2054,7 @@ fn a_temporary_extraction_with_a_conflict_skipped_still_starts_the_program() {
 }
 
 #[test]
-fn history_back_inside_an_archive_leaves_it_without_recording_it() {
+fn go_back_inside_an_archive_leaves_it_without_recording_it() {
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.load(Side::Left, vec![dir("d")]);
     harness.press("Down");

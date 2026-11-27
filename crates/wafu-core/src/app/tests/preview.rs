@@ -289,7 +289,7 @@ fn c_lists_the_encodings_on_the_one_in_use() {
     harness.press("C");
 
     let popup = harness.view().popup.unwrap();
-    assert_eq!(popup.title, "Encoding");
+    assert_eq!(popup.title, "Encodings");
     assert_eq!(popup.cursor, Some(1));
     assert_eq!(popup.fields.len(), 1);
     assert_eq!(
@@ -1452,7 +1452,7 @@ fn an_encrypted_image_does_not_replace_an_open_popup() {
         retry: false,
     });
 
-    assert_eq!(harness.view().popup.unwrap().title, "Mark");
+    assert_eq!(harness.view().popup.unwrap().title, "Mark (glob)");
     harness.edit("*.png");
     harness.press("Enter");
     assert_eq!(harness.marks(Side::Left), ["c.png"]);
@@ -1686,7 +1686,7 @@ fn the_palette_opens_during_a_preview_with_its_commands() {
         .collect();
     assert!(labels.contains(&"preview_scroll_down".to_owned()));
 
-    harness.edit("close_pre");
+    harness.edit("preview_cl");
     harness.press("Enter");
 
     assert_eq!(harness.popup(), None);

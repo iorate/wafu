@@ -15,16 +15,16 @@ const NAMES: &[(Command, &str)] = &[
     (Command::Find, "find"),
     (Command::Bookmarks, "bookmarks"),
     (Command::History, "history"),
-    (Command::HistoryBack, "history_back"),
-    (Command::HistoryForward, "history_forward"),
+    (Command::GoBack, "go_back"),
+    (Command::GoForward, "go_forward"),
     (Command::Drives, "drives"),
-    (Command::DrivePrev, "drive_prev"),
-    (Command::DriveNext, "drive_next"),
+    (Command::GoPrevDrive, "go_prev_drive"),
+    (Command::GoNextDrive, "go_next_drive"),
     (Command::FocusLeft, "focus_left"),
     (Command::FocusRight, "focus_right"),
-    (Command::SwitchPane, "switch_pane"),
+    (Command::FocusOther, "focus_other"),
     (Command::SyncToOther, "sync_to_other"),
-    (Command::SyncOtherToThis, "sync_other_to_this"),
+    (Command::SyncFromOther, "sync_from_other"),
     (Command::SwapPanes, "swap_panes"),
     (Command::CursorUp, "cursor_up"),
     (Command::CursorDown, "cursor_down"),
@@ -41,8 +41,8 @@ const NAMES: &[(Command, &str)] = &[
     (Command::InvertMarksAll, "invert_marks_all"),
     (Command::MarkGlob, "mark_glob"),
     (Command::MarkCompare, "mark_compare"),
-    (Command::MarkNext, "mark_next"),
-    (Command::MarkPrev, "mark_prev"),
+    (Command::CursorNextMark, "cursor_next_mark"),
+    (Command::CursorPrevMark, "cursor_prev_mark"),
     (Command::ClearMarks, "clear_marks"),
     (Command::Sort, "sort"),
     (Command::ToggleHidden, "toggle_hidden"),
@@ -59,8 +59,8 @@ const NAMES: &[(Command, &str)] = &[
     (Command::LogPageDown, "log_page_down"),
     (Command::LogTop, "log_top"),
     (Command::LogBottom, "log_bottom"),
-    (Command::ClearLog, "clear_log"),
-    (Command::CopyLog, "copy_log"),
+    (Command::LogClear, "log_clear"),
+    (Command::LogCopy, "log_copy"),
     (Command::PreviewScrollUp, "preview_scroll_up"),
     (Command::PreviewScrollDown, "preview_scroll_down"),
     (Command::PreviewPageUp, "preview_page_up"),
@@ -68,9 +68,9 @@ const NAMES: &[(Command, &str)] = &[
     (Command::PreviewTop, "preview_top"),
     (Command::PreviewBottom, "preview_bottom"),
     (Command::PreviewToggleMode, "preview_toggle_mode"),
-    (Command::PreviewEncoding, "preview_encoding"),
+    (Command::PreviewEncodings, "preview_encodings"),
     (Command::PreviewEdit, "preview_edit"),
-    (Command::ClosePreview, "close_preview"),
+    (Command::PreviewClose, "preview_close"),
     (Command::Copy, "copy"),
     (Command::Move, "move"),
     (Command::Delete, "delete"),
@@ -82,14 +82,14 @@ const NAMES: &[(Command, &str)] = &[
     (Command::NewFile, "new_file"),
     (Command::NewText, "new_text"),
     (Command::Edit, "edit"),
-    (Command::RunFile, "run_file"),
+    (Command::Run, "run"),
     (Command::RunCommandLine, "run_command_line"),
     (Command::CopyPath, "copy_path"),
     (Command::CopyName, "copy_name"),
     (Command::CopyFiles, "copy_files"),
     (Command::PasteFiles, "paste_files"),
     (Command::ShellMenu, "shell_menu"),
-    (Command::EnterAsArchive, "enter_as_archive"),
+    (Command::OpenAsArchive, "open_as_archive"),
     (Command::Extract, "extract"),
     (Command::ExtractHere, "extract_here"),
     (Command::Compress, "compress"),
@@ -123,16 +123,16 @@ pub enum Command {
     Find,
     Bookmarks,
     History,
-    HistoryBack,
-    HistoryForward,
+    GoBack,
+    GoForward,
     Drives,
-    DrivePrev,
-    DriveNext,
+    GoPrevDrive,
+    GoNextDrive,
     FocusLeft,
     FocusRight,
-    SwitchPane,
+    FocusOther,
     SyncToOther,
-    SyncOtherToThis,
+    SyncFromOther,
     SwapPanes,
     CursorUp,
     CursorDown,
@@ -151,8 +151,8 @@ pub enum Command {
     InvertMarksAll,
     MarkGlob,
     MarkCompare,
-    MarkNext,
-    MarkPrev,
+    CursorNextMark,
+    CursorPrevMark,
     ClearMarks,
     Sort,
     ToggleHidden,
@@ -169,8 +169,8 @@ pub enum Command {
     LogPageDown,
     LogTop,
     LogBottom,
-    ClearLog,
-    CopyLog,
+    LogClear,
+    LogCopy,
     PreviewScrollUp,
     PreviewScrollDown,
     PreviewPageUp,
@@ -180,10 +180,10 @@ pub enum Command {
     /// Switches a document preview between text and binary.
     PreviewToggleMode,
     /// Picks the encoding a document preview is decoded with from a list.
-    PreviewEncoding,
+    PreviewEncodings,
     /// Opens the previewed file in the editor, closing the preview first.
     PreviewEdit,
-    ClosePreview,
+    PreviewClose,
     Copy,
     Move,
     Delete,
@@ -196,7 +196,7 @@ pub enum Command {
     NewText,
     Edit,
     /// Asks for a command line, starting from the cursor item's path.
-    RunFile,
+    Run,
     /// Asks for a command line, starting empty.
     RunCommandLine,
     CopyPath,
@@ -207,7 +207,7 @@ pub enum Command {
     /// Copies the files on the clipboard into the active pane's directory.
     PasteFiles,
     ShellMenu,
-    EnterAsArchive,
+    OpenAsArchive,
     Extract,
     ExtractHere,
     Compress,
@@ -264,8 +264,8 @@ impl Command {
             || !matches!(
                 self,
                 Self::Drives
-                    | Self::DrivePrev
-                    | Self::DriveNext
+                    | Self::GoPrevDrive
+                    | Self::GoNextDrive
                     | Self::ShellMenu
                     | Self::NewWindowAsAdmin
             )
@@ -315,7 +315,7 @@ impl Command {
     #[allow(clippy::too_many_lines)]
     fn target(&self) -> Target {
         match self {
-            Self::ClosePreview => Target::AnyPreview,
+            Self::PreviewClose => Target::AnyPreview,
             Self::PreviewScrollUp
             | Self::PreviewScrollDown
             | Self::PreviewPageUp
@@ -323,7 +323,7 @@ impl Command {
             | Self::PreviewTop
             | Self::PreviewBottom
             | Self::PreviewToggleMode
-            | Self::PreviewEncoding
+            | Self::PreviewEncodings
             | Self::PreviewEdit => Target::TextPreview,
             Self::LogShrink
             | Self::LogGrow
@@ -333,8 +333,8 @@ impl Command {
             | Self::LogPageDown
             | Self::LogTop
             | Self::LogBottom
-            | Self::ClearLog
-            | Self::CopyLog => Target::Log,
+            | Self::LogClear
+            | Self::LogCopy => Target::Log,
             Self::Palette
             | Self::NewWindow
             | Self::NewWindowAsAdmin
@@ -357,8 +357,8 @@ impl Command {
             | Self::InvertMarks
             | Self::InvertMarksAll
             | Self::MarkGlob
-            | Self::MarkNext
-            | Self::MarkPrev
+            | Self::CursorNextMark
+            | Self::CursorPrevMark
             | Self::ClearMarks => Target::Cursor,
             Self::Sort | Self::ToggleHidden | Self::Filter | Self::ClearFilter | Self::Reload => {
                 Target::ListView
@@ -374,18 +374,18 @@ impl Command {
             | Self::Find
             | Self::Bookmarks
             | Self::History
-            | Self::HistoryBack
-            | Self::HistoryForward
+            | Self::GoBack
+            | Self::GoForward
             | Self::Drives
-            | Self::DrivePrev
-            | Self::DriveNext
+            | Self::GoPrevDrive
+            | Self::GoNextDrive
             | Self::FocusLeft
             | Self::FocusRight
-            | Self::SwitchPane
+            | Self::FocusOther
             | Self::SyncToOther
-            | Self::SyncOtherToThis
+            | Self::SyncFromOther
             | Self::SwapPanes
-            | Self::EnterAsArchive => Target::Location,
+            | Self::OpenAsArchive => Target::Location,
             // `nop` only unbinds a key, which the configuration allows in
             // every context; in the palette it stays with the file list.
             Self::Copy
@@ -399,7 +399,7 @@ impl Command {
             | Self::NewFile
             | Self::NewText
             | Self::Edit
-            | Self::RunFile
+            | Self::Run
             | Self::RunCommandLine
             | Self::Compress
             | Self::CompressHere
@@ -475,10 +475,10 @@ mod tests {
     #[test]
     fn each_target_decides_the_contexts() {
         let cases = [
-            (Command::ClosePreview, &[Context::Image, Context::Text][..]),
+            (Command::PreviewClose, &[Context::Image, Context::Text][..]),
             (Command::PreviewScrollDown, &[Context::Text]),
             (
-                Command::ClearLog,
+                Command::LogClear,
                 &[Context::FileList, Context::Image, Context::Text],
             ),
             (

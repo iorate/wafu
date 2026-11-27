@@ -9,8 +9,8 @@ The default keys no longer use function keys, and modifiers now follow one patte
 | `palette` | `F1` | `?` |
 | `reload` | `F5` | `,` |
 | `rename_template` | `Alt+R` | `Ctrl+Shift+R` |
-| `enter_as_archive` | `Shift+U` | `Shift+V` |
+| `open_as_archive` | `Shift+U` | `Shift+V` |
 | `new_file` | `N` | `Shift+K` |
 | `swap_panes` | none | `Alt+O` |
-| `clear_log` | none | `Alt+D` |
-| `copy_log` | none | `Alt+Y` |
+| `log_clear` | none | `Alt+D` |
+| `log_copy` | none | `Alt+Y` |

@@ -190,7 +190,7 @@ impl App {
     // The path is quoted to read back as one word: as the program when it can
     // be started, so that arguments go after it, and otherwise as an argument,
     // so that a program goes before it.
-    pub(super) fn open_run_file(&mut self, path: &Path, executable: bool) {
+    pub(super) fn open_run(&mut self, path: &Path, executable: bool) {
         let path = path.to_string_lossy();
         let (text, caret) = if executable {
             let text = format!("{} ", quote_program(&path, self.os));
@@ -199,7 +199,7 @@ impl App {
         } else {
             (format!(" {}", quote_arg(&path, self.os)), 0)
         };
-        let popup = InputPopup::single(InputKind::RunFile, text, Some((caret, caret)));
+        let popup = InputPopup::single(InputKind::Run, text, Some((caret, caret)));
         self.popup = Some(Popup::Input(popup));
     }
 
@@ -211,7 +211,7 @@ impl App {
             Ok(line) => line,
             Err(source) => {
                 self.log
-                    .push(AppError::InvalidCommandLine { command, source }.to_string());
+                    .push(AppError::InvalidCommandLine { source }.to_string());
                 return;
             }
         };

@@ -55,7 +55,7 @@ impl App {
             | InputKind::NewDir { .. }
             | InputKind::NewFile { .. }
             | InputKind::NewText { .. }
-            | InputKind::RunFile
+            | InputKind::Run
             | InputKind::RunCommandLine
             | InputKind::ConflictRename { .. }
             | InputKind::ArchivePassword { .. }
@@ -358,7 +358,7 @@ impl App {
                 ..PopupView::default()
             },
             Popup::Compare(popup) => PopupView {
-                title: "Compare".to_owned(),
+                title: "Mark (compare)".to_owned(),
                 items: Some(popup.items()),
                 cursor: Some(popup.cursor),
                 ..PopupView::default()
@@ -548,8 +548,8 @@ impl App {
                 self.confirm_name(popup.kind, &text, effects);
                 return;
             }
-            InputKind::RunFile => {
-                self.run_line(Command::RunFile, &text, effects);
+            InputKind::Run => {
+                self.run_line(Command::Run, &text, effects);
                 return;
             }
             InputKind::RunCommandLine => {

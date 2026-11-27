@@ -75,11 +75,11 @@ impl App {
 
     pub(super) fn run_preview_command(&mut self, command: &Command, effects: &mut Vec<Effect>) {
         match command {
-            Command::ClosePreview => {
+            Command::PreviewClose => {
                 self.close_preview(effects);
                 return;
             }
-            Command::PreviewEncoding => {
+            Command::PreviewEncodings => {
                 self.open_encodings();
                 return;
             }
