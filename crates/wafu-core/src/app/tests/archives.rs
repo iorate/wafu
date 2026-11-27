@@ -2224,6 +2224,34 @@ fn copy_path_inside_an_archive_spells_the_path_through_the_archive() {
     );
 }
 
+#[test]
+fn copy_files_is_refused_inside_an_archive() {
+    let mut harness = inside();
+    harness.press("Down");
+    harness.press("Down");
+
+    harness.press("Alt+C");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log(),
+        ["Cannot run copy_files: not available inside an archive"]
+    );
+}
+
+#[test]
+fn paste_files_is_refused_inside_an_archive() {
+    let mut harness = inside();
+
+    harness.press("Alt+V");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log(),
+        ["Cannot paste: the pane is inside an archive"]
+    );
+}
+
 // The left pane shows a directory with an archive, with the cursor on it.
 fn outside() -> Harness {
     let mut harness = Harness::start(LEFT, RIGHT);

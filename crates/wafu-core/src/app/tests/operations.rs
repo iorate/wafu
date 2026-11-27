@@ -2239,6 +2239,242 @@ fn clipboard_copies_are_logged_with_the_text_or_the_line_count() {
 }
 
 #[test]
+fn copy_files_takes_the_cursor_entry_without_marks_and_logs_its_name() {
+    let mut harness = three_files();
+    harness.press("Down");
+    harness.take_effects();
+
+    harness.press("Alt+C");
+
+    assert_eq!(
+        harness.take_effects(),
+        [Effect::ClipboardFiles(vec![path(LEFT, "a")])]
+    );
+    harness.send(Msg::Io(IoEvent::ClipboardFilesSet {
+        paths: vec![path(LEFT, "a")],
+        error: None,
+    }));
+    assert_eq!(harness.log(), ["Copied a to clipboard"]);
+}
+
+#[test]
+fn copy_files_takes_the_marks_and_keeps_them() {
+    let mut harness = three_files();
+    harness.press("Down");
+    harness.press("Space");
+    harness.press("Down");
+    harness.press("Space");
+    harness.take_effects();
+
+    harness.press("Alt+C");
+
+    let paths = vec![path(LEFT, "a"), path(LEFT, "c")];
+    assert_eq!(
+        harness.take_effects(),
+        [Effect::ClipboardFiles(paths.clone())]
+    );
+    harness.send(Msg::Io(IoEvent::ClipboardFilesSet { paths, error: None }));
+    assert_eq!(harness.log(), ["Copied 2 items to clipboard"]);
+    assert_eq!(harness.marks(Side::Left), ["a", "c"]);
+}
+
+#[test]
+fn a_failed_copy_files_is_logged() {
+    let mut harness = three_files();
+
+    harness.send(Msg::Io(IoEvent::ClipboardFilesSet {
+        paths: vec![path(LEFT, "a")],
+        error: Some(IoError::new("no clipboard")),
+    }));
+
+    assert_eq!(
+        harness.log(),
+        ["Cannot copy to the clipboard: no clipboard"]
+    );
+}
+
+#[test]
+fn paste_files_copies_the_files_on_the_clipboard_into_the_active_pane() {
+    let mut harness = three_files();
+    harness.take_effects();
+
+    harness.press("Alt+V");
+
+    assert_eq!(
+        harness.take_effects(),
+        [Effect::ReadClipboardFiles {
+            dest: PathBuf::from(LEFT)
+        }]
+    );
+    let sources = vec![path("/x", "a"), path("/y", "b")];
+    harness.send(Msg::Io(IoEvent::ClipboardFilesRead {
+        dest: PathBuf::from(LEFT),
+        result: Ok(sources.clone()),
+    }));
+    assert_eq!(
+        harness.take_effects(),
+        [Effect::StartOperation(OperationSpec {
+            kind: OperationKind::Copy,
+            sources: Sources::Paths(sources),
+            dest: Some(PathBuf::from(LEFT)),
+            output: None,
+        })]
+    );
+    assert_eq!(harness.view().popup.unwrap().title, "Copying");
+}
+
+#[test]
+fn a_paste_keeps_the_marks_of_the_pane_and_reads_again_only_where_it_pasted() {
+    let mut harness = three_files();
+    harness.press("Down");
+    harness.press("Space");
+    harness.press("Alt+V");
+    harness.send(Msg::Io(IoEvent::ClipboardFilesRead {
+        dest: PathBuf::from(LEFT),
+        result: Ok(vec![path(RIGHT, "a"), path(RIGHT, "x")]),
+    }));
+    harness.take_effects();
+
+    harness.operation(OperationEvent::ItemDone { index: 0 });
+    harness.finish(Outcome::Completed { skipped: 1 });
+
+    assert_eq!(harness.marks(Side::Left), ["a"]);
+    assert_eq!(harness.log(), ["Pasted 2 items (1 skipped)"]);
+    assert!(matches!(
+        harness.take_effects().as_slice(),
+        [Effect::ReadDir {
+            side: Side::Left,
+            location,
+            ..
+        }] if location.base == *LEFT
+    ));
+}
+
+#[test]
+fn paste_files_without_a_location_is_logged() {
+    let mut harness = Harness::start_both_pending(Os::Linux, LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("a")]);
+    harness.press("Esc");
+    harness.press("Tab");
+    harness.take_effects();
+
+    harness.press("Alt+V");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log().last().map(String::as_str),
+        Some("Cannot paste: the pane has no location")
+    );
+}
+
+#[test]
+fn a_clipboard_without_files_is_logged() {
+    let mut harness = three_files();
+    harness.take_effects();
+
+    harness.send(Msg::Io(IoEvent::ClipboardFilesRead {
+        dest: PathBuf::from(LEFT),
+        result: Ok(Vec::new()),
+    }));
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.log(), ["Cannot paste: the clipboard has no files"]);
+}
+
+#[test]
+fn a_clipboard_that_cannot_be_read_is_logged() {
+    let mut harness = three_files();
+    harness.take_effects();
+
+    harness.send(Msg::Io(IoEvent::ClipboardFilesRead {
+        dest: PathBuf::from(LEFT),
+        result: Err(IoError::new("busy")),
+    }));
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(harness.log(), ["Cannot paste: busy"]);
+}
+
+#[test]
+fn files_read_from_the_clipboard_during_an_operation_are_not_pasted() {
+    let mut harness = copying();
+
+    harness.send(Msg::Io(IoEvent::ClipboardFilesRead {
+        dest: PathBuf::from(LEFT),
+        result: Ok(vec![path(RIGHT, "x")]),
+    }));
+    assert_eq!(harness.take_effects(), vec![]);
+    harness.finish(Outcome::Completed { skipped: 0 });
+
+    assert_eq!(
+        harness.log(),
+        [
+            "Cannot paste: another command is in progress",
+            "Copied 2 items"
+        ]
+    );
+}
+
+#[test]
+fn files_read_from_the_clipboard_under_a_popup_are_not_pasted() {
+    let mut harness = three_files();
+    harness.press("K");
+    harness.take_effects();
+
+    harness.send(Msg::Io(IoEvent::ClipboardFilesRead {
+        dest: PathBuf::from(LEFT),
+        result: Ok(vec![path(RIGHT, "x")]),
+    }));
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log(),
+        ["Cannot paste: another command is in progress"]
+    );
+}
+
+#[test]
+fn copy_files_refuses_a_link_among_the_marks() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    let link = Entry {
+        kind: EntryKind::Symlink { target: None },
+        ..file("b")
+    };
+    harness.load(Side::Left, vec![file("a"), link]);
+    harness.press("Down");
+    harness.press("Space");
+    harness.press("Space");
+    harness.take_effects();
+
+    harness.press("Alt+C");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log(),
+        [format!(
+            "Cannot copy {}: a link cannot be put on the clipboard",
+            path(&shown_place(LEFT), "b").display()
+        )]
+    );
+}
+
+#[test]
+fn copy_files_on_windows_refuses_a_name_ending_with_a_dot() {
+    let mut harness = windows_with(file("notes."));
+
+    harness.press("Alt+C");
+
+    assert_eq!(harness.take_effects(), vec![]);
+    assert_eq!(
+        harness.log().last().cloned(),
+        Some(format!(
+            "Cannot copy {}: ends with a dot or a space, which Windows does not allow",
+            path(WIN_LEFT, "notes.").display()
+        ))
+    );
+}
+
+#[test]
 fn delete_on_windows_refuses_a_name_ending_with_a_dot() {
     let mut harness = windows_with(file("notes."));
     cursor_only(&mut harness);

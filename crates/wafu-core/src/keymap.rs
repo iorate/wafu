@@ -67,6 +67,10 @@ const DEFAULT_FILELIST: &[(&str, &str)] = &[
     ("Shift+I", "calculate_size"),
     ("Y", "copy_name"),
     ("Shift+Y", "copy_path"),
+    // Not Ctrl+C and Ctrl+V, since Ctrl with every letter is a jump, nor Cmd
+    // on macOS, which never reaches the core.
+    ("Alt+C", "copy_files"),
+    ("Alt+V", "paste_files"),
     ("\\", "shell_menu"),
     ("S", "sort"),
     ("F", "search"),
