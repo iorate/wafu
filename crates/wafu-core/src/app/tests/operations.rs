@@ -2340,7 +2340,21 @@ fn drag_past_the_rows_does_nothing() {
 }
 
 #[test]
-fn drag_outside_windows_does_nothing_and_says_nothing() {
+fn drag_on_macos_drags_the_row_pressed_on() {
+    let mut harness = Harness::start_on(Os::MacOs, LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("a"), file("b")]);
+    harness.take_effects();
+
+    harness.drag(Side::Left, 2);
+
+    assert_eq!(
+        harness.take_effects(),
+        [Effect::DragFiles(vec![path(LEFT, "b")])]
+    );
+}
+
+#[test]
+fn drag_on_linux_does_nothing_and_says_nothing() {
     let mut harness = three_files();
     harness.take_effects();
 

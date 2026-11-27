@@ -246,23 +246,40 @@ impl Ui {
         });
     }
 
-    // The drag runs a modal loop of its own, so it is started from the event
-    // loop like the shell menu.
     fn drag_files(self: &Rc<Self>, paths: Vec<PathBuf>) {
         let weak = Rc::downgrade(self);
+        // AppKit starts a drag only while the mouse event that starts it is
+        // handled, so the drag is started here; the call returns at once,
+        // leaving the drag to the event loop.
+        // The rest waits until the list has handled the move, so that leaving
+        // the window does not land in the middle of that handling.
+        if cfg!(target_os = "macos") {
+            let error = drag_files(&self.window, &paths);
+            slint::Timer::single_shot(Duration::ZERO, move || {
+                if let Some(ui) = weak.upgrade() {
+                    ui.drag_finished(paths, error);
+                }
+            });
+            return;
+        }
+        // On Windows the drag runs a modal loop of its own, so it is started
+        // from the event loop like the shell menu.
         self.run_after_render(move || {
             if let Some(ui) = weak.upgrade() {
                 let error = drag_files(&ui.window, &paths);
-                // The drag's loop takes the release of the button, so the
-                // list would keep the mouse grab and take the next click,
-                // even one on the other pane. Leaving the window lets go of
-                // the press without a click.
-                ui.window
-                    .window()
-                    .dispatch_event(WindowEvent::PointerExited);
-                ui.dispatch(Msg::Io(IoEvent::DragFinished { paths, error }));
+                ui.drag_finished(paths, error);
             }
         });
+    }
+
+    // The drag takes the release of the button, so the list would keep the
+    // mouse grab and take the next click, even one on the other pane. Leaving
+    // the window lets go of the press without a click.
+    fn drag_finished(self: &Rc<Self>, paths: Vec<PathBuf>, error: Option<IoError>) {
+        self.window
+            .window()
+            .dispatch_event(WindowEvent::PointerExited);
+        self.dispatch(Msg::Io(IoEvent::DragFinished { paths, error }));
     }
 
     // The asynchronous dialog, since the blocking one stops the UI thread
@@ -1188,7 +1205,14 @@ fn drag_files(window: &AppWindow, paths: &[PathBuf]) -> Option<IoError> {
         .map(|error| IoError::new(error.to_string()))
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+fn drag_files(window: &AppWindow, paths: &[PathBuf]) -> Option<IoError> {
+    wafu_io::drag_files(&window.window().window_handle(), paths)
+        .err()
+        .map(|error| IoError::new(error.to_string()))
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn drag_files(_window: &AppWindow, _paths: &[PathBuf]) -> Option<IoError> {
     None
 }

@@ -10,7 +10,7 @@ mod color_scheme;
 #[cfg(windows)]
 mod com;
 mod config;
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 mod drag;
 mod drives;
 mod elevation;
@@ -38,7 +38,9 @@ mod window_icon;
 mod window_place;
 
 pub use config::read_or_create;
-#[cfg(windows)]
+#[cfg(target_os = "macos")]
+pub use drag::DragError;
+#[cfg(any(windows, target_os = "macos"))]
 pub use drag::drag_files;
 pub use elevation::is_elevated;
 #[cfg(windows)]
