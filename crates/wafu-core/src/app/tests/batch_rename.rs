@@ -50,12 +50,12 @@ fn rename_template_opens_with_the_name_placeholder_selected() {
         popup.fields,
         [InputField {
             select: Some((0, 6)),
-            ..InputField::new("{name}{ext}".to_owned())
+            ..InputField::new("{stem}{ext}".to_owned())
         }]
     );
     assert_eq!(
         popup.note.as_deref(),
-        Some("Placeholders: {name}, {ext}, {001} (counter from 001)")
+        Some("Placeholders: {stem} (name without extension), {ext}, {001} (counter from 001)")
     );
 }
 
@@ -170,7 +170,7 @@ fn the_note_follows_the_listing_as_it_is_read_again() {
 
     assert_eq!(
         harness.view().popup.unwrap().note.as_deref(),
-        Some("Placeholders: {name}, {ext}, {001} (counter from 001)")
+        Some("Placeholders: {stem} (name without extension), {ext}, {001} (counter from 001)")
     );
 }
 
@@ -522,7 +522,7 @@ fn long_list(count: usize) -> Harness {
     let names: Vec<&str> = names.iter().map(String::as_str).collect();
     let mut harness = marked(&names, &names);
     harness.press("Ctrl+Shift+R");
-    harness.edit("x{name}");
+    harness.edit("x{stem}");
     harness.send(Msg::PopupLineRows {
         area: Some(5),
         lines: (0..count).map(|index| (index, 1)).collect(),

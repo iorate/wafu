@@ -12,7 +12,7 @@ pub enum RenameInput<'a> {
     /// Every occurrence of `find` in the whole name, ignoring case, becomes
     /// `replace` as written.
     Replace { find: &'a str, replace: &'a str },
-    /// A template of the whole name, with `{name}`, `{ext}`, and counters
+    /// A template of the whole name, with `{stem}`, `{ext}`, and counters
     /// such as `{001}`.
     Template(&'a str),
 }
@@ -69,7 +69,7 @@ impl RenamePlan {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Field {
-    Name,
+    Stem,
     Ext,
     Counter { start: u64, width: usize },
 }
@@ -116,7 +116,7 @@ fn lowercase(text: &str) -> String {
 
 fn field(inside: &str) -> Option<Field> {
     match inside {
-        "name" => Some(Field::Name),
+        "stem" => Some(Field::Stem),
         "ext" => Some(Field::Ext),
         // Eighteen digits always fit in a `u64`, with room left for counting up.
         _ if (1..=18).contains(&inside.len()) && inside.bytes().all(|b| b.is_ascii_digit()) => {
@@ -147,7 +147,7 @@ fn apply_template(template: &[Piece<Field>], target: &Entry, index: usize) -> St
     for piece in template {
         match piece {
             Piece::Text(text) => renamed.push_str(text),
-            Piece::Placeholder(Field::Name) => renamed.push_str(stem),
+            Piece::Placeholder(Field::Stem) => renamed.push_str(stem),
             Piece::Placeholder(Field::Ext) => renamed.push_str(extension),
             Piece::Placeholder(Field::Counter { start, width }) => {
                 let number = start + index as u64;
@@ -255,7 +255,7 @@ mod tests {
 
     #[test]
     fn field_rejects_other_names_and_counters_over_eighteen_digits() {
-        for inside in ["1234567890123456789", "-1", "NAME", ""] {
+        for inside in ["1234567890123456789", "-1", "STEM", ""] {
             assert_eq!(field(inside), None, "{inside:?}");
         }
     }
@@ -281,21 +281,21 @@ mod tests {
             ),
         ];
         for (entry, expected) in cases {
-            assert_eq!(apply("<{name}|{ext}>", &entry, 0), expected, "{entry:?}");
+            assert_eq!(apply("<{stem}|{ext}>", &entry, 0), expected, "{entry:?}");
         }
     }
 
     #[test]
     fn template_name_and_ext_give_the_composed_original() {
         assert_eq!(
-            apply("{name}{ext}", &file("e\u{301}.t\u{30c}"), 0),
+            apply("{stem}{ext}", &file("e\u{301}.t\u{30c}"), 0),
             "\u{e9}.\u{165}"
         );
     }
 
     #[test]
     fn template_does_not_read_the_name_again() {
-        assert_eq!(apply("{name}", &file("{ext}.txt"), 0), "{ext}");
+        assert_eq!(apply("{stem}", &file("{ext}.txt"), 0), "{ext}");
     }
 
     #[test]
@@ -377,17 +377,17 @@ mod tests {
         let cases = [
             (
                 [file("A.txt"), file("a.jpg")],
-                "{name}",
+                "{stem}",
                 "a.jpg \u{2192} a: duplicate name",
             ),
             (
                 [file("e\u{301}.txt"), file("\u{e9}.jpg")],
-                "{name}",
+                "{stem}",
                 "\u{e9}.jpg \u{2192} \u{e9}: duplicate name",
             ),
             (
                 [file("a\u{3a3}.txt"), file("a\u{3c3}.jpg")],
-                "{name}",
+                "{stem}",
                 "a\u{3c3}.jpg \u{2192} a\u{3c3}: duplicate name",
             ),
         ];
