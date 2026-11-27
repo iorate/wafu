@@ -1512,7 +1512,7 @@ fn new_text_without_creating_opens_the_editor_in_the_place_the_popup_was_opened_
     let mut harness = Harness::start_with_config(
         LEFT,
         RIGHT,
-        "[filelist]\nnew_text_creates_file = false\n[programs]\neditor = \"ed {dir} {other_dir} {paths}\"\n",
+        "[filelist]\nnew_text_creates_file = false\n[programs]\neditor = \"ed {dir} {other_dir} {paths} {cursor_path}\"\n",
     );
     harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
     harness.press("Shift+E");
@@ -1530,7 +1530,8 @@ fn new_text_without_creating_opens_the_editor_in_the_place_the_popup_was_opened_
             args: vec![
                 OsString::from(shown_place(LEFT)),
                 OsString::from(shown_place(RIGHT)),
-                OsString::from(shown(LEFT, "notes.txt"))
+                OsString::from(shown(LEFT, "notes.txt")),
+                OsString::from(shown(LEFT, "notes.txt")),
             ],
             cwd: PathBuf::from(LEFT),
         }]
@@ -1654,7 +1655,7 @@ fn open_alternative_starts_the_rule_for_the_extension_on_the_cursor_entry_alone(
     let mut harness = Harness::start_with_config(
         LEFT,
         RIGHT,
-        "[open_alternative.extensions]\npdf = \"view {cursor_path} {marked_paths} {paths} {dir} {other_dir}\"\n",
+        "[open_alternative.extensions]\npdf = \"view {cursor_path} {paths} {dir} {other_dir}\"\n",
     );
     harness.load(Side::Left, vec![file("a.pdf"), file("b.PDF")]);
     harness.press("Down");
@@ -1885,7 +1886,7 @@ fn run_on_an_executable_puts_the_caret_after_its_quoted_path() {
     let field = &harness.view().popup.unwrap().fields[0];
     let line = CommandLine::parse(&format!("{}a", field.text), Os::Linux).unwrap();
     assert_eq!(
-        line.expand(&Expansion::default()),
+        line.expand(&Expansion::default()).unwrap(),
         ["a"].map(OsString::from)
     );
     assert_eq!(field.select, Some((field.text.len(), field.text.len())));
@@ -1939,10 +1940,26 @@ fn run_on_anything_else_puts_the_caret_before_its_quoted_path() {
     let field = &harness.view().popup.unwrap().fields[0];
     let line = CommandLine::parse(&format!("p{}", field.text), Os::Linux).unwrap();
     assert_eq!(
-        line.expand(&Expansion::default()),
+        line.expand(&Expansion::default()).unwrap(),
         [OsString::from(shown(LEFT, "my dir"))]
     );
     assert_eq!(field.select, Some((0, 0)));
+}
+
+#[test]
+fn run_doubles_the_braces_of_the_path() {
+    let mut harness = Harness::start(LEFT, RIGHT);
+    harness.load(Side::Left, vec![file("{dir}")]);
+    harness.press("Down");
+
+    harness.press("X");
+
+    let text = &harness.popup_fields()[0];
+    let line = CommandLine::parse(&format!("p{text}"), Os::Linux).unwrap();
+    assert_eq!(
+        line.expand(&Expansion::default()).unwrap(),
+        [OsString::from(shown(LEFT, "{dir}"))]
+    );
 }
 
 #[test]

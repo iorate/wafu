@@ -13,10 +13,10 @@ use crate::app::Os;
 pub struct CommandLine {
     source: String,
     program: String,
-    args: Vec<Arg>,
+    args: Vec<Vec<Piece>>,
 }
 
-/// What a placeholder argument stands for.
+/// What a placeholder stands for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Placeholder {
     CursorPath,
@@ -42,7 +42,22 @@ pub enum CommandLineError {
     Empty,
     #[error("unterminated quote or trailing backslash")]
     UnterminatedQuoteOrBackslash,
+    #[error("unknown placeholder {{{0}}}")]
+    UnknownPlaceholder(String),
+    #[error("unclosed {{")]
+    UnclosedBrace,
+    #[error("unmatched }}")]
+    UnmatchedBrace,
+    #[error("placeholder in the program")]
+    PlaceholderInProgram,
+    #[error("more than one list of paths in an argument")]
+    ListsInOneArgument,
 }
+
+/// A placeholder that has no value, which keeps the line from being started.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[error("{{{}}} is empty", .0.name())]
+pub struct EmptyPlaceholder(pub Placeholder);
 
 impl CommandLine {
     /// Splits the text by the quoting rules of `os`: those of `sh` on macOS
@@ -52,14 +67,25 @@ impl CommandLine {
         if tokens.first().is_none_or(String::is_empty) {
             return Err(CommandLineError::Empty);
         }
-        let program = tokens.remove(0);
+        let program = match pieces(&tokens.remove(0))?.as_slice() {
+            [] => String::new(),
+            [Piece::Text(text)] => text.clone(),
+            _ => return Err(CommandLineError::PlaceholderInProgram),
+        };
         let args = tokens
-            .into_iter()
-            .map(|token| match placeholder(&token) {
-                Some(placeholder) => Arg::Placeholder(placeholder),
-                None => Arg::Literal(token),
+            .iter()
+            .map(|token| {
+                let pieces = pieces(token)?;
+                let lists = pieces
+                    .iter()
+                    .filter(|piece| matches!(piece, Piece::Placeholder(p) if p.is_list()))
+                    .count();
+                if lists > 1 {
+                    return Err(CommandLineError::ListsInOneArgument);
+                }
+                Ok(pieces)
             })
-            .collect();
+            .collect::<Result<_, _>>()?;
         Ok(Self {
             source: text.to_owned(),
             program,
@@ -82,30 +108,50 @@ impl CommandLine {
     /// archive have to be extracted first.
     #[must_use]
     pub fn uses_paths(&self) -> bool {
-        self.args.iter().any(|arg| {
+        self.args.iter().flatten().any(|piece| {
             matches!(
-                arg,
-                Arg::Placeholder(
+                piece,
+                Piece::Placeholder(
                     Placeholder::CursorPath | Placeholder::MarkedPaths | Placeholder::Paths
                 )
             )
         })
     }
 
-    /// The arguments with each placeholder replaced by as many arguments as it
-    /// has values, which may be none.
-    #[must_use]
-    pub fn expand(&self, expansion: &Expansion) -> Vec<OsString> {
+    /// The arguments with the placeholders filled in. An argument that holds
+    /// a list of paths is repeated once for each of them.
+    pub fn expand(&self, expansion: &Expansion) -> Result<Vec<OsString>, EmptyPlaceholder> {
         let mut args = Vec::new();
         for arg in &self.args {
-            match arg {
-                Arg::Literal(text) => args.push(OsString::from(text)),
-                Arg::Placeholder(placeholder) => {
-                    args.extend(expansion.values(*placeholder).map(OsString::from));
+            let mut expanded = vec![OsString::new()];
+            for piece in arg {
+                match piece {
+                    Piece::Text(text) => {
+                        for arg in &mut expanded {
+                            arg.push(text);
+                        }
+                    }
+                    Piece::Placeholder(placeholder) => {
+                        let values = expansion.values(*placeholder);
+                        if values.is_empty() {
+                            return Err(EmptyPlaceholder(*placeholder));
+                        }
+                        expanded = expanded
+                            .iter()
+                            .flat_map(|arg| {
+                                values.iter().map(move |value| {
+                                    let mut arg = arg.clone();
+                                    arg.push(value);
+                                    arg
+                                })
+                            })
+                            .collect();
+                    }
                 }
             }
+            args.extend(expanded);
         }
-        args
+        Ok(args)
     }
 }
 
@@ -120,18 +166,31 @@ impl Placeholder {
             _ => return None,
         })
     }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::CursorPath => "cursor_path",
+            Self::MarkedPaths => "marked_paths",
+            Self::Paths => "paths",
+            Self::Dir => "dir",
+            Self::OtherDir => "other_dir",
+        }
+    }
+
+    fn is_list(self) -> bool {
+        matches!(self, Self::MarkedPaths | Self::Paths)
+    }
 }
 
 impl Expansion {
-    fn values(&self, placeholder: Placeholder) -> impl Iterator<Item = &PathBuf> {
-        let (single, many): (Option<&PathBuf>, &[PathBuf]) = match placeholder {
-            Placeholder::CursorPath => (self.cursor_path.as_ref(), &[]),
-            Placeholder::MarkedPaths => (None, &self.marked_paths),
-            Placeholder::Paths => (None, &self.paths),
-            Placeholder::Dir => (Some(&self.dir), &[]),
-            Placeholder::OtherDir => (Some(&self.other_dir), &[]),
-        };
-        single.into_iter().chain(many)
+    fn values(&self, placeholder: Placeholder) -> &[PathBuf] {
+        match placeholder {
+            Placeholder::CursorPath => self.cursor_path.as_slice(),
+            Placeholder::MarkedPaths => &self.marked_paths,
+            Placeholder::Paths => &self.paths,
+            Placeholder::Dir => dir_values(&self.dir),
+            Placeholder::OtherDir => dir_values(&self.other_dir),
+        }
     }
 }
 
@@ -148,9 +207,13 @@ pub fn format_line(program: &str, args: &[OsString], os: Os) -> String {
         .join(" ")
 }
 
+pub(crate) fn escape_braces(text: &str) -> String {
+    text.replace('{', "{{").replace('}', "}}")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Arg {
-    Literal(String),
+enum Piece {
+    Text(String),
     Placeholder(Placeholder),
 }
 
@@ -221,9 +284,54 @@ fn split_windows(text: &str) -> Vec<String> {
     tokens
 }
 
-// A placeholder is a whole argument; `{dir}` inside a longer argument is text.
-fn placeholder(token: &str) -> Option<Placeholder> {
-    Placeholder::from_name(token.strip_prefix('{')?.strip_suffix('}')?)
+// A pane without a location has an empty path for its directory.
+fn dir_values(dir: &PathBuf) -> &[PathBuf] {
+    if dir.as_os_str().is_empty() {
+        &[]
+    } else {
+        std::slice::from_ref(dir)
+    }
+}
+
+// Every brace is part of a placeholder or doubled, so that any other form can
+// be given a meaning later without changing what a working line does.
+fn pieces(token: &str) -> Result<Vec<Piece>, CommandLineError> {
+    let mut pieces = Vec::new();
+    let mut text = String::new();
+    let mut rest = token;
+    while let Some(c) = rest.chars().next() {
+        rest = &rest[c.len_utf8()..];
+        match c {
+            '{' => {
+                if let Some(after) = rest.strip_prefix('{') {
+                    text.push('{');
+                    rest = after;
+                    continue;
+                }
+                let (inside, after) = rest
+                    .split_once('}')
+                    .ok_or(CommandLineError::UnclosedBrace)?;
+                rest = after;
+                let placeholder = Placeholder::from_name(inside)
+                    .ok_or_else(|| CommandLineError::UnknownPlaceholder(inside.to_owned()))?;
+                if !text.is_empty() {
+                    pieces.push(Piece::Text(std::mem::take(&mut text)));
+                }
+                pieces.push(Piece::Placeholder(placeholder));
+            }
+            '}' => {
+                rest = rest
+                    .strip_prefix('}')
+                    .ok_or(CommandLineError::UnmatchedBrace)?;
+                text.push('}');
+            }
+            _ => text.push(c),
+        }
+    }
+    if !text.is_empty() {
+        pieces.push(Piece::Text(text));
+    }
+    Ok(pieces)
 }
 
 pub(crate) fn quote_program(text: &str, os: Os) -> Cow<'_, str> {
@@ -290,7 +398,7 @@ mod tests {
 
         assert_eq!(line.program(), "p");
         assert_eq!(
-            line.expand(&Expansion::default()),
+            line.expand(&Expansion::default()).unwrap(),
             ["-n", "a"].map(OsString::from)
         );
     }
@@ -312,30 +420,45 @@ mod tests {
     }
 
     #[test]
-    fn parse_recognizes_placeholders_only_as_whole_arguments() {
-        let line = CommandLine::parse("code --dir={dir} {dir} \"{paths}\"", Os::Linux).unwrap();
-
-        let expansion = Expansion {
-            dir: PathBuf::from("/d"),
-            paths: vec![PathBuf::from("/p1"), PathBuf::from("/p2")],
-            ..Expansion::default()
-        };
-        assert_eq!(
-            line.expand(&expansion),
-            ["--dir={dir}", "/d", "/p1", "/p2"].map(OsString::from)
-        );
+    fn parse_rejects_braces_that_are_neither_placeholders_nor_doubled() {
+        let unknown = |name: &str| CommandLineError::UnknownPlaceholder(name.to_owned());
+        let cases = [
+            ("x {path}", unknown("path")),
+            ("x {}", unknown("")),
+            ("x {DIR}", unknown("DIR")),
+            ("x '{ dir }'", unknown(" dir ")),
+            ("x {dir:name}", unknown("dir:name")),
+            ("x a{b{dir}", unknown("b{dir")),
+            ("x {dir", CommandLineError::UnclosedBrace),
+            ("x a{", CommandLineError::UnclosedBrace),
+            ("x dir}", CommandLineError::UnmatchedBrace),
+            ("x {dir}}", CommandLineError::UnmatchedBrace),
+            ("{dir} x", CommandLineError::PlaceholderInProgram),
+            ("a{dir}/x", CommandLineError::PlaceholderInProgram),
+            ("{x} a", unknown("x")),
+            ("x {paths}{paths}", CommandLineError::ListsInOneArgument),
+            (
+                "x {marked_paths}:{paths}",
+                CommandLineError::ListsInOneArgument,
+            ),
+        ];
+        for (text, error) in cases {
+            assert_eq!(CommandLine::parse(text, Os::Linux), Err(error), "{text:?}");
+        }
     }
 
     #[test]
-    fn parse_takes_unknown_placeholders_as_text() {
-        let line = CommandLine::parse("x {} {path}", Os::Linux).unwrap();
+    fn parse_reads_doubled_braces_as_text() {
+        let line = CommandLine::parse("{{p}} {{}} {{{dir}}} a{{b}}c '{{dir}}'", Os::Linux).unwrap();
 
+        let expansion = Expansion {
+            dir: PathBuf::from("/d"),
+            ..Expansion::default()
+        };
+        assert_eq!(line.program(), "{p}");
         assert_eq!(
-            line.expand(&Expansion {
-                paths: vec![PathBuf::from("/p")],
-                ..Expansion::default()
-            }),
-            ["{}", "{path}"].map(OsString::from)
+            line.expand(&expansion).unwrap(),
+            ["{}", "{/d}", "a{b}c", "{dir}"].map(OsString::from)
         );
     }
 
@@ -355,19 +478,123 @@ mod tests {
     }
 
     #[test]
-    fn expand_gives_each_placeholder_as_many_arguments_as_it_has_values() {
-        let line = CommandLine::parse("x {cursor_path} {marked_paths} {other_dir} end", Os::Linux)
-            .unwrap();
+    fn expand_fills_in_placeholders_anywhere_in_an_argument() {
+        let line = CommandLine::parse(
+            "x {dir} --dir={dir} \"{cursor_path}\" {dir}:{other_dir} {paths}",
+            Os::Linux,
+        )
+        .unwrap();
 
         let expansion = Expansion {
-            cursor_path: None,
-            marked_paths: vec![PathBuf::from("/m1"), PathBuf::from("/m2")],
+            cursor_path: Some(PathBuf::from("/c d")),
+            paths: vec![PathBuf::from("/p1"), PathBuf::from("/p2")],
+            dir: PathBuf::from("/d"),
             other_dir: PathBuf::from("/o"),
             ..Expansion::default()
         };
         assert_eq!(
-            line.expand(&expansion),
-            ["/m1", "/m2", "/o", "end"].map(OsString::from)
+            line.expand(&expansion).unwrap(),
+            ["/d", "--dir=/d", "/c d", "/d:/o", "/p1", "/p2"].map(OsString::from)
+        );
+    }
+
+    #[test]
+    fn expand_repeats_an_argument_for_each_path_of_its_list() {
+        let line = CommandLine::parse("x {dir}/{marked_paths}.bak", Os::Linux).unwrap();
+
+        let expansion = Expansion {
+            marked_paths: vec![PathBuf::from("m1"), PathBuf::from("m2")],
+            dir: PathBuf::from("/d"),
+            ..Expansion::default()
+        };
+        assert_eq!(
+            line.expand(&expansion).unwrap(),
+            ["/d/m1.bak", "/d/m2.bak"].map(OsString::from)
+        );
+    }
+
+    #[test]
+    fn expand_does_not_read_braces_in_a_value() {
+        let line = CommandLine::parse("x {cursor_path}", Os::Linux).unwrap();
+
+        let expansion = Expansion {
+            cursor_path: Some(PathBuf::from("/{dir}/}")),
+            ..Expansion::default()
+        };
+        assert_eq!(
+            line.expand(&expansion).unwrap(),
+            ["/{dir}/}"].map(OsString::from)
+        );
+    }
+
+    #[test]
+    fn expand_fails_on_a_placeholder_without_a_value() {
+        let full = Expansion {
+            cursor_path: Some(PathBuf::from("/c")),
+            marked_paths: vec![PathBuf::from("/m")],
+            paths: vec![PathBuf::from("/p")],
+            dir: PathBuf::from("/d"),
+            other_dir: PathBuf::from("/o"),
+        };
+        let cases = [
+            (
+                "x {cursor_path}",
+                Expansion {
+                    cursor_path: None,
+                    ..full.clone()
+                },
+                "{cursor_path} is empty",
+            ),
+            (
+                "x -a={marked_paths}",
+                Expansion {
+                    marked_paths: Vec::new(),
+                    ..full.clone()
+                },
+                "{marked_paths} is empty",
+            ),
+            (
+                "x {paths}",
+                Expansion {
+                    paths: Vec::new(),
+                    ..full.clone()
+                },
+                "{paths} is empty",
+            ),
+            (
+                "x {dir}",
+                Expansion {
+                    dir: PathBuf::new(),
+                    ..full.clone()
+                },
+                "{dir} is empty",
+            ),
+            (
+                "x {dir} -o{other_dir}",
+                Expansion {
+                    other_dir: PathBuf::new(),
+                    ..full.clone()
+                },
+                "{other_dir} is empty",
+            ),
+        ];
+        for (text, expansion, message) in cases {
+            let line = CommandLine::parse(text, Os::Linux).unwrap();
+
+            let error = line.expand(&expansion).unwrap_err();
+            assert_eq!(error.to_string(), message, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn escape_braces_is_read_back_as_the_same_text() {
+        let text = "{dir} }{ {{a}}";
+
+        let line = CommandLine::parse(&format!("p {}", escape_braces(text)), Os::Windows).unwrap();
+
+        assert_eq!(
+            line.expand(&Expansion::default()).unwrap(),
+            ["{dir}", "}{", "{{a}}"].map(OsString::from)
         );
     }
 

@@ -5,7 +5,7 @@ use thiserror::Error;
 
 use crate::app::SpawnName;
 use crate::command::Command;
-use crate::external::CommandLineError;
+use crate::external::{CommandLineError, EmptyPlaceholder};
 use crate::filter::FilterError;
 use crate::state::StateError;
 
@@ -76,6 +76,11 @@ pub enum AppError {
     UnknownCommand { command: Command },
     #[error("Cannot run command line: {source}")]
     InvalidCommandLine { source: CommandLineError },
+    #[error("Cannot start {program}: {source}")]
+    EmptyPlaceholder {
+        program: String,
+        source: EmptyPlaceholder,
+    },
     #[error("Cannot start {program}: {source}")]
     SpawnFailed { program: String, source: IoError },
     #[error("Cannot read the login shell's environment: {source}")]

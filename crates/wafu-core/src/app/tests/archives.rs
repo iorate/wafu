@@ -1431,9 +1431,7 @@ fn edit_inside_an_archive_keeps_the_marks_of_the_extracted_entries() {
 #[test]
 fn open_alternative_inside_an_archive_extracts_the_cursor_entry_alone_and_then_starts() {
     let mut harness = inside();
-    harness.config(
-        "[open_alternative.extensions]\ntxt = \"view {cursor_path} {marked_paths} {paths}\"\n",
-    );
+    harness.config("[open_alternative.extensions]\ntxt = \"view {cursor_path} {paths}\"\n");
     harness.press("Down");
     harness.press("Space");
     assert_eq!(harness.cursor_name(Side::Left), "b.txt");
@@ -1460,6 +1458,23 @@ fn open_alternative_inside_an_archive_extracts_the_cursor_entry_alone_and_then_s
                 ]
                 && cwd == Path::new(LEFT)
     ));
+}
+
+#[test]
+fn open_alternative_inside_an_archive_with_an_empty_placeholder_extracts_nothing() {
+    let mut harness = inside();
+    harness.config("[open_alternative.extensions]\ntxt = \"view {paths} {marked_paths}\"\n");
+    harness.press("Down");
+    harness.press("Space");
+    harness.take_effects();
+
+    harness.press("Shift+Enter");
+
+    assert_eq!(harness.take_effects(), Vec::new());
+    assert_eq!(
+        harness.log().last().map(String::as_str),
+        Some("Cannot start view: {marked_paths} is empty")
+    );
 }
 
 #[test]
@@ -1735,7 +1750,7 @@ fn an_external_command_inside_an_archive_extracts_the_cursor_and_the_marks() {
 fn an_external_command_on_the_parent_row_of_an_archive_root_passes_the_archive_file() {
     let mut harness = inside();
     harness.config(
-        "[commands.show]\ncommand_line = \"show {cursor_path} {marked_paths} {paths} {dir} {other_dir}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
+        "[commands.show]\ncommand_line = \"show {cursor_path} {paths} {dir} {other_dir}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
     );
     harness.take_effects();
     assert_eq!(harness.cursor_name(Side::Left), "..");
@@ -1763,7 +1778,7 @@ fn an_external_command_on_the_parent_row_of_an_archive_root_passes_the_archive_f
 fn an_external_command_on_the_parent_row_inside_a_directory_extracts_the_directory() {
     let mut harness = inside();
     harness.config(
-        "[commands.show]\ncommand_line = \"show {cursor_path} {marked_paths} {paths} {dir} {other_dir}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
+        "[commands.show]\ncommand_line = \"show {cursor_path} {paths} {dir} {other_dir}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
     );
     harness.press("Down");
     harness.press("Enter");
@@ -1797,7 +1812,7 @@ fn an_external_command_on_the_parent_row_inside_a_directory_extracts_the_directo
 fn an_external_command_on_the_parent_row_with_marks_extracts_the_marks_alone() {
     let mut harness = inside();
     harness.config(
-        "[commands.show]\ncommand_line = \"show {cursor_path} {marked_paths} {paths} {dir} {other_dir}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
+        "[commands.show]\ncommand_line = \"show {marked_paths} {paths} {dir} {other_dir}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
     );
     harness.press("Down");
     harness.press("Enter");
@@ -1839,6 +1854,29 @@ fn an_external_command_on_the_parent_row_with_marks_extracts_the_marks_alone() {
             OsString::from(shown_place(LEFT)),
             OsString::from(shown_place(RIGHT)),
         ]
+    );
+}
+
+#[test]
+fn an_external_command_on_the_parent_row_with_marks_has_no_cursor_path_and_extracts_nothing() {
+    let mut harness = inside();
+    harness.config(
+        "[commands.show]\ncommand_line = \"show {cursor_path} {marked_paths}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
+    );
+    harness.press("Down");
+    harness.press("Enter");
+    harness.load(Side::Left, vec![file("x")]);
+    harness.press("Down");
+    harness.press("Space");
+    harness.press("Home");
+    harness.take_effects();
+
+    harness.press("F2");
+
+    assert_eq!(harness.take_effects(), Vec::new());
+    assert_eq!(
+        harness.log().last().map(String::as_str),
+        Some("Cannot start show: {cursor_path} is empty")
     );
 }
 

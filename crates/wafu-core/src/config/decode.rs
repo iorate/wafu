@@ -845,11 +845,15 @@ pdf = "sumatrapdf {paths}"
 
         assert_eq!(diagnostics, Vec::new());
         assert_eq!(
-            config.programs.editor.expand(&Expansion::default()),
+            config
+                .programs
+                .editor
+                .expand(&Expansion::default())
+                .unwrap(),
             ["'a", "b'"].map(OsString::from)
         );
         assert_eq!(
-            config.commands["x"].expand(&Expansion::default()),
+            config.commands["x"].expand(&Expansion::default()).unwrap(),
             ["'a", "b'"].map(OsString::from)
         );
     }
