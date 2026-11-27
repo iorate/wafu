@@ -2453,7 +2453,7 @@ fn copy_files_refuses_a_link_among_the_marks() {
         harness.log(),
         [format!(
             "Cannot copy {}: a link cannot be put on the clipboard",
-            path(LEFT, "b").display()
+            path(&shown_place(LEFT), "b").display()
         )]
     );
 }
