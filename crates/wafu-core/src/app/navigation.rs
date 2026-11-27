@@ -527,7 +527,7 @@ impl App {
                 // executable (a Windows drive mounted in WSL), the bit tells
                 // nothing, and an image should still be previewed.
                 } else if entry.kind.is_executable() && !is_image_name(&entry.name) {
-                    self.run_file(effects);
+                    self.run(effects);
                 } else {
                     let entry = entry.clone();
                     self.open_preview(&entry, effects);
@@ -592,7 +592,7 @@ impl App {
         self.open_document(&location, &entry.name, effects);
     }
 
-    pub(super) fn enter_as_archive(&mut self, effects: &mut Vec<Effect>) {
+    pub(super) fn open_as_archive(&mut self, effects: &mut Vec<Effect>) {
         let Some((location, entry)) = self.active_pane().cursor_target() else {
             return;
         };
@@ -669,12 +669,12 @@ impl App {
         );
     }
 
-    pub(super) fn history_back(&mut self, effects: &mut Vec<Effect>) {
+    pub(super) fn go_back(&mut self, effects: &mut Vec<Effect>) {
         let pos = self.active_pane().history().pos();
         self.step_history(self.active, pos, Step::Back, effects);
     }
 
-    pub(super) fn history_forward(&mut self, effects: &mut Vec<Effect>) {
+    pub(super) fn go_forward(&mut self, effects: &mut Vec<Effect>) {
         let pos = self.active_pane().history().pos();
         self.step_history(self.active, pos, Step::Forward, effects);
     }
@@ -723,7 +723,7 @@ impl App {
         self.copy_location(self.active.other(), self.active, effects);
     }
 
-    pub(super) fn sync_other_to_this(&mut self, effects: &mut Vec<Effect>) {
+    pub(super) fn sync_from_other(&mut self, effects: &mut Vec<Effect>) {
         self.copy_location(self.active, self.active.other(), effects);
     }
 

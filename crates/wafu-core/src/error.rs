@@ -74,11 +74,8 @@ pub enum AppError {
     StateUnreadable { path: PathBuf, source: StateError },
     #[error("Cannot run {command}: unknown command")]
     UnknownCommand { command: Command },
-    #[error("Cannot run {command}: {source}")]
-    InvalidCommandLine {
-        command: Command,
-        source: CommandLineError,
-    },
+    #[error("Cannot run command line: {source}")]
+    InvalidCommandLine { source: CommandLineError },
     #[error("Cannot start {program}: {source}")]
     SpawnFailed { program: String, source: IoError },
     #[error("Cannot read the login shell's environment: {source}")]

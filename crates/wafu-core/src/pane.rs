@@ -121,8 +121,8 @@ pub struct Targets {
 pub enum HistoryMove {
     /// A new visit, dropping anything after the current position.
     Visit,
-    /// Moving to `pos` within the history. With a `step`, as `history_back`
-    /// and `history_forward` move, a place that cannot be read is skipped for
+    /// Moving to `pos` within the history. With a `step`, as `go_back`
+    /// and `go_forward` move, a place that cannot be read is skipped for
     /// the next one in that direction.
     Position { pos: usize, step: Option<Step> },
 }
@@ -500,7 +500,7 @@ impl Pane {
     }
 
     /// Moves to the next marked row, wrapping around.
-    pub fn mark_next(&mut self) {
+    pub fn cursor_next_mark(&mut self) {
         if let Some(row) = self.find_row_from(self.cursor + 1, Self::row_is_marked) {
             self.cursor = row;
             self.ensure_cursor_visible();
@@ -508,7 +508,7 @@ impl Pane {
     }
 
     /// Moves to the previous marked row, wrapping around.
-    pub fn mark_prev(&mut self) {
+    pub fn cursor_prev_mark(&mut self) {
         let start = self
             .cursor
             .checked_sub(1)
@@ -1260,8 +1260,8 @@ mod tests {
         pane.cursor_bottom();
         pane.mark_down();
         pane.mark_up();
-        pane.mark_next();
-        pane.mark_prev();
+        pane.cursor_next_mark();
+        pane.cursor_prev_mark();
         pane.jump_to('a');
 
         assert_eq!(pane.cursor(), 0);
@@ -1455,7 +1455,7 @@ mod tests {
     }
 
     #[test]
-    fn mark_next_and_mark_prev_wrap_around() {
+    fn cursor_next_mark_and_cursor_prev_mark_wrap_around() {
         let mut pane = pane_with("/home", &["a", "b", "c"]);
         pane.set_cursor(1);
         pane.mark_down();
@@ -1463,15 +1463,15 @@ mod tests {
         pane.mark_down();
         pane.set_cursor(0);
 
-        pane.mark_next();
+        pane.cursor_next_mark();
         assert_eq!(pane.cursor(), 1);
-        pane.mark_next();
+        pane.cursor_next_mark();
         assert_eq!(pane.cursor(), 3);
-        pane.mark_next();
+        pane.cursor_next_mark();
         assert_eq!(pane.cursor(), 1);
-        pane.mark_prev();
+        pane.cursor_prev_mark();
         assert_eq!(pane.cursor(), 3);
-        pane.mark_prev();
+        pane.cursor_prev_mark();
         assert_eq!(pane.cursor(), 1);
     }
 

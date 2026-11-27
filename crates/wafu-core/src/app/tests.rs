@@ -320,7 +320,7 @@ fn go_parent_at_root_does_nothing() {
 }
 
 #[test]
-fn focus_and_switch_change_the_active_pane_and_title() {
+fn focus_right_and_focus_other_change_the_active_pane_and_title() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.take_effects();
 
@@ -762,7 +762,7 @@ fn mark_glob_adds_matching_files() {
     harness.press("Space");
 
     harness.press("@");
-    assert_eq!(harness.view().popup.unwrap().title, "Mark");
+    assert_eq!(harness.view().popup.unwrap().title, "Mark (glob)");
     harness.edit("*.png");
     harness.press("Enter");
 
@@ -820,7 +820,7 @@ fn mark_compare_adds_marks_by_the_picked_condition_and_opens_on_it_next_time() {
 
     harness.press("W");
     let popup = harness.view().popup.unwrap();
-    assert_eq!(popup.title, "Compare");
+    assert_eq!(popup.title, "Mark (compare)");
     assert_eq!(popup.cursor, Some(0));
     harness.press("N");
 
@@ -895,7 +895,7 @@ fn mark_compare_without_a_location_on_the_other_pane_is_logged() {
 }
 
 #[test]
-fn mark_next_and_mark_prev_move_to_the_nearest_mark_in_their_direction() {
+fn cursor_next_mark_and_cursor_prev_mark_move_to_the_nearest_mark_in_their_direction() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
     harness.press("Down");
@@ -1302,7 +1302,7 @@ fn palette_filters_commands_and_runs_the_selected_one() {
         .collect();
     assert!(labels.contains(&"copy".to_owned()));
     assert!(!labels.contains(&"drives".to_owned()));
-    assert!(!labels.contains(&"close_preview".to_owned()));
+    assert!(!labels.contains(&"preview_close".to_owned()));
     assert_eq!(popup.cursor, Some(0));
 
     harness.edit("clear_m");
@@ -1418,7 +1418,7 @@ fn log_keys_scroll_and_clear() {
     assert_eq!(harness.view().log.scroll_top, 2);
 
     harness.press("?");
-    harness.edit("clear_log");
+    harness.edit("log_clear");
     harness.press("Enter");
     assert_eq!(harness.log(), Vec::<String>::new());
 }
@@ -1429,7 +1429,7 @@ fn clearing_the_log_is_another_generation_of_lines() {
     let before = harness.view().log.generation;
 
     harness.press("?");
-    harness.edit("clear_log");
+    harness.edit("log_clear");
     harness.press("Enter");
 
     assert_ne!(harness.view().log.generation, before);
@@ -2179,7 +2179,7 @@ fn a_move_to_a_drive_with_nothing_on_it_stays_put() {
 }
 
 #[test]
-fn history_back_and_forward_move_without_recording_and_stop_at_an_end() {
+fn go_back_and_forward_move_without_recording_and_stop_at_an_end() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![dir("docs")]);
     harness.press("Down");
@@ -2228,7 +2228,7 @@ fn history_back_and_forward_move_without_recording_and_stop_at_an_end() {
 }
 
 #[test]
-fn history_back_skips_a_place_that_cannot_be_read_keeping_it_in_the_history() {
+fn go_back_skips_a_place_that_cannot_be_read_keeping_it_in_the_history() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.press("BS");
     harness.load(Side::Left, vec![]);
@@ -2272,7 +2272,7 @@ fn history_back_skips_a_place_that_cannot_be_read_keeping_it_in_the_history() {
 }
 
 #[test]
-fn history_back_with_nothing_readable_to_the_oldest_keeps_the_place_and_position() {
+fn go_back_with_nothing_readable_to_the_oldest_keeps_the_place_and_position() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.press("BS");
     harness.load(Side::Left, vec![]);
@@ -2994,7 +2994,7 @@ fn opening_a_special_file_logs_an_error() {
 }
 
 #[test]
-fn entering_a_special_file_as_an_archive_logs_an_error() {
+fn opening_a_special_file_as_an_archive_logs_an_error() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![special("sock", SpecialKind::Socket)]);
     harness.press("Down");
@@ -3087,7 +3087,7 @@ fn empty_bookmarks_popup_says_so_and_enter_closes_it() {
 #[test]
 fn drive_commands_bound_by_the_configuration_log_on_other_systems() {
     let mut harness = Harness::start("/home/user", "/tmp");
-    harness.config("[keys.filelist]\n\"L\" = \"drives\"\n\"Ctrl+Left\" = \"drive_prev\"\n");
+    harness.config("[keys.filelist]\n\"L\" = \"drives\"\n\"Ctrl+Left\" = \"go_prev_drive\"\n");
     harness.take_effects();
 
     harness.press("L");
@@ -3097,7 +3097,7 @@ fn drive_commands_bound_by_the_configuration_log_on_other_systems() {
         harness.log()[1..],
         [
             "Cannot run drives: available only on Windows",
-            "Cannot run drive_prev: available only on Windows"
+            "Cannot run go_prev_drive: available only on Windows"
         ]
     );
     assert_eq!(harness.take_effects(), vec![]);
@@ -3137,7 +3137,7 @@ fn drives_popup_lists_the_letters_and_picks_by_letter() {
 }
 
 #[test]
-fn drive_next_and_prev_without_a_current_drive_go_to_the_ends() {
+fn go_next_drive_and_go_prev_drive_without_a_current_drive_go_to_the_ends() {
     let mut harness = Harness::start_on(Os::Windows, "/home/user", "/tmp");
     harness.take_effects();
 

@@ -136,7 +136,7 @@ There are no default bookmarks, external commands, [`open_alternative` programs]
 | `time_shows_seconds` | The file list's time column writes the seconds (`03:04:05`). When `false`, only the hours and minutes (`03:04`). |
 | `extension_chars` | How many characters of an extension the extension column holds after the dot: an integer from 1 to 255. A longer extension ends in an ellipsis. |
 | `min_name_chars` | How many characters of a name a narrow pane still shows before cutting off the other columns: an integer from 1 to 255. |
-| `max_history` | How many places each pane's history keeps, for `history`, `history_back`, and `history_forward`: an integer of 1 or more. |
+| `max_history` | How many places each pane's history keeps, for `history`, `go_back`, and `go_forward`: an integer of 1 or more. |
 | `max_find_results` | How many matches `find` collects before it stops: an integer of 1 or more. |
 | `compare_tolerance_ms` | How many milliseconds apart two modification times may be for `mark_compare` to take them as the same: an integer of 0 or more. `0` compares them exactly. |
 

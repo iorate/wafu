@@ -1875,7 +1875,7 @@ fn open_with_os_on_the_parent_row_opens_the_directory_itself() {
 }
 
 #[test]
-fn run_file_on_an_executable_puts_the_caret_after_its_quoted_path() {
+fn run_on_an_executable_puts_the_caret_after_its_quoted_path() {
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.load(Side::Left, vec![executable("my tool")]);
     harness.press("Down");
@@ -1892,7 +1892,7 @@ fn run_file_on_an_executable_puts_the_caret_after_its_quoted_path() {
 }
 
 #[test]
-fn run_file_starts_the_cursor_item_in_the_pane_directory() {
+fn run_starts_the_cursor_item_in_the_pane_directory() {
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.load(Side::Left, vec![executable("my tool")]);
     harness.press("Down");
@@ -1904,7 +1904,7 @@ fn run_file_starts_the_cursor_item_in_the_pane_directory() {
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Spawn {
-            name: SpawnName::Command(Command::RunFile),
+            name: SpawnName::Command(Command::Run),
             program: shown(LEFT, "my tool"),
             args: Vec::new(),
             cwd: PathBuf::from(LEFT),
@@ -1913,7 +1913,7 @@ fn run_file_starts_the_cursor_item_in_the_pane_directory() {
 }
 
 #[test]
-fn run_file_quotes_the_path_by_the_rules_of_windows_there() {
+fn run_quotes_the_path_by_the_rules_of_windows_there() {
     let mut harness = Harness::start_on(Os::Windows, WIN_LEFT, WIN_RIGHT);
     harness.load(Side::Left, vec![executable("my tool.exe")]);
     harness.press("Down");
@@ -1929,7 +1929,7 @@ fn run_file_quotes_the_path_by_the_rules_of_windows_there() {
 }
 
 #[test]
-fn run_file_on_anything_else_puts_the_caret_before_its_quoted_path() {
+fn run_on_anything_else_puts_the_caret_before_its_quoted_path() {
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.load(Side::Left, vec![dir("my dir")]);
     harness.press("Down");
@@ -1993,10 +1993,7 @@ fn a_command_line_without_a_program_is_logged() {
     harness.press("Enter");
 
     assert_eq!(harness.take_effects(), vec![]);
-    assert_eq!(
-        harness.log(),
-        ["Cannot run run_command_line: no program given"]
-    );
+    assert_eq!(harness.log(), ["Cannot run command line: no program given"]);
 }
 
 #[test]
@@ -2012,15 +2009,15 @@ fn open_with_os_in_an_empty_root_does_nothing() {
 }
 
 #[test]
-fn copy_log_copies_every_kept_line_and_nothing_when_empty() {
+fn log_copy_copies_every_kept_line_and_nothing_when_empty() {
     let mut harness = three_files();
     harness.press("?");
-    harness.edit("clear_log");
+    harness.edit("log_clear");
     harness.press("Enter");
     harness.take_effects();
 
     harness.press("?");
-    harness.edit("copy_log");
+    harness.edit("log_copy");
     harness.press("Enter");
     assert_eq!(harness.take_effects(), vec![]);
 
@@ -2031,7 +2028,7 @@ fn copy_log_copies_every_kept_line_and_nothing_when_empty() {
         }));
     }
     harness.press("?");
-    harness.edit("copy_log");
+    harness.edit("log_copy");
     harness.press("Enter");
 
     assert_eq!(

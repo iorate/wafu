@@ -203,8 +203,8 @@ pub enum InputKind {
     NewText {
         dir: PathBuf,
     },
-    /// A command line to start in the active pane's directory, from `run_file`.
-    RunFile,
+    /// A command line to start in the active pane's directory, from `run`.
+    Run,
     /// A command line to start in the active pane's directory, from `run_command_line`.
     RunCommandLine,
     /// The "Rename" choice of a conflict; Esc goes back to the conflict popup.
@@ -596,14 +596,14 @@ impl InputKind {
     pub fn title(&self) -> &'static str {
         match self {
             Self::Filter => "Filter",
-            Self::MarkGlob => "Mark",
+            Self::MarkGlob => "Mark (glob)",
             Self::GoToPath { .. } => "Go to path",
             Self::Find { .. } => "Find",
             Self::Rename { .. } | Self::ConflictRename { .. } => "Rename",
             Self::NewDir { .. } => "New directory",
             Self::NewFile { .. } => "New file",
             Self::NewText { .. } => "New text",
-            Self::RunFile | Self::RunCommandLine => "Run",
+            Self::Run | Self::RunCommandLine => "Run",
             Self::ArchivePassword { .. } => "Password",
             Self::Compress { here: false, .. } => "Compress",
             Self::Compress { here: true, .. } => "Compress (here)",
@@ -837,7 +837,7 @@ impl ListPopup {
             ListKind::History(Side::Right) => "History (right)",
             ListKind::Bookmarks => "Bookmarks",
             ListKind::Drives => "Drives",
-            ListKind::Encodings => "Encoding",
+            ListKind::Encodings => "Encodings",
             ListKind::Found => "Find",
         }
     }
@@ -2137,7 +2137,7 @@ mod tests {
             popup.selected().unwrap().target,
             ListTarget::Encoding(Some(encoding_rs::SHIFT_JIS))
         );
-        assert_eq!(popup.title(), "Encoding");
+        assert_eq!(popup.title(), "Encodings");
     }
 
     #[test]
