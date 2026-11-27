@@ -168,8 +168,7 @@ impl FromStr for NamedKey {
             "enter" => Self::Enter,
             "space" => Self::Space,
             "tab" => Self::Tab,
-            // `BS` was the only spelling through 0.4.
-            "backspace" | "bs" => Self::Backspace,
+            "backspace" => Self::Backspace,
             "esc" => Self::Escape,
             "up" => Self::Up,
             "down" => Self::Down,
@@ -238,14 +237,6 @@ mod tests {
 
         assert_eq!("Ctrl+Shift+Alt+Left".parse::<Key>(), Ok(expected));
         assert_eq!("alt+SHIFT+ctrl+left".parse::<Key>(), Ok(expected));
-    }
-
-    #[test]
-    fn parse_bs_as_backspace() {
-        assert_eq!(
-            "BS".parse::<Key>(),
-            Ok(key(KeyBase::Named(NamedKey::Backspace)))
-        );
     }
 
     #[test]
@@ -378,7 +369,7 @@ mod tests {
             Key::from_input(&input("F12", false, false)),
             Some(key(KeyBase::Named(NamedKey::F(12))))
         );
-        for text in ["up", "END", "tab", "bs", "f1", "F+1"] {
+        for text in ["up", "END", "tab", "backspace", "f1", "F+1"] {
             assert_eq!(
                 Key::from_input(&input(text, false, false)),
                 None,
