@@ -1521,7 +1521,7 @@ impl Temp {
     }
 }
 
-// What `{cursor_path}` stands for once the extraction is done.
+// What `{cursor_path}` and `{path}` stand for once the extraction is done.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum TempPath {
     // An extracted entry, by its name under the temporary directory.

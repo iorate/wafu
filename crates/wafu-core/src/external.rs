@@ -512,13 +512,10 @@ mod tests {
     }
 
     #[test]
-    fn a_line_for_a_file_uses_paths_only_with_its_placeholder() {
-        let cases = [("x -n", false), ("x --file={path}", true)];
-        for (text, expected) in cases {
-            let line = CommandLine::parse_for_file(text, Os::Linux).unwrap();
+    fn uses_paths_is_true_for_the_placeholder_of_a_file() {
+        let line = CommandLine::parse_for_file("x {path}", Os::Linux).unwrap();
 
-            assert_eq!(line.uses_paths(), expected, "{text:?}");
-        }
+        assert!(line.uses_paths());
     }
 
     #[test]

@@ -322,7 +322,7 @@ To write a brace as text, double it: `{{` and `}}`. Any other brace is an error,
 
 When a placeholder in the line has no value, such as `{marked_paths}` with nothing marked, the command is not started and the log says which placeholder was empty.
 
-Paths are full paths. Inside an archive, a line that uses `{cursor_path}`, `{marked_paths}`, or `{paths}` first extracts the items to a temporary directory, and those placeholders name the extracted files. There, on the `..` row of a directory inside the archive, `{cursor_path}` is empty while items are marked. `{dir}` is then the directory that holds the archive file, the outermost one for an archive inside an archive.
+Paths are full paths. Inside an archive, a line that uses `{cursor_path}`, `{marked_paths}`, or `{paths}` first extracts the items to a temporary directory, and those placeholders name the extracted files. There, on a `..` row other than the one at the root of the outermost archive, `{cursor_path}` is empty while items are marked. `{dir}` is then the directory that holds the archive file, the outermost one for an archive inside an archive.
 
 The same rules apply to the lines typed into the dialogs of `run` and `run_command_line`. `run` doubles the braces in the path it starts out with.
 
