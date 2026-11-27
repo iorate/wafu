@@ -15,7 +15,7 @@ A keyboard-driven dual-pane file manager for Windows, macOS, and Linux, built wi
 
 ![The template rename popup with the template kyoto_{001}{ext}, listing each marked photo's old name beside its new one, starting with IMG_0408.jpg and kyoto_001.jpg](https://raw.githubusercontent.com/iorate/wafu/main/docs/images/rename.png)
 
-![A photo of hills at sunset previewed in the right half of the window, beside the list of photos it was opened from, one of which is marked](https://raw.githubusercontent.com/iorate/wafu/main/docs/images/preview.png)
+![A photo of hills at sunset previewed in the right half of the window, beside the list of photos it was opened from](https://raw.githubusercontent.com/iorate/wafu/main/docs/images/preview.png)
 
 ## Installation
 
