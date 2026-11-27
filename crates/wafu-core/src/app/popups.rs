@@ -327,22 +327,28 @@ impl App {
     }
 
     pub(super) fn popup_status(&self, view: Option<&PopupView>) -> Option<String> {
-        let source = match self.popup.as_ref()? {
-            Popup::Input(_) | Popup::Search(_) | Popup::Rename(_) => return None,
-            Popup::Palette(popup) => match popup.selected() {
-                Some(Command::External(name)) => self
-                    .config
-                    .commands
-                    .get(&name)
-                    .map(|line| line.source().to_owned()),
-                _ => None,
-            },
-            Popup::List(popup) => popup.selected().and_then(|item| item.source.clone()),
-            Popup::Sort(_) | Popup::Compare(_) | Popup::Choice(_) | Popup::Conflict(_) => None,
-        };
         let label = view
             .and_then(|view| Some(view.items.as_ref()?.get(view.cursor?)?.label.clone()))
             .unwrap_or_default();
+        let source = match self.popup.as_ref()? {
+            Popup::Input(_) | Popup::Search(_) | Popup::Rename(_) => return None,
+            Popup::Palette(popup) => {
+                let command = popup.selected();
+                if let Some(description) = command.as_ref().and_then(Command::description) {
+                    return Some(format!("{label}: {description}"));
+                }
+                match command {
+                    Some(Command::External(name)) => self
+                        .config
+                        .commands
+                        .get(&name)
+                        .map(|line| line.source().to_owned()),
+                    _ => None,
+                }
+            }
+            Popup::List(popup) => popup.selected().and_then(|item| item.source.clone()),
+            Popup::Sort(_) | Popup::Compare(_) | Popup::Choice(_) | Popup::Conflict(_) => None,
+        };
         Some(match source {
             Some(source) => format!("{label} -> {}", show_line_breaks(source)),
             None => label,

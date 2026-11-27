@@ -316,7 +316,7 @@ The command lines follow the rules of [external commands](#commands), with the i
 - `"$NAME"` runs the command `NAME` of `[commands]`.
 - A command that does not work in the context is reported and ignored.
 
-The command palette (`?`) lists the commands available where you are, with the keys bound to them.
+The command palette (`?`) lists the commands available where you are, with the keys bound to them. [commands.md](commands.md) lists every command with its default keys and what it does.
 
 Keys are written as modifiers and a key joined by `+`, as in `"Ctrl+Shift+Left"`:
 

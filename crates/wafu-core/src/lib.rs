@@ -9,6 +9,7 @@
 mod app;
 mod batch_rename;
 mod command;
+mod commands_doc;
 mod compare;
 mod config;
 mod entry;
@@ -38,6 +39,7 @@ pub use app::{
     MouseInput, Msg, Os, PreviewSource, ReadError, Resolved, Side, SpawnKind, SpawnName, Start,
 };
 pub use command::Command;
+pub use commands_doc::commands_doc;
 pub use config::{
     CONFIG_TEMPLATE, Color, Colors, SizeFormat, Theme, byte_count, read_config_chain,
 };

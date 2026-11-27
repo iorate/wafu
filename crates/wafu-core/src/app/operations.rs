@@ -77,15 +77,15 @@ impl App {
                 };
                 self.shell_menu(anchor, effects);
             }
+            Command::CalculateSize => self.start_calculation(OperationKind::CalculateSize, effects),
+            Command::CalculateSizeOnDisk => {
+                self.start_calculation(OperationKind::CalculateSizeOnDisk, effects);
+            }
             Command::OpenAsArchive => self.open_as_archive(effects),
             Command::Extract => self.start_extract(false, effects),
             Command::ExtractHere => self.start_extract(true, effects),
             Command::Compress => self.open_compress(false),
             Command::CompressHere => self.open_compress(true),
-            Command::CalculateSize => self.start_calculation(OperationKind::CalculateSize, effects),
-            Command::CalculateSizeOnDisk => {
-                self.start_calculation(OperationKind::CalculateSizeOnDisk, effects);
-            }
             _ => {}
         }
     }

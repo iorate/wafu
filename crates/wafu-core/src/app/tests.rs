@@ -153,9 +153,19 @@ fn status_line_spells_out_the_cursor_row_of_a_popup_with_a_list() {
 
     harness.press("?");
     harness.edit("mark_range");
-    assert_eq!(harness.view().status, harness.popup_items()[0].label);
+    assert!(
+        harness
+            .view()
+            .status
+            .starts_with(&format!("{}: ", harness.popup_items()[0].label))
+    );
     harness.press("Down");
-    assert_eq!(harness.view().status, harness.popup_items()[1].label);
+    assert!(
+        harness
+            .view()
+            .status
+            .starts_with(&format!("{}: ", harness.popup_items()[1].label))
+    );
 
     harness.edit("no such command");
     assert_eq!(harness.view().status, "");
@@ -169,6 +179,19 @@ fn status_line_follows_a_bookmark_with_its_path_as_written() {
     harness.press("J");
 
     assert_eq!(harness.view().status, "Docs -> ~/docs");
+}
+
+#[test]
+fn status_line_follows_a_built_in_command_with_its_description() {
+    let mut harness = Harness::start("/home/user", "/tmp");
+
+    harness.press("?");
+    harness.edit("swap_panes");
+
+    assert_eq!(
+        harness.view().status,
+        format!("swap_panes: {}", Command::SwapPanes.description().unwrap())
+    );
 }
 
 #[test]
