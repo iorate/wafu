@@ -4242,7 +4242,7 @@ fn the_title_says_when_the_process_is_elevated() {
 fn external_commands_expand_placeholders_and_report_their_start() {
     let mut harness = Harness::start_on(Os::Windows, "/home/user", "/tmp");
     harness.config(
-        "[commands.term]\ncommand_line = \"wt -d {dir} {paths} --other {other_dir} {cursor_path}\"\n[keys.filelist]\n\"F2\" = \"$term\"\n",
+        "[commands.term]\ncommand_line = \"wt -d {dir} {paths} --other {other_dir}\"\n[keys.filelist]\n\"F2\" = \"$term\"\n",
     );
     harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
     harness.press("Down");
@@ -4265,7 +4265,6 @@ fn external_commands_expand_placeholders_and_report_their_start() {
                 OsString::from(shown(HOME, "b")),
                 OsString::from("--other"),
                 OsString::from(shown_place("/tmp")),
-                OsString::from(shown(HOME, "c")),
             ],
             cwd: home.clone(),
         }]

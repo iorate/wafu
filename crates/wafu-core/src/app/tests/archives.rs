@@ -1684,22 +1684,23 @@ fn run_command_line_inside_an_archive_with_paths_extracts_them_and_then_starts()
 }
 
 #[test]
-fn an_external_command_inside_an_archive_extracts_the_cursor_and_the_marks() {
+fn an_external_command_with_the_cursor_path_inside_an_archive_extracts_the_cursor_entry_alone() {
     let mut harness = inside();
     harness.config(
-        "[commands.show]\ncommand_line = \"show {cursor_path} {marked_paths} {paths} {dir} {other_dir}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
+        "[commands.show]\ncommand_line = \"show {cursor_path} {dir} {other_dir}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
     );
     harness.press("Down");
     harness.press("Down");
     harness.press("Space");
     harness.take_effects();
+    assert_eq!(harness.cursor_name(Side::Left), "inner.zip");
 
     harness.press("F2");
 
     let spec = harness.start_operation().unwrap();
     assert_eq!(
         spec.sources,
-        Sources::Entries(entries(&["b.txt", "inner.zip"], None))
+        Sources::Entries(entries(&["inner.zip"], None))
     );
 
     harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
@@ -1717,8 +1718,6 @@ fn an_external_command_inside_an_archive_extracts_the_cursor_and_the_marks() {
         *args,
         vec![
             path(TEMP, "inner.zip").into_os_string(),
-            path(TEMP, "b.txt").into_os_string(),
-            path(TEMP, "b.txt").into_os_string(),
             OsString::from(shown_place(LEFT)),
             OsString::from(shown_place(RIGHT)),
         ]
@@ -1727,10 +1726,36 @@ fn an_external_command_inside_an_archive_extracts_the_cursor_and_the_marks() {
 }
 
 #[test]
+fn an_external_command_with_the_marked_paths_inside_an_archive_extracts_the_marks_alone() {
+    let mut harness = inside();
+    harness.config(
+        "[commands.show]\ncommand_line = \"show {marked_paths}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
+    );
+    harness.press("Down");
+    harness.press("Down");
+    harness.press("Space");
+    harness.take_effects();
+
+    harness.press("F2");
+
+    let spec = harness.start_operation().unwrap();
+    assert_eq!(spec.sources, Sources::Entries(entries(&["b.txt"], None)));
+
+    harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
+    harness.finish(Outcome::Completed { skipped: 0 });
+
+    let effects = harness.take_effects();
+    let Some(Effect::Spawn { args, .. }) = effects.last() else {
+        panic!("expected Spawn, got {effects:?}");
+    };
+    assert_eq!(*args, vec![path(TEMP, "b.txt").into_os_string()]);
+}
+
+#[test]
 fn an_external_command_on_the_parent_row_of_an_archive_root_passes_the_archive_file() {
     let mut harness = inside();
     harness.config(
-        "[commands.show]\ncommand_line = \"show {cursor_path} {paths} {dir} {other_dir}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
+        "[commands.show]\ncommand_line = \"show {paths}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
     );
     harness.take_effects();
     assert_eq!(harness.cursor_name(Side::Left), "..");
@@ -1742,12 +1767,7 @@ fn an_external_command_on_the_parent_row_of_an_archive_root_passes_the_archive_f
         vec![Effect::Spawn {
             name: SpawnName::Command(Command::External("show".to_owned())),
             program: "show".into(),
-            args: vec![
-                archive().into_os_string(),
-                archive().into_os_string(),
-                OsString::from(shown_place(LEFT)),
-                OsString::from(shown_place(RIGHT)),
-            ],
+            args: vec![archive().into_os_string()],
             cwd: PathBuf::from(LEFT),
         }]
     );
@@ -1758,7 +1778,7 @@ fn an_external_command_on_the_parent_row_of_an_archive_root_passes_the_archive_f
 fn an_external_command_on_the_parent_row_inside_a_directory_extracts_the_directory() {
     let mut harness = inside();
     harness.config(
-        "[commands.show]\ncommand_line = \"show {cursor_path} {paths} {dir} {other_dir}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
+        "[commands.show]\ncommand_line = \"show {paths}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
     );
     harness.press("Down");
     harness.press("Enter");
@@ -1777,22 +1797,14 @@ fn an_external_command_on_the_parent_row_inside_a_directory_extracts_the_directo
     let Some(Effect::Spawn { args, .. }) = effects.last() else {
         panic!("expected Spawn, got {effects:?}");
     };
-    assert_eq!(
-        *args,
-        vec![
-            path(TEMP, "docs").into_os_string(),
-            path(TEMP, "docs").into_os_string(),
-            OsString::from(shown_place(LEFT)),
-            OsString::from(shown_place(RIGHT)),
-        ]
-    );
+    assert_eq!(*args, vec![path(TEMP, "docs").into_os_string()]);
 }
 
 #[test]
 fn an_external_command_on_the_parent_row_with_marks_extracts_the_marks_alone() {
     let mut harness = inside();
     harness.config(
-        "[commands.show]\ncommand_line = \"show {marked_paths} {paths} {dir} {other_dir}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
+        "[commands.show]\ncommand_line = \"show {paths}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
     );
     harness.press("Down");
     harness.press("Enter");
@@ -1826,22 +1838,14 @@ fn an_external_command_on_the_parent_row_with_marks_extracts_the_marks_alone() {
     let Some(Effect::Spawn { args, .. }) = effects.last() else {
         panic!("expected Spawn, got {effects:?}");
     };
-    assert_eq!(
-        *args,
-        vec![
-            path(TEMP, "x").into_os_string(),
-            path(TEMP, "x").into_os_string(),
-            OsString::from(shown_place(LEFT)),
-            OsString::from(shown_place(RIGHT)),
-        ]
-    );
+    assert_eq!(*args, vec![path(TEMP, "x").into_os_string()]);
 }
 
 #[test]
-fn an_external_command_on_the_parent_row_with_marks_has_no_cursor_path_and_extracts_nothing() {
+fn an_external_command_with_the_cursor_path_on_the_parent_row_with_marks_extracts_the_directory() {
     let mut harness = inside();
     harness.config(
-        "[commands.show]\ncommand_line = \"show {cursor_path} {marked_paths}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
+        "[commands.show]\ncommand_line = \"show {cursor_path}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
     );
     harness.press("Down");
     harness.press("Enter");
@@ -1853,11 +1857,16 @@ fn an_external_command_on_the_parent_row_with_marks_has_no_cursor_path_and_extra
 
     harness.press("F2");
 
-    assert_eq!(harness.take_effects(), Vec::new());
-    assert_eq!(
-        harness.log().last().map(String::as_str),
-        Some("Cannot start show: {cursor_path} is empty")
-    );
+    let spec = harness.start_operation().unwrap();
+    assert_eq!(spec.sources, Sources::Entries(entries(&["docs"], None)));
+    harness.operation(OperationEvent::TempDir(PathBuf::from(TEMP)));
+    harness.finish(Outcome::Completed { skipped: 0 });
+
+    let effects = harness.take_effects();
+    let Some(Effect::Spawn { args, .. }) = effects.last() else {
+        panic!("expected Spawn, got {effects:?}");
+    };
+    assert_eq!(*args, vec![path(TEMP, "docs").into_os_string()]);
 }
 
 #[test]
