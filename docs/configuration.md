@@ -1,3 +1,5 @@
+<!-- What stands between a pair of "generated" comments is generated from the settings of wafu-core. Do not edit it by hand; regenerate with: WAFU_UPDATE_DOCS=1 cargo test -p wafu-core --test configuration_doc -->
+
 # Configuration
 
 wafu reads its settings from a TOML file:
@@ -47,6 +49,8 @@ path = "~/work"
 ```
 
 ## Defaults
+
+<!-- generated:defaults -->
 
 ```toml
 [filelist]
@@ -99,8 +103,8 @@ cursor = "#1e1e1e"
 cursor_inactive = "#7d7d7d"
 dir = "#1f5fbf"
 link = "#0e7c86"
-exec = "#2a8c2a"
 link_broken = "#c0392b"
+exec = "#2a8c2a"
 special = "#b8860b"
 socket = "#b03a9a"
 
@@ -113,63 +117,85 @@ cursor = "#d4d4d4"
 cursor_inactive = "#888888"
 dir = "#6fa8ff"
 link = "#4fd1e0"
-exec = "#5fd75f"
 link_broken = "#ff6b6b"
+exec = "#5fd75f"
 special = "#f0c050"
 socket = "#e58ae0"
 ```
+
+<!-- /generated -->
 
 There are no default bookmarks, external commands, [`open_alternative` programs](#alternative-open), or [extension colors](#colors). Without a `[keys]` table, the keys shown in the [command palette](#keys) are the defaults.
 
 ## File list
 
-| Item | Meaning |
-|---|---|
-| `new_dir_goes_to_dir` | Go to the directory that `new_dir` created. |
-| `new_text_creates_file` | `new_text` creates the file before opening it in the editor. |
-| `extract_creates_dir` | `extract` and `extract_here` put the contents in a directory named after the archive. |
-| `require_marks` | `copy`, `move`, `delete`, and `trash` act only on marked items, never on the cursor item alone. |
-| `search_match` | Where in a name `search` finds the text: `"anywhere"` or `"start"` (only at the start of a name). |
-| `size_format` | How the file list's size column writes sizes: `"plain"` (`1234567`), `"comma"` (`1,234,567`), or `"human"` (`1.2M`). |
-| `size_digits` | How many digits the size column holds with `"plain"` and `"comma"`: an integer from 5 to 20. A size with more digits is written as with `"human"`. With `"human"`, the column always holds five characters. |
-| `time_shows_full_year` | The file list's time column writes the year in full (`2026/01/02`). When `false`, only its last two digits (`26/01/02`). |
-| `time_shows_seconds` | The file list's time column writes the seconds (`03:04:05`). When `false`, only the hours and minutes (`03:04`). |
-| `extension_chars` | How many characters of an extension the extension column holds after the dot: an integer from 1 to 255. A longer extension ends in an ellipsis. |
-| `min_name_chars` | How many characters of a name a narrow pane still shows before cutting off the other columns: an integer from 1 to 255. |
-| `max_history` | How many places each pane's history keeps, for `history`, `go_back`, and `go_forward`: an integer of 1 or more. |
-| `max_find_matches` | How many matches `find` collects before it stops: an integer of 1 or more. |
-| `mark_compare_tolerance_ms` | How many milliseconds apart two modification times may be for `mark_compare` to take them as the same: an integer of 0 or more. `0` compares them exactly. |
+<!-- generated:filelist -->
+
+| Item | Value | Meaning |
+|---|---|---|
+| `new_dir_goes_to_dir` | true or false | Go to the directory that `new_dir` created. |
+| `new_text_creates_file` | true or false | `new_text` creates the file before opening it in the editor. |
+| `extract_creates_dir` | true or false | `extract` and `extract_here` put the contents in a directory named after the archive. |
+| `require_marks` | true or false | `copy`, `move`, `delete`, and `trash` act only on marked items, never on the cursor item alone. |
+| `search_match` | anywhere or start | Where in a name `search` finds the text: `"anywhere"` or `"start"` (only at the start of a name). |
+| `size_format` | plain, comma, or human | How the file list's size column writes sizes: `"plain"` (`1234567`), `"comma"` (`1,234,567`), or `"human"` (`1.2M`). |
+| `size_digits` | an integer from 5 to 20 | How many digits the size column holds with `"plain"` and `"comma"`. A size with more digits is written as with `"human"`. With `"human"`, the column always holds five characters. |
+| `time_shows_full_year` | true or false | The file list's time column writes the year in full (`2026/01/02`). When `false`, only its last two digits (`26/01/02`). |
+| `time_shows_seconds` | true or false | The file list's time column writes the seconds (`03:04:05`). When `false`, only the hours and minutes (`03:04`). |
+| `extension_chars` | an integer from 1 to 255 | How many characters of an extension the extension column holds after the dot. A longer extension ends in an ellipsis. |
+| `min_name_chars` | an integer from 1 to 255 | How many characters of a name a narrow pane still shows before cutting off the other columns. |
+| `max_history` | an integer of 1 or more | How many places each pane's history keeps, for `history`, `go_back`, and `go_forward`. |
+| `max_find_matches` | an integer of 1 or more | How many matches `find` collects before it stops. |
+| `mark_compare_tolerance_ms` | an integer of 0 or more | How many milliseconds apart two modification times may be for `mark_compare` to take them as the same. `0` compares them exactly. |
+
+<!-- /generated -->
 
 ## Preview
 
 `[preview.text]` is for the text preview, its binary mode included, which always takes the place of both panes:
 
-| Item | Meaning |
-|---|---|
-| `hide_log` | Hide the log while a text preview is open. |
-| `max_bytes` | How many bytes of a file the text preview reads: an integer of 1 or more. A longer file is cut there. |
+<!-- generated:preview.text -->
+
+| Item | Value | Meaning |
+|---|---|---|
+| `hide_log` | true or false | Hide the log while a text preview is open. |
+| `max_bytes` | an integer of 1 or more | How many bytes of a file the text preview reads. A longer file is cut there. |
+
+<!-- /generated -->
 
 `[preview.image]` is for the image preview:
 
-| Item | Meaning |
-|---|---|
-| `placement_from_left` | Where an image opened from the left pane is shown: `"other_pane"` (in place of the right pane, while the left pane stays) or `"both_panes"`. |
-| `placement_from_right` | Where an image opened from the right pane is shown: `"other_pane"` (in place of the left pane, while the right pane stays) or `"both_panes"`. |
-| `hide_log` | Hide the log while an image takes the place of both panes. |
-| `max_bytes` | The largest image file, in bytes, the image preview opens: an integer of 1 or more. |
+<!-- generated:preview.image -->
+
+| Item | Value | Meaning |
+|---|---|---|
+| `placement_from_left` | other_pane or both_panes | Where an image opened from the left pane is shown: `"other_pane"` (in place of the right pane, while the left pane stays) or `"both_panes"`. |
+| `placement_from_right` | other_pane or both_panes | Where an image opened from the right pane is shown: `"other_pane"` (in place of the left pane, while the right pane stays) or `"both_panes"`. |
+| `hide_log` | true or false | Hide the log while an image takes the place of both panes. |
+| `max_bytes` | an integer of 1 or more | The largest image file, in bytes, the image preview opens. |
+
+<!-- /generated -->
 
 ## Log
 
-| Item | Meaning |
-|---|---|
-| `max_lines` | How many lines the log keeps: an integer of 1 or more. |
+<!-- generated:log -->
+
+| Item | Value | Meaning |
+|---|---|---|
+| `max_lines` | an integer of 1 or more | How many lines the log keeps. |
+
+<!-- /generated -->
 
 ## Programs
 
-| Item | Meaning |
-|---|---|
-| `editor` | The command line that opens a file for editing, used by `edit`, `new_text`, `preview_edit`, and `edit_config`. `{paths}` is the file. It follows the rules of [external commands](#commands). |
-| `use_login_shell_env` | macOS and Linux: give the programs wafu starts the environment of your login shell. |
+<!-- generated:programs -->
+
+| Item | Value | Meaning |
+|---|---|---|
+| `editor` | a string | The command line that opens a file for editing, used by `edit`, `new_text`, `preview_edit`, and `edit_config`. `{paths}` is the file. It follows the rules of [external commands](#commands). |
+| `use_login_shell_env` | true or false | macOS and Linux: give the programs wafu starts the environment of your login shell. |
+
+<!-- /generated -->
 
 With `use_login_shell_env`, wafu runs your shell once at startup as an interactive login shell and takes its environment, so programs started from a desktop launcher still see what your shell startup files set up. While it does this, `WAFU_RESOLVING_ENVIRONMENT` is set to `1`, so startup files can skip things that should not run there:
 
@@ -181,8 +207,14 @@ With `use_login_shell_env`, wafu runs your shell once at startup as an interacti
 
 `[font]` sets the font for the whole window:
 
-- `family`: a font family name. Empty means the monospaced font of the OS (Consolas on Windows, Menlo on macOS, DejaVu Sans Mono on Linux).
-- `size`: in pixels, from 6 to 72.
+<!-- generated:font -->
+
+| Item | Value | Meaning |
+|---|---|---|
+| `family` | a string | A font family name. Empty means the monospaced font of the OS (Consolas on Windows, Menlo on macOS, DejaVu Sans Mono on Linux). |
+| `size` | an integer from 6 to 72 | The font size, in pixels. |
+
+<!-- /generated -->
 
 Each area can have its own font in a table with the same items: `[font.path]`, `[font.filelist]`, `[font.info]`, `[font.log]`, `[font.status]`, `[font.preview]`, and `[font.popup]`. An item an area leaves out (or an empty `family`) follows `[font]`.
 
@@ -194,12 +226,18 @@ size = 16
 
 ## Colors
 
-| Item | Values |
-|---|---|
-| `theme` | `"auto"` (follow the OS), `"light"`, or `"dark"` |
-| `hidden_opacity` | How opaque the names of hidden items are, from `0` (invisible) to `1` (like other items) |
+<!-- generated:colors -->
+
+| Item | Value | Meaning |
+|---|---|---|
+| `theme` | auto, light, or dark | Which colors are used: `"auto"` (follow the OS), `"light"`, or `"dark"`. |
+| `hidden_opacity` | a number from 0 to 1 | How opaque the names of hidden items are: `0` is invisible, and `1` is like other items. |
+
+<!-- /generated -->
 
 `[colors.light]` is used with the light theme and `[colors.dark]` with the dark one. Each color is written `"#rrggbb"` or `"#rgb"`.
+
+<!-- generated:colors.themes -->
 
 | Item | Used for |
 |---|---|
@@ -215,6 +253,8 @@ size = 16
 | `exec` | Executable files |
 | `special` | Named pipes and devices |
 | `socket` | Sockets |
+
+<!-- /generated -->
 
 `[colors.light.extensions]` and `[colors.dark.extensions]` give regular files a color by extension, in place of `fg`. Each key is an extension without the dot, such as `zip` for `a.zip`, and matches in either case, so `zip` also colors `B.ZIP`. Only the part after the last dot is matched: `gz` colors `a.tar.gz`, and a key with a dot, such as `"tar.gz"`, is reported as invalid. The other kinds above keep their own color, so an executable `run.sh` takes `exec` whatever `sh` is set to. On Windows, `exe`, `com`, `bat`, and `cmd` files are executable, so they take `exec` too. Each theme has its own table: an extension set in only one of them takes `fg` in the other. Both tables are empty by default.
 

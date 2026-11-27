@@ -12,7 +12,10 @@ use crate::keymap::KeyMap;
 use crate::path::resolve_input;
 
 mod decode;
+mod doc;
 mod settings;
+
+pub use doc::configuration_doc;
 
 /// The configuration file written when there is none.
 // Only a link to the documentation: the file is never rewritten once created,
@@ -281,8 +284,8 @@ pub struct Colors {
     pub cursor_inactive: Color,
     pub dir: Color,
     pub link: Color,
-    pub exec: Color,
     pub link_broken: Color,
+    pub exec: Color,
     pub special: Color,
     pub socket: Color,
     /// The text color of regular files by extension, keyed in ASCII lowercase
@@ -426,8 +429,8 @@ impl Config {
                     cursor_inactive: Color::new(0x7d, 0x7d, 0x7d),
                     dir: Color::new(0x1f, 0x5f, 0xbf),
                     link: Color::new(0x0e, 0x7c, 0x86),
-                    exec: Color::new(0x2a, 0x8c, 0x2a),
                     link_broken: Color::new(0xc0, 0x39, 0x2b),
+                    exec: Color::new(0x2a, 0x8c, 0x2a),
                     special: Color::new(0xb8, 0x86, 0x0b),
                     socket: Color::new(0xb0, 0x3a, 0x9a),
                     extensions: BTreeMap::new(),
@@ -441,8 +444,8 @@ impl Config {
                     cursor_inactive: Color::new(0x88, 0x88, 0x88),
                     dir: Color::new(0x6f, 0xa8, 0xff),
                     link: Color::new(0x4f, 0xd1, 0xe0),
-                    exec: Color::new(0x5f, 0xd7, 0x5f),
                     link_broken: Color::new(0xff, 0x6b, 0x6b),
+                    exec: Color::new(0x5f, 0xd7, 0x5f),
                     special: Color::new(0xf0, 0xc0, 0x50),
                     socket: Color::new(0xe5, 0x8a, 0xe0),
                     extensions: BTreeMap::new(),
