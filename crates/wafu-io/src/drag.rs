@@ -9,10 +9,10 @@ use objc2::{AllocAnyThread, MainThreadMarker, MainThreadOnly, define_class, msg_
 #[cfg(target_os = "macos")]
 use objc2_app_kit::{
     NSApplication, NSDragOperation, NSDraggingContext, NSDraggingItem, NSDraggingSession,
-    NSDraggingSource, NSEventType, NSView, NSWorkspace,
+    NSDraggingSource, NSEvent, NSEventType, NSView, NSWorkspace,
 };
 #[cfg(target_os = "macos")]
-use objc2_foundation::{NSArray, NSPoint, NSRect, NSURL};
+use objc2_foundation::{NSArray, NSPoint, NSProcessInfo, NSRect, NSURL};
 #[cfg(target_os = "macos")]
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 #[cfg(windows)]
@@ -76,17 +76,6 @@ pub fn drag_files(
     paths: &[impl AsRef<Path>],
 ) -> Result<(), DragError> {
     let mtm = MainThreadMarker::new().ok_or(DragError::NotMainThread)?;
-    // Any other event means the call is not made while the press or the drag
-    // of the left button is handled, which AppKit needs to start a drag.
-    let event = NSApplication::sharedApplication(mtm)
-        .currentEvent()
-        .filter(|event| {
-            matches!(
-                event.r#type(),
-                NSEventType::LeftMouseDown | NSEventType::LeftMouseDragged
-            )
-        })
-        .ok_or(DragError::NoMouseEvent)?;
     let window = window.window_handle().map_err(|_| DragError::NoView)?;
     let RawWindowHandle::AppKit(handle) = window.as_raw() else {
         return Err(DragError::NoView);
@@ -94,6 +83,38 @@ pub fn drag_files(
     // SAFETY: the handle points to the NSView of the window, which stays
     // alive while `window` borrows it, and this is the main thread.
     let view = unsafe { handle.ns_view.cast::<NSView>().as_ref() };
+    let current = NSApplication::sharedApplication(mtm)
+        .currentEvent()
+        .filter(|event| {
+            matches!(
+                event.r#type(),
+                NSEventType::LeftMouseDown | NSEventType::LeftMouseDragged
+            )
+        });
+    // The move that starts the drag is not always the event AppKit has at
+    // hand when the call is made. A drag of the left button is then made up
+    // from where the pointer is, unless the button has been let go, in which
+    // case the press was a click and nothing is dragged.
+    let event = if let Some(event) = current {
+        event
+    } else {
+        if NSEvent::pressedMouseButtons() & 1 == 0 {
+            return Ok(());
+        }
+        let window = view.window().ok_or(DragError::NoView)?;
+        NSEvent::mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure(
+                NSEventType::LeftMouseDragged,
+                window.mouseLocationOutsideOfEventStream(),
+                NSEvent::modifierFlags_class(),
+                NSProcessInfo::processInfo().systemUptime(),
+                window.windowNumber(),
+                None,
+                0,
+                1,
+                1.0,
+            )
+            .ok_or(DragError::NoMouseEvent)?
+    };
     let pointer = view.convertPoint_fromView(event.locationInWindow(), None);
     let workspace = NSWorkspace::sharedWorkspace();
     let mut items = Vec::with_capacity(paths.len());

@@ -38,13 +38,22 @@ objc2-app-kit = { workspace = true, features = [
     "NSDraggingItem",
     "NSDraggingSession",
     "NSEvent",
+    "NSGraphicsContext",
     "NSImage",
     "NSPasteboard",
     "NSResponder",
     "NSView",
+    "NSWindow",
     "NSWorkspace",
 ] }
-objc2-foundation = { workspace = true, features = ["NSArray", "NSGeometry", "NSString", "NSURL"] }
+objc2-foundation = { workspace = true, features = [
+    "NSArray",
+    "NSDate",
+    "NSGeometry",
+    "NSProcessInfo",
+    "NSString",
+    "NSURL",
+] }
 raw-window-handle.workspace = true
 xattr.workspace = true
 
