@@ -151,7 +151,7 @@ fn status_line_spells_out_the_cursor_row_of_a_popup_with_a_list() {
     harness.load(Side::Left, vec![file("a")]);
     harness.press("Down");
 
-    harness.press("F1");
+    harness.press("?");
     harness.edit("mark_range");
     assert_eq!(harness.view().status, harness.popup_items()[0].label);
     harness.press("Down");
@@ -176,7 +176,7 @@ fn status_line_follows_an_external_command_with_its_line_as_written() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.config("[commands.term]\nrun = \"wt  -d '{dir}'\\n\"\n");
 
-    harness.press("F1");
+    harness.press("?");
     harness.edit("$te");
 
     assert_eq!(harness.view().status, "$term -> wt  -d '{dir}'\u{21B5}");
@@ -186,7 +186,7 @@ fn status_line_follows_an_external_command_with_its_line_as_written() {
 fn status_line_names_an_external_command_alone_once_the_configuration_dropped_it() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.config("[commands.term]\nrun = \"wt\"\n");
-    harness.press("F1");
+    harness.press("?");
     harness.edit("$te");
 
     harness.config("");
@@ -209,7 +209,7 @@ fn status_line_stays_with_the_pane_under_a_popup_without_a_list() {
     harness.load(Side::Left, vec![file("a")]);
     harness.press("Down");
 
-    harness.press("F1");
+    harness.press("?");
     harness.edit("rename");
     harness.press("Enter");
 
@@ -1292,7 +1292,7 @@ fn palette_filters_commands_and_runs_the_selected_one() {
     harness.press("Down");
     harness.press("Space");
 
-    harness.press("F1");
+    harness.press("?");
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Palette");
     let labels: Vec<String> = harness
@@ -1321,15 +1321,15 @@ fn palette_lists_the_keys_of_a_command_in_display_order() {
     let mut harness = Harness::start_with_config(
         "/home/user",
         "/tmp",
-        "[keys.filelist]\n\"Ctrl+R\" = \"reload\"\n\"Shift+F5\" = \"reload\"\n\"Alt+R\" = \"reload\"\n",
+        "[keys.filelist]\n\"Ctrl+R\" = \"sort\"\n\"Shift+F5\" = \"sort\"\n\"Alt+R\" = \"sort\"\n",
     );
 
-    harness.press("F1");
-    harness.edit("reload");
+    harness.press("?");
+    harness.edit("sort");
 
     assert_eq!(
         harness.popup_items()[0].detail,
-        "Alt+R, Ctrl+R, F5, Shift+F5"
+        "Alt+R, Ctrl+R, S, Shift+F5"
     );
 }
 
@@ -1339,7 +1339,7 @@ fn a_popup_opened_from_the_palette_has_a_new_generation() {
     harness.load(Side::Left, vec![file("a.txt")]);
     harness.press("Down");
 
-    harness.press("F1");
+    harness.press("?");
     let palette = harness.view().popup.unwrap().generation;
     harness.press("Down");
     assert_eq!(harness.view().popup.unwrap().cursor, Some(1));
@@ -1417,7 +1417,7 @@ fn log_keys_scroll_and_clear() {
     harness.press("Shift+End");
     assert_eq!(harness.view().log.scroll_top, 2);
 
-    harness.press("F1");
+    harness.press("?");
     harness.edit("clear_log");
     harness.press("Enter");
     assert_eq!(harness.log(), Vec::<String>::new());
@@ -1428,7 +1428,7 @@ fn clearing_the_log_is_another_generation_of_lines() {
     let mut harness = Harness::start("/a", "/tmp");
     let before = harness.view().log.generation;
 
-    harness.press("F1");
+    harness.press("?");
     harness.edit("clear_log");
     harness.press("Enter");
 
@@ -1530,7 +1530,7 @@ fn reload_reads_again_without_emptying_and_the_cursor_follows_the_entry() {
     harness.press("End");
     harness.take_effects();
 
-    harness.press("F5");
+    harness.press(",");
 
     assert_eq!(harness.names(Side::Left), ["..", "a", "b", "c"]);
     harness.load(Side::Left, vec![file("c"), file("d"), file("e")]);
@@ -1543,7 +1543,7 @@ fn reload_watches_the_place_again_and_reads_it() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.take_effects();
 
-    harness.press("F5");
+    harness.press(",");
 
     assert_eq!(
         harness.take_effects(),
@@ -1565,10 +1565,10 @@ fn reload_watches_the_place_again_and_reads_it() {
 #[test]
 fn reload_during_a_reload_watches_again_and_reads_again_after_it_finishes() {
     let mut harness = Harness::start("/home/user", "/tmp");
-    harness.press("F5");
+    harness.press(",");
     harness.take_effects();
 
-    harness.press("F5");
+    harness.press(",");
     assert_eq!(
         harness.take_effects(),
         vec![Effect::Watch {
@@ -1595,7 +1595,7 @@ fn reload_lets_keys_and_mouse_through_without_a_progress_popup() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a"), file("b")]);
 
-    harness.press("F5");
+    harness.press(",");
 
     assert!(harness.view().popup.is_none());
     harness.press("Down");
@@ -1971,7 +1971,7 @@ fn the_page_keys_keep_the_popup_list_in_range_at_its_ends() {
 fn filtering_the_palette_scrolls_back_to_the_top() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.send(Msg::PopupRows { rows: 5 });
-    harness.press("F1");
+    harness.press("?");
     harness.press("Up");
     assert!(harness.view().popup.unwrap().scroll_top > 0);
 
@@ -2705,7 +2705,7 @@ fn swap_panes_exchanges_the_locations_and_keeps_the_active_pane() {
     harness.press("Right");
     harness.take_effects();
 
-    harness.press("F1");
+    harness.press("?");
     harness.edit("swap_panes");
     harness.press("Enter");
 
@@ -2760,7 +2760,7 @@ fn sync_to_other_does_nothing_when_the_other_pane_has_no_place() {
 fn swap_panes_does_nothing_when_a_pane_has_no_place() {
     let mut harness = right_pane_without_a_place();
 
-    harness.press("F1");
+    harness.press("?");
     harness.edit("swap_panes");
     harness.take_effects();
     harness.press("Enter");
@@ -3000,7 +3000,7 @@ fn entering_a_special_file_as_an_archive_logs_an_error() {
     harness.press("Down");
     harness.take_effects();
 
-    harness.press("Shift+U");
+    harness.press("Shift+V");
 
     assert_eq!(
         harness.log(),
@@ -4410,7 +4410,7 @@ fn external_commands_run_from_the_palette() {
     harness.config("[commands.term]\nrun = \"wt {paths}\"\n");
     harness.take_effects();
 
-    harness.press("F1");
+    harness.press("?");
     harness.edit("$te");
     assert_eq!(harness.popup_labels(), ["$term"]);
     harness.press("Enter");

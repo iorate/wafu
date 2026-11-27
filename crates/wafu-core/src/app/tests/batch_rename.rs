@@ -42,7 +42,7 @@ fn rename_template_opens_with_the_name_placeholder_selected() {
     harness.load(Side::Left, vec![file("a.txt"), file("b.txt")]);
     harness.press("Down");
 
-    harness.press("Alt+R");
+    harness.press("Ctrl+Shift+R");
 
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Rename (template)");
@@ -101,7 +101,7 @@ fn a_batch_rename_on_the_parent_row_renames_the_directory_itself_whatever_its_li
     harness.load(Side::Left, vec![dir("me")]);
     assert_eq!(harness.cursor_name(Side::Left), "..");
 
-    harness.press("Alt+R");
+    harness.press("Ctrl+Shift+R");
     harness.edit("me");
     harness.take_effects();
     harness.press("Enter");
@@ -150,7 +150,7 @@ fn a_name_hidden_from_the_list_is_still_in_the_way() {
         ],
     );
     harness.press("Down");
-    harness.press("Alt+R");
+    harness.press("Ctrl+Shift+R");
 
     harness.edit(".x");
 
@@ -163,7 +163,7 @@ fn a_name_hidden_from_the_list_is_still_in_the_way() {
 #[test]
 fn the_note_follows_the_listing_as_it_is_read_again() {
     let mut harness = marked(&["a", "b"], &["a"]);
-    harness.press("Alt+R");
+    harness.press("Ctrl+Shift+R");
     harness.edit("b");
 
     harness.load(Side::Left, vec![file("a")]);
@@ -177,7 +177,7 @@ fn the_note_follows_the_listing_as_it_is_read_again() {
 #[test]
 fn enter_does_nothing_without_a_change_or_with_an_error_and_esc_closes() {
     let mut harness = marked(&["a", "b"], &["a"]);
-    harness.press("Alt+R");
+    harness.press("Ctrl+Shift+R");
     harness.take_effects();
 
     harness.press("Enter");
@@ -261,7 +261,7 @@ fn a_batch_rename_of_one_item_logs_both_names() {
 #[test]
 fn a_broken_cycle_unmarks_its_items_and_names_the_one_left_under_a_temporary_name() {
     let mut harness = marked(&["1", "2", "3"], &["1", "2", "3"]);
-    harness.press("Alt+R");
+    harness.press("Ctrl+Shift+R");
     harness.edit("{2}");
     harness.press("Enter");
 
@@ -305,7 +305,7 @@ fn the_cursor_follows_the_item_it_was_on_at_enter_through_reloads_in_a_chain() {
     let mut harness = marked(&["1", "2", "3"], &["1", "2", "3"]);
     harness.press("Up");
     assert_eq!(harness.cursor_name(Side::Left), "2");
-    harness.press("Alt+R");
+    harness.press("Ctrl+Shift+R");
     harness.edit("{2}");
     harness.press("Enter");
 
@@ -325,7 +325,7 @@ fn the_cursor_stays_on_an_item_that_was_not_renamed() {
     let mut harness = marked(&["1", "2"], &["1", "2"]);
     harness.press("Up");
     assert_eq!(harness.cursor_name(Side::Left), "1");
-    harness.press("Alt+R");
+    harness.press("Ctrl+Shift+R");
     harness.edit("{2}");
     harness.press("Enter");
 
@@ -460,7 +460,7 @@ fn rows_measured_for_the_item_that_had_an_index_do_not_pull_the_top_back() {
 #[test]
 fn an_area_reported_without_a_rename_popup_does_not_change_the_page_of_another_list() {
     let mut harness = Harness::start(LEFT, RIGHT);
-    harness.press("F1");
+    harness.press("?");
     harness.send(Msg::PopupRows { rows: 12 });
 
     harness.send(Msg::PopupLineRows {
@@ -476,7 +476,7 @@ fn an_area_reported_without_a_rename_popup_does_not_change_the_page_of_another_l
 fn line_breaks_in_names_show_as_symbols_in_the_list_and_the_note() {
     let mut harness = marked(&["a\r", "b"], &["a\r"]);
 
-    harness.press("Alt+R");
+    harness.press("Ctrl+Shift+R");
     harness.edit("b");
 
     let popup = harness.view().popup.unwrap();
@@ -521,7 +521,7 @@ fn long_list(count: usize) -> Harness {
     let names: Vec<String> = (0..count).map(|index| format!("f{index:02}")).collect();
     let names: Vec<&str> = names.iter().map(String::as_str).collect();
     let mut harness = marked(&names, &names);
-    harness.press("Alt+R");
+    harness.press("Ctrl+Shift+R");
     harness.edit("x{name}");
     harness.send(Msg::PopupLineRows {
         area: Some(5),

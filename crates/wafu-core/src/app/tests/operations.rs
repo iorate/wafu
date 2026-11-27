@@ -1380,7 +1380,7 @@ fn new_file_creates_an_empty_file_and_puts_the_cursor_on_it() {
     let mut harness = three_files();
     harness.take_effects();
 
-    harness.press("F1");
+    harness.press("?");
     harness.edit("new_file");
     harness.press("Enter");
     assert_eq!(harness.view().popup.unwrap().title, "New file");
@@ -1407,7 +1407,7 @@ fn new_file_refuses_a_name_that_is_a_path() {
     let mut harness = three_files();
     harness.take_effects();
 
-    harness.press("N");
+    harness.press("Shift+K");
     harness.edit("sub/n.txt");
     harness.press("Enter");
 
@@ -1449,7 +1449,7 @@ fn a_creation_outside_both_panes_logs_its_full_path() {
 #[test]
 fn new_file_creates_the_file_in_the_place_the_popup_was_opened_in() {
     let mut harness = three_files();
-    harness.press("F1");
+    harness.press("?");
     harness.edit("new_file");
     harness.press("Enter");
     harness.vanish(Side::Left, "/home", vec![file("a")]);
@@ -2011,12 +2011,12 @@ fn open_with_os_in_an_empty_root_does_nothing() {
 #[test]
 fn copy_log_copies_every_kept_line_and_nothing_when_empty() {
     let mut harness = three_files();
-    harness.press("F1");
+    harness.press("?");
     harness.edit("clear_log");
     harness.press("Enter");
     harness.take_effects();
 
-    harness.press("F1");
+    harness.press("?");
     harness.edit("copy_log");
     harness.press("Enter");
     assert_eq!(harness.take_effects(), vec![]);
@@ -2027,7 +2027,7 @@ fn copy_log_copies_every_kept_line_and_nothing_when_empty() {
             error: Some(IoError::new(name)),
         }));
     }
-    harness.press("F1");
+    harness.press("?");
     harness.edit("copy_log");
     harness.press("Enter");
 
@@ -2044,7 +2044,7 @@ fn copy_path_on_the_parent_row_copies_the_directory_itself() {
     let mut harness = three_files();
     harness.take_effects();
 
-    harness.press("F1");
+    harness.press("?");
     harness.edit("copy_path");
     harness.press("Enter");
 
@@ -2736,7 +2736,7 @@ fn a_command_line_with_paths_refuses_a_name_ending_with_a_dot() {
 fn commands_on_the_cursor_entry_refuse_a_name_ending_with_a_dot() {
     for (key, verb) in [
         ("V", "open"),
-        ("Shift+U", "open"),
+        ("Shift+V", "open"),
         ("Ctrl+Enter", "open"),
         ("E", "edit"),
         ("X", "run"),

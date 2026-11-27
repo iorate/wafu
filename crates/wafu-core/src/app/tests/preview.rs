@@ -1677,7 +1677,7 @@ fn image_keys_come_from_the_image_table() {
 fn the_palette_opens_during_a_preview_with_its_commands() {
     let mut harness = document();
 
-    harness.press("F1");
+    harness.press("?");
 
     let labels: Vec<String> = harness
         .popup_items()
