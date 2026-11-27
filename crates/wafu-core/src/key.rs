@@ -147,11 +147,11 @@ impl fmt::Display for Key {
         if self.ctrl {
             f.write_str("Ctrl+")?;
         }
-        if self.shift {
-            f.write_str("Shift+")?;
-        }
         if self.alt {
             f.write_str("Alt+")?;
+        }
+        if self.shift {
+            f.write_str("Shift+")?;
         }
         match self.base {
             KeyBase::Char(c) => write!(f, "{c}"),
@@ -168,7 +168,7 @@ impl FromStr for NamedKey {
             "enter" => Self::Enter,
             "space" => Self::Space,
             "tab" => Self::Tab,
-            "bs" => Self::Backspace,
+            "backspace" => Self::Backspace,
             "esc" => Self::Escape,
             "up" => Self::Up,
             "down" => Self::Down,
@@ -199,7 +199,7 @@ impl fmt::Display for NamedKey {
             Self::Enter => f.write_str("Enter"),
             Self::Space => f.write_str("Space"),
             Self::Tab => f.write_str("Tab"),
-            Self::Backspace => f.write_str("BS"),
+            Self::Backspace => f.write_str("Backspace"),
             Self::Escape => f.write_str("Esc"),
             Self::Up => f.write_str("Up"),
             Self::Down => f.write_str("Down"),
@@ -296,6 +296,7 @@ mod tests {
             "Ctrl+Space",
             "Alt+Z",
             "Ctrl+Shift+Right",
+            "Ctrl+Alt+Shift+Left",
             "@",
             "!",
             "~",
@@ -303,7 +304,7 @@ mod tests {
             "+",
             "Ctrl+:",
             "F5",
-            "BS",
+            "Backspace",
             "Esc",
             "PageDown",
         ] {
@@ -368,7 +369,7 @@ mod tests {
             Key::from_input(&input("F12", false, false)),
             Some(key(KeyBase::Named(NamedKey::F(12))))
         );
-        for text in ["up", "END", "tab", "bs", "f1", "F+1"] {
+        for text in ["up", "END", "tab", "backspace", "f1", "F+1"] {
             assert_eq!(
                 Key::from_input(&input(text, false, false)),
                 None,

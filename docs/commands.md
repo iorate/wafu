@@ -17,7 +17,7 @@ To bind keys to these commands, see [Keys](configuration.md#keys). A command wor
 
 | Command | Default keys | Description |
 |---|---|---|
-| `go_parent` | `BS` | Go to the parent directory |
+| `go_parent` | `Backspace` | Go to the parent directory |
 | `go_root` | `/` | Go to the root directory, or to the root of the archive the active pane is in |
 | `go_home` | `~` | Go to the home directory |
 | `go_to_path` | `Shift+J` | Go to a typed path |
@@ -158,7 +158,7 @@ These commands work everywhere: in the file list and in both previews.
 | `palette` | `?` | Run the command picked from a list of those available here |
 | `edit_config` | `Z` (file list) | Open the configuration file in the editor |
 | `new_window` | `Alt+Z` | Open a new window showing the same directories |
-| `new_window_as_admin` | `Shift+Alt+Z` | Open a new window showing the same directories, as administrator (Windows only) |
+| `new_window_as_admin` | `Alt+Shift+Z` | Open a new window showing the same directories, as administrator (Windows only) |
 | `quit` | `Q` (file list) | Quit, saving the state for the next start |
 | `quit_without_saving` | `Shift+Q` (file list) | Quit without saving the state |
 | `nop` |  | Do nothing, which unbinds the key bound to it |

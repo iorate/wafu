@@ -320,9 +320,9 @@ The command palette (`?`) lists the commands available where you are, with the k
 
 Keys are written as modifiers and a key joined by `+`, as in `"Ctrl+Shift+Left"`:
 
-- Modifiers: `Ctrl`, `Shift`, and `Alt`. `Ctrl` is the Control key on every OS, including macOS.
+- Modifiers: `Ctrl`, `Alt`, and `Shift`, in any order. `Ctrl` is the Control key on every OS, including macOS.
 - Letters: `A` to `Z`. A letter means the key without Shift (`"a"` and `"A"` are the same key); write `"Shift+A"` for the capital.
 - Digits and symbols: the character as typed, such as `"1"`, `"@"`, `":"`, or `"+"`. Never add `Shift`: Shift+1 is written as the character it types, such as `"!"`.
-- Named keys: `Enter`, `Space`, `Tab`, `BS`, `Esc`, `Up`, `Down`, `Left`, `Right`, `PageUp`, `PageDown`, `Home`, `End`, `Insert`, `Delete`, and `F1` to `F12`.
+- Named keys: `Enter`, `Space`, `Tab`, `Backspace`, `Esc`, `Up`, `Down`, `Left`, `Right`, `PageUp`, `PageDown`, `Home`, `End`, `Insert`, `Delete`, and `F1` to `F12`.
 
 Modifier and key names are not case-sensitive.
