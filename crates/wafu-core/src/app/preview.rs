@@ -23,10 +23,10 @@ impl App {
         if is_image_name(&entry.name) {
             let image = &self.config.preview.image;
             let placement = match self.active {
-                Side::Left if image.from_left == ImagePlacement::OtherPane => {
+                Side::Left if image.placement_from_left == ImagePlacement::OtherPane => {
                     PreviewPlacement::RightPane
                 }
-                Side::Right if image.from_right == ImagePlacement::OtherPane => {
+                Side::Right if image.placement_from_right == ImagePlacement::OtherPane => {
                     PreviewPlacement::LeftPane
                 }
                 _ => PreviewPlacement::Full,

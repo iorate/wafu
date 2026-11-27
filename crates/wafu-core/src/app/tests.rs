@@ -197,7 +197,7 @@ fn status_line_follows_a_built_in_command_with_its_description() {
 #[test]
 fn status_line_follows_an_external_command_with_its_line_as_written() {
     let mut harness = Harness::start("/home/user", "/tmp");
-    harness.config("[commands.term]\nrun = \"wt  -d '{dir}'\\n\"\n");
+    harness.config("[commands.term]\ncommand_line = \"wt  -d '{dir}'\\n\"\n");
 
     harness.press("?");
     harness.edit("$te");
@@ -208,7 +208,7 @@ fn status_line_follows_an_external_command_with_its_line_as_written() {
 #[test]
 fn status_line_names_an_external_command_alone_once_the_configuration_dropped_it() {
     let mut harness = Harness::start("/home/user", "/tmp");
-    harness.config("[commands.term]\nrun = \"wt\"\n");
+    harness.config("[commands.term]\ncommand_line = \"wt\"\n");
     harness.press("?");
     harness.edit("$te");
 
@@ -894,7 +894,7 @@ fn mark_compare_matches_the_other_pane_s_hidden_and_filtered_entries_but_marks_o
 #[test]
 fn mark_compare_uses_the_configured_tolerance() {
     let mut harness = Harness::start("/home/user", "/tmp");
-    harness.config("[filelist]\ncompare_tolerance_ms = 0\n");
+    harness.config("[filelist]\nmark_compare_tolerance_ms = 0\n");
     harness.load(Side::Right, vec![modified("a", 0)]);
     harness.load(Side::Left, vec![modified("a", 1)]);
 
@@ -1204,7 +1204,7 @@ fn search_finds_the_text_inside_a_name() {
 #[test]
 fn search_matches_only_the_start_of_a_name_when_configured() {
     let mut harness = Harness::start("/home/user", "/tmp");
-    harness.config("[filelist]\nsearch_matches_anywhere = false\n");
+    harness.config("[filelist]\nsearch_match = \"start\"\n");
     harness.load(Side::Left, vec![file("xa"), file("ab"), file("ya")]);
 
     harness.press("F");
@@ -4242,7 +4242,7 @@ fn the_title_says_when_the_process_is_elevated() {
 fn external_commands_expand_placeholders_and_report_their_start() {
     let mut harness = Harness::start_on(Os::Windows, "/home/user", "/tmp");
     harness.config(
-        "[commands.term]\nrun = \"wt -d {dir} {paths} --other {other_dir} {cursor_path}\"\n[keys.filelist]\n\"F2\" = \"$term\"\n",
+        "[commands.term]\ncommand_line = \"wt -d {dir} {paths} --other {other_dir} {cursor_path}\"\n[keys.filelist]\n\"F2\" = \"$term\"\n",
     );
     harness.load(Side::Left, vec![file("a"), file("b"), file("c")]);
     harness.press("Down");
@@ -4430,7 +4430,7 @@ fn an_exit_other_than_success_is_logged() {
 #[test]
 fn external_commands_run_from_the_palette() {
     let mut harness = Harness::start("/home/user", "/tmp");
-    harness.config("[commands.term]\nrun = \"wt {paths}\"\n");
+    harness.config("[commands.term]\ncommand_line = \"wt {paths}\"\n");
     harness.take_effects();
 
     harness.press("?");
@@ -4528,7 +4528,7 @@ fn timestamp() -> Timestamp {
 // with F2 bound to an external command.
 fn start_with_term(os: Os, inherited: bool, config: &str) -> Harness {
     let config = format!(
-        "[commands.term]\nrun = \"term {{dir}}\"\n[keys.filelist]\n\"F2\" = \"$term\"\n{config}"
+        "[commands.term]\ncommand_line = \"term {{dir}}\"\n[keys.filelist]\n\"F2\" = \"$term\"\n{config}"
     );
     let Msg::Start(mut start) = start_msg_with(
         os,

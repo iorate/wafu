@@ -5,7 +5,7 @@ use toml::Value;
 use super::{
     COLUMN_CHARS_MAX, Color, Colors, ColorsConfig, DiagnosticKind, FONT_SIZE_MAX, FONT_SIZE_MIN,
     FileListConfig, Font, ImagePlacement, ImagePreviewConfig, LogConfig, ProgramsConfig,
-    SIZE_DIGITS_MAX, SIZE_DIGITS_MIN, SizeFormat, TextPreviewConfig, Theme,
+    SIZE_DIGITS_MAX, SIZE_DIGITS_MIN, SearchMatch, SizeFormat, TextPreviewConfig, Theme,
 };
 use crate::app::Os;
 use crate::external::CommandLine;
@@ -27,11 +27,11 @@ macro_rules! setting {
 }
 
 pub(super) const FILELIST: &[Setting<FileListConfig>] = &[
-    setting!("new_dir_enters_dir", Bool, new_dir_enters_dir),
+    setting!("new_dir_goes_to_dir", Bool, new_dir_goes_to_dir),
     setting!("new_text_creates_file", Bool, new_text_creates_file),
     setting!("extract_creates_dir", Bool, extract_creates_dir),
     setting!("require_marks", Bool, require_marks),
-    setting!("search_matches_anywhere", Bool, search_matches_anywhere),
+    setting!("search_match", Choice::<SearchMatch>::NEW, search_match),
     setting!("time_shows_full_year", Bool, time_format.full_year),
     setting!("time_shows_seconds", Bool, time_format.seconds),
     setting!("size_format", Choice::<SizeFormat>::NEW, size_format),
@@ -46,8 +46,12 @@ pub(super) const FILELIST: &[Setting<FileListConfig>] = &[
     setting!("extension_chars", COLUMN_CHARS, extension_chars),
     setting!("min_name_chars", COLUMN_CHARS, min_name_chars),
     setting!("max_history", Limit, max_history),
-    setting!("max_find_results", Limit, max_find_results),
-    setting!("compare_tolerance_ms", NonNegative, compare_tolerance_ms),
+    setting!("max_find_matches", Limit, max_find_matches),
+    setting!(
+        "mark_compare_tolerance_ms",
+        NonNegative,
+        mark_compare_tolerance_ms
+    ),
 ];
 
 pub(super) const TEXT_PREVIEW: &[Setting<TextPreviewConfig>] = &[
@@ -56,8 +60,16 @@ pub(super) const TEXT_PREVIEW: &[Setting<TextPreviewConfig>] = &[
 ];
 
 pub(super) const IMAGE_PREVIEW: &[Setting<ImagePreviewConfig>] = &[
-    setting!("from_left", Choice::<ImagePlacement>::NEW, from_left),
-    setting!("from_right", Choice::<ImagePlacement>::NEW, from_right),
+    setting!(
+        "placement_from_left",
+        Choice::<ImagePlacement>::NEW,
+        placement_from_left
+    ),
+    setting!(
+        "placement_from_right",
+        Choice::<ImagePlacement>::NEW,
+        placement_from_right
+    ),
     setting!("hide_log", Bool, hide_log),
     setting!("max_bytes", Limit, max_bytes),
 ];
@@ -89,8 +101,8 @@ pub(super) const COLORS: &[Setting<Colors>] = &[
     setting!("dir", Rgb, dir),
     setting!("link", Rgb, link),
     setting!("exec", Rgb, exec),
-    setting!("broken", Rgb, broken),
-    setting!("fifo", Rgb, fifo),
+    setting!("link_broken", Rgb, link_broken),
+    setting!("special", Rgb, special),
     setting!("socket", Rgb, socket),
 ];
 
@@ -342,6 +354,11 @@ impl<K: Kind> Kind for Optional<K> {
     fn parse(&self, value: Value, os: Os) -> Result<Self::Value, DiagnosticKind> {
         self.0.parse(value, os).map(Some)
     }
+}
+
+impl Named for SearchMatch {
+    const NAMES: &'static [(&'static str, Self)] =
+        &[("anywhere", Self::Anywhere), ("start", Self::Start)];
 }
 
 impl Named for SizeFormat {

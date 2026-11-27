@@ -2,7 +2,7 @@
 wafu: minor
 ---
 
-Command names are made consistent, which gives twenty commands and one setting new names. Key bindings and settings under the old names are reported as unknown and ignored. The popup of `new_dir` is now titled `New directory`, and the popup of `preview_encodings` is titled `Encodings`. A command line that cannot be parsed in the popup of `run` or `run_command_line` is logged as `Cannot run command line: …`, without the command name.
+Command names are made consistent, which gives twenty commands new names. Key bindings under the old names are reported as unknown and ignored. The popup of `new_dir` is now titled `New directory`, and the popup of `preview_encodings` is titled `Encodings`. A command line that cannot be parsed in the popup of `run` or `run_command_line` is logged as `Cannot run command line: …`, without the command name.
 
 | Old name | New name |
 |---|---|
@@ -26,4 +26,3 @@ Command names are made consistent, which gives twenty commands and one setting n
 | `mkdir` | `new_dir` |
 | `run_file` | `run` |
 | `run_command` | `run_command_line` |
-| `mkdir_enters_dir` (setting) | `new_dir_enters_dir` |

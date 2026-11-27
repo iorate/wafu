@@ -63,11 +63,11 @@ pub struct Bookmark {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct FileListConfig {
-    pub new_dir_enters_dir: bool,
+    pub new_dir_goes_to_dir: bool,
     pub new_text_creates_file: bool,
     pub extract_creates_dir: bool,
     pub require_marks: bool,
-    pub search_matches_anywhere: bool,
+    pub search_match: SearchMatch,
     pub size_format: SizeFormat,
     /// How many digits the size column holds in `Plain` and `Comma`.
     pub size_digits: usize,
@@ -79,10 +79,18 @@ pub struct FileListConfig {
     /// How many places each pane's history keeps.
     pub max_history: usize,
     /// How many matches a find collects before it stops.
-    pub max_find_results: usize,
+    pub max_find_matches: usize,
     /// How far apart two modification times may be, in milliseconds, for
     /// `mark_compare` to take them as the same.
-    pub compare_tolerance_ms: u64,
+    pub mark_compare_tolerance_ms: u64,
+}
+
+/// Where in a name `search` finds the text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchMatch {
+    Anywhere,
+    /// Only at the start of the name.
+    Start,
 }
 
 /// How a size in bytes is written in the file list's size column.
@@ -187,9 +195,9 @@ pub struct TextPreviewConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImagePreviewConfig {
     /// Where an image opened from the left pane is shown.
-    pub from_left: ImagePlacement,
+    pub placement_from_left: ImagePlacement,
     /// Where an image opened from the right pane is shown.
-    pub from_right: ImagePlacement,
+    pub placement_from_right: ImagePlacement,
     /// Whether an image in place of both panes hides the log.
     pub hide_log: bool,
     /// The largest image file, in bytes, the image preview opens.
@@ -274,8 +282,8 @@ pub struct Colors {
     pub dir: Color,
     pub link: Color,
     pub exec: Color,
-    pub broken: Color,
-    pub fifo: Color,
+    pub link_broken: Color,
+    pub special: Color,
     pub socket: Color,
     /// The text color of regular files by extension, keyed in ASCII lowercase
     /// without the dot.
@@ -362,22 +370,22 @@ impl Config {
     pub fn default_for(os: Os) -> Self {
         Self {
             filelist: FileListConfig {
-                new_dir_enters_dir: true,
+                new_dir_goes_to_dir: true,
                 // On by default because the macOS `open -t` does nothing for a
                 // file that does not exist.
                 new_text_creates_file: true,
                 extract_creates_dir: true,
                 require_marks: true,
-                search_matches_anywhere: true,
+                search_match: SearchMatch::Anywhere,
                 size_format: SizeFormat::Plain,
                 size_digits: 9,
                 time_format: TimeFormat::default(),
                 extension_chars: 4,
                 min_name_chars: 8,
                 max_history: 100,
-                max_find_results: 10_000,
+                max_find_matches: 10_000,
                 // FAT and zip keep times in steps of two seconds.
-                compare_tolerance_ms: 2000,
+                mark_compare_tolerance_ms: 2000,
             },
             preview: PreviewConfig {
                 text: TextPreviewConfig {
@@ -385,8 +393,8 @@ impl Config {
                     max_bytes: 16 * 1024 * 1024,
                 },
                 image: ImagePreviewConfig {
-                    from_left: ImagePlacement::OtherPane,
-                    from_right: ImagePlacement::BothPanes,
+                    placement_from_left: ImagePlacement::OtherPane,
+                    placement_from_right: ImagePlacement::BothPanes,
                     hide_log: false,
                     max_bytes: 64 * 1024 * 1024,
                 },
@@ -419,8 +427,8 @@ impl Config {
                     dir: Color::new(0x1f, 0x5f, 0xbf),
                     link: Color::new(0x0e, 0x7c, 0x86),
                     exec: Color::new(0x2a, 0x8c, 0x2a),
-                    broken: Color::new(0xc0, 0x39, 0x2b),
-                    fifo: Color::new(0xb8, 0x86, 0x0b),
+                    link_broken: Color::new(0xc0, 0x39, 0x2b),
+                    special: Color::new(0xb8, 0x86, 0x0b),
                     socket: Color::new(0xb0, 0x3a, 0x9a),
                     extensions: BTreeMap::new(),
                 },
@@ -434,8 +442,8 @@ impl Config {
                     dir: Color::new(0x6f, 0xa8, 0xff),
                     link: Color::new(0x4f, 0xd1, 0xe0),
                     exec: Color::new(0x5f, 0xd7, 0x5f),
-                    broken: Color::new(0xff, 0x6b, 0x6b),
-                    fifo: Color::new(0xf0, 0xc0, 0x50),
+                    link_broken: Color::new(0xff, 0x6b, 0x6b),
+                    special: Color::new(0xf0, 0xc0, 0x50),
                     socket: Color::new(0xe5, 0x8a, 0xe0),
                     extensions: BTreeMap::new(),
                 },

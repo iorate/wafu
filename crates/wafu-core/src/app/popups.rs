@@ -265,12 +265,12 @@ impl App {
                 self.popup_top = 0;
             }
             Some(Popup::Search(popup)) if field == 0 => {
-                let anywhere = self.config.filelist.search_matches_anywhere;
+                let matching = self.config.filelist.search_match;
                 let pane = &mut self.panes[self.active.index()];
                 if text.is_empty() {
                     pane.restore_position(popup.origin_cursor, popup.origin_scroll_top);
                     popup.query = text;
-                } else if pane.search_first(&text, anywhere) {
+                } else if pane.search_first(&text, matching) {
                     popup.query = text;
                 }
                 // Otherwise the text is refused and the view keeps the old query.
@@ -709,7 +709,7 @@ impl App {
 
     fn mark_compared(&mut self, compare: CompareSpec) {
         self.compare = compare;
-        let tolerance = Duration::from_millis(self.config.filelist.compare_tolerance_ms);
+        let tolerance = Duration::from_millis(self.config.filelist.mark_compare_tolerance_ms);
         let names = names_to_mark(
             self.active_pane().listing().visible_entries(),
             // A copy collides with what is there whether it is shown or not.
@@ -752,7 +752,7 @@ impl App {
     }
 
     fn search_popup_key(&mut self, popup: SearchPopup, key: Key) {
-        let anywhere = self.config.filelist.search_matches_anywhere;
+        let matching = self.config.filelist.search_match;
         let pane = &mut self.panes[self.active.index()];
         match key.base {
             KeyBase::Named(NamedKey::Escape) => {
@@ -761,10 +761,10 @@ impl App {
             }
             KeyBase::Named(NamedKey::Enter) => return,
             KeyBase::Named(NamedKey::Down) if !popup.query.is_empty() => {
-                pane.search_next(&popup.query, anywhere);
+                pane.search_next(&popup.query, matching);
             }
             KeyBase::Named(NamedKey::Up) if !popup.query.is_empty() => {
-                pane.search_prev(&popup.query, anywhere);
+                pane.search_prev(&popup.query, matching);
             }
             _ => {}
         }

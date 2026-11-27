@@ -14,16 +14,18 @@ use crate::command::{Command, Context};
 use crate::external::CommandLine;
 use crate::key::Key;
 
-const CONTEXTS: [(&str, Context); 3] = [
-    ("filelist", Context::FileList),
-    ("image", Context::Image),
-    ("text", Context::Text),
-];
+const PREVIEW_CONTEXTS: [(&str, Context); 2] = [("image", Context::Image), ("text", Context::Text)];
 
 const EXTENSION_TABLES: [&[&str]; 3] = [
     &["colors", "light", "extensions"],
     &["colors", "dark", "extensions"],
     &["open_alternative", "extensions"],
+];
+
+const KEY_TABLES: [&[&str]; 3] = [
+    &["keys", "filelist"],
+    &["keys", "preview", "image"],
+    &["keys", "preview", "text"],
 ];
 
 // The table is walked by hand rather than with serde, which cannot skip one
@@ -425,12 +427,12 @@ fn read_commands(root: &mut Reader<'_>, config: &mut Config, os: Os) {
             Value::Table(table) => {
                 let path = commands.path_of(&name);
                 let mut reader = Reader::new(table, path, commands.diagnostics);
-                let line = if reader.take_unset("run") {
+                let line = if reader.take_unset("command_line") {
                     None
                 } else {
                     reader
-                        .required_string("run")
-                        .and_then(|run| reader.command_line("run", &run, os))
+                        .required_string("command_line")
+                        .and_then(|text| reader.command_line("command_line", &text, os))
                 };
                 reader.finish();
                 line
@@ -474,79 +476,81 @@ fn read_keys(root: &mut Reader<'_>, config: &mut Config) {
     let Some(mut keys) = root.table("keys") else {
         return;
     };
-    for (name, context) in CONTEXTS {
-        let Some(mut reader) = keys.table(name) else {
-            continue;
-        };
-        let mut spellings: HashMap<Key, Vec<String>> = HashMap::new();
-        let mut entries = Vec::new();
-        for (text, value) in reader.entries() {
-            let Ok(key) = text.parse::<Key>() else {
-                let path = reader.path.clone();
-                reader.report(path, DiagnosticKind::InvalidKey { key: text });
-                continue;
-            };
-            spellings.entry(key).or_default().push(text.clone());
-            entries.push((text, key, value));
-        }
-        for (text, key, value) in entries {
-            let same = &spellings[&key];
-            if same.len() > 1 {
-                if same[0] == text {
-                    let path = reader.path.clone();
-                    reader.report(
-                        path,
-                        DiagnosticKind::DuplicateKey {
-                            key: key.to_string(),
-                            spellings: same.clone(),
-                        },
-                    );
-                }
-                continue;
-            }
-            let Value::String(name) = value else {
-                reader.invalid(&text, "a command name");
-                continue;
-            };
-            if name.is_empty() {
-                continue;
-            }
-            let path = reader.path_of(&text);
-            let command = match Command::from_name(&name) {
-                Some(Command::External(external)) if !config.commands.contains_key(&external) => {
-                    None
-                }
-                other => other,
-            };
-            let Some(command) = command else {
-                reader.report(path, DiagnosticKind::UnknownCommand { command: name });
-                continue;
-            };
-            if command == Command::Nop {
-                config.keys.bind(context, key, None);
-            } else if command.available_in(context) {
-                config.keys.bind(context, key, Some(command));
-            } else {
-                reader.report(path, DiagnosticKind::Unavailable { command: name });
-            }
-        }
+    if let Some(mut reader) = keys.table("filelist") {
+        read_key_table(&mut reader, Context::FileList, config);
         reader.finish();
     }
+    if let Some(mut preview) = keys.table("preview") {
+        for (name, context) in PREVIEW_CONTEXTS {
+            if let Some(mut reader) = preview.table(name) {
+                read_key_table(&mut reader, context, config);
+                reader.finish();
+            }
+        }
+        preview.finish();
+    }
     keys.finish();
+}
+
+fn read_key_table(reader: &mut Reader<'_>, context: Context, config: &mut Config) {
+    let mut spellings: HashMap<Key, Vec<String>> = HashMap::new();
+    let mut entries = Vec::new();
+    for (text, value) in reader.entries() {
+        let Ok(key) = text.parse::<Key>() else {
+            let path = reader.path.clone();
+            reader.report(path, DiagnosticKind::InvalidKey { key: text });
+            continue;
+        };
+        spellings.entry(key).or_default().push(text.clone());
+        entries.push((text, key, value));
+    }
+    for (text, key, value) in entries {
+        let same = &spellings[&key];
+        if same.len() > 1 {
+            if same[0] == text {
+                let path = reader.path.clone();
+                reader.report(
+                    path,
+                    DiagnosticKind::DuplicateKey {
+                        key: key.to_string(),
+                        spellings: same.clone(),
+                    },
+                );
+            }
+            continue;
+        }
+        let Value::String(name) = value else {
+            reader.invalid(&text, "a command name");
+            continue;
+        };
+        if name.is_empty() {
+            continue;
+        }
+        let path = reader.path_of(&text);
+        let command = match Command::from_name(&name) {
+            Some(Command::External(external)) if !config.commands.contains_key(&external) => None,
+            other => other,
+        };
+        let Some(command) = command else {
+            reader.report(path, DiagnosticKind::UnknownCommand { command: name });
+            continue;
+        };
+        if command == Command::Nop {
+            config.keys.bind(context, key, None);
+        } else if command.available_in(context) {
+            config.keys.bind(context, key, Some(command));
+        } else {
+            reader.report(path, DiagnosticKind::Unavailable { command: name });
+        }
+    }
 }
 
 // Key tables and tables keyed by extension merge by normalized key, so that an
 // overlay's `"a"` replaces a `"A"` below it rather than both being reported as
 // the same key twice.
-fn merge(base: &mut Table, mut overlay: Table) {
+fn merge(base: &mut Table, overlay: Table) {
     for path in EXTENSION_TABLES {
-        let above = path
-            .iter()
-            .try_fold(&overlay, |table, key| table.get(*key)?.as_table());
-        let below = path
-            .iter()
-            .try_fold(&mut *base, |table, key| table.get_mut(*key)?.as_table_mut());
-        if let (Some(above), Some(below)) = (above, below) {
+        if let Some((above, below)) = tables_at(&overlay, base, path) {
             below.retain(|spelling, _| {
                 !above
                     .keys()
@@ -554,33 +558,35 @@ fn merge(base: &mut Table, mut overlay: Table) {
             });
         }
     }
-    if let Some(Value::Table(overlay_keys)) = overlay.get_mut("keys")
-        && let Some(Value::Table(base_keys)) = base.get_mut("keys")
-    {
-        for (context, value) in std::mem::take(overlay_keys) {
-            match (base_keys.get_mut(&context), value) {
-                (Some(Value::Table(below)), Value::Table(above)) => merge_key_table(below, above),
-                (_, value) => {
-                    base_keys.insert(context, value);
-                }
-            }
+    for path in KEY_TABLES {
+        if let Some((above, below)) = tables_at(&overlay, base, path) {
+            let overlaid: Vec<Key> = above
+                .keys()
+                .filter_map(|spelling| spelling.parse().ok())
+                .collect();
+            below.retain(|spelling, _| {
+                spelling
+                    .parse::<Key>()
+                    .ok()
+                    .is_none_or(|key| !overlaid.contains(&key))
+            });
         }
     }
     merge_tables(base, overlay);
 }
 
-fn merge_key_table(base: &mut Table, overlay: Table) {
-    let overlaid: Vec<Key> = overlay
-        .keys()
-        .filter_map(|spelling| spelling.parse().ok())
-        .collect();
-    base.retain(|spelling, _| {
-        spelling
-            .parse::<Key>()
-            .ok()
-            .is_none_or(|key| !overlaid.contains(&key))
-    });
-    base.extend(overlay);
+fn tables_at<'a, 'b>(
+    overlay: &'a Table,
+    base: &'b mut Table,
+    path: &[&str],
+) -> Option<(&'a Table, &'b mut Table)> {
+    let above = path
+        .iter()
+        .try_fold(overlay, |table, key| table.get(*key)?.as_table())?;
+    let below = path
+        .iter()
+        .try_fold(base, |table, key| table.get_mut(*key)?.as_table_mut())?;
+    Some((above, below))
 }
 
 fn merge_tables(base: &mut Table, overlay: Table) {
@@ -647,18 +653,19 @@ mod tests {
 
     use super::*;
     use crate::config::{
-        Color, ImagePlacement, ImagePreviewConfig, PreviewConfig, SizeFormat, TextPreviewConfig,
-        TimeFormat,
+        Color, ImagePlacement, ImagePreviewConfig, PreviewConfig, SearchMatch, SizeFormat,
+        TextPreviewConfig, TimeFormat,
     };
     use crate::external::{CommandLineError, Expansion};
 
     const FILE: &str = "/c/config.toml";
     const EXAMPLE: &str = r##"
 [filelist]
-new_dir_enters_dir = true
+new_dir_goes_to_dir = true
 new_text_creates_file = false
 extract_creates_dir = false
 require_marks = false
+search_match = "start"         # anywhere / start
 size_format = "human"          # plain / comma / human
 time_shows_full_year = false
 time_shows_seconds = false
@@ -667,8 +674,8 @@ time_shows_seconds = false
 hide_log = true
 
 [preview.image]
-from_left = "both_panes"
-from_right = "other_pane"
+placement_from_left = "both_panes"
+placement_from_right = "other_pane"
 hide_log = true
 
 [programs]
@@ -709,7 +716,7 @@ name = "Downloads"
 path = "~/Downloads"
 
 [commands.open_terminal]
-run = "wt -d {dir}"
+command_line = "wt -d {dir}"
 
 [open_alternative]
 dir = "code {paths}"
@@ -721,8 +728,8 @@ pdf = "sumatrapdf {paths}"
 "F2" = "$open_terminal"
 "Q" = "nop"
 
-[keys.image]
-[keys.text]
+[keys.preview.image]
+[keys.preview.text]
 "##;
 
     #[test]
@@ -731,6 +738,7 @@ pdf = "sumatrapdf {paths}"
 
         assert_eq!(diagnostics, Vec::new());
         assert!(!config.filelist.new_text_creates_file);
+        assert_eq!(config.filelist.search_match, SearchMatch::Start);
         assert_eq!(config.filelist.size_format, SizeFormat::Human);
         assert_eq!(
             config.filelist.time_format,
@@ -751,8 +759,8 @@ pdf = "sumatrapdf {paths}"
                     max_bytes: 16 * 1024 * 1024,
                 },
                 image: ImagePreviewConfig {
-                    from_left: ImagePlacement::BothPanes,
-                    from_right: ImagePlacement::OtherPane,
+                    placement_from_left: ImagePlacement::BothPanes,
+                    placement_from_right: ImagePlacement::OtherPane,
                     hide_log: true,
                     max_bytes: 64 * 1024 * 1024,
                 },
@@ -804,18 +812,18 @@ pdf = "sumatrapdf {paths}"
 
     #[test]
     fn syntax_errors_carry_the_line_number() {
-        let error = parse("[filelist]\nnew_dir_enters_dir = \n", Os::Linux).unwrap_err();
+        let error = parse("[filelist]\nnew_dir_goes_to_dir = \n", Os::Linux).unwrap_err();
 
         assert_eq!(error.line, 2);
     }
 
     #[test]
     fn unknown_items_are_reported_and_the_rest_is_read() {
-        let text = "[filelist]\nfoo = 1\nnew_dir_enters_dir = false\n[colors.light]\nbar = 2\n[nothing]\nx = 1\n";
+        let text = "[filelist]\nfoo = 1\nnew_dir_goes_to_dir = false\n[colors.light]\nbar = 2\n[nothing]\nx = 1\n";
 
         let (config, diagnostics) = parse(text, Os::Linux).unwrap();
 
-        assert!(!config.filelist.new_dir_enters_dir);
+        assert!(!config.filelist.new_dir_goes_to_dir);
         assert_eq!(
             paths(&diagnostics),
             ["filelist.foo", "colors.light.bar", "nothing"]
@@ -830,7 +838,7 @@ pdf = "sumatrapdf {paths}"
     #[test]
     fn command_lines_are_split_by_the_rules_of_the_given_os() {
         let (config, diagnostics) = parse(
-            "[programs]\neditor = \"x 'a b'\"\n[commands.x]\nrun = \"x 'a b'\"\n",
+            "[programs]\neditor = \"x 'a b'\"\n[commands.x]\ncommand_line = \"x 'a b'\"\n",
             Os::Windows,
         )
         .unwrap();
@@ -870,14 +878,14 @@ pdf = "sumatrapdf {paths}"
     fn limits_are_integers_of_one_or_more() {
         let read = |value: &str| {
             let text = format!(
-                "[filelist]\nmax_history = {value}\nmax_find_results = {value}\n\
+                "[filelist]\nmax_history = {value}\nmax_find_matches = {value}\n\
                  [preview.text]\nmax_bytes = {value}\n[preview.image]\nmax_bytes = {value}\n\
                  [log]\nmax_lines = {value}\n"
             );
             let (config, diagnostics) = parse(&text, Os::Linux).unwrap();
             (
                 config.filelist.max_history,
-                config.filelist.max_find_results,
+                config.filelist.max_find_matches,
                 config.preview.text.max_bytes,
                 config.preview.image.max_bytes,
                 config.log.max_lines,
@@ -896,12 +904,12 @@ pdf = "sumatrapdf {paths}"
     }
 
     #[test]
-    fn compare_tolerance_is_an_integer_of_zero_or_more() {
+    fn mark_compare_tolerance_is_an_integer_of_zero_or_more() {
         let read = |value: &str| {
-            let text = format!("[filelist]\ncompare_tolerance_ms = {value}\n");
+            let text = format!("[filelist]\nmark_compare_tolerance_ms = {value}\n");
             let (config, diagnostics) = parse(&text, Os::Linux).unwrap();
             (
-                config.filelist.compare_tolerance_ms,
+                config.filelist.mark_compare_tolerance_ms,
                 paths(&diagnostics).len(),
             )
         };
@@ -910,6 +918,17 @@ pdf = "sumatrapdf {paths}"
         for invalid in ["-1", "\"\""] {
             assert_eq!(read(invalid), (2000, 1), "{invalid}");
         }
+    }
+
+    #[test]
+    fn search_match_reads_anywhere_without_a_warning() {
+        let read = |value: &str| {
+            let text = format!("[filelist]\nsearch_match = {value}\n");
+            let (config, diagnostics) = parse(&text, Os::Linux).unwrap();
+            (config.filelist.search_match, paths(&diagnostics).len())
+        };
+
+        assert_eq!(read("\"anywhere\""), (SearchMatch::Anywhere, 0));
     }
 
     #[test]
@@ -957,8 +976,8 @@ pdf = "sumatrapdf {paths}"
 [filelist]
 size_format = "bogus"
 [preview.image]
-from_left = "full"
-from_right = true
+placement_from_left = "full"
+placement_from_right = true
 [programs]
 editor = "\"unterminated"
 [font]
@@ -987,8 +1006,8 @@ extensions = 1
             paths(&diagnostics),
             [
                 "filelist.size_format",
-                "preview.image.from_left",
-                "preview.image.from_right",
+                "preview.image.placement_from_left",
+                "preview.image.placement_from_right",
                 "programs.editor",
                 "font.log.size",
                 "font.size",
@@ -1048,9 +1067,9 @@ extensions = 1
     fn keys_are_checked_against_the_commands_and_the_context() {
         let text = r#"
 [commands.term]
-run = "wt"
+command_line = "wt"
 [commands.broken]
-run = "x 'unterminated"
+command_line = "x 'unterminated"
 [keys.filelist]
 "F1" = "$term"
 "F2" = "$missing"
@@ -1058,10 +1077,11 @@ run = "x 'unterminated"
 "F4" = "no_such_command"
 "Shift+!" = "copy"
 "F5" = 3
-[keys.image]
+[keys.preview.image]
 "F6" = "copy"
 "Up" = "nop"
-[keys.other]
+[keys.preview.other]
+[keys.text]
 "#;
 
         let (config, diagnostics) = parse(text, Os::Linux).unwrap();
@@ -1082,14 +1102,15 @@ run = "x 'unterminated"
         assert_eq!(
             found,
             [
-                "commands.broken.run",
+                "commands.broken.command_line",
                 "keys.filelist",
                 "keys.filelist.F2",
                 "keys.filelist.F3",
                 "keys.filelist.F4",
                 "keys.filelist.F5",
-                "keys.image.F6",
-                "keys.other",
+                "keys.preview.image.F6",
+                "keys.preview.other",
+                "keys.text",
             ]
         );
         assert!(diagnostics.iter().any(|d| {
@@ -1181,7 +1202,7 @@ run = "x 'unterminated"
         let text = r#"
 [keys.filelist]
 "a" = "copy"
-[keys.image]
+[keys.preview.image]
 "A" = "nop"
 "#;
 
@@ -1472,14 +1493,14 @@ bookmarks = [
     }
 
     #[test]
-    fn a_command_is_a_line_or_a_table_with_run() {
+    fn a_command_is_a_line_or_a_table_with_command_line() {
         let text = r#"
 [commands]
 broken = "x 'unterminated"
 line = "wt -d {dir}"
 number = 3
 [commands.table]
-run = "wt -d {dir}"
+command_line = "wt -d {dir}"
 "#;
 
         let (config, diagnostics) = parse(text, Os::Linux).unwrap();
@@ -1514,11 +1535,11 @@ name = "none"
 [[bookmarks]]
 name = "a"
 path = "/a"
-[commands.norun]
+[commands.incomplete]
 [commands.term]
-run = "wt"
+command_line = "wt"
 [keys.filelist]
-"F1" = "$norun"
+"F1" = "$incomplete"
 "F2" = "$term"
 "#;
 
@@ -1535,7 +1556,7 @@ run = "wt"
         );
         assert_eq!(
             paths(&diagnostics),
-            ["bookmarks[0]", "commands.norun", "keys.filelist.F1"]
+            ["bookmarks[0]", "commands.incomplete", "keys.filelist.F1"]
         );
         assert_eq!(
             diagnostics[0].kind,
@@ -1546,7 +1567,7 @@ run = "wt"
         assert_eq!(
             diagnostics[1].kind,
             DiagnosticKind::MissingItem {
-                item: "run".to_owned()
+                item: "command_line".to_owned()
             }
         );
         assert_eq!(
@@ -1557,13 +1578,20 @@ run = "wt"
 
     #[test]
     fn merging_overlays_key_tables_by_normalized_key() {
-        let mut base = table("[keys.filelist]\n\"a\" = \"copy\"\n\"F1\" = \"copy\"\n");
+        let mut base = table(
+            "[keys.filelist]\n\"a\" = \"copy\"\n\"F1\" = \"copy\"\n[keys.preview.text]\n\"j\" = \"copy\"\n",
+        );
 
-        merge(&mut base, table("[keys.filelist]\n\"A\" = \"move\"\n"));
+        merge(
+            &mut base,
+            table("[keys.filelist]\n\"A\" = \"move\"\n[keys.preview.text]\n\"J\" = \"move\"\n"),
+        );
 
         assert_eq!(
             base,
-            table("[keys.filelist]\n\"A\" = \"move\"\n\"F1\" = \"copy\"\n")
+            table(
+                "[keys.filelist]\n\"A\" = \"move\"\n\"F1\" = \"copy\"\n[keys.preview.text]\n\"J\" = \"move\"\n"
+            )
         );
     }
 
@@ -1593,8 +1621,8 @@ run = "wt"
         let (config, diagnostics) = parse_layers(
             in_one_file(&[
                 "[filelist]\nrequire_marks = false\nsize_format = \"comma\"\n",
-                "extends = \"a.toml\"\n[filelist]\nsize_format = \"human\"\nnew_dir_enters_dir = false\n",
-                "extends = [\"b.toml\"]\n[filelist]\nnew_dir_enters_dir = true\n",
+                "extends = \"a.toml\"\n[filelist]\nsize_format = \"human\"\nnew_dir_goes_to_dir = false\n",
+                "extends = [\"b.toml\"]\n[filelist]\nnew_dir_goes_to_dir = true\n",
             ]),
             Os::Linux,
         )
@@ -1603,7 +1631,7 @@ run = "wt"
         assert_eq!(diagnostics, Vec::new());
         assert!(!config.filelist.require_marks);
         assert_eq!(config.filelist.size_format, SizeFormat::Human);
-        assert!(config.filelist.new_dir_enters_dir);
+        assert!(config.filelist.new_dir_goes_to_dir);
     }
 
     #[test]
@@ -1659,9 +1687,9 @@ txt = "edit {paths}"
 [commands]
 term = "wt"
 [commands.build]
-run = "make"
+command_line = "make"
 [commands.keep]
-run = "keep"
+command_line = "keep"
 [keys.filelist]
 "c" = "move"
 "##,
@@ -1683,7 +1711,7 @@ pdf = ""
 [commands]
 term = ""
 [commands.build]
-run = ""
+command_line = ""
 [keys.filelist]
 "C" = ""
 "#,

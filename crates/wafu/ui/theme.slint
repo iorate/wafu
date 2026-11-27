@@ -10,8 +10,8 @@ export struct ThemeColors {
     dir: color,
     link: color,
     exec: color,
-    broken: color,
-    fifo: color,
+    link-broken: color,
+    special: color,
     socket: color,
 }
 
@@ -22,12 +22,12 @@ export global Theme {
     in property <ThemeColors> light: {
         fg: #1e1e1e, bg: #ffffff, line-number: #626262, mark: #dcdcdc,
         cursor: #1e1e1e, cursor-inactive: #7d7d7d, dir: #1f5fbf, link: #0e7c86,
-        exec: #2a8c2a, broken: #c0392b, fifo: #b8860b, socket: #b03a9a,
+        exec: #2a8c2a, link-broken: #c0392b, special: #b8860b, socket: #b03a9a,
     };
     in property <ThemeColors> dark: {
         fg: #d4d4d4, bg: #1e1e1e, line-number: #9d9d9d, mark: #3c3c3c,
         cursor: #d4d4d4, cursor-inactive: #888888, dir: #6fa8ff, link: #4fd1e0,
-        exec: #5fd75f, broken: #ff6b6b, fifo: #f0c050, socket: #e58ae0,
+        exec: #5fd75f, link-broken: #ff6b6b, special: #f0c050, socket: #e58ae0,
     };
     in property <float> hidden-opacity: 0.7;
     in property <string> path-font-family;

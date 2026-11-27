@@ -70,7 +70,7 @@ pub struct FindQuery {
     /// Whether hidden entries are found and hidden directories searched.
     pub show_hidden: bool,
     /// How many matches the find collects before it stops.
-    pub max_results: usize,
+    pub max_matches: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

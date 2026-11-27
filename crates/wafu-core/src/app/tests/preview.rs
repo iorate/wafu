@@ -899,7 +899,7 @@ fn an_image_opened_from_the_right_pane_fills_the_window() {
 #[test]
 fn an_image_opened_from_the_left_pane_fills_the_window_when_set_to() {
     let mut harness = listing();
-    harness.config("[preview.image]\nfrom_left = \"both_panes\"\n");
+    harness.config("[preview.image]\nplacement_from_left = \"both_panes\"\n");
     harness.press("Down");
     harness.press("Down");
 
@@ -912,7 +912,7 @@ fn an_image_opened_from_the_left_pane_fills_the_window_when_set_to() {
 #[test]
 fn an_image_opened_from_the_right_pane_uses_the_left_area_when_set_to() {
     let mut harness = listing();
-    harness.config("[preview.image]\nfrom_right = \"other_pane\"\n");
+    harness.config("[preview.image]\nplacement_from_right = \"other_pane\"\n");
     harness.press("Tab");
     harness.press("Down");
 
@@ -937,7 +937,7 @@ fn image_keys_are_the_cursor_and_mark_keys_of_the_image_context() {
     harness.press("C");
     assert_eq!(harness.take_effects(), vec![]);
 
-    harness.config("[keys.image]\n\"Space\" = \"nop\"\n");
+    harness.config("[keys.preview.image]\n\"Space\" = \"nop\"\n");
     harness.press("Space");
 
     assert_eq!(harness.cursor_name(Side::Left), "one.png");
@@ -1138,7 +1138,7 @@ fn the_right_pane_and_right_clicks_are_ignored_beside_a_right_pane_image() {
 #[test]
 fn the_right_pane_takes_the_mouse_beside_a_left_pane_image() {
     let mut harness = listing();
-    harness.config("[preview.image]\nfrom_right = \"other_pane\"\n");
+    harness.config("[preview.image]\nplacement_from_right = \"other_pane\"\n");
     harness.press("Tab");
     harness.press("Down");
     harness.press("Enter");
@@ -1643,7 +1643,7 @@ fn v_on_a_link_inside_an_archive_is_refused() {
 fn text_keys_come_from_the_text_table_in_both_modes() {
     let mut harness = document();
     harness.config(
-        "[keys.filelist]\n\"Down\" = \"nop\"\n[keys.text]\n\"J\" = \"preview_scroll_down\"\n",
+        "[keys.filelist]\n\"Down\" = \"nop\"\n[keys.preview.text]\n\"J\" = \"preview_scroll_down\"\n",
     );
 
     harness.press("J");
@@ -1662,7 +1662,8 @@ fn text_keys_come_from_the_text_table_in_both_modes() {
 #[test]
 fn image_keys_come_from_the_image_table() {
     let mut harness = image();
-    harness.config("[keys.filelist]\n\"Down\" = \"nop\"\n[keys.image]\n\"Esc\" = \"nop\"\n");
+    harness
+        .config("[keys.filelist]\n\"Down\" = \"nop\"\n[keys.preview.image]\n\"Esc\" = \"nop\"\n");
 
     harness.press("Down");
     assert_eq!(harness.cursor_name(Side::Left), "two.JPG");

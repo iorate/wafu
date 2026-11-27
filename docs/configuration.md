@@ -50,11 +50,11 @@ path = "~/work"
 
 ```toml
 [filelist]
-new_dir_enters_dir = true
+new_dir_goes_to_dir = true
 new_text_creates_file = true
 extract_creates_dir = true
 require_marks = true
-search_matches_anywhere = true
+search_match = "anywhere"
 size_format = "plain"
 size_digits = 9
 time_shows_full_year = true
@@ -62,16 +62,16 @@ time_shows_seconds = true
 extension_chars = 4
 min_name_chars = 8
 max_history = 100
-max_find_results = 10000
-compare_tolerance_ms = 2000
+max_find_matches = 10000
+mark_compare_tolerance_ms = 2000
 
 [preview.text]
 hide_log = false
 max_bytes = 16777216
 
 [preview.image]
-from_left = "other_pane"
-from_right = "both_panes"
+placement_from_left = "other_pane"
+placement_from_right = "both_panes"
 hide_log = false
 max_bytes = 67108864
 
@@ -100,8 +100,8 @@ cursor_inactive = "#7d7d7d"
 dir = "#1f5fbf"
 link = "#0e7c86"
 exec = "#2a8c2a"
-broken = "#c0392b"
-fifo = "#b8860b"
+link_broken = "#c0392b"
+special = "#b8860b"
 socket = "#b03a9a"
 
 [colors.dark]
@@ -114,8 +114,8 @@ cursor_inactive = "#888888"
 dir = "#6fa8ff"
 link = "#4fd1e0"
 exec = "#5fd75f"
-broken = "#ff6b6b"
-fifo = "#f0c050"
+link_broken = "#ff6b6b"
+special = "#f0c050"
 socket = "#e58ae0"
 ```
 
@@ -125,11 +125,11 @@ There are no default bookmarks, external commands, [`open_alternative` programs]
 
 | Item | Meaning |
 |---|---|
-| `new_dir_enters_dir` | Enter the directory that `new_dir` created. |
+| `new_dir_goes_to_dir` | Go to the directory that `new_dir` created. |
 | `new_text_creates_file` | `new_text` creates the file before opening it in the editor. |
 | `extract_creates_dir` | `extract` and `extract_here` put the contents in a directory named after the archive. |
 | `require_marks` | `copy`, `move`, `delete`, and `trash` act only on marked items, never on the cursor item alone. |
-| `search_matches_anywhere` | `search` finds the text anywhere in a name. When `false`, only at the start of a name. |
+| `search_match` | Where in a name `search` finds the text: `"anywhere"` or `"start"` (only at the start of a name). |
 | `size_format` | How the file list's size column writes sizes: `"plain"` (`1234567`), `"comma"` (`1,234,567`), or `"human"` (`1.2M`). |
 | `size_digits` | How many digits the size column holds with `"plain"` and `"comma"`: an integer from 5 to 20. A size with more digits is written as with `"human"`. With `"human"`, the column always holds five characters. |
 | `time_shows_full_year` | The file list's time column writes the year in full (`2026/01/02`). When `false`, only its last two digits (`26/01/02`). |
@@ -137,8 +137,8 @@ There are no default bookmarks, external commands, [`open_alternative` programs]
 | `extension_chars` | How many characters of an extension the extension column holds after the dot: an integer from 1 to 255. A longer extension ends in an ellipsis. |
 | `min_name_chars` | How many characters of a name a narrow pane still shows before cutting off the other columns: an integer from 1 to 255. |
 | `max_history` | How many places each pane's history keeps, for `history`, `go_back`, and `go_forward`: an integer of 1 or more. |
-| `max_find_results` | How many matches `find` collects before it stops: an integer of 1 or more. |
-| `compare_tolerance_ms` | How many milliseconds apart two modification times may be for `mark_compare` to take them as the same: an integer of 0 or more. `0` compares them exactly. |
+| `max_find_matches` | How many matches `find` collects before it stops: an integer of 1 or more. |
+| `mark_compare_tolerance_ms` | How many milliseconds apart two modification times may be for `mark_compare` to take them as the same: an integer of 0 or more. `0` compares them exactly. |
 
 ## Preview
 
@@ -153,8 +153,8 @@ There are no default bookmarks, external commands, [`open_alternative` programs]
 
 | Item | Meaning |
 |---|---|
-| `from_left` | Where an image opened from the left pane is shown: `"other_pane"` (in place of the right pane, while the left pane stays) or `"both_panes"`. |
-| `from_right` | Where an image opened from the right pane is shown: `"other_pane"` (in place of the left pane, while the right pane stays) or `"both_panes"`. |
+| `placement_from_left` | Where an image opened from the left pane is shown: `"other_pane"` (in place of the right pane, while the left pane stays) or `"both_panes"`. |
+| `placement_from_right` | Where an image opened from the right pane is shown: `"other_pane"` (in place of the left pane, while the right pane stays) or `"both_panes"`. |
 | `hide_log` | Hide the log while an image takes the place of both panes. |
 | `max_bytes` | The largest image file, in bytes, the image preview opens: an integer of 1 or more. |
 
@@ -211,9 +211,9 @@ size = 16
 | `cursor_inactive` | The cursor line while the window is not focused |
 | `dir` | Directories |
 | `link` | Symbolic links whose target exists |
-| `broken` | Symbolic links whose target does not exist |
+| `link_broken` | Symbolic links whose target does not exist |
 | `exec` | Executable files |
-| `fifo` | Named pipes and devices |
+| `special` | Named pipes and devices |
 | `socket` | Sockets |
 
 `[colors.light.extensions]` and `[colors.dark.extensions]` give regular files a color by extension, in place of `fg`. Each key is an extension without the dot, such as `zip` for `a.zip`, and matches in either case, so `zip` also colors `B.ZIP`. Only the part after the last dot is matched: `gz` colors `a.tar.gz`, and a key with a dot, such as `"tar.gz"`, is reported as invalid. The other kinds above keep their own color, so an executable `run.sh` takes `exec` whatever `sh` is set to. On Windows, `exe`, `com`, `bat`, and `cmd` files are executable, so they take `exec` too. Each theme has its own table: an extension set in only one of them takes `fg` in the other. Both tables are empty by default.
@@ -259,7 +259,7 @@ open_terminal = "wt -d {dir}"
 
 `wt` in the example is Windows Terminal.
 
-A command can also be written as a table with the line in `run`: `open_terminal = { run = "wt -d {dir}" }`, or `[commands.open_terminal]` with `run = "..."` under it. An empty string in either form leaves the command undefined, which is how a file takes back a command that a file it [extends](#sharing-settings-between-machines) defined.
+A command can also be written as a table with the line in `command_line`: `open_terminal = { command_line = "wt -d {dir}" }`, or `[commands.open_terminal]` with `command_line = "..."` under it. An empty string in either form leaves the command undefined, which is how a file takes back a command that a file it [extends](#sharing-settings-between-machines) defined.
 
 The command runs without a shell, in the directory of the active pane. The line is split into arguments by the OS's own quoting rules:
 
@@ -293,7 +293,7 @@ pdf = "sumatrapdf {paths}"
 ```
 
 - `dir` is the command line for directories, and links to them.
-- `[open_alternative.extensions]` gives regular files, and links to them, a command line by extension. Its keys follow the rules of [extension colors](#colors): an extension without the dot, matched in either case and against the part after the last dot only. A rule for an extension wins over entering an archive or running an executable file, so a `zip` rule opens `a.zip` in its program rather than entering it.
+- `[open_alternative.extensions]` gives regular files, and links to them, a command line by extension. Its keys follow the rules of [extension colors](#colors): an extension without the dot, matched in either case and against the part after the last dot only. A rule for an extension wins over opening an archive as a directory or running an executable file, so a `zip` rule opens `a.zip` in its program rather than going into it.
 - On the `..` row the item is the current directory itself, or, at the root of an archive, the archive file.
 - Anything without a rule, broken links, special files, and links inside an archive are opened as `open` does.
 - Both are empty by default.
@@ -302,7 +302,7 @@ The command lines follow the rules of [external commands](#commands), with the i
 
 ## Keys
 
-`[keys.filelist]`, `[keys.image]`, and `[keys.text]` bind keys in the file list, the image preview, and the text preview (its binary mode included). Each entry maps a key to a command name:
+`[keys.filelist]`, `[keys.preview.image]`, and `[keys.preview.text]` bind keys in the file list, the image preview, and the text preview (its binary mode included). Each entry maps a key to a command name:
 
 ```toml
 [keys.filelist]

@@ -52,8 +52,8 @@ component RowItem {
     property <brush> kind-color: item.kind == 0 ? Theme.colors.dir
         : item.kind == 2 ? Theme.colors.exec
         : item.kind == 3 ? Theme.colors.link
-        : item.kind == 4 ? Theme.colors.broken
-        : item.kind == 5 ? Theme.colors.fifo
+        : item.kind == 4 ? Theme.colors.link-broken
+        : item.kind == 5 ? Theme.colors.special
         : item.kind == 6 ? Theme.colors.socket
         : Theme.dark-scheme ? (item.has-dark-color ? item.dark-color : Theme.colors.fg)
         : item.has-light-color ? item.light-color : Theme.colors.fg;
