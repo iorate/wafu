@@ -19,7 +19,7 @@ The default keys are modeled on [あふｗ](https://afxw.sakura.ne.jp/), a two-p
 
 - **Previews.** <kbd>Enter</kbd> on an image in the left pane shows it in the right half, and the preview follows the cursor. Other files open as text (<kbd>V</kbd> forces it); there <kbd>Tab</kbd> switches to a hex dump and <kbd>C</kbd> picks the encoding.
 
-  ![A photo of hills at sunset previewed in the right half of the window, beside the list of photos it was opened from, two of which are marked](https://raw.githubusercontent.com/iorate/wafu/main/docs/images/preview.png)
+  ![A photo of hills at sunset previewed in the right half of the window, beside the list of photos it was opened from, one of which is marked](https://raw.githubusercontent.com/iorate/wafu/main/docs/images/preview.png)
 
 - **Getting around.** <kbd>F</kbd> searches the list as you type, <kbd>:</kbd> filters it with a glob such as `*.{jpg,png}`, and <kbd>Shift</kbd>+<kbd>F</kbd> finds files by name in all subdirectories. Each pane keeps its own history (<kbd>H</kbd>), and <kbd>J</kbd> opens your bookmarks.
 - **Configuration applied on save.** <kbd>Z</kbd> opens the configuration file in your editor, and changes apply as soon as it is saved.
