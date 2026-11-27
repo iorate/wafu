@@ -91,7 +91,7 @@ fn enter_as_archive_opens_any_file_but_not_a_directory() {
     harness.press("Down");
     harness.take_effects();
 
-    harness.press("Shift+U");
+    harness.press("Shift+V");
 
     let effects = harness.take_effects();
     assert!(matches!(
@@ -104,7 +104,7 @@ fn enter_as_archive_opens_any_file_but_not_a_directory() {
     harness.press("Up");
     harness.take_effects();
 
-    harness.press("Shift+U");
+    harness.press("Shift+V");
 
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(harness.cursor_name(Side::Left), "d");
@@ -117,7 +117,7 @@ fn enter_as_archive_takes_the_format_of_a_known_extension() {
     harness.press("Down");
     harness.take_effects();
 
-    harness.press("Shift+U");
+    harness.press("Shift+V");
 
     let effects = harness.take_effects();
     assert!(matches!(
@@ -132,7 +132,7 @@ fn enter_as_archive_takes_the_format_of_a_known_extension() {
 fn moving_inside_an_archive_of_unknown_format_leaves_the_format_unknown() {
     let mut harness = outside();
     harness.press("Down");
-    harness.press("Shift+U");
+    harness.press("Shift+V");
     harness.load(Side::Left, vec![dir("docs")]);
     harness.press("Down");
     harness.press("Enter");
@@ -167,7 +167,7 @@ fn enter_as_archive_on_the_parent_row_of_an_archive_root_does_nothing() {
     harness.press("Home");
     harness.take_effects();
 
-    harness.press("Shift+U");
+    harness.press("Shift+V");
 
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(harness.view().left.path, root().to_string());
@@ -338,7 +338,7 @@ fn a_wrong_password_for_a_listing_is_asked_again_and_forgotten() {
 #[test]
 fn the_password_for_a_reload_is_kept_once_the_listing_arrives() {
     let mut harness = nested_with_password();
-    harness.press("F5");
+    harness.press(",");
     harness.need_password(Side::Left, 1, false);
     assert_eq!(
         harness.view().popup.unwrap().message.as_deref(),
@@ -366,7 +366,7 @@ fn the_password_for_a_reload_is_kept_once_the_listing_arrives() {
 #[test]
 fn moving_up_out_of_a_nested_archive_keeps_the_passwords_of_the_archives_above() {
     let mut harness = nested_with_password();
-    harness.press("F5");
+    harness.press(",");
     harness.need_password(Side::Left, 1, false);
     harness.edit("inner");
     harness.press("Enter");
@@ -391,7 +391,7 @@ fn entering_another_archive_in_the_same_archive_keeps_its_password() {
     assert_eq!(harness.cursor_name(Side::Left), "b.txt");
     harness.take_effects();
 
-    harness.press("Shift+U");
+    harness.press("Shift+V");
 
     assert!(matches!(
         harness.take_effects().as_slice(),
@@ -434,7 +434,7 @@ fn sync_carries_the_passwords_with_the_location() {
 fn swap_carries_the_passwords_with_the_locations() {
     let mut harness = nested_with_password();
 
-    harness.press("F1");
+    harness.press("?");
     harness.edit("swap_panes");
     harness.press("Enter");
 
@@ -503,7 +503,7 @@ fn a_listing_that_needs_a_password_during_an_operation_fails_without_asking() {
 #[test]
 fn a_listing_that_needs_a_password_behind_a_popup_fails_and_forgets_a_wrong_one() {
     let mut harness = nested_with_password();
-    harness.press("F1");
+    harness.press("?");
     harness.changed(Side::Left);
 
     harness.need_password(Side::Left, 0, true);
@@ -521,7 +521,7 @@ fn a_nested_archive_that_cannot_be_read_is_logged_by_its_own_path() {
     let mut harness = inside();
     harness.press("Down");
     harness.press("Down");
-    harness.press("Shift+U");
+    harness.press("Shift+V");
 
     harness.fail_load(Side::Left, "unknown archive format");
 
@@ -540,7 +540,7 @@ fn enter_as_archive_on_a_link_inside_an_archive_is_refused() {
     harness.press("Down");
     harness.take_effects();
 
-    harness.press("Shift+U");
+    harness.press("Shift+V");
 
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(
@@ -602,11 +602,19 @@ fn commands_that_change_things_are_refused_inside_an_archive() {
     harness.press("Down");
 
     for key in [
-        "M", "D", "Shift+D", "R", "Shift+R", "Alt+R", "K", "Shift+E", "P",
+        "M",
+        "D",
+        "Shift+D",
+        "R",
+        "Shift+R",
+        "Ctrl+Shift+R",
+        "K",
+        "Shift+E",
+        "P",
     ] {
         harness.press(key);
     }
-    harness.press("F1");
+    harness.press("?");
     harness.edit("new_file");
     harness.press("Enter");
 
@@ -866,7 +874,7 @@ fn extract_unpacks_straight_into_the_other_side_when_configured() {
 fn extract_here_unpacks_the_targets_into_the_same_side() {
     let mut harness = outside();
 
-    harness.press("Alt+U");
+    harness.press("Shift+U");
 
     assert_eq!(
         harness.start_operation(),
@@ -883,7 +891,7 @@ fn extract_here_unpacks_the_targets_into_the_same_side() {
 fn extract_here_on_the_parent_row_of_an_archive_root_is_refused() {
     let mut harness = inside();
 
-    harness.press("Alt+U");
+    harness.press("Shift+U");
 
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(
@@ -896,7 +904,7 @@ fn extract_here_on_the_parent_row_of_an_archive_root_is_refused() {
 fn compress_here_puts_the_archive_in_the_same_side() {
     let mut harness = outside();
 
-    harness.press("Alt+P");
+    harness.press("Shift+P");
     assert_eq!(harness.view().popup.unwrap().title, "Compress (here)");
     harness.press("Enter");
 
@@ -910,7 +918,7 @@ fn compress_here_puts_the_archive_in_the_same_side() {
 fn compress_here_on_the_parent_row_of_an_archive_root_is_refused() {
     let mut harness = inside();
 
-    harness.press("Alt+P");
+    harness.press("Shift+P");
 
     assert_eq!(harness.view().popup, None);
     assert_eq!(

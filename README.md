@@ -6,7 +6,7 @@ A keyboard-driven dual-pane file manager for Windows, macOS, and Linux, built wi
 
 ## Features
 
-- **Everything from the keyboard.** Most commands are a single key, and <kbd>F1</kbd> lists the commands with their keys.
+- **Everything from the keyboard.** Most commands are a single key, and <kbd>?</kbd> lists the commands with their keys.
 - **File operations across the panes.** Copy or move the marked files to the other pane, delete them, or move them to the trash.
 - **Quick navigation.** Incremental search, glob filters, recursive find by name, per-pane history, and bookmarks.
 - **Archives open like directories.** Browse, preview, and extract zip and tar archives, including archives inside archives.

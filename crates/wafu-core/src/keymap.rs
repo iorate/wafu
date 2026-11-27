@@ -34,6 +34,7 @@ const DEFAULT_FILELIST: &[(&str, &str)] = &[
     ("Ctrl+Right", "drive_next"),
     ("O", "sync_to_other"),
     ("Shift+O", "sync_other_to_this"),
+    ("Alt+O", "swap_panes"),
     ("Space", "mark_down"),
     ("Shift+Space", "mark_up"),
     ("Ctrl+Space", "mark_range_above"),
@@ -51,18 +52,18 @@ const DEFAULT_FILELIST: &[(&str, &str)] = &[
     ("Shift+D", "trash"),
     ("R", "rename"),
     ("Shift+R", "rename_replace"),
-    ("Alt+R", "rename_template"),
+    ("Ctrl+Shift+R", "rename_template"),
     ("K", "mkdir"),
-    ("N", "new_file"),
+    ("Shift+K", "new_file"),
     ("E", "edit"),
     ("Shift+E", "new_text"),
     ("X", "run_file"),
     ("Shift+X", "run_command"),
     ("P", "compress"),
-    ("Alt+P", "compress_here"),
+    ("Shift+P", "compress_here"),
     ("U", "extract"),
-    ("Alt+U", "extract_here"),
-    ("Shift+U", "enter_as_archive"),
+    ("Shift+U", "extract_here"),
+    ("Shift+V", "enter_as_archive"),
     ("I", "calculate_size_on_disk"),
     ("Shift+I", "calculate_size"),
     ("Y", "copy_name"),
@@ -77,8 +78,8 @@ const DEFAULT_FILELIST: &[(&str, &str)] = &[
     (":", "filter"),
     ("*", "clear_filter"),
     (".", "toggle_hidden"),
-    ("F5", "reload"),
-    ("F1", "palette"),
+    (",", "reload"),
+    ("?", "palette"),
     ("Z", "edit_config"),
     ("Alt+Z", "new_window"),
     ("Alt+Shift+Z", "new_window_as_admin"),
@@ -94,6 +95,8 @@ const DEFAULT_FILELIST: &[(&str, &str)] = &[
     ("Shift+PageDown", "log_page_down"),
     ("Shift+Home", "log_top"),
     ("Shift+End", "log_bottom"),
+    ("Alt+D", "clear_log"),
+    ("Alt+Y", "copy_log"),
 ];
 
 const DEFAULT_IMAGE: &[(&str, &str)] = &[
@@ -116,7 +119,7 @@ const DEFAULT_IMAGE: &[(&str, &str)] = &[
     ("F", "search"),
     ("Enter", "close_preview"),
     ("Esc", "close_preview"),
-    ("F1", "palette"),
+    ("?", "palette"),
     ("Alt+Z", "new_window"),
     ("Alt+Shift+Z", "new_window_as_admin"),
     ("Alt+Left", "pane_shrink_left"),
@@ -129,6 +132,8 @@ const DEFAULT_IMAGE: &[(&str, &str)] = &[
     ("Shift+PageDown", "log_page_down"),
     ("Shift+Home", "log_top"),
     ("Shift+End", "log_bottom"),
+    ("Alt+D", "clear_log"),
+    ("Alt+Y", "copy_log"),
 ];
 
 const DEFAULT_TEXT: &[(&str, &str)] = &[
@@ -143,7 +148,7 @@ const DEFAULT_TEXT: &[(&str, &str)] = &[
     ("E", "preview_edit"),
     ("Enter", "close_preview"),
     ("Esc", "close_preview"),
-    ("F1", "palette"),
+    ("?", "palette"),
     ("Alt+Z", "new_window"),
     ("Alt+Shift+Z", "new_window_as_admin"),
     ("Alt+Up", "log_grow"),
@@ -154,6 +159,8 @@ const DEFAULT_TEXT: &[(&str, &str)] = &[
     ("Shift+PageDown", "log_page_down"),
     ("Shift+Home", "log_top"),
     ("Shift+End", "log_bottom"),
+    ("Alt+D", "clear_log"),
+    ("Alt+Y", "copy_log"),
 ];
 
 /// Key bindings per context.
@@ -257,12 +264,7 @@ mod tests {
 
     use super::*;
 
-    const UNBOUND: [Command; 4] = [
-        Command::SwapPanes,
-        Command::ClearLog,
-        Command::CopyLog,
-        Command::Nop,
-    ];
+    const UNBOUND: [Command; 1] = [Command::Nop];
 
     #[test]
     fn default_binds_every_command_except_the_unbound_ones() {
@@ -324,16 +326,12 @@ mod tests {
     fn keys_for_lists_the_keys_in_display_order() {
         let mut keymap = KeyMap::default_for(Os::Windows);
         for key in ["Ctrl+R", "Shift+F5", "Alt+R"] {
-            keymap.bind(
-                Context::FileList,
-                key.parse().unwrap(),
-                Some(Command::Reload),
-            );
+            keymap.bind(Context::FileList, key.parse().unwrap(), Some(Command::Sort));
         }
 
         assert_eq!(
-            key_names(&keymap, Context::FileList, &Command::Reload),
-            ["Alt+R", "Ctrl+R", "F5", "Shift+F5"]
+            key_names(&keymap, Context::FileList, &Command::Sort),
+            ["Alt+R", "Ctrl+R", "S", "Shift+F5"]
         );
     }
 
