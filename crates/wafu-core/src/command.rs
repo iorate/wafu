@@ -2,118 +2,490 @@ use std::fmt;
 
 use crate::app::Os;
 
-const NAMES: &[(Command, &str)] = &[
-    (Command::Open, "open"),
-    (Command::OpenAlternative, "open_alternative"),
-    (Command::OpenWithOs, "open_with_os"),
-    (Command::OpenAsText, "open_as_text"),
-    (Command::GoParent, "go_parent"),
-    (Command::GoRoot, "go_root"),
-    (Command::GoHome, "go_home"),
-    (Command::GoToPath, "go_to_path"),
-    (Command::Browse, "browse"),
-    (Command::Find, "find"),
-    (Command::Bookmarks, "bookmarks"),
-    (Command::History, "history"),
-    (Command::GoBack, "go_back"),
-    (Command::GoForward, "go_forward"),
-    (Command::Drives, "drives"),
-    (Command::GoPrevDrive, "go_prev_drive"),
-    (Command::GoNextDrive, "go_next_drive"),
-    (Command::FocusLeft, "focus_left"),
-    (Command::FocusRight, "focus_right"),
-    (Command::FocusOther, "focus_other"),
-    (Command::SyncToOther, "sync_to_other"),
-    (Command::SyncFromOther, "sync_from_other"),
-    (Command::SwapPanes, "swap_panes"),
-    (Command::CursorUp, "cursor_up"),
-    (Command::CursorDown, "cursor_down"),
-    (Command::CursorPageUp, "cursor_page_up"),
-    (Command::CursorPageDown, "cursor_page_down"),
-    (Command::CursorTop, "cursor_top"),
-    (Command::CursorBottom, "cursor_bottom"),
-    (Command::Search, "search"),
-    (Command::MarkDown, "mark_down"),
-    (Command::MarkUp, "mark_up"),
-    (Command::MarkRangeAbove, "mark_range_above"),
-    (Command::MarkRangeBelow, "mark_range_below"),
-    (Command::InvertMarks, "invert_marks"),
-    (Command::InvertMarksAll, "invert_marks_all"),
-    (Command::MarkGlob, "mark_glob"),
-    (Command::MarkCompare, "mark_compare"),
-    (Command::CursorNextMark, "cursor_next_mark"),
-    (Command::CursorPrevMark, "cursor_prev_mark"),
-    (Command::ClearMarks, "clear_marks"),
-    (Command::Sort, "sort"),
-    (Command::ToggleHidden, "toggle_hidden"),
-    (Command::Filter, "filter"),
-    (Command::ClearFilter, "clear_filter"),
-    (Command::Reload, "reload"),
-    (Command::SplitLeft, "split_left"),
-    (Command::SplitRight, "split_right"),
-    (Command::LogShrink, "log_shrink"),
-    (Command::LogGrow, "log_grow"),
-    (Command::LogScrollUp, "log_scroll_up"),
-    (Command::LogScrollDown, "log_scroll_down"),
-    (Command::LogPageUp, "log_page_up"),
-    (Command::LogPageDown, "log_page_down"),
-    (Command::LogTop, "log_top"),
-    (Command::LogBottom, "log_bottom"),
-    (Command::LogClear, "log_clear"),
-    (Command::LogCopy, "log_copy"),
-    (Command::PreviewScrollUp, "preview_scroll_up"),
-    (Command::PreviewScrollDown, "preview_scroll_down"),
-    (Command::PreviewPageUp, "preview_page_up"),
-    (Command::PreviewPageDown, "preview_page_down"),
-    (Command::PreviewTop, "preview_top"),
-    (Command::PreviewBottom, "preview_bottom"),
-    (Command::PreviewToggleMode, "preview_toggle_mode"),
-    (Command::PreviewEncodings, "preview_encodings"),
-    (Command::PreviewEdit, "preview_edit"),
-    (Command::PreviewClose, "preview_close"),
-    (Command::Copy, "copy"),
-    (Command::Move, "move"),
-    (Command::Delete, "delete"),
-    (Command::Trash, "trash"),
-    (Command::Rename, "rename"),
-    (Command::RenameReplace, "rename_replace"),
-    (Command::RenameTemplate, "rename_template"),
-    (Command::NewDir, "new_dir"),
-    (Command::NewFile, "new_file"),
-    (Command::NewText, "new_text"),
-    (Command::Edit, "edit"),
-    (Command::Run, "run"),
-    (Command::RunCommandLine, "run_command_line"),
-    (Command::CopyPath, "copy_path"),
-    (Command::CopyName, "copy_name"),
-    (Command::CopyFiles, "copy_files"),
-    (Command::PasteFiles, "paste_files"),
-    (Command::ShellMenu, "shell_menu"),
-    (Command::OpenAsArchive, "open_as_archive"),
-    (Command::Extract, "extract"),
-    (Command::ExtractHere, "extract_here"),
-    (Command::Compress, "compress"),
-    (Command::CompressHere, "compress_here"),
-    (Command::CalculateSize, "calculate_size"),
-    (Command::CalculateSizeOnDisk, "calculate_size_on_disk"),
-    (Command::Palette, "palette"),
-    (Command::EditConfig, "edit_config"),
-    (Command::NewWindow, "new_window"),
-    (Command::NewWindowAsAdmin, "new_window_as_admin"),
-    (Command::Quit, "quit"),
-    (Command::QuitWithoutSaving, "quit_without_saving"),
-    (Command::Nop, "nop"),
+const JUMP_DESCRIPTION: &str = "Move the cursor to the next item whose name starts with the command's letter or digit, wrapping around";
+
+const NAMES: &[(Command, &str, &str)] = &[
+    (
+        Command::Open,
+        "open",
+        "Open the item under the cursor: go into a directory or archive, run a program, or preview any other file",
+    ),
+    (
+        Command::OpenAlternative,
+        "open_alternative",
+        "Open the item under the cursor with the program configured for its kind or extension",
+    ),
+    (
+        Command::OpenWithOs,
+        "open_with_os",
+        "Open the item under the cursor with the OS's default application",
+    ),
+    (
+        Command::OpenAsText,
+        "open_as_text",
+        "Preview the file under the cursor as text, whatever its type",
+    ),
+    (Command::GoParent, "go_parent", "Go to the parent directory"),
+    (
+        Command::GoRoot,
+        "go_root",
+        "Go to the root directory, or to the root of the archive the active pane is in",
+    ),
+    (Command::GoHome, "go_home", "Go to the home directory"),
+    (Command::GoToPath, "go_to_path", "Go to a typed path"),
+    (
+        Command::Browse,
+        "browse",
+        "Go to a directory picked in the OS's directory dialog",
+    ),
+    (
+        Command::Find,
+        "find",
+        "Find the items below the active pane's directory that match a glob pattern and go to the one picked",
+    ),
+    (
+        Command::Bookmarks,
+        "bookmarks",
+        "Go to the bookmark picked from the list",
+    ),
+    (
+        Command::History,
+        "history",
+        "Go to a directory picked from the history of the active or the other pane",
+    ),
+    (
+        Command::GoBack,
+        "go_back",
+        "Go back in the active pane's history",
+    ),
+    (
+        Command::GoForward,
+        "go_forward",
+        "Go forward in the active pane's history",
+    ),
+    (
+        Command::Drives,
+        "drives",
+        "Go to the drive picked from the list",
+    ),
+    (
+        Command::GoPrevDrive,
+        "go_prev_drive",
+        "Go to the previous drive, wrapping around",
+    ),
+    (
+        Command::GoNextDrive,
+        "go_next_drive",
+        "Go to the next drive, wrapping around",
+    ),
+    (
+        Command::FocusLeft,
+        "focus_left",
+        "Make the left pane active",
+    ),
+    (
+        Command::FocusRight,
+        "focus_right",
+        "Make the right pane active",
+    ),
+    (
+        Command::FocusOther,
+        "focus_other",
+        "Make the other pane active",
+    ),
+    (
+        Command::SyncToOther,
+        "sync_to_other",
+        "Show the other pane's directory in the active pane",
+    ),
+    (
+        Command::SyncFromOther,
+        "sync_from_other",
+        "Show the active pane's directory in the other pane",
+    ),
+    (
+        Command::SwapPanes,
+        "swap_panes",
+        "Swap the directories of the two panes",
+    ),
+    (
+        Command::CursorUp,
+        "cursor_up",
+        "Move the cursor up one row, wrapping to the bottom",
+    ),
+    (
+        Command::CursorDown,
+        "cursor_down",
+        "Move the cursor down one row, wrapping to the top",
+    ),
+    (
+        Command::CursorPageUp,
+        "cursor_page_up",
+        "Move the cursor up one page",
+    ),
+    (
+        Command::CursorPageDown,
+        "cursor_page_down",
+        "Move the cursor down one page",
+    ),
+    (
+        Command::CursorTop,
+        "cursor_top",
+        "Move the cursor to the first row",
+    ),
+    (
+        Command::CursorBottom,
+        "cursor_bottom",
+        "Move the cursor to the last row",
+    ),
+    (
+        Command::Search,
+        "search",
+        "Move the cursor to an item by typing part of its name",
+    ),
+    (
+        Command::MarkDown,
+        "mark_down",
+        "Toggle the mark on the item under the cursor and move the cursor down",
+    ),
+    (
+        Command::MarkUp,
+        "mark_up",
+        "Toggle the mark on the item under the cursor and move the cursor up",
+    ),
+    (
+        Command::MarkRangeAbove,
+        "mark_range_above",
+        "Mark the items from the nearest mark above the cursor down to the cursor",
+    ),
+    (
+        Command::MarkRangeBelow,
+        "mark_range_below",
+        "Mark the items from the cursor down to the nearest mark below it",
+    ),
+    (
+        Command::InvertMarks,
+        "invert_marks",
+        "Invert the marks on the files, leaving directories as they are",
+    ),
+    (
+        Command::InvertMarksAll,
+        "invert_marks_all",
+        "Invert the marks on the files and the directories",
+    ),
+    (
+        Command::MarkGlob,
+        "mark_glob",
+        "Mark the files whose names match a glob pattern",
+    ),
+    (
+        Command::MarkCompare,
+        "mark_compare",
+        "Mark the items missing from the other pane, or also the newer or different ones",
+    ),
+    (
+        Command::CursorNextMark,
+        "cursor_next_mark",
+        "Move the cursor to the next marked item, wrapping around",
+    ),
+    (
+        Command::CursorPrevMark,
+        "cursor_prev_mark",
+        "Move the cursor to the previous marked item, wrapping around",
+    ),
+    (
+        Command::ClearMarks,
+        "clear_marks",
+        "Unmark every item in the active pane",
+    ),
+    (
+        Command::Sort,
+        "sort",
+        "Sort the active pane by name, extension, size, or time",
+    ),
+    (
+        Command::ToggleHidden,
+        "toggle_hidden",
+        "Show or hide hidden items in the active pane",
+    ),
+    (
+        Command::Filter,
+        "filter",
+        "Show only the files in the active pane whose names match a glob pattern",
+    ),
+    (
+        Command::ClearFilter,
+        "clear_filter",
+        "Remove the active pane's filter",
+    ),
+    (
+        Command::Reload,
+        "reload",
+        "Read the active pane's directory again",
+    ),
+    (
+        Command::SplitLeft,
+        "split_left",
+        "Move the border between the panes to the left",
+    ),
+    (
+        Command::SplitRight,
+        "split_right",
+        "Move the border between the panes to the right",
+    ),
+    (
+        Command::LogShrink,
+        "log_shrink",
+        "Make the log one line shorter",
+    ),
+    (Command::LogGrow, "log_grow", "Make the log one line taller"),
+    (
+        Command::LogScrollUp,
+        "log_scroll_up",
+        "Scroll the log up one line",
+    ),
+    (
+        Command::LogScrollDown,
+        "log_scroll_down",
+        "Scroll the log down one line",
+    ),
+    (
+        Command::LogPageUp,
+        "log_page_up",
+        "Scroll the log up one page",
+    ),
+    (
+        Command::LogPageDown,
+        "log_page_down",
+        "Scroll the log down one page",
+    ),
+    (Command::LogTop, "log_top", "Scroll to the top of the log"),
+    (
+        Command::LogBottom,
+        "log_bottom",
+        "Scroll to the bottom of the log",
+    ),
+    (Command::LogClear, "log_clear", "Clear the log"),
+    (
+        Command::LogCopy,
+        "log_copy",
+        "Copy the log to the clipboard",
+    ),
+    (
+        Command::PreviewScrollUp,
+        "preview_scroll_up",
+        "Scroll the text preview up one line",
+    ),
+    (
+        Command::PreviewScrollDown,
+        "preview_scroll_down",
+        "Scroll the text preview down one line",
+    ),
+    (
+        Command::PreviewPageUp,
+        "preview_page_up",
+        "Scroll the text preview up one page",
+    ),
+    (
+        Command::PreviewPageDown,
+        "preview_page_down",
+        "Scroll the text preview down one page",
+    ),
+    (
+        Command::PreviewTop,
+        "preview_top",
+        "Scroll to the top of the text preview",
+    ),
+    (
+        Command::PreviewBottom,
+        "preview_bottom",
+        "Scroll to the bottom of the text preview",
+    ),
+    (
+        Command::PreviewToggleMode,
+        "preview_toggle_mode",
+        "Switch the text preview between text and a hex dump",
+    ),
+    (
+        Command::PreviewEncodings,
+        "preview_encodings",
+        "Decode the text preview with the encoding picked from the list",
+    ),
+    (
+        Command::PreviewEdit,
+        "preview_edit",
+        "Close the text preview and open its file in the editor",
+    ),
+    (Command::PreviewClose, "preview_close", "Close the preview"),
+    (
+        Command::Copy,
+        "copy",
+        "Copy the marked items to the other pane",
+    ),
+    (
+        Command::Move,
+        "move",
+        "Move the marked items to the other pane",
+    ),
+    (
+        Command::Delete,
+        "delete",
+        "Delete the marked items permanently",
+    ),
+    (
+        Command::Trash,
+        "trash",
+        "Move the marked items to the trash",
+    ),
+    (
+        Command::Rename,
+        "rename",
+        "Rename the item under the cursor",
+    ),
+    (
+        Command::RenameReplace,
+        "rename_replace",
+        "Rename the marked items or the item under the cursor by find and replace",
+    ),
+    (
+        Command::RenameTemplate,
+        "rename_template",
+        "Rename the marked items or the item under the cursor from a template",
+    ),
+    (
+        Command::NewDir,
+        "new_dir",
+        "Create a directory in the active pane and go to it",
+    ),
+    (
+        Command::NewFile,
+        "new_file",
+        "Create an empty file in the active pane",
+    ),
+    (
+        Command::NewText,
+        "new_text",
+        "Create a file in the active pane and open it in the editor",
+    ),
+    (
+        Command::Edit,
+        "edit",
+        "Open the file under the cursor in the editor",
+    ),
+    (
+        Command::Run,
+        "run",
+        "Run a command line that starts out with the path of the item under the cursor",
+    ),
+    (
+        Command::RunCommandLine,
+        "run_command_line",
+        "Run a command line that starts out empty",
+    ),
+    (
+        Command::CopyPath,
+        "copy_path",
+        "Copy the paths of the marked items or the item under the cursor to the clipboard",
+    ),
+    (
+        Command::CopyName,
+        "copy_name",
+        "Copy the names of the marked items or the item under the cursor to the clipboard",
+    ),
+    (
+        Command::CopyFiles,
+        "copy_files",
+        "Put the marked items or the item under the cursor on the clipboard as files",
+    ),
+    (
+        Command::PasteFiles,
+        "paste_files",
+        "Copy the files on the clipboard into the active pane",
+    ),
+    (
+        Command::ShellMenu,
+        "shell_menu",
+        "Run a shell menu command on the marked items or the item under the cursor",
+    ),
+    (
+        Command::CalculateSize,
+        "calculate_size",
+        "Log the total size of the marked items or the item under the cursor",
+    ),
+    (
+        Command::CalculateSizeOnDisk,
+        "calculate_size_on_disk",
+        "Log the disk space taken by the marked items or the item under the cursor",
+    ),
+    (
+        Command::OpenAsArchive,
+        "open_as_archive",
+        "Open the file under the cursor as an archive, whatever its extension",
+    ),
+    (
+        Command::Extract,
+        "extract",
+        "Extract the marked archives or the archive under the cursor into the other pane",
+    ),
+    (
+        Command::ExtractHere,
+        "extract_here",
+        "Extract the marked archives or the archive under the cursor into the active pane",
+    ),
+    (
+        Command::Compress,
+        "compress",
+        "Compress the marked items or the item under the cursor into an archive in the other pane",
+    ),
+    (
+        Command::CompressHere,
+        "compress_here",
+        "Compress the marked items or the item under the cursor into an archive in the active pane",
+    ),
+    (
+        Command::Palette,
+        "palette",
+        "Run the command picked from a list of those available here",
+    ),
+    (
+        Command::EditConfig,
+        "edit_config",
+        "Open the configuration file in the editor",
+    ),
+    (
+        Command::NewWindow,
+        "new_window",
+        "Open a new window showing the same directories",
+    ),
+    (
+        Command::NewWindowAsAdmin,
+        "new_window_as_admin",
+        "Open a new window showing the same directories, as administrator",
+    ),
+    (
+        Command::Quit,
+        "quit",
+        "Quit, saving the state for the next start",
+    ),
+    (
+        Command::QuitWithoutSaving,
+        "quit_without_saving",
+        "Quit without saving the state",
+    ),
+    (
+        Command::Nop,
+        "nop",
+        "Do nothing, which unbinds the key bound to it",
+    ),
 ];
 
 /// A named operation. Keys, the mouse, and the palette all invoke these.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Command {
     Open,
-    /// Starts the program the configuration gives for the cursor item's kind
-    /// or extension, or does what `open` does when there is none.
+    /// Does what `open` does when the configuration has no program for the item.
     OpenAlternative,
     OpenWithOs,
-    /// Opens the cursor file in the text preview, whatever its name says it is.
     OpenAsText,
     GoParent,
     GoRoot,
@@ -177,11 +549,8 @@ pub enum Command {
     PreviewPageDown,
     PreviewTop,
     PreviewBottom,
-    /// Switches a document preview between text and binary.
     PreviewToggleMode,
-    /// Picks the encoding a document preview is decoded with from a list.
     PreviewEncodings,
-    /// Opens the previewed file in the editor, closing the preview first.
     PreviewEdit,
     PreviewClose,
     Copy,
@@ -195,29 +564,26 @@ pub enum Command {
     NewFile,
     NewText,
     Edit,
-    /// Asks for a command line, starting from the cursor item's path.
     Run,
-    /// Asks for a command line, starting empty.
     RunCommandLine,
     CopyPath,
     CopyName,
     /// Puts the targets on the clipboard as files, for pasting in another
     /// application or with `paste_files`.
     CopyFiles,
-    /// Copies the files on the clipboard into the active pane's directory.
     PasteFiles,
     ShellMenu,
-    OpenAsArchive,
-    Extract,
-    ExtractHere,
-    Compress,
-    CompressHere,
     /// Logs the number of files and directories and the total size of the
     /// targets, counting what is inside directories.
     CalculateSize,
     /// Logs the number of files and directories and the total space the
     /// targets take up on disk, counting what is inside directories.
     CalculateSizeOnDisk,
+    OpenAsArchive,
+    Extract,
+    ExtractHere,
+    Compress,
+    CompressHere,
     Palette,
     EditConfig,
     NewWindow,
@@ -245,14 +611,28 @@ impl Command {
         let (before, after) = NAMES.split_at(
             NAMES
                 .iter()
-                .position(|(command, _)| *command == Self::Search)
+                .position(|(command, _, _)| *command == Self::Search)
                 .map_or(NAMES.len(), |index| index + 1),
         );
         before
             .iter()
-            .map(|(command, _)| command.clone())
+            .map(|(command, _, _)| command.clone())
             .chain(('a'..='z').chain('0'..='9').map(Self::Jump))
-            .chain(after.iter().map(|(command, _)| command.clone()))
+            .chain(after.iter().map(|(command, _, _)| command.clone()))
+    }
+
+    /// A one-line description for the palette and the command reference.
+    /// The jump commands share one; external commands have none.
+    #[must_use]
+    pub fn description(&self) -> Option<&'static str> {
+        match self {
+            Self::Jump(_) => Some(JUMP_DESCRIPTION),
+            Self::External(_) => None,
+            _ => NAMES
+                .iter()
+                .find(|(command, _, _)| command == self)
+                .map(|(_, _, description)| *description),
+        }
     }
 
     /// Whether the command does something on the OS. The default key map and
@@ -307,8 +687,8 @@ impl Command {
         }
         NAMES
             .iter()
-            .find(|(_, n)| *n == name)
-            .map(|(command, _)| command.clone())
+            .find(|(_, n, _)| *n == name)
+            .map(|(command, _, _)| command.clone())
     }
 
     // Every variant is listed, so that a new command has to choose its target.
@@ -428,8 +808,8 @@ impl fmt::Display for Command {
             _ => {
                 let name = NAMES
                     .iter()
-                    .find(|(command, _)| command == self)
-                    .map_or("?", |(_, name)| name);
+                    .find(|(command, _, _)| command == self)
+                    .map_or("?", |(_, name, _)| name);
                 f.write_str(name)
             }
         }

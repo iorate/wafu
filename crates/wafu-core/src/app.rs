@@ -820,13 +820,13 @@ impl App {
             | Command::CopyName
             | Command::CopyFiles
             | Command::ShellMenu
+            | Command::CalculateSize
+            | Command::CalculateSizeOnDisk
             | Command::OpenAsArchive
             | Command::Extract
             | Command::ExtractHere
             | Command::Compress
-            | Command::CompressHere
-            | Command::CalculateSize
-            | Command::CalculateSizeOnDisk => self.run_file_command(command, effects),
+            | Command::CompressHere => self.run_file_command(command, effects),
             Command::Nop => {}
         }
     }
