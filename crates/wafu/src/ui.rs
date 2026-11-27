@@ -1251,8 +1251,8 @@ fn theme_colors(colors: &Colors) -> ThemeColors {
         dir: color(colors.dir),
         link: color(colors.link),
         exec: color(colors.exec),
-        broken: color(colors.broken),
-        fifo: color(colors.fifo),
+        link_broken: color(colors.link_broken),
+        special: color(colors.special),
         socket: color(colors.socket),
     }
 }
@@ -1333,8 +1333,8 @@ fn row(row: &RowView) -> Row {
             RowKind::File => 1,
             RowKind::Exec => 2,
             RowKind::Link => 3,
-            RowKind::Broken => 4,
-            RowKind::Fifo => 5,
+            RowKind::LinkBroken => 4,
+            RowKind::Special => 5,
             RowKind::Socket => 6,
         },
         name: row.name.as_str().into(),

@@ -1692,7 +1692,7 @@ fn run_command_line_inside_an_archive_with_paths_extracts_them_and_then_starts()
 fn an_external_command_inside_an_archive_extracts_the_cursor_and_the_marks() {
     let mut harness = inside();
     harness.config(
-        "[commands.show]\nrun = \"show {cursor_path} {marked_paths} {paths} {dir} {other_dir}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
+        "[commands.show]\ncommand_line = \"show {cursor_path} {marked_paths} {paths} {dir} {other_dir}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
     );
     harness.press("Down");
     harness.press("Down");
@@ -1735,7 +1735,7 @@ fn an_external_command_inside_an_archive_extracts_the_cursor_and_the_marks() {
 fn an_external_command_on_the_parent_row_of_an_archive_root_passes_the_archive_file() {
     let mut harness = inside();
     harness.config(
-        "[commands.show]\nrun = \"show {cursor_path} {marked_paths} {paths} {dir} {other_dir}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
+        "[commands.show]\ncommand_line = \"show {cursor_path} {marked_paths} {paths} {dir} {other_dir}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
     );
     harness.take_effects();
     assert_eq!(harness.cursor_name(Side::Left), "..");
@@ -1763,7 +1763,7 @@ fn an_external_command_on_the_parent_row_of_an_archive_root_passes_the_archive_f
 fn an_external_command_on_the_parent_row_inside_a_directory_extracts_the_directory() {
     let mut harness = inside();
     harness.config(
-        "[commands.show]\nrun = \"show {cursor_path} {marked_paths} {paths} {dir} {other_dir}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
+        "[commands.show]\ncommand_line = \"show {cursor_path} {marked_paths} {paths} {dir} {other_dir}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
     );
     harness.press("Down");
     harness.press("Enter");
@@ -1797,7 +1797,7 @@ fn an_external_command_on_the_parent_row_inside_a_directory_extracts_the_directo
 fn an_external_command_on_the_parent_row_with_marks_extracts_the_marks_alone() {
     let mut harness = inside();
     harness.config(
-        "[commands.show]\nrun = \"show {cursor_path} {marked_paths} {paths} {dir} {other_dir}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
+        "[commands.show]\ncommand_line = \"show {cursor_path} {marked_paths} {paths} {dir} {other_dir}\"\n[keys.filelist]\n\"F2\" = \"$show\"\n",
     );
     harness.press("Down");
     harness.press("Enter");
@@ -1845,7 +1845,9 @@ fn an_external_command_on_the_parent_row_with_marks_extracts_the_marks_alone() {
 #[test]
 fn an_external_command_on_a_link_inside_an_archive_is_refused() {
     let mut harness = outside();
-    harness.config("[commands.view]\nrun = \"view {paths}\"\n[keys.filelist]\nF9 = \"$view\"\n");
+    harness.config(
+        "[commands.view]\ncommand_line = \"view {paths}\"\n[keys.filelist]\nF9 = \"$view\"\n",
+    );
     harness.enter_archive(Side::Left, vec![link("link.txt")]);
     harness.press("Down");
     harness.take_effects();
@@ -1865,7 +1867,9 @@ fn an_external_command_on_a_link_inside_an_archive_is_refused() {
 #[test]
 fn an_external_command_with_a_link_among_the_marks_inside_an_archive_is_refused_as_a_whole() {
     let mut harness = outside();
-    harness.config("[commands.view]\nrun = \"view {paths}\"\n[keys.filelist]\nF9 = \"$view\"\n");
+    harness.config(
+        "[commands.view]\ncommand_line = \"view {paths}\"\n[keys.filelist]\nF9 = \"$view\"\n",
+    );
     harness.enter_archive(Side::Left, vec![file("b.txt"), link("link.txt")]);
     harness.press("Down");
     harness.press("Space");
@@ -1974,7 +1978,7 @@ fn a_temporary_extraction_that_ends_without_starting_is_logged_as_the_command() 
             let mut harness = outside();
             harness.config(
                 "[open_alternative.extensions]\ntxt = \"view {paths}\"\n\
-                 [commands.view]\nrun = \"view {paths}\"\n[keys.filelist]\nF9 = \"$view\"\n",
+                 [commands.view]\ncommand_line = \"view {paths}\"\n[keys.filelist]\nF9 = \"$view\"\n",
             );
             harness.enter_archive(Side::Left, contents());
             harness.press("Down");
@@ -2002,7 +2006,9 @@ fn a_temporary_extraction_that_ends_without_starting_is_logged_as_the_command() 
 #[test]
 fn a_temporary_extraction_of_several_marked_entries_is_logged_with_their_number() {
     let mut harness = outside();
-    harness.config("[commands.view]\nrun = \"view {paths}\"\n[keys.filelist]\nF9 = \"$view\"\n");
+    harness.config(
+        "[commands.view]\ncommand_line = \"view {paths}\"\n[keys.filelist]\nF9 = \"$view\"\n",
+    );
     harness.enter_archive(Side::Left, contents());
     harness.press("Down");
     harness.press("Space");

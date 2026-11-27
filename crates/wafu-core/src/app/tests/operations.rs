@@ -802,7 +802,7 @@ fn find_asks_for_a_pattern_and_searches_the_pane_s_directory_as_the_pane_shows_i
                 dir: PathBuf::from(LEFT),
                 pattern: Filter::parse("*.rs").unwrap().unwrap(),
                 show_hidden: true,
-                max_results: 10_000,
+                max_matches: 10_000,
             }),
             dest: None,
             output: None,
@@ -812,9 +812,9 @@ fn find_asks_for_a_pattern_and_searches_the_pane_s_directory_as_the_pane_shows_i
 }
 
 #[test]
-fn find_uses_the_configured_max_find_results() {
+fn find_uses_the_configured_max_find_matches() {
     let mut harness = three_files();
-    harness.config("[filelist]\nmax_find_results = 5\n");
+    harness.config("[filelist]\nmax_find_matches = 5\n");
     harness.take_effects();
 
     harness.press("Shift+F");
@@ -824,7 +824,7 @@ fn find_uses_the_configured_max_find_results() {
     assert!(matches!(
         harness.take_effects().as_slice(),
         [Effect::StartOperation(OperationSpec {
-            sources: Sources::Find(FindQuery { max_results: 5, .. }),
+            sources: Sources::Find(FindQuery { max_matches: 5, .. }),
             ..
         })]
     ));
@@ -1236,7 +1236,7 @@ fn a_change_reloads_every_pane_showing_the_directory() {
 }
 
 #[test]
-fn new_dir_creates_nested_directories_and_enters_the_new_one() {
+fn new_dir_creates_nested_directories_and_goes_to_the_new_one() {
     let mut harness = three_files();
     harness.take_effects();
 
@@ -1309,7 +1309,7 @@ fn new_dir_on_windows_splits_the_path_at_backslashes_too() {
 }
 
 #[test]
-fn new_dir_enters_the_folded_place_of_what_was_made() {
+fn new_dir_goes_to_the_folded_place_of_what_was_made() {
     let mut harness = Harness::start(LEFT, RIGHT);
     harness.take_effects();
 
@@ -1323,9 +1323,9 @@ fn new_dir_enters_the_folded_place_of_what_was_made() {
 }
 
 #[test]
-fn new_dir_without_entering_puts_the_cursor_on_the_first_component() {
+fn new_dir_without_going_to_it_puts_the_cursor_on_the_first_component() {
     let mut harness =
-        Harness::start_with_config(LEFT, RIGHT, "[filelist]\nnew_dir_enters_dir = false\n");
+        Harness::start_with_config(LEFT, RIGHT, "[filelist]\nnew_dir_goes_to_dir = false\n");
     harness.load(Side::Left, vec![file("x")]);
     harness.take_effects();
 

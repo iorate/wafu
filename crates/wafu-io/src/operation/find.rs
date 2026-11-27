@@ -57,7 +57,7 @@ impl Worker<'_> {
                 .file_type()
                 .is_some_and(|file_type| file_type.is_dir());
             if query.pattern.matches_path(relative, is_dir) {
-                if paths.len() == query.max_results {
+                if paths.len() == query.max_matches {
                     truncated = true;
                     break;
                 }
@@ -239,7 +239,7 @@ mod tests {
         dir: &Path,
         pattern: &str,
         show_hidden: bool,
-        max_results: usize,
+        max_matches: usize,
         replies: impl IntoIterator<Item = Reply>,
     ) -> (Outcome, Vec<OperationEvent>) {
         let (sender, receiver) = mpsc::channel();
@@ -254,7 +254,7 @@ mod tests {
                 dir: dir.to_path_buf(),
                 pattern: Filter::parse(pattern).unwrap().unwrap(),
                 show_hidden,
-                max_results,
+                max_matches,
             }),
             dest: None,
             output: None,

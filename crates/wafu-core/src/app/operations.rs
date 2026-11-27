@@ -259,7 +259,7 @@ impl App {
             dir: dir.clone(),
             pattern,
             show_hidden: self.active_pane().show_hidden(),
-            max_results: self.config.filelist.max_find_results,
+            max_matches: self.config.filelist.max_find_matches,
         });
         self.start_operation(OperationKind::Find, dir, names, sources, None, effects);
     }
@@ -647,7 +647,7 @@ impl App {
             }
             (Change::DirCreated(path), None) => {
                 self.log.push(self.created_line(&path));
-                if self.config.filelist.new_dir_enters_dir {
+                if self.config.filelist.new_dir_goes_to_dir {
                     self.navigate(
                         self.active,
                         Location::new(path),

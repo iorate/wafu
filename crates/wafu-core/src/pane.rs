@@ -3,7 +3,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::config::{SizeFormat, TimeFormat};
+use crate::config::{SearchMatch, SizeFormat, TimeFormat};
 use crate::entry::{Directory, Entry, EntryKind};
 use crate::error::IoError;
 use crate::filter::Filter;
@@ -542,22 +542,22 @@ impl Pane {
         }
     }
 
-    /// Moves to the first row whose name contains the query if `anywhere`, or
-    /// starts with it otherwise. Returns whether one exists.
-    pub fn search_first(&mut self, query: &str, anywhere: bool) -> bool {
-        self.search_from(0, query, anywhere, true)
+    /// Moves to the first row whose name contains the query, or with
+    /// `SearchMatch::Start` starts with it. Returns whether one exists.
+    pub fn search_first(&mut self, query: &str, matching: SearchMatch) -> bool {
+        self.search_from(0, query, matching, true)
     }
 
-    pub fn search_next(&mut self, query: &str, anywhere: bool) -> bool {
-        self.search_from(self.cursor + 1, query, anywhere, true)
+    pub fn search_next(&mut self, query: &str, matching: SearchMatch) -> bool {
+        self.search_from(self.cursor + 1, query, matching, true)
     }
 
-    pub fn search_prev(&mut self, query: &str, anywhere: bool) -> bool {
+    pub fn search_prev(&mut self, query: &str, matching: SearchMatch) -> bool {
         let start = self
             .cursor
             .checked_sub(1)
             .unwrap_or(self.row_count().saturating_sub(1));
-        self.search_from(start, query, anywhere, false)
+        self.search_from(start, query, matching, false)
     }
 
     pub(crate) fn set_size_format(&mut self, format: SizeFormat) {
@@ -671,14 +671,17 @@ impl Pane {
         self.reload_pending = pending;
     }
 
-    fn search_from(&mut self, start: usize, query: &str, anywhere: bool, forward: bool) -> bool {
+    fn search_from(
+        &mut self,
+        start: usize,
+        query: &str,
+        matching: SearchMatch,
+        forward: bool,
+    ) -> bool {
         let query = nfc(query).to_lowercase();
-        let matches = |pane: &Self, row| {
-            if anywhere {
-                pane.row_contains(row, &query)
-            } else {
-                pane.row_starts_with(row, &query)
-            }
+        let matches = |pane: &Self, row| match matching {
+            SearchMatch::Anywhere => pane.row_contains(row, &query),
+            SearchMatch::Start => pane.row_starts_with(row, &query),
         };
         let found = if forward {
             self.find_row_from(start, matches)
@@ -1491,17 +1494,17 @@ mod tests {
     fn search_moves_between_matches() {
         let mut pane = pane_with("/home", &["ab", "ac", "b", "AD"]);
 
-        assert!(pane.search_first("A", false));
+        assert!(pane.search_first("A", SearchMatch::Start));
         assert_eq!(cursor_name(&pane), "ab");
-        assert!(pane.search_next("a", false));
+        assert!(pane.search_next("a", SearchMatch::Start));
         assert_eq!(cursor_name(&pane), "ac");
-        assert!(pane.search_next("a", false));
+        assert!(pane.search_next("a", SearchMatch::Start));
         assert_eq!(cursor_name(&pane), "AD");
-        assert!(pane.search_next("a", false));
+        assert!(pane.search_next("a", SearchMatch::Start));
         assert_eq!(cursor_name(&pane), "ab");
-        assert!(pane.search_prev("a", false));
+        assert!(pane.search_prev("a", SearchMatch::Start));
         assert_eq!(cursor_name(&pane), "AD");
-        assert!(!pane.search_first("x", false));
+        assert!(!pane.search_first("x", SearchMatch::Start));
         assert_eq!(cursor_name(&pane), "AD");
     }
 
@@ -1509,15 +1512,15 @@ mod tests {
     fn search_anywhere_matches_inside_names_in_any_case() {
         let mut pane = pane_with("/home", &["ab", "c", "XBY", "zb"]);
 
-        assert!(pane.search_first("B", true));
+        assert!(pane.search_first("B", SearchMatch::Anywhere));
         assert_eq!(cursor_name(&pane), "ab");
-        assert!(pane.search_next("b", true));
+        assert!(pane.search_next("b", SearchMatch::Anywhere));
         assert_eq!(cursor_name(&pane), "XBY");
-        assert!(pane.search_next("b", true));
+        assert!(pane.search_next("b", SearchMatch::Anywhere));
         assert_eq!(cursor_name(&pane), "zb");
-        assert!(pane.search_prev("b", true));
+        assert!(pane.search_prev("b", SearchMatch::Anywhere));
         assert_eq!(cursor_name(&pane), "XBY");
-        assert!(!pane.search_first("ba", true));
+        assert!(!pane.search_first("ba", SearchMatch::Anywhere));
         assert_eq!(cursor_name(&pane), "XBY");
     }
 
@@ -1526,7 +1529,7 @@ mod tests {
         let decomposed = "\u{30a2}\u{30d5}\u{309a}\u{30ea}";
         let mut pane = pane_with("/home", &["a", decomposed]);
 
-        assert!(pane.search_first("\u{30a2}\u{30d7}", true));
+        assert!(pane.search_first("\u{30a2}\u{30d7}", SearchMatch::Anywhere));
         assert_eq!(pane.cursor(), 2);
         pane.set_cursor(0);
         pane.jump_to('\u{30a2}');

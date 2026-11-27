@@ -338,9 +338,9 @@ pub enum RowKind {
     /// A symbolic link that can be followed, whatever it points to.
     Link,
     /// A broken symbolic link.
-    Broken,
+    LinkBroken,
     /// A FIFO or a device.
-    Fifo,
+    Special,
     Socket,
 }
 
@@ -472,9 +472,9 @@ impl RowKind {
             EntryKind::File { executable: false } => Self::File,
             EntryKind::File { executable: true } => Self::Exec,
             EntryKind::Symlink { target: Some(_) } => Self::Link,
-            EntryKind::Symlink { target: None } => Self::Broken,
+            EntryKind::Symlink { target: None } => Self::LinkBroken,
             EntryKind::Special(SpecialKind::Socket) => Self::Socket,
-            EntryKind::Special(_) => Self::Fifo,
+            EntryKind::Special(_) => Self::Special,
         }
     }
 }
@@ -864,7 +864,7 @@ mod tests {
     }
 
     #[test]
-    fn row_kind_colors_links_as_links_and_devices_as_fifos() {
+    fn row_kind_colors_links_as_links_and_devices_as_special() {
         let cases = [
             (EntryKind::File { executable: false }, RowKind::File),
             (EntryKind::File { executable: true }, RowKind::Exec),
@@ -873,8 +873,11 @@ mod tests {
                 link_kind(Some(TargetKind::File { executable: false })),
                 RowKind::Link,
             ),
-            (link_kind(None), RowKind::Broken),
-            (EntryKind::Special(SpecialKind::CharDevice), RowKind::Fifo),
+            (link_kind(None), RowKind::LinkBroken),
+            (
+                EntryKind::Special(SpecialKind::CharDevice),
+                RowKind::Special,
+            ),
             (EntryKind::Special(SpecialKind::Socket), RowKind::Socket),
         ];
         for (kind, expected) in cases {
