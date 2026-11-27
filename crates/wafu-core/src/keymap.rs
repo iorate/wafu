@@ -19,7 +19,7 @@ const DEFAULT_FILELIST: &[(&str, &str)] = &[
     ("Shift+Enter", "open_alternative"),
     ("Ctrl+Enter", "open_with_os"),
     ("V", "open_as_text"),
-    ("BS", "go_parent"),
+    ("Backspace", "go_parent"),
     ("/", "go_root"),
     ("~", "go_home"),
     ("Shift+J", "go_to_path"),

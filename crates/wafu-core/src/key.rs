@@ -147,11 +147,11 @@ impl fmt::Display for Key {
         if self.ctrl {
             f.write_str("Ctrl+")?;
         }
-        if self.shift {
-            f.write_str("Shift+")?;
-        }
         if self.alt {
             f.write_str("Alt+")?;
+        }
+        if self.shift {
+            f.write_str("Shift+")?;
         }
         match self.base {
             KeyBase::Char(c) => write!(f, "{c}"),
@@ -168,7 +168,8 @@ impl FromStr for NamedKey {
             "enter" => Self::Enter,
             "space" => Self::Space,
             "tab" => Self::Tab,
-            "bs" => Self::Backspace,
+            // `BS` was the only spelling through 0.4.
+            "backspace" | "bs" => Self::Backspace,
             "esc" => Self::Escape,
             "up" => Self::Up,
             "down" => Self::Down,
@@ -199,7 +200,7 @@ impl fmt::Display for NamedKey {
             Self::Enter => f.write_str("Enter"),
             Self::Space => f.write_str("Space"),
             Self::Tab => f.write_str("Tab"),
-            Self::Backspace => f.write_str("BS"),
+            Self::Backspace => f.write_str("Backspace"),
             Self::Escape => f.write_str("Esc"),
             Self::Up => f.write_str("Up"),
             Self::Down => f.write_str("Down"),
@@ -237,6 +238,14 @@ mod tests {
 
         assert_eq!("Ctrl+Shift+Alt+Left".parse::<Key>(), Ok(expected));
         assert_eq!("alt+SHIFT+ctrl+left".parse::<Key>(), Ok(expected));
+    }
+
+    #[test]
+    fn parse_bs_as_backspace() {
+        assert_eq!(
+            "BS".parse::<Key>(),
+            Ok(key(KeyBase::Named(NamedKey::Backspace)))
+        );
     }
 
     #[test]
@@ -296,6 +305,7 @@ mod tests {
             "Ctrl+Space",
             "Alt+Z",
             "Ctrl+Shift+Right",
+            "Ctrl+Alt+Shift+Left",
             "@",
             "!",
             "~",
@@ -303,7 +313,7 @@ mod tests {
             "+",
             "Ctrl+:",
             "F5",
-            "BS",
+            "Backspace",
             "Esc",
             "PageDown",
         ] {

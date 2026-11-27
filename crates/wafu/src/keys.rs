@@ -6,7 +6,7 @@ const NAMED: [(Key, &str); 27] = [
     (Key::Tab, "Tab"),
     // Shift+Tab arrives as its own key; it is spelled as Tab with Shift set.
     (Key::Backtab, "Tab"),
-    (Key::Backspace, "BS"),
+    (Key::Backspace, "Backspace"),
     (Key::Escape, "Esc"),
     (Key::UpArrow, "Up"),
     (Key::DownArrow, "Down"),

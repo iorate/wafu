@@ -143,7 +143,7 @@ fn moving_inside_an_archive_of_unknown_format_leaves_the_format_unknown() {
     let unknown = Location::archive_root(path(LEFT, "note.txt"), None);
     harness.take_effects();
 
-    harness.press("BS");
+    harness.press("Backspace");
 
     assert!(matches!(
         harness.take_effects().as_slice(),
@@ -192,7 +192,7 @@ fn directories_inside_an_archive_descend_and_backspace_returns_with_the_cursor()
     assert_eq!(harness.names(Side::Left), ["..", "x"]);
     harness.take_effects();
 
-    harness.press("BS");
+    harness.press("Backspace");
     assert!(matches!(
         harness.take_effects().as_slice(),
         [Effect::Watch { .. }, Effect::ReadDir { location, .. }] if *location == root()
@@ -267,7 +267,7 @@ fn enter_on_an_archive_inside_an_archive_enters_it_and_backspace_returns_to_it()
     harness.load(Side::Left, nested_contents());
     assert_eq!(harness.view().left.path, "a.zip:/inner.zip:/");
 
-    harness.press("BS");
+    harness.press("Backspace");
 
     assert!(matches!(
         harness.take_effects().as_slice(),
@@ -373,7 +373,7 @@ fn moving_up_out_of_a_nested_archive_keeps_the_passwords_of_the_archives_above()
     harness.load(Side::Left, nested_contents());
     harness.take_effects();
 
-    harness.press("BS");
+    harness.press("Backspace");
 
     assert!(matches!(
         harness.take_effects().as_slice(),
@@ -385,7 +385,7 @@ fn moving_up_out_of_a_nested_archive_keeps_the_passwords_of_the_archives_above()
 #[test]
 fn opening_another_archive_in_the_same_archive_keeps_its_password() {
     let mut harness = nested_with_password();
-    harness.press("BS");
+    harness.press("Backspace");
     harness.load(Side::Left, contents());
     harness.press("Up");
     assert_eq!(harness.cursor_name(Side::Left), "b.txt");
@@ -404,11 +404,11 @@ fn opening_another_archive_in_the_same_archive_keeps_its_password() {
 #[test]
 fn leaving_the_archive_drops_the_passwords_from_the_listing() {
     let mut harness = nested_with_password();
-    harness.press("BS");
+    harness.press("Backspace");
     harness.load(Side::Left, contents());
     harness.take_effects();
 
-    harness.press("BS");
+    harness.press("Backspace");
 
     assert!(matches!(
         harness.take_effects().as_slice(),
@@ -2339,9 +2339,9 @@ fn syncing_from_another_archive() -> Harness {
     let mut harness = nested_with_password();
     harness.press("Shift+O");
     harness.load(Side::Right, nested_contents());
-    harness.press("BS");
+    harness.press("Backspace");
     harness.load(Side::Left, contents());
-    harness.press("BS");
+    harness.press("Backspace");
     harness.load(Side::Left, vec![file("a.zip"), file("c.zip")]);
     harness.press("Down");
     harness.press("Enter");

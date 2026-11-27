@@ -323,7 +323,7 @@ fn go_parent_puts_cursor_on_the_directory_we_came_from() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![]);
 
-    harness.press("BS");
+    harness.press("Backspace");
     harness.load(Side::Left, vec![dir("other"), dir("user")]);
 
     assert_eq!(harness.view().left.path, shown_place("/home"));
@@ -336,7 +336,7 @@ fn go_parent_at_root_does_nothing() {
     harness.load(Side::Left, vec![]);
     harness.take_effects();
 
-    harness.press("BS");
+    harness.press("Backspace");
 
     assert_eq!(harness.take_effects(), vec![]);
     assert_eq!(harness.log(), Vec::<String>::new());
@@ -481,7 +481,7 @@ fn title_shows_line_breaks_in_the_location_as_symbols() {
 fn keys_and_mouse_are_dropped_while_a_move_is_in_progress() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a"), file("b")]);
-    harness.press("BS");
+    harness.press("Backspace");
     harness.take_effects();
 
     harness.press("Down");
@@ -497,7 +497,7 @@ fn keys_and_mouse_are_dropped_while_a_move_is_in_progress() {
 #[test]
 fn new_window_is_dropped_while_a_move_is_in_progress() {
     let mut harness = Harness::start("/home/user", "/tmp");
-    harness.press("BS");
+    harness.press("Backspace");
     harness.take_effects();
 
     harness.press("Alt+Z");
@@ -510,7 +510,7 @@ fn new_window_is_dropped_while_a_move_is_in_progress() {
 fn escape_cancels_a_move_and_stays_put() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a")]);
-    harness.press("BS");
+    harness.press("Backspace");
     let pending = harness.latest_request(Side::Left);
     harness.take_effects();
 
@@ -553,7 +553,7 @@ fn escape_cancels_a_move_and_stays_put() {
 fn escape_with_a_modifier_does_not_cancel_a_move() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a")]);
-    harness.press("BS");
+    harness.press("Backspace");
     harness.take_effects();
 
     harness.press("Shift+Esc");
@@ -617,7 +617,7 @@ fn escape_cancels_the_move_requested_first_even_when_the_other_pane_moved_on() {
 fn read_error_is_logged_and_the_pane_stays_where_it_was() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.load(Side::Left, vec![file("a")]);
-    harness.press("BS");
+    harness.press("Backspace");
     harness.take_effects();
 
     harness.fail_load(Side::Left, "permission denied");
@@ -947,7 +947,7 @@ fn marks_are_dropped_on_navigation_and_do_not_come_back() {
     harness.load(Side::Left, vec![file("x")]);
     assert_eq!(harness.marks(Side::Left), Vec::<String>::new());
 
-    harness.press("BS");
+    harness.press("Backspace");
     harness.load(Side::Left, vec![dir("docs"), file("a")]);
     assert_eq!(harness.marks(Side::Left), Vec::<String>::new());
 }
@@ -1398,7 +1398,7 @@ fn typing_keeps_the_popup_generation_and_reopening_changes_it() {
 fn log_scroll_range_follows_the_log_height_from_the_start() {
     let mut harness = Harness::start("/a/b/c/d/e/f/g/h", "/tmp");
     for _ in 0..6 {
-        harness.press("BS");
+        harness.press("Backspace");
         harness.fail_load(Side::Left, "boom");
     }
     assert_eq!(harness.view().log_rows, 6);
@@ -1420,7 +1420,7 @@ fn log_keys_scroll_and_clear() {
         harness.press("Alt+Down");
     }
     for _ in 0..3 {
-        harness.press("BS");
+        harness.press("Backspace");
         harness.fail_load(Side::Left, "boom");
     }
     assert_eq!(harness.view().log.lines.len(), 4);
@@ -1463,7 +1463,7 @@ fn a_long_line_while_following_settles_at_the_end_within_two_rounds_of_measuring
     let mut harness = log_of_seven();
     harness.measure(rows_at(40));
 
-    harness.press("BS");
+    harness.press("Backspace");
     harness.fail_load(Side::Left, &"x".repeat(150));
 
     assert!(harness.measure(rows_at(40)) <= 2);
@@ -1474,7 +1474,7 @@ fn a_long_line_while_following_settles_at_the_end_within_two_rounds_of_measuring
 #[test]
 fn narrowing_the_log_settles_at_the_end_within_two_rounds_of_measuring() {
     let mut harness = log_of_seven();
-    harness.press("BS");
+    harness.press("Backspace");
     harness.fail_load(Side::Left, &"x".repeat(150));
     harness.measure(rows_at(40));
 
@@ -1832,7 +1832,7 @@ fn wheel_over_the_log_scrolls_it() {
         harness.press("Alt+Down");
     }
     for _ in 0..3 {
-        harness.press("BS");
+        harness.press("Backspace");
         harness.fail_load(Side::Left, "boom");
     }
     assert_eq!(harness.view().log.scroll_top, 2);
@@ -1851,14 +1851,14 @@ fn scrollbar_drag_over_the_log_scrolls_it_and_stops_following_the_tail() {
         harness.press("Alt+Down");
     }
     for _ in 0..3 {
-        harness.press("BS");
+        harness.press("Backspace");
         harness.fail_load(Side::Left, "boom");
     }
     assert_eq!(harness.view().log.scroll_top, 2);
 
     harness.send(Msg::Mouse(MouseInput::LogScrollTo { top: 1 }));
     assert_eq!(harness.view().log.scroll_top, 1);
-    harness.press("BS");
+    harness.press("Backspace");
     harness.fail_load(Side::Left, "boom");
     assert_eq!(harness.view().log.scroll_top, 1);
 }
@@ -2253,9 +2253,9 @@ fn go_back_and_forward_move_without_recording_and_stop_at_an_end() {
 #[test]
 fn go_back_skips_a_place_that_cannot_be_read_keeping_it_in_the_history() {
     let mut harness = Harness::start("/home/user", "/tmp");
-    harness.press("BS");
+    harness.press("Backspace");
     harness.load(Side::Left, vec![]);
-    harness.press("BS");
+    harness.press("Backspace");
     harness.load(Side::Left, vec![]);
     harness.press("Ctrl+Shift+Left");
     harness.take_effects();
@@ -2297,9 +2297,9 @@ fn go_back_skips_a_place_that_cannot_be_read_keeping_it_in_the_history() {
 #[test]
 fn go_back_with_nothing_readable_to_the_oldest_keeps_the_place_and_position() {
     let mut harness = Harness::start("/home/user", "/tmp");
-    harness.press("BS");
+    harness.press("Backspace");
     harness.load(Side::Left, vec![]);
-    harness.press("BS");
+    harness.press("Backspace");
     harness.load(Side::Left, vec![]);
     harness.press("Ctrl+Shift+Left");
     harness.fail_load(Side::Left, "gone");
@@ -2317,7 +2317,7 @@ fn go_back_with_nothing_readable_to_the_oldest_keeps_the_place_and_position() {
 #[test]
 fn history_popup_lists_newest_first_and_narrows_to_what_is_typed() {
     let mut harness = Harness::start("/home/user", "/tmp");
-    harness.press("BS");
+    harness.press("Backspace");
     harness.load(Side::Left, vec![]);
     harness.press("/");
     harness.load(Side::Left, vec![]);
@@ -2363,7 +2363,7 @@ fn history_popup_lists_newest_first_and_narrows_to_what_is_typed() {
 fn history_popup_switches_to_the_other_pane_with_tab_keeping_the_query() {
     let mut harness = Harness::start("/home/user", "/tmp");
     harness.press("Tab");
-    harness.press("BS");
+    harness.press("Backspace");
     harness.load(Side::Right, vec![]);
     harness.press("Ctrl+Shift+Left");
     harness.load(Side::Right, vec![]);
@@ -2536,9 +2536,9 @@ fn history_popup_moves_to_the_row_that_was_current_once_the_history_moved_on() {
 #[test]
 fn history_popup_stays_put_when_the_place_picked_cannot_be_read() {
     let mut harness = Harness::start("/home/user", "/tmp");
-    harness.press("BS");
+    harness.press("Backspace");
     harness.load(Side::Left, vec![]);
-    harness.press("BS");
+    harness.press("Backspace");
     harness.load(Side::Left, vec![]);
     harness.press("H");
     harness.press("Down");
@@ -4615,7 +4615,7 @@ fn theme_light_loaded() -> Harness {
 fn log_of_seven() -> Harness {
     let mut harness = Harness::start("/a/b/c/d/e/f/g/h", "/tmp");
     for _ in 0..6 {
-        harness.press("BS");
+        harness.press("Backspace");
         harness.fail_load(Side::Left, "boom");
     }
     harness
