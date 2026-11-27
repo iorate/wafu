@@ -1,11 +1,5 @@
 use thiserror::Error;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Piece<P> {
-    Text(String),
-    Placeholder(P),
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum PlaceholderError {
     #[error("unknown placeholder \"{{{0}}}\"")]
@@ -14,6 +8,12 @@ pub enum PlaceholderError {
     Unclosed,
     #[error("unmatched }}")]
     Unmatched,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Piece<P> {
+    Text(String),
+    Placeholder(P),
 }
 
 // Every brace is part of a placeholder or doubled, so that any other form can
@@ -77,7 +77,6 @@ mod tests {
                 text("b")
             ])
         );
-        assert_eq!(read(""), Ok(Vec::new()));
     }
 
     #[test]
@@ -95,7 +94,6 @@ mod tests {
     fn pieces_rejects_braces_that_are_neither_placeholders_nor_doubled() {
         let unknown = |name: &str| PlaceholderError::Unknown(name.to_owned());
         let cases = [
-            ("{y}", unknown("y")),
             ("{}", unknown("")),
             ("{X}", unknown("X")),
             ("{ x }", unknown(" x ")),

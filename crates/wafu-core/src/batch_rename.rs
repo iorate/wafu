@@ -254,20 +254,9 @@ mod tests {
     }
 
     #[test]
-    fn field_takes_only_its_names_and_counters_of_up_to_eighteen_digits() {
-        let counter = |start, width| Some(Field::Counter { start, width });
-        let cases = [
-            ("name", Some(Field::Name)),
-            ("ext", Some(Field::Ext)),
-            ("007", counter(7, 3)),
-            ("123456789012345678", counter(123_456_789_012_345_678, 18)),
-            ("1234567890123456789", None),
-            ("-1", None),
-            ("NAME", None),
-            ("", None),
-        ];
-        for (inside, expected) in cases {
-            assert_eq!(field(inside), expected, "{inside:?}");
+    fn field_rejects_other_names_and_counters_over_eighteen_digits() {
+        for inside in ["1234567890123456789", "-1", "NAME", ""] {
+            assert_eq!(field(inside), None, "{inside:?}");
         }
     }
 

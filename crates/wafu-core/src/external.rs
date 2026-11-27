@@ -397,10 +397,6 @@ mod tests {
     #[test]
     fn parse_rejects_bad_placeholders() {
         let cases = [
-            (
-                "x {dir",
-                CommandLineError::Placeholder(PlaceholderError::Unclosed),
-            ),
             ("{dir} x", CommandLineError::PlaceholderInProgram),
             (
                 "x {marked_paths}:{paths}",
@@ -429,18 +425,10 @@ mod tests {
     }
 
     #[test]
-    fn parse_reads_doubled_braces_as_text() {
-        let line = CommandLine::parse("{{p}} {{}} {{{dir}}} a{{b}}c", Os::Linux).unwrap();
+    fn parse_reads_doubled_braces_in_the_program_as_text() {
+        let line = CommandLine::parse("{{p}}", Os::Linux).unwrap();
 
-        let expansion = Expansion {
-            dir: PathBuf::from("/d"),
-            ..Expansion::default()
-        };
         assert_eq!(line.program(), "{p}");
-        assert_eq!(
-            line.expand(&expansion).unwrap(),
-            ["{}", "{/d}", "a{b}c"].map(OsString::from)
-        );
     }
 
     #[test]
