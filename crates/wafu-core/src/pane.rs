@@ -1428,6 +1428,10 @@ mod tests {
         pane.mark_range_below();
         assert_eq!(marked(&pane), ["a", "b", "d"]);
 
+        pane.set_cursor(2);
+        pane.mark_range_below();
+        assert_eq!(marked(&pane), ["a", "b", "c", "d"]);
+
         pane.clear_marks();
         pane.set_cursor(2);
         pane.mark_range_below();

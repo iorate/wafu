@@ -1718,6 +1718,19 @@ mod tests {
     }
 
     #[test]
+    fn compare_popup_down_moves_the_cursor() {
+        let mut popup = ComparePopup::new(CompareSpec {
+            condition: CompareCondition::Different,
+            ..CompareSpec::default()
+        });
+        assert_eq!(popup.cursor, 2);
+
+        popup.cursor_down();
+
+        assert_eq!(popup.cursor, 4);
+    }
+
+    #[test]
     fn password_popup_names_the_archive_and_says_when_the_password_was_wrong() {
         let archive = PathBuf::from("/a/b.zip");
 

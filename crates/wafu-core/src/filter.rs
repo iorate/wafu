@@ -226,6 +226,15 @@ mod tests {
         assert!(filter.matches(OsStr::new("b")));
         assert!(!filter.matches(OsStr::new("~b")));
         assert!(!filter.matches(OsStr::new("ab")));
+
+        let filter = Filter::parse("[!]~]*~*x").unwrap().unwrap();
+        assert!(filter.matches(OsStr::new("a")));
+        assert!(!filter.matches(OsStr::new("~a")));
+        assert!(!filter.matches(OsStr::new("ax")));
+
+        let filter = Filter::parse("*.[ch~]~*.h").unwrap().unwrap();
+        assert!(filter.matches(OsStr::new("a.c")));
+        assert!(!filter.matches(OsStr::new("a.h")));
     }
 
     #[test]
@@ -235,6 +244,14 @@ mod tests {
         assert!(filter.matches(OsStr::new("a.txt~")));
         assert!(filter.matches(OsStr::new("a.bak")));
         assert!(!filter.matches(OsStr::new("a.txt")));
+    }
+
+    #[test]
+    fn parse_splits_at_a_tilde_after_braces() {
+        let filter = Filter::parse("*.{c,h}~a*").unwrap().unwrap();
+
+        assert!(filter.matches(OsStr::new("b.c")));
+        assert!(!filter.matches(OsStr::new("a.c")));
     }
 
     #[test]

@@ -321,6 +321,22 @@ fn the_cursor_follows_the_item_it_was_on_at_enter_through_reloads_in_a_chain() {
 }
 
 #[test]
+fn the_cursor_follows_its_item_to_another_row() {
+    let mut harness = marked(&["a", "b", "c"], &["c"]);
+    assert_eq!(harness.cursor_name(Side::Left), "c");
+    harness.press("Shift+R");
+    harness.edit("c");
+    harness.edit_field(1, "0");
+    harness.press("Enter");
+    harness.operation(OperationEvent::ItemDone { index: 0 });
+
+    harness.finish(Outcome::Completed { skipped: 0 });
+    harness.load(Side::Left, vec![file("0"), file("a"), file("b")]);
+
+    assert_eq!(harness.cursor_name(Side::Left), "0");
+}
+
+#[test]
 fn the_cursor_stays_on_an_item_that_was_not_renamed() {
     let mut harness = marked(&["1", "2"], &["1", "2"]);
     harness.press("Up");
@@ -455,6 +471,21 @@ fn rows_measured_for_the_item_that_had_an_index_do_not_pull_the_top_back() {
     });
 
     assert_eq!(top(&harness), 9);
+}
+
+#[test]
+fn rows_measured_for_items_that_left_the_list_are_forgotten() {
+    let mut harness = replacing_all(20);
+    harness.send(Msg::PopupLineRows {
+        area: None,
+        lines: (15..20).map(|index| (index, 2)).collect(),
+    });
+
+    harness.edit("f0");
+    harness.edit("f");
+    harness.press("Alt+End");
+
+    assert_eq!(top(&harness), 15);
 }
 
 #[test]
