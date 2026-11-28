@@ -454,7 +454,10 @@ impl App {
         else {
             return;
         };
-        self.popup = Some(Popup::List(ListPopup::encodings(document.encoding)));
+        self.popup = Some(Popup::List(ListPopup::encodings(
+            document.encoding,
+            preview.source.encoding.is_some(),
+        )));
     }
 
     // The file to open is the one being shown, which the cursor may have

@@ -345,8 +345,11 @@ pub struct ListItem {
     /// The key that picks the item at once, if it has one.
     pub key: Option<char>,
     pub label: String,
-    /// Where the pane already is, or the encoding the preview is decoded
-    /// with; the list opens on it.
+    /// Shown in parentheses after the label; typing does not match it.
+    pub annotation: Option<String>,
+    /// Where the pane already is, or how the encoding the preview is decoded
+    /// with was settled; the list opens on it and shows it with `*`, like
+    /// the sort popup.
     pub current: bool,
     pub target: ListTarget,
     /// What the configuration gives for the item, as written there.
@@ -721,6 +724,7 @@ impl ListPopup {
         Self::history_with(side, history, |pos, path| ListItem {
             key: None,
             label: path.display().to_string(),
+            annotation: None,
             current: !in_archive && pos == history.pos(),
             target: ListTarget::HistoryPos(pos, path.clone()),
             source: None,
@@ -735,6 +739,7 @@ impl ListPopup {
         Self::history_with(side, history, |_, path| ListItem {
             key: None,
             label: path.display().to_string(),
+            annotation: None,
             current: false,
             target: ListTarget::Path(path.clone()),
             source: None,
@@ -752,6 +757,7 @@ impl ListPopup {
                 ListItem {
                     key: bookmark.key,
                     label: bookmark.name.clone(),
+                    annotation: None,
                     current: false,
                     target: ListTarget::Path(resolve_input(&path, home, &bookmark.dir)),
                     source: Some(path.into_owned()),
@@ -769,6 +775,7 @@ impl ListPopup {
             .map(|&letter| ListItem {
                 key: Some(letter.to_ascii_lowercase()),
                 label: format!("{letter}:\\"),
+                annotation: None,
                 current: Some(letter) == current,
                 target: ListTarget::Drive(letter),
                 source: None,
@@ -789,6 +796,7 @@ impl ListPopup {
                     .unwrap_or(&path)
                     .display()
                     .to_string(),
+                annotation: None,
                 current: false,
                 target: ListTarget::Entry(path),
                 source: None,
@@ -797,20 +805,24 @@ impl ListPopup {
         Self::new(ListKind::Found, items)
     }
 
-    /// Auto-detection first, then every encoding, with the one named `current` marked.
+    /// Auto-detection first, then every encoding. The preview is decoded with
+    /// the encoding named `name`; when that one was `chosen` it is the current
+    /// item, otherwise auto-detection is, naming what it detected.
     #[must_use]
-    pub fn encodings(current: &str) -> Self {
+    pub fn encodings(name: &str, chosen: bool) -> Self {
         let items = std::iter::once(ListItem {
             key: None,
             label: "Auto-detect".to_owned(),
-            current: false,
+            annotation: (!chosen).then(|| name.to_owned()),
+            current: !chosen,
             target: ListTarget::Encoding(None),
             source: None,
         })
         .chain(ENCODINGS.iter().map(|&encoding| ListItem {
             key: None,
             label: encoding.name().to_owned(),
-            current: encoding.name() == current,
+            annotation: None,
+            current: chosen && encoding.name() == name,
             target: ListTarget::Encoding(Some(encoding)),
             source: None,
         }))
@@ -882,7 +894,15 @@ impl ListPopup {
             .iter()
             .map(|&index| &self.items[index])
             .map(|item| PopupItem {
-                label: item.label.clone(),
+                label: format!(
+                    "{}{}{}",
+                    item.label,
+                    item.annotation
+                        .as_ref()
+                        .map(|annotation| format!(" ({annotation})"))
+                        .unwrap_or_default(),
+                    if item.current { " *" } else { "" },
+                ),
                 detail: item
                     .key
                     .map(|key| key.to_ascii_uppercase().to_string())
@@ -2015,6 +2035,7 @@ mod tests {
         let item = |pos, path: &str| ListItem {
             key: None,
             label: PathBuf::from(path).display().to_string(),
+            annotation: None,
             current: pos == 2,
             target: ListTarget::HistoryPos(pos, PathBuf::from(path)),
             source: None,
@@ -2050,6 +2071,7 @@ mod tests {
         let item = |path: &str| ListItem {
             key: None,
             label: PathBuf::from(path).display().to_string(),
+            annotation: None,
             current: false,
             target: ListTarget::Path(PathBuf::from(path)),
             source: None,
@@ -2065,7 +2087,8 @@ mod tests {
 
         assert_eq!(popup.items[0].key, Some('c'));
         assert_eq!(popup.items[0].target, ListTarget::Drive('C'));
-        assert_eq!(popup.items()[1].label, "D:\\");
+        assert_eq!(popup.items()[0].label, "C:\\");
+        assert_eq!(popup.items()[1].label, "D:\\ *");
         assert_eq!(popup.items()[1].detail, "D");
         assert_eq!(popup.cursor, 1);
         assert!(!popup.filters());
@@ -2097,7 +2120,7 @@ mod tests {
         );
 
         popup.set_query("mus".to_owned());
-        assert_eq!(labels(&popup), [shown("/Music")]);
+        assert_eq!(labels(&popup), [format!("{} *", shown("/Music"))]);
         assert_eq!(
             menu_input(&mut popup, MenuInput::DoubleClick { row: 0 }, PAGE),
             Response::Pick(popup.items[0].clone())
@@ -2128,22 +2151,39 @@ mod tests {
     }
 
     #[test]
-    fn list_popup_of_encodings_opens_on_the_current_one_after_auto_detect() {
-        let popup = ListPopup::encodings("Shift_JIS");
+    fn list_popup_of_encodings_opens_on_the_chosen_one_after_auto_detect() {
+        let popup = ListPopup::encodings("Shift_JIS", true);
 
         assert_eq!(popup.items.len(), 1 + ENCODINGS.len());
-        assert_eq!(popup.items[0].label, "Auto-detect");
         assert_eq!(popup.items[0].target, ListTarget::Encoding(None));
         assert_eq!(
             popup.selected().unwrap().target,
             ListTarget::Encoding(Some(encoding_rs::SHIFT_JIS))
         );
+        let labels: Vec<String> = popup.items().into_iter().map(|item| item.label).collect();
+        assert_eq!(labels[0], "Auto-detect");
+        assert_eq!(labels[popup.cursor], "Shift_JIS *");
         assert_eq!(popup.title(), "Encodings");
     }
 
     #[test]
+    fn list_popup_of_encodings_opens_on_auto_detect_naming_what_it_detected() {
+        let mut popup = ListPopup::encodings("Shift_JIS", false);
+
+        assert_eq!(popup.cursor, 0);
+        let labels: Vec<String> = popup.items().into_iter().map(|item| item.label).collect();
+        assert_eq!(labels[0], "Auto-detect (Shift_JIS) *");
+        assert!(labels.contains(&"Shift_JIS".to_owned()));
+
+        popup.set_query("jis".to_owned());
+
+        let labels: Vec<String> = popup.items().into_iter().map(|item| item.label).collect();
+        assert_eq!(labels, ["Shift_JIS"]);
+    }
+
+    #[test]
     fn list_popup_of_encodings_narrows_by_typing() {
-        let mut popup = ListPopup::encodings("UTF-8");
+        let mut popup = ListPopup::encodings("UTF-8", true);
 
         assert!(popup.filters());
         popup.set_query("jp".to_owned());
