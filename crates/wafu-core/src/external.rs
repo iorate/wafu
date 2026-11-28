@@ -49,10 +49,8 @@ pub enum CommandLineError {
     Placeholder(#[from] PlaceholderError),
     #[error("placeholder in the program")]
     PlaceholderInProgram,
-    #[error("more than one list of paths in an argument")]
-    ListsInOneArgument,
-    #[error("more than one of {{cursor_path}}, {{marked_paths}}, and {{paths}}")]
-    PathPlaceholdersMixed,
+    #[error("{{{}}} and {{{}}} cannot be in one line", .0.name(), .1.name())]
+    PathPlaceholdersMixed(Placeholder, Placeholder),
 }
 
 /// A placeholder that has no value, which keeps the line from being started.
@@ -103,33 +101,34 @@ impl CommandLine {
     pub fn expand(&self, expansion: &Expansion) -> Result<Vec<OsString>, EmptyPlaceholder> {
         let mut args = Vec::new();
         for arg in &self.args {
-            let mut expanded = vec![OsString::new()];
+            let mut count = 1;
             for piece in arg {
-                match piece {
-                    Piece::Text(text) => {
-                        for arg in &mut expanded {
-                            arg.push(text);
-                        }
+                if let Piece::Placeholder(placeholder) = piece {
+                    let values = expansion.values(*placeholder);
+                    if values.is_empty() {
+                        return Err(EmptyPlaceholder(*placeholder));
                     }
-                    Piece::Placeholder(placeholder) => {
-                        let values = expansion.values(*placeholder);
-                        if values.is_empty() {
-                            return Err(EmptyPlaceholder(*placeholder));
-                        }
-                        expanded = expanded
-                            .iter()
-                            .flat_map(|arg| {
-                                values.iter().map(move |value| {
-                                    let mut arg = arg.clone();
-                                    arg.push(value);
-                                    arg
-                                })
-                            })
-                            .collect();
+                    if placeholder.is_list() {
+                        count = values.len();
                     }
                 }
             }
-            args.extend(expanded);
+            // A line has one kind of list, so the lists in an argument are
+            // one list, and each of its paths fills them all.
+            for index in 0..count {
+                let mut expanded = OsString::new();
+                for piece in arg {
+                    match piece {
+                        Piece::Text(text) => expanded.push(text),
+                        Piece::Placeholder(placeholder) => {
+                            let values = expansion.values(*placeholder);
+                            let index = if placeholder.is_list() { index } else { 0 };
+                            expanded.push(&values[index]);
+                        }
+                    }
+                }
+                args.push(expanded);
+            }
         }
         Ok(args)
     }
@@ -149,17 +148,7 @@ impl CommandLine {
         };
         let args: Vec<_> = tokens
             .iter()
-            .map(|token| {
-                let pieces = pieces(token, placeholder)?;
-                let lists = pieces
-                    .iter()
-                    .filter(|piece| matches!(piece, Piece::Placeholder(p) if p.is_list()))
-                    .count();
-                if lists > 1 {
-                    return Err(CommandLineError::ListsInOneArgument);
-                }
-                Ok(pieces)
-            })
+            .map(|token| pieces(token, placeholder))
             .collect::<Result<_, _>>()?;
         // With one kind, a line runs on entries of one place, which is all
         // that one extraction from an archive takes: on the `..` row, the
@@ -170,10 +159,10 @@ impl CommandLine {
             let mut kinds = path_placeholders(&args);
             kinds
                 .next()
-                .is_some_and(|first| kinds.any(|kind| kind != first))
+                .and_then(|first| Some((first, kinds.find(|kind| *kind != first)?)))
         };
-        if mixed {
-            return Err(CommandLineError::PathPlaceholdersMixed);
+        if let Some((first, other)) = mixed {
+            return Err(CommandLineError::PathPlaceholdersMixed(first, other));
         }
         Ok(Self {
             source: text.to_owned(),
@@ -424,23 +413,41 @@ mod tests {
     fn parse_rejects_bad_placeholders() {
         let cases = [
             ("{dir} x", CommandLineError::PlaceholderInProgram),
-            ("x {paths}:{paths}", CommandLineError::ListsInOneArgument),
             (
                 "x {cursor_path} {marked_paths}",
-                CommandLineError::PathPlaceholdersMixed,
+                CommandLineError::PathPlaceholdersMixed(
+                    Placeholder::CursorPath,
+                    Placeholder::MarkedPaths,
+                ),
             ),
             (
                 "x {cursor_path} {paths}",
-                CommandLineError::PathPlaceholdersMixed,
+                CommandLineError::PathPlaceholdersMixed(
+                    Placeholder::CursorPath,
+                    Placeholder::Paths,
+                ),
             ),
             (
-                "x {paths} -- {marked_paths}",
-                CommandLineError::PathPlaceholdersMixed,
+                "x {paths} {paths}:{marked_paths}",
+                CommandLineError::PathPlaceholdersMixed(
+                    Placeholder::Paths,
+                    Placeholder::MarkedPaths,
+                ),
             ),
         ];
         for (text, error) in cases {
             assert_eq!(CommandLine::parse(text, Os::Linux), Err(error), "{text:?}");
         }
+    }
+
+    #[test]
+    fn the_error_for_mixed_path_placeholders_names_them() {
+        let error = CommandLine::parse("x {paths} {cursor_path}", Os::Linux).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "{paths} and {cursor_path} cannot be in one line"
+        );
     }
 
     #[test]
@@ -520,6 +527,21 @@ mod tests {
         assert_eq!(
             line.expand(&expansion).unwrap(),
             ["/d/m1.bak", "/d/m2.bak"].map(OsString::from)
+        );
+    }
+
+    #[test]
+    fn expand_fills_a_list_written_twice_in_an_argument_with_the_same_path() {
+        let line = CommandLine::parse("x {dir}/{paths}={paths}.bak", Os::Linux).unwrap();
+
+        let expansion = Expansion {
+            paths: vec![PathBuf::from("p1"), PathBuf::from("p2")],
+            dir: PathBuf::from("/d"),
+            ..Expansion::default()
+        };
+        assert_eq!(
+            line.expand(&expansion).unwrap(),
+            ["/d/p1=p1.bak", "/d/p2=p2.bak"].map(OsString::from)
         );
     }
 
