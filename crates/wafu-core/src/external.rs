@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::iter::repeat_n;
 use std::path::PathBuf;
 
@@ -49,7 +49,7 @@ pub enum CommandLineError {
     Placeholder(#[from] PlaceholderError),
     #[error("placeholder in the program")]
     PlaceholderInProgram,
-    #[error("{{{}}} and {{{}}} cannot be in one line", .0.name(), .1.name())]
+    #[error("{{{}}} and {{{}}} in one line", .0.name(), .1.name())]
     PathPlaceholdersMixed(Placeholder, Placeholder),
 }
 
@@ -99,33 +99,36 @@ impl CommandLine {
     /// The arguments with the placeholders filled in. An argument that holds
     /// a list of paths is repeated once for each of them.
     pub fn expand(&self, expansion: &Expansion) -> Result<Vec<OsString>, EmptyPlaceholder> {
+        // Stands in for the list of an argument that has none, which is
+        // written out once.
+        let no_list = [PathBuf::new()];
         let mut args = Vec::new();
         for arg in &self.args {
-            let mut count = 1;
+            let mut list = no_list.as_slice();
+            let mut parts = Vec::new();
             for piece in arg {
-                if let Piece::Placeholder(placeholder) = piece {
-                    let values = expansion.values(*placeholder);
-                    if values.is_empty() {
-                        return Err(EmptyPlaceholder(*placeholder));
+                parts.push(match piece {
+                    Piece::Text(text) => Some(OsStr::new(text)),
+                    Piece::Placeholder(placeholder) => {
+                        let values = expansion.values(*placeholder);
+                        let [first, ..] = values else {
+                            return Err(EmptyPlaceholder(*placeholder));
+                        };
+                        if placeholder.is_list() {
+                            list = values;
+                            None
+                        } else {
+                            Some(first.as_os_str())
+                        }
                     }
-                    if placeholder.is_list() {
-                        count = values.len();
-                    }
-                }
+                });
             }
             // A line has one kind of list, so the lists in an argument are
             // one list, and each of its paths fills them all.
-            for index in 0..count {
+            for path in list {
                 let mut expanded = OsString::new();
-                for piece in arg {
-                    match piece {
-                        Piece::Text(text) => expanded.push(text),
-                        Piece::Placeholder(placeholder) => {
-                            let values = expansion.values(*placeholder);
-                            let index = if placeholder.is_list() { index } else { 0 };
-                            expanded.push(&values[index]);
-                        }
-                    }
+                for part in &parts {
+                    expanded.push(part.unwrap_or(path.as_os_str()));
                 }
                 args.push(expanded);
             }
@@ -444,10 +447,7 @@ mod tests {
     fn the_error_for_mixed_path_placeholders_names_them() {
         let error = CommandLine::parse("x {paths} {cursor_path}", Os::Linux).unwrap_err();
 
-        assert_eq!(
-            error.to_string(),
-            "{paths} and {cursor_path} cannot be in one line"
-        );
+        assert_eq!(error.to_string(), "{paths} and {cursor_path} in one line");
     }
 
     #[test]
@@ -532,16 +532,15 @@ mod tests {
 
     #[test]
     fn expand_fills_a_list_written_twice_in_an_argument_with_the_same_path() {
-        let line = CommandLine::parse("x {dir}/{paths}={paths}.bak", Os::Linux).unwrap();
+        let line = CommandLine::parse("x {paths}={paths}.bak", Os::Linux).unwrap();
 
         let expansion = Expansion {
             paths: vec![PathBuf::from("p1"), PathBuf::from("p2")],
-            dir: PathBuf::from("/d"),
             ..Expansion::default()
         };
         assert_eq!(
             line.expand(&expansion).unwrap(),
-            ["/d/p1=p1.bak", "/d/p2=p2.bak"].map(OsString::from)
+            ["p1=p1.bak", "p2=p2.bak"].map(OsString::from)
         );
     }
 
