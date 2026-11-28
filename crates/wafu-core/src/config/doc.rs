@@ -91,7 +91,7 @@ pub fn configuration_doc(current: &str) -> Result<String, String> {
 }
 
 fn item_table<T>(settings: &[Setting<T>], part: fn(&Config) -> &T) -> String {
-    let mut out = "| Item | Value | Default | Meaning |\n|---|---|---|---|\n".to_owned();
+    let mut out = "| Item | Type | Default | Meaning |\n|---|---|---|---|\n".to_owned();
     for setting in settings {
         let _ = writeln!(
             out,
@@ -105,9 +105,10 @@ fn item_table<T>(settings: &[Setting<T>], part: fn(&Config) -> &T) -> String {
     out
 }
 
-// Without the column of values, which would say the same in every row.
+// Without the column of types, which would say the same in every row.
 fn color_table() -> String {
-    let mut out = "| Item | Light | Dark | Used for |\n|---|---|---|---|\n".to_owned();
+    let mut out =
+        "| Item | Default (light) | Default (dark) | Used for |\n|---|---|---|---|\n".to_owned();
     for setting in COLORS {
         let _ = writeln!(
             out,
