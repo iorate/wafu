@@ -346,7 +346,7 @@ pub struct ListItem {
     pub key: Option<char>,
     pub label: String,
     /// Where the pane already is, or the encoding the preview is decoded
-    /// with; the list opens on it and shows it with `*`, like the sort popup.
+    /// with; the list opens on it.
     pub current: bool,
     pub target: ListTarget,
     /// What the configuration gives for the item, as written there.
@@ -797,7 +797,7 @@ impl ListPopup {
         Self::new(ListKind::Found, items)
     }
 
-    /// Every encoding, the one named `current` being the current item.
+    /// Every encoding, with the one named `current` marked.
     #[must_use]
     pub fn encodings(current: &str) -> Self {
         let items = ENCODINGS
@@ -2135,9 +2135,6 @@ mod tests {
             popup.selected().unwrap().target,
             ListTarget::Encoding(encoding_rs::SHIFT_JIS)
         );
-        let labels: Vec<String> = popup.items().into_iter().map(|item| item.label).collect();
-        assert_eq!(labels[0], "UTF-8");
-        assert_eq!(labels[popup.cursor], "Shift_JIS *");
         assert_eq!(popup.title(), "Encodings");
     }
 

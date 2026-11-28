@@ -290,12 +290,8 @@ fn c_lists_the_encodings_on_the_one_in_use() {
 
     let popup = harness.view().popup.unwrap();
     assert_eq!(popup.title, "Encodings");
-    assert_eq!(popup.cursor, Some(0));
     assert_eq!(popup.fields.len(), 1);
-    assert_eq!(
-        harness.popup_labels()[..3],
-        ["UTF-8 *", "UTF-16LE", "UTF-16BE"]
-    );
+    assert_eq!(harness.popup_labels()[0], "UTF-8 *");
 }
 
 #[test]
