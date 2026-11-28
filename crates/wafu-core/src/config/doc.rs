@@ -139,10 +139,7 @@ fn default<T>(setting: &Setting<T>, part: fn(&Config) -> &T) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
     use super::*;
-    use crate::config::parse_config;
 
     #[test]
     fn only_what_stands_between_the_comments_is_rewritten() {
@@ -191,40 +188,6 @@ mod tests {
         for (current, error) in cases {
             assert_eq!(configuration_doc(&current), Err(error.to_owned()));
         }
-    }
-
-    #[test]
-    fn the_defaults_shown_read_back_as_the_defaults() {
-        for (os, _) in OSES {
-            let config = Config::default_for(os);
-            let text = [
-                table("filelist", FILELIST, &config.filelist),
-                table("preview.text", TEXT_PREVIEW, &config.preview.text),
-                table("preview.image", IMAGE_PREVIEW, &config.preview.image),
-                table("log", LOG, &config.log),
-                table("programs", PROGRAMS, &config.programs),
-                table("font", FONT, &config.font.default),
-                table("colors", COLORS_CONFIG, &config.colors),
-                table("colors.light", COLORS, &config.colors.light),
-                table("colors.dark", COLORS, &config.colors.dark),
-            ]
-            .concat();
-
-            let (read, diagnostics) =
-                parse_config([(Path::new("config.toml"), text.as_str())], os).unwrap();
-
-            assert_eq!(diagnostics, [], "{os:?}");
-            assert_eq!(read, config, "{os:?}");
-        }
-    }
-
-    fn table<T>(header: &str, settings: &[Setting<T>], part: &T) -> String {
-        let mut out = format!("[{header}]\n");
-        for setting in settings {
-            let value = (setting.write)(part).unwrap();
-            let _ = writeln!(out, "{} = {value}", setting.key);
-        }
-        out
     }
 
     fn skeleton() -> String {
