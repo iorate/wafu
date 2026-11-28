@@ -39,9 +39,12 @@ pub(crate) fn own_entry(path: &Path) -> Option<Entry> {
 // What CreateProcessW starts when named directly; it hands bat and cmd to
 // cmd.exe. The rest of PATHEXT (vbs, js, msc, ...) does not start that way.
 #[cfg(not(unix))]
+pub(crate) const EXECUTABLE_EXTENSIONS: [&str; 4] = ["exe", "com", "bat", "cmd"];
+
+#[cfg(not(unix))]
 pub(crate) fn is_executable_name(name: &OsStr) -> bool {
     Path::new(name).extension().is_some_and(|extension| {
-        ["exe", "com", "bat", "cmd"]
+        EXECUTABLE_EXTENSIONS
             .into_iter()
             .any(|known| extension.eq_ignore_ascii_case(known))
     })
