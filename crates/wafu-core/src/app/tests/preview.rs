@@ -283,7 +283,7 @@ fn tab_switches_to_the_hex_dump_and_back_from_the_top() {
 }
 
 #[test]
-fn c_lists_the_encodings_on_auto_detect_until_one_is_picked() {
+fn c_lists_the_encodings_on_the_one_in_use() {
     let mut harness = document();
 
     harness.press("C");
@@ -293,20 +293,9 @@ fn c_lists_the_encodings_on_auto_detect_until_one_is_picked() {
     assert_eq!(popup.cursor, Some(0));
     assert_eq!(popup.fields.len(), 1);
     assert_eq!(
-        harness.popup_labels()[..4],
-        ["Auto-detect (UTF-8) *", "UTF-8", "UTF-16LE", "UTF-16BE"]
+        harness.popup_labels()[..3],
+        ["UTF-8 *", "UTF-16LE", "UTF-16BE"]
     );
-
-    harness.edit("utf-16le");
-    harness.press("Enter");
-    harness.preview_loaded(Document::decode(
-        b"a\0".to_vec(),
-        false,
-        Some(encoding_rs::UTF_16LE),
-    ));
-    harness.press("C");
-
-    assert_eq!(harness.view().popup.unwrap().cursor, Some(2));
 }
 
 #[test]
@@ -379,31 +368,6 @@ fn a_picked_encoding_shows_text_from_the_top_even_from_the_hex_dump() {
     ));
 
     assert_eq!(harness.preview_lines(), ["a\0", "b"]);
-}
-
-#[test]
-fn auto_detect_reads_the_file_again_and_lets_it_show_as_binary() {
-    let mut harness = document();
-    harness.press("C");
-    harness.edit("shift");
-    harness.press("Enter");
-    harness.preview_loaded(Document::decode(
-        b"a\0".to_vec(),
-        false,
-        Some(encoding_rs::SHIFT_JIS),
-    ));
-    harness.take_effects();
-
-    harness.press("C");
-    harness.edit("auto");
-    harness.press("Enter");
-
-    assert!(matches!(
-        harness.take_effects().as_slice(),
-        [Effect::LoadPreview { source, .. }] if source.encoding.is_none()
-    ));
-    harness.preview_loaded(Document::decode(b"a\0".to_vec(), false, None));
-    assert!(harness.preview_lines()[0].starts_with("61 00"));
 }
 
 #[test]

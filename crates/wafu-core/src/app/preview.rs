@@ -340,7 +340,7 @@ impl App {
 
     pub(super) fn set_preview_encoding(
         &mut self,
-        encoding: Option<&'static Encoding>,
+        encoding: &'static Encoding,
         effects: &mut Vec<Effect>,
     ) {
         let Some(Preview::Document(preview)) = &mut self.preview else {
@@ -348,7 +348,7 @@ impl App {
         };
         // The file is read and decoded again on the read thread even though
         // its bytes are at hand: decoding up to 16 MiB here would hold up the UI.
-        preview.source.encoding = encoding;
+        preview.source.encoding = Some(encoding);
         self.request_document(effects);
     }
 
@@ -454,10 +454,7 @@ impl App {
         else {
             return;
         };
-        self.popup = Some(Popup::List(ListPopup::encodings(
-            document.encoding,
-            preview.source.encoding.is_some(),
-        )));
+        self.popup = Some(Popup::List(ListPopup::encodings(document.encoding)));
     }
 
     // The file to open is the one being shown, which the cursor may have
