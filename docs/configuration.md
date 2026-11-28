@@ -33,7 +33,7 @@ A relative path is taken from the directory of the file that names it.
 
 <!-- generated:filelist -->
 
-| Item | Value | Default | Meaning |
+| Item | Type | Default | Meaning |
 |---|---|---|---|
 | `new_dir_goes_to_dir` | true or false | `true` | Go to the directory that `new_dir` created. |
 | `new_text_creates_file` | true or false | `true` | `new_text` creates the file before opening it in the editor. |
@@ -58,7 +58,7 @@ A relative path is taken from the directory of the file that names it.
 
 <!-- generated:preview.text -->
 
-| Item | Value | Default | Meaning |
+| Item | Type | Default | Meaning |
 |---|---|---|---|
 | `hide_log` | true or false | `false` | Hide the log while a text preview is open. |
 | `max_bytes` | an integer of 1 or more | `16777216` | How many bytes of a file the text preview reads. A longer file is cut there. |
@@ -69,7 +69,7 @@ A relative path is taken from the directory of the file that names it.
 
 <!-- generated:preview.image -->
 
-| Item | Value | Default | Meaning |
+| Item | Type | Default | Meaning |
 |---|---|---|---|
 | `placement_from_left` | other_pane or both_panes | `"other_pane"` | Where an image opened from the left pane is shown: `"other_pane"` (in place of the right pane, while the left pane stays) or `"both_panes"`. |
 | `placement_from_right` | other_pane or both_panes | `"both_panes"` | Where an image opened from the right pane is shown: `"other_pane"` (in place of the left pane, while the right pane stays) or `"both_panes"`. |
@@ -82,7 +82,7 @@ A relative path is taken from the directory of the file that names it.
 
 <!-- generated:log -->
 
-| Item | Value | Default | Meaning |
+| Item | Type | Default | Meaning |
 |---|---|---|---|
 | `max_lines` | an integer of 1 or more | `1000` | How many lines the log keeps. |
 
@@ -92,7 +92,7 @@ A relative path is taken from the directory of the file that names it.
 
 <!-- generated:programs -->
 
-| Item | Value | Default | Meaning |
+| Item | Type | Default | Meaning |
 |---|---|---|---|
 | `editor` | a string | `"notepad {path}"` on Windows<br>`"open -t {path}"` on macOS<br>`"xdg-open {path}"` on Linux | The command line that opens a file for editing, used by `edit`, `new_text`, `preview_edit`, and `edit_config`. It follows the rules of [external commands](#commands), with `{path}`, the file, as its only placeholder. |
 | `use_login_shell_env` | true or false | `true` | macOS and Linux: give the programs wafu starts the environment of your login shell. |
@@ -111,7 +111,7 @@ With `use_login_shell_env`, wafu runs your shell once at startup as an interacti
 
 <!-- generated:font -->
 
-| Item | Value | Default | Meaning |
+| Item | Type | Default | Meaning |
 |---|---|---|---|
 | `family` | a string | `""` | A font family name. Empty means the monospaced font of the OS (Consolas on Windows, Menlo on macOS, DejaVu Sans Mono on Linux). |
 | `size` | an integer from 6 to 72 | `12` | The font size, in pixels. |
@@ -130,7 +130,7 @@ size = 16
 
 <!-- generated:colors -->
 
-| Item | Value | Default | Meaning |
+| Item | Type | Default | Meaning |
 |---|---|---|---|
 | `theme` | auto, light, or dark | `"auto"` | Which colors are used: `"auto"` (follow the OS), `"light"`, or `"dark"`. |
 | `hidden_opacity` | a number from 0 to 1 | `0.7` | How opaque the names of hidden items are: `0` is invisible, and `1` is like other items. |
@@ -141,7 +141,7 @@ size = 16
 
 <!-- generated:colors.themes -->
 
-| Item | Light | Dark | Used for |
+| Item | Default (light) | Default (dark) | Used for |
 |---|---|---|---|
 | `fg` | `"#1e1e1e"` | `"#d4d4d4"` | Text: regular files and the rest of the window's text |
 | `bg` | `"#ffffff"` | `"#1e1e1e"` | Background |
