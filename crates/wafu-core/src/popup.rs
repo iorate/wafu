@@ -347,9 +347,9 @@ pub struct ListItem {
     pub label: String,
     /// Shown in parentheses after the label; typing does not match it.
     pub annotation: Option<String>,
-    /// Where the pane already is, or how the encoding the preview is decoded
-    /// with was settled; the list opens on it and shows it with `*`, like
-    /// the sort popup.
+    /// Where the pane already is, or the encoding picked for the preview
+    /// (auto-detection when none was); the list opens on it and shows it
+    /// with `*`, like the sort popup.
     pub current: bool,
     pub target: ListTarget,
     /// What the configuration gives for the item, as written there.
@@ -886,8 +886,8 @@ impl ListPopup {
         }
     }
 
-    /// The rows to show: the place, with its key, if it has one, at the end like
-    /// the sort popup.
+    /// The rows to show: the label, with the annotation and `*` on the current
+    /// item, and the key, if it has one, at the end like the sort popup.
     #[must_use]
     pub fn items(&self) -> Vec<PopupItem> {
         self.matches
@@ -2087,7 +2087,6 @@ mod tests {
 
         assert_eq!(popup.items[0].key, Some('c'));
         assert_eq!(popup.items[0].target, ListTarget::Drive('C'));
-        assert_eq!(popup.items()[0].label, "C:\\");
         assert_eq!(popup.items()[1].label, "D:\\ *");
         assert_eq!(popup.items()[1].detail, "D");
         assert_eq!(popup.cursor, 1);

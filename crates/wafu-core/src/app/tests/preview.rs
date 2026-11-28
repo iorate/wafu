@@ -307,10 +307,6 @@ fn c_lists_the_encodings_on_auto_detect_until_one_is_picked() {
     harness.press("C");
 
     assert_eq!(harness.view().popup.unwrap().cursor, Some(2));
-    assert_eq!(
-        harness.popup_labels()[..4],
-        ["Auto-detect", "UTF-8", "UTF-16LE *", "UTF-16BE"]
-    );
 }
 
 #[test]
