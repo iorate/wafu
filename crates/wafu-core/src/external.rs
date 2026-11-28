@@ -326,14 +326,9 @@ impl Arg {
         };
         match self {
             Self::Once(parts) => parts.iter().find_map(of_fixed),
-            Self::Each(list, parts) => Some(Placeholder::from(*list))
-                .filter(|placeholder| placeholder.is_path())
-                .or_else(|| {
-                    parts.iter().find_map(|part| match part {
-                        Part::Fixed(fixed) => of_fixed(fixed),
-                        Part::Item => None,
-                    })
-                }),
+            Self::Each(list, _) => match list {
+                List::MarkedPaths | List::Paths => Some((*list).into()),
+            },
         }
     }
 }
