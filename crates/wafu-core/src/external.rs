@@ -14,7 +14,8 @@ use crate::placeholder::{Piece, PlaceholderError, pieces};
 pub struct CommandLine {
     source: String,
     program: String,
-    args: Vec<Vec<Piece<Placeholder>>>,
+    args: Vec<Arg>,
+    paths: Option<Placeholder>,
 }
 
 /// What a placeholder stands for.
@@ -51,6 +52,8 @@ pub enum CommandLineError {
     PlaceholderInProgram,
     #[error("{{{}}} and {{{}}} in one line", .0.name(), .1.name())]
     PathPlaceholdersMixed(Placeholder, Placeholder),
+    #[error("{{{}}} and {{{}}} in one argument", .0.name(), .1.name())]
+    ListsInOneArgument(Placeholder, Placeholder),
 }
 
 /// A placeholder that has no value, which keeps the line from being started.
@@ -87,7 +90,7 @@ impl CommandLine {
     /// an archive have to be extracted first. A line has one kind at most.
     #[must_use]
     pub fn paths_placeholder(&self) -> Option<Placeholder> {
-        path_placeholders(&self.args).next()
+        self.paths
     }
 
     /// Whether the line uses a placeholder for paths of entries.
@@ -99,38 +102,29 @@ impl CommandLine {
     /// The arguments with the placeholders filled in. An argument that holds
     /// a list of paths is repeated once for each of them.
     pub fn expand(&self, expansion: &Expansion) -> Result<Vec<OsString>, EmptyPlaceholder> {
-        // Stands in for the list of an argument that has none, which is
-        // written out once.
-        let no_list = [PathBuf::new()];
         let mut args = Vec::new();
         for arg in &self.args {
-            let mut list = no_list.as_slice();
-            let mut parts = Vec::new();
-            for piece in arg {
-                parts.push(match piece {
-                    Piece::Text(text) => Some(OsStr::new(text)),
-                    Piece::Placeholder(placeholder) => {
-                        let values = expansion.values(*placeholder);
-                        let [first, ..] = values else {
-                            return Err(EmptyPlaceholder(*placeholder));
-                        };
-                        if placeholder.is_list() {
-                            list = values;
-                            None
-                        } else {
-                            Some(first.as_os_str())
-                        }
+            match arg {
+                Arg::Once(parts) => {
+                    let mut expanded = OsString::new();
+                    for part in parts {
+                        expanded.push(part.value(expansion)?);
                     }
-                });
-            }
-            // A line has one kind of list, so the lists in an argument are
-            // one list, and each of its paths fills them all.
-            for path in list {
-                let mut expanded = OsString::new();
-                for part in &parts {
-                    expanded.push(part.unwrap_or(path.as_os_str()));
+                    args.push(expanded);
                 }
-                args.push(expanded);
+                Arg::Each(list, parts) => {
+                    let empty = EmptyPlaceholder(*list);
+                    let items = expansion.values(*list);
+                    if items.is_empty() {
+                        // An empty placeholder that stands before the list
+                        // is the one to report.
+                        fill(parts, expansion, Err(empty))?;
+                        return Err(empty);
+                    }
+                    for item in items {
+                        args.push(fill(parts, expansion, Ok(item.as_os_str()))?);
+                    }
+                }
             }
         }
         Ok(args)
@@ -149,7 +143,7 @@ impl CommandLine {
             [Piece::Text(text)] => text.clone(),
             _ => return Err(CommandLineError::PlaceholderInProgram),
         };
-        let args: Vec<_> = tokens
+        let pieces: Vec<_> = tokens
             .iter()
             .map(|token| pieces(token, placeholder))
             .collect::<Result<_, _>>()?;
@@ -158,19 +152,25 @@ impl CommandLine {
         // cursor row is an entry of the place above the marks. `{marked_paths}`
         // with `{paths}` would stay in one place, and is refused to keep the
         // rule to one kind.
-        let mixed = {
-            let mut kinds = path_placeholders(&args);
-            kinds
-                .next()
-                .and_then(|first| Some((first, kinds.find(|kind| *kind != first)?)))
+        let paths = {
+            let mut kinds = pieces.iter().flatten().filter_map(|piece| match piece {
+                Piece::Placeholder(placeholder) if placeholder.is_path() => Some(*placeholder),
+                _ => None,
+            });
+            let first = kinds.next();
+            if let Some(first) = first
+                && let Some(other) = kinds.find(|kind| *kind != first)
+            {
+                return Err(CommandLineError::PathPlaceholdersMixed(first, other));
+            }
+            first
         };
-        if let Some((first, other)) = mixed {
-            return Err(CommandLineError::PathPlaceholdersMixed(first, other));
-        }
+        let args = pieces.into_iter().map(Arg::new).collect::<Result<_, _>>()?;
         Ok(Self {
             source: text.to_owned(),
             program,
             args,
+            paths,
         })
     }
 }
@@ -227,6 +227,80 @@ impl Expansion {
     }
 }
 
+// An argument holds one list at most, so that filling it in needs no rule
+// for combining the items of two.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Arg {
+    Once(Vec<Fixed>),
+    Each(Placeholder, Vec<Part>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Part {
+    Fixed(Fixed),
+    // The item of the argument's list that the argument is being written for.
+    Item,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Fixed {
+    Text(String),
+    Scalar(Placeholder),
+}
+
+impl Arg {
+    fn new(pieces: Vec<Piece<Placeholder>>) -> Result<Self, CommandLineError> {
+        let mut list = None;
+        for piece in &pieces {
+            if let Piece::Placeholder(placeholder) = piece
+                && placeholder.is_list()
+            {
+                match list {
+                    Some(list) if list != *placeholder => {
+                        return Err(CommandLineError::ListsInOneArgument(list, *placeholder));
+                    }
+                    _ => list = Some(*placeholder),
+                }
+            }
+        }
+        Ok(match list {
+            None => Self::Once(
+                pieces
+                    .into_iter()
+                    .map(|piece| match piece {
+                        Piece::Text(text) => Fixed::Text(text),
+                        Piece::Placeholder(placeholder) => Fixed::Scalar(placeholder),
+                    })
+                    .collect(),
+            ),
+            Some(list) => Self::Each(
+                list,
+                pieces
+                    .into_iter()
+                    .map(|piece| match piece {
+                        Piece::Text(text) => Part::Fixed(Fixed::Text(text)),
+                        Piece::Placeholder(placeholder) if placeholder.is_list() => Part::Item,
+                        Piece::Placeholder(placeholder) => Part::Fixed(Fixed::Scalar(placeholder)),
+                    })
+                    .collect(),
+            ),
+        })
+    }
+}
+
+impl Fixed {
+    fn value<'a>(&'a self, expansion: &'a Expansion) -> Result<&'a OsStr, EmptyPlaceholder> {
+        match self {
+            Self::Text(text) => Ok(OsStr::new(text)),
+            Self::Scalar(placeholder) => expansion
+                .values(*placeholder)
+                .first()
+                .map(|value| value.as_os_str())
+                .ok_or(EmptyPlaceholder(*placeholder)),
+        }
+    }
+}
+
 /// The program and its arguments as one line, quoted so that the rules of
 /// the same `os` split it back into the same parts.
 #[must_use]
@@ -240,11 +314,19 @@ pub fn format_line(program: &str, args: &[OsString], os: Os) -> String {
         .join(" ")
 }
 
-fn path_placeholders(args: &[Vec<Piece<Placeholder>>]) -> impl Iterator<Item = Placeholder> {
-    args.iter().flatten().filter_map(|piece| match piece {
-        Piece::Placeholder(placeholder) if placeholder.is_path() => Some(*placeholder),
-        _ => None,
-    })
+fn fill(
+    parts: &[Part],
+    expansion: &Expansion,
+    item: Result<&OsStr, EmptyPlaceholder>,
+) -> Result<OsString, EmptyPlaceholder> {
+    let mut expanded = OsString::new();
+    for part in parts {
+        expanded.push(match part {
+            Part::Fixed(fixed) => fixed.value(expansion)?,
+            Part::Item => item?,
+        });
+    }
+    Ok(expanded)
 }
 
 pub(crate) fn escape_braces(text: &str) -> String {
@@ -448,6 +530,26 @@ mod tests {
         let error = CommandLine::parse("x {paths} {cursor_path}", Os::Linux).unwrap_err();
 
         assert_eq!(error.to_string(), "{paths} and {cursor_path} in one line");
+    }
+
+    #[test]
+    fn an_argument_with_two_different_lists_is_refused() {
+        let pieces = vec![
+            Piece::Placeholder(Placeholder::MarkedPaths),
+            Piece::Text(":".to_owned()),
+            Piece::Placeholder(Placeholder::Paths),
+        ];
+
+        let error = Arg::new(pieces).unwrap_err();
+
+        assert_eq!(
+            error,
+            CommandLineError::ListsInOneArgument(Placeholder::MarkedPaths, Placeholder::Paths)
+        );
+        assert_eq!(
+            error.to_string(),
+            "{marked_paths} and {paths} in one argument"
+        );
     }
 
     #[test]
