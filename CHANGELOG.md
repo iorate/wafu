@@ -1,5 +1,154 @@
 # wafu
 
+## 0.5.0
+
+### Minor Changes
+
+- Add `copy_files` (`Alt+C`) and `paste_files` (`Alt+V`), which copy files through the OS clipboard: `copy_files` puts the marked items, or the item under the cursor, on the clipboard as files, and `paste_files` copies the files on the clipboard into the active pane's directory.
+
+- Command names are made consistent, which gives twenty commands new names. Key bindings under the old names are reported as unknown and ignored. The popup of `new_dir` is now titled `New directory`, and the popup of `preview_encodings` is titled `Encodings`. A command line that cannot be parsed in the popup of `run` or `run_command_line` is logged as `Cannot run command line: …`, without the command name.
+
+  | Old name | New name |
+  |---|---|
+  | `enter_as_archive` | `open_as_archive` |
+  | `history_back` | `go_back` |
+  | `history_forward` | `go_forward` |
+  | `drive_prev` | `go_prev_drive` |
+  | `drive_next` | `go_next_drive` |
+  | `switch_pane` | `focus_other` |
+  | `sync_other_to_this` | `sync_from_other` |
+  | `page_up` | `cursor_page_up` |
+  | `page_down` | `cursor_page_down` |
+  | `next_mark` | `cursor_next_mark` |
+  | `prev_mark` | `cursor_prev_mark` |
+  | `pane_shrink_left` | `split_left` |
+  | `pane_grow_left` | `split_right` |
+  | `clear_log` | `log_clear` |
+  | `copy_log` | `log_copy` |
+  | `preview_encoding` | `preview_encodings` |
+  | `close_preview` | `preview_close` |
+  | `mkdir` | `new_dir` |
+  | `run_file` | `run` |
+  | `run_command` | `run_command_line` |
+
+- A place inside an archive is now written from a root named after the archive, as `a.zip:/path/to/file`, in the pane header, the window title, the log, popups, and the copied path. The directory holding the archive is no longer part of it, and Windows no longer mixes `\` and `/`.
+
+- The `rename_template` placeholder for the name without its extension is now `{stem}` instead of `{name}`, so that "name" means the whole name everywhere.
+
+- Placeholders in command lines are now replaced anywhere in an argument (`--dir={dir}`), an argument that holds `{paths}` or `{marked_paths}` is repeated for each path, a brace meant as text must be doubled (`{{`, `}}`) while any other brace or unknown name is an error, and a command whose placeholder has no value is not started. `editor` and `[open_alternative]` now take `{path}`, the file they open, as their only placeholder, in place of `{paths}` and `{cursor_path}`.
+
+- An external command can now be written as a plain string, `NAME = "..."` under `[commands]`, as well as a table with `command_line`. An empty string in either form now takes back a command defined by a file below, instead of being reported as invalid.
+
+- A command line can now use only one of `{cursor_path}`, `{marked_paths}`, and `{paths}`; a line that mixes them is an error. A command now checks only the items its line uses: an item it does not use no longer keeps it from starting because of a name ending with a dot or a space on Windows, or because it is a link inside an archive. Inside an archive, a command extracts only those items, and a line with `{cursor_path}` now starts on a `..` row while items are marked.
+
+- The names of configuration items are made consistent, which renames the items below. An item under an old name is reported as unknown and ignored; `[keys.image]` and `[keys.text]` are ignored as a whole, with every binding in them. A command table that still has `run` is reported as missing `command_line` and is left undefined, so the keys bound to it do nothing.
+
+  | Old name | New name |
+  |---|---|
+  | `[keys.image]` | `[keys.preview.image]` |
+  | `[keys.text]` | `[keys.preview.text]` |
+  | `mkdir_enters_dir` | `new_dir_goes_to_dir` |
+  | `search_matches_anywhere = true` / `false` | `search_match = "anywhere"` / `"start"` |
+  | `compare_tolerance_ms` | `mark_compare_tolerance_ms` |
+  | `max_find_results` | `max_find_matches` |
+  | `from_left`, `from_right` under `[preview.image]` | `placement_from_left`, `placement_from_right` |
+  | `fifo` under `[colors.light]` and `[colors.dark]` | `special` |
+  | `broken` under `[colors.light]` and `[colors.dark]` | `link_broken` |
+  | `run` in a command written as a table | `command_line` |
+
+- The window title now puts the path first and shows the version, as `<path> - wafu <version>`, so that a taskbar that cuts a long title keeps the path.
+
+- The log now starts with a line that shows the version, `Started wafu <version>`.
+
+- Add the `extract_here` command (`Shift+U`), which extracts archives into the directory of the active pane instead of the other pane.
+
+- The default keys no longer use function keys, and modifiers now follow one pattern. Five commands move to other keys, and three get a default key for the first time.
+
+  | Command | Old key | New key |
+  |---|---|---|
+  | `palette` | `F1` | `?` |
+  | `reload` | `F5` | `,` |
+  | `rename_template` | `Alt+R` | `Ctrl+Shift+R` |
+  | `open_as_archive` | `Shift+U` | `Shift+V` |
+  | `new_file` | `N` | `Shift+K` |
+  | `swap_panes` | none | `Alt+O` |
+  | `log_clear` | none | `Alt+D` |
+  | `log_copy` | none | `Alt+Y` |
+
+- Add the `compress_here` command (`Shift+P`), which creates the archive in the directory of the active pane instead of the other pane.
+
+- Make `open_alternative` (`Shift+Enter`) on the `..` row act on the current directory itself, or on the archive file at the root of an archive, as `open_with_os` does. Without a rule for it, the `..` row still moves up.
+
+- `docs/commands.md` now lists every command with its default keys, where it works, and a one-line description. The command palette shows the description of the selected built-in command in the status bar.
+
+- The history, drive, and encoding popups now mark the current item with `*`, like the sort popup. The encoding popup no longer has the `Auto-detect` item; a preview goes back to the detected encoding when it is opened again.
+
+- On Windows and macOS, files can now be dragged from the file list to other applications, such as Explorer, Finder, or a browser's upload field: dragging a row hands over the marked items, or the item dragged when nothing is marked, as a copy.
+
+- The Backspace key is now written `Backspace` in key bindings and shown so in the command palette. A binding written with `BS` is reported as an invalid key and ignored. Keys with several modifiers are shown as `Ctrl`, `Alt`, `Shift`, in that order, so `Shift+Alt+Z` now reads `Alt+Shift+Z`; a binding may still write them in any order.
+
+### Patch Changes
+
+- Extracting or copying out of an archive now skips an entry whose name is too long for the destination and goes on with the rest. It used to stop the whole operation.
+
+- Pressing Tab in the history popup to show the other pane's history now keeps the cursor row on screen. It could be scrolled out of view when both histories had the same length and the same current place in them.
+
+- Files extracted or opened from a downloaded archive now carry its mark of origin (the quarantine attribute on macOS, the zone identifier on Windows), so the OS runs its usual first-open checks on them.
+
+- Confirming quit a second time, while the operation cancelled by the first has not stopped, now quits without waiting, so an operation stuck on an unresponsive drive no longer keeps the window from closing.
+
+- The file list now always lines its rows up from the top of the list. At the end of a directory the last row was placed against the bottom edge instead, and it could be cut off after the pane was made shorter.
+
+- An empty `extends` (`extends = ""`) now extends nothing, like an empty string for other string items, instead of making wafu ignore the whole configuration. An empty string inside an `extends` array is reported as invalid and skipped.
+
+- A new file, a new text file, or the archive to compress to must now be given a single name, and `new_dir` makes directories only below the current one. Extracting into directories now fails for an archive whose name cannot be a directory there (such as `...zip`), and on Windows a name that Windows does not allow is refused with the reason instead of being tried.
+
+- On macOS, quitting with Cmd+Q or the application menu's Quit now saves the state (the panes' directories, histories, and view settings, and the window frame), and asks for confirmation while an operation is running. It used to end wafu at once without saving anything.
+
+- Fix overwriting a file or link with itself deleting it when it cannot be read, and a FIFO freezing an overwrite or a rename. Moving a directory onto itself through a link or another spelling of the path now fails instead of removing its empty directories.
+
+- Scrolling the file list with the mouse wheel or the scrollbar is no longer undone when the directory reloads or the window height changes, and the list no longer stays scrolled past its end after the window grows taller.
+
+- Extracting an archive no longer changes the permissions or modification time of directories that already existed at the destination, and the permissions of extracted files and directories now respect the umask.
+
+- On Windows, commands now refuse a selected item whose name ends with a dot or a space and log why, instead of acting on a different item whose name lacks that ending.
+
+- Fix a pane retrying without end, or starting with no location, when the nearest existing directory cannot be listed. The pane now moves up to a directory it can read, or to the home directory.
+
+- The image preview now refuses an image that would need more than 1 GiB of memory to decode, instead of trying to allocate it. A small file that declares huge dimensions could otherwise freeze or crash wafu.
+
+- The note of `rename_template` now quotes an unknown placeholder, as the log does: `Unknown placeholder "{x}"`.
+
+- Fix extraction stopping at a zip symbolic link whose target is not UTF-8, and skip a link whose target is longer than 1 MiB, without reading it into memory when it is in a zip. On Windows, extraction no longer connects to a network host named by a link target; a link is made as a directory link only when its target is a relative path to a directory with no other link on the way.
+
+- Going back or forward through the history now skips a place that cannot be read, such as an unplugged drive, and goes on to the next one, instead of staying where it is. The skipped place stays in the history.
+
+- On Windows, a program written without its extension, such as `code` for `code.cmd`, now starts instead of failing with "program not found".
+
+- Name the command in the log when `edit`, `open_with_os`, `open_alternative`, `run`, or an external command inside an archive ends without starting: `Cannot edit …: 1 entry was skipped` and `Edit cancelled`, where the lines spoke of an extraction.
+
+- Overwriting a file during a copy, move, compression, or extraction no longer deletes the existing one first, so it is kept when the operation fails or is cancelled.
+
+- A pane's location is now normalized however it is reached, so going up from a location given with `..` works, Windows locations always use `\`, and `D:` goes to `D:\`. A relative bookmark path is now taken from the directory of the configuration file it is written in.
+
+- A key in `keys` written as a space or a control character (such as `" "`, `"\t"` or `"Ctrl+ "`) is now reported as invalid, since it can never match a key press. Write `Space` or `Tab` instead.
+
+- Skip symbolic links when extracting a directory inside an archive for another program (`open_with_os`, `edit`, `run`, external commands). The program is not started, since a link could lead it to a file outside the archive.
+
+- Fix `edit`, `open_with_os`, `run`, and external commands following a symbolic link inside an archive to the file it points to outside the archive. They now do nothing for such a link and log the reason.
+
+- Fix compressing over one of the files being compressed deleting that file. Renaming the output onto a source in the conflict popup, or a default name that differs from a source only in case, now fails instead.
+
+- Make the wording of popups uniform: the batch rename popups are titled `Rename (replace)` and `Rename (template)`, the popups of `mark_glob` and `mark_compare` are titled `Mark (glob)` and `Mark (compare)`, the delete confirmation shows just the name or the number of items, the find popups no longer show the directory, and a wrong archive password is reported under the field.
+
+- Log the reason when `open`, `open_alternative`, `open_as_text`, or `open_as_archive` does nothing on a symbolic link inside an archive.
+
+- On Windows, the window now reopens where it was when monitors have different scale factors, and opens where the system puts it when the saved position is no longer on an attached screen, as after unplugging a monitor.
+
+- Compressing now fails at a file name or link target that is not valid UTF-8 instead of replacing the invalid characters, which could give two files the same name in the archive.
+
+- A name that ends in a dot, such as `report.`, is now shown with the dot. It used to be shown as if the dot were not there.
+
 ## 0.4.0
 
 ### Minor Changes
