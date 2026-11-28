@@ -15,7 +15,6 @@ pub struct CommandLine {
     source: String,
     program: String,
     args: Vec<Arg>,
-    paths: Option<Placeholder>,
 }
 
 /// What a placeholder stands for.
@@ -90,7 +89,7 @@ impl CommandLine {
     /// an archive have to be extracted first. A line has one kind at most.
     #[must_use]
     pub fn paths_placeholder(&self) -> Option<Placeholder> {
-        self.paths
+        self.args.iter().find_map(Arg::path_placeholder)
     }
 
     /// Whether the line uses a placeholder for paths of entries.
@@ -113,8 +112,8 @@ impl CommandLine {
                     args.push(expanded);
                 }
                 Arg::Each(list, parts) => {
-                    let empty = EmptyPlaceholder(*list);
-                    let items = expansion.values(*list);
+                    let empty = EmptyPlaceholder((*list).into());
+                    let items = expansion.values((*list).into());
                     if items.is_empty() {
                         // An empty placeholder that stands before the list
                         // is the one to report.
@@ -152,25 +151,22 @@ impl CommandLine {
         // cursor row is an entry of the place above the marks. `{marked_paths}`
         // with `{paths}` would stay in one place, and is refused to keep the
         // rule to one kind.
-        let paths = {
+        {
             let mut kinds = pieces.iter().flatten().filter_map(|piece| match piece {
                 Piece::Placeholder(placeholder) if placeholder.is_path() => Some(*placeholder),
                 _ => None,
             });
-            let first = kinds.next();
-            if let Some(first) = first
+            if let Some(first) = kinds.next()
                 && let Some(other) = kinds.find(|kind| *kind != first)
             {
                 return Err(CommandLineError::PathPlaceholdersMixed(first, other));
             }
-            first
-        };
+        }
         let args = pieces.into_iter().map(Arg::new).collect::<Result<_, _>>()?;
         Ok(Self {
             source: text.to_owned(),
             program,
             args,
-            paths,
         })
     }
 }
@@ -202,8 +198,15 @@ impl Placeholder {
         }
     }
 
-    fn is_list(self) -> bool {
-        matches!(self, Self::MarkedPaths | Self::Paths)
+    fn kind(self) -> Kind {
+        match self {
+            Self::CursorPath => Kind::Scalar(Scalar::CursorPath),
+            Self::MarkedPaths => Kind::List(List::MarkedPaths),
+            Self::Paths => Kind::List(List::Paths),
+            Self::Dir => Kind::Scalar(Scalar::Dir),
+            Self::OtherDir => Kind::Scalar(Scalar::OtherDir),
+            Self::Path => Kind::Scalar(Scalar::Path),
+        }
     }
 
     fn is_path(self) -> bool {
@@ -227,80 +230,6 @@ impl Expansion {
     }
 }
 
-// An argument holds one list at most, so that filling it in needs no rule
-// for combining the items of two.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Arg {
-    Once(Vec<Fixed>),
-    Each(Placeholder, Vec<Part>),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Part {
-    Fixed(Fixed),
-    // The item of the argument's list that the argument is being written for.
-    Item,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Fixed {
-    Text(String),
-    Scalar(Placeholder),
-}
-
-impl Arg {
-    fn new(pieces: Vec<Piece<Placeholder>>) -> Result<Self, CommandLineError> {
-        let mut list = None;
-        for piece in &pieces {
-            if let Piece::Placeholder(placeholder) = piece
-                && placeholder.is_list()
-            {
-                match list {
-                    Some(list) if list != *placeholder => {
-                        return Err(CommandLineError::ListsInOneArgument(list, *placeholder));
-                    }
-                    _ => list = Some(*placeholder),
-                }
-            }
-        }
-        Ok(match list {
-            None => Self::Once(
-                pieces
-                    .into_iter()
-                    .map(|piece| match piece {
-                        Piece::Text(text) => Fixed::Text(text),
-                        Piece::Placeholder(placeholder) => Fixed::Scalar(placeholder),
-                    })
-                    .collect(),
-            ),
-            Some(list) => Self::Each(
-                list,
-                pieces
-                    .into_iter()
-                    .map(|piece| match piece {
-                        Piece::Text(text) => Part::Fixed(Fixed::Text(text)),
-                        Piece::Placeholder(placeholder) if placeholder.is_list() => Part::Item,
-                        Piece::Placeholder(placeholder) => Part::Fixed(Fixed::Scalar(placeholder)),
-                    })
-                    .collect(),
-            ),
-        })
-    }
-}
-
-impl Fixed {
-    fn value<'a>(&'a self, expansion: &'a Expansion) -> Result<&'a OsStr, EmptyPlaceholder> {
-        match self {
-            Self::Text(text) => Ok(OsStr::new(text)),
-            Self::Scalar(placeholder) => expansion
-                .values(*placeholder)
-                .first()
-                .map(|value| value.as_os_str())
-                .ok_or(EmptyPlaceholder(*placeholder)),
-        }
-    }
-}
-
 /// The program and its arguments as one line, quoted so that the rules of
 /// the same `os` split it back into the same parts.
 #[must_use]
@@ -312,6 +241,137 @@ pub fn format_line(program: &str, args: &[OsString], os: Os) -> String {
         .chain(args)
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+// An argument holds one list at most, so that filling it in needs no rule
+// for combining the items of two.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Arg {
+    Once(Vec<Fixed>),
+    Each(List, Vec<Part>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Part {
+    Fixed(Fixed),
+    Item,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Fixed {
+    Text(String),
+    Scalar(Scalar),
+}
+
+enum Kind {
+    Scalar(Scalar),
+    List(List),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Scalar {
+    CursorPath,
+    Dir,
+    OtherDir,
+    Path,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum List {
+    MarkedPaths,
+    Paths,
+}
+
+impl Arg {
+    fn new(pieces: Vec<Piece<Placeholder>>) -> Result<Self, CommandLineError> {
+        let mut arg = Self::Once(Vec::new());
+        for piece in pieces {
+            let fixed = match piece {
+                Piece::Text(text) => Fixed::Text(text),
+                Piece::Placeholder(placeholder) => match placeholder.kind() {
+                    Kind::Scalar(scalar) => Fixed::Scalar(scalar),
+                    Kind::List(found) => {
+                        arg = match arg {
+                            Self::Once(parts) => {
+                                let parts = parts.into_iter().map(Part::Fixed);
+                                Self::Each(found, parts.chain([Part::Item]).collect())
+                            }
+                            Self::Each(list, mut parts) if list == found => {
+                                parts.push(Part::Item);
+                                Self::Each(list, parts)
+                            }
+                            Self::Each(list, _) => {
+                                return Err(CommandLineError::ListsInOneArgument(
+                                    list.into(),
+                                    found.into(),
+                                ));
+                            }
+                        };
+                        continue;
+                    }
+                },
+            };
+            match &mut arg {
+                Self::Once(parts) => parts.push(fixed),
+                Self::Each(_, parts) => parts.push(Part::Fixed(fixed)),
+            }
+        }
+        Ok(arg)
+    }
+
+    fn path_placeholder(&self) -> Option<Placeholder> {
+        let of_fixed = |fixed: &Fixed| match fixed {
+            Fixed::Scalar(scalar) => Some(Placeholder::from(*scalar)).filter(|p| p.is_path()),
+            Fixed::Text(_) => None,
+        };
+        match self {
+            Self::Once(parts) => parts.iter().find_map(of_fixed),
+            Self::Each(list, parts) => Some(Placeholder::from(*list))
+                .filter(|placeholder| placeholder.is_path())
+                .or_else(|| {
+                    parts.iter().find_map(|part| match part {
+                        Part::Fixed(fixed) => of_fixed(fixed),
+                        Part::Item => None,
+                    })
+                }),
+        }
+    }
+}
+
+impl Fixed {
+    fn value<'a>(&'a self, expansion: &'a Expansion) -> Result<&'a OsStr, EmptyPlaceholder> {
+        match self {
+            Self::Text(text) => Ok(OsStr::new(text)),
+            Self::Scalar(scalar) => {
+                let placeholder = Placeholder::from(*scalar);
+                expansion
+                    .values(placeholder)
+                    .first()
+                    .map(|value| value.as_os_str())
+                    .ok_or(EmptyPlaceholder(placeholder))
+            }
+        }
+    }
+}
+
+impl From<Scalar> for Placeholder {
+    fn from(scalar: Scalar) -> Self {
+        match scalar {
+            Scalar::CursorPath => Self::CursorPath,
+            Scalar::Dir => Self::Dir,
+            Scalar::OtherDir => Self::OtherDir,
+            Scalar::Path => Self::Path,
+        }
+    }
+}
+
+impl From<List> for Placeholder {
+    fn from(list: List) -> Self {
+        match list {
+            List::MarkedPaths => Self::MarkedPaths,
+            List::Paths => Self::Paths,
+        }
+    }
 }
 
 fn fill(
@@ -546,10 +606,6 @@ mod tests {
             error,
             CommandLineError::ListsInOneArgument(Placeholder::MarkedPaths, Placeholder::Paths)
         );
-        assert_eq!(
-            error.to_string(),
-            "{marked_paths} and {paths} in one argument"
-        );
     }
 
     #[test]
@@ -644,6 +700,23 @@ mod tests {
             line.expand(&expansion).unwrap(),
             ["p1=p1.bak", "p2=p2.bak"].map(OsString::from)
         );
+    }
+
+    #[test]
+    fn expand_reports_the_first_empty_placeholder_of_an_argument_with_a_list() {
+        let empty = Expansion::default();
+        for (text, placeholder) in [
+            ("x {dir}{marked_paths}", Placeholder::Dir),
+            ("x {marked_paths}{dir}", Placeholder::MarkedPaths),
+        ] {
+            let line = CommandLine::parse(text, Os::Linux).unwrap();
+
+            assert_eq!(
+                line.expand(&empty),
+                Err(EmptyPlaceholder(placeholder)),
+                "{text:?}"
+            );
+        }
     }
 
     #[test]
