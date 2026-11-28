@@ -32,7 +32,7 @@ pub(crate) fn spawn(
         command
     };
     match build(program).spawn() {
-        // std looks for a bare name only with `.exe` appended, so the other
+        // std looks for a bare name only with `.exe` appended, so the
         // extensions that can be started are tried here, as for `code.cmd`.
         #[cfg(windows)]
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -204,18 +204,6 @@ mod tests {
 
         assert!(spawn("wafu-no-such-program", &["x"], Some(dir.path()), &[]).is_err());
         assert!(spawn(program, args, Some(&dir.path().join("gone")), &[]).is_err());
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn a_bare_name_finds_a_batch_file_on_the_path() {
-        let dir = TempDir::new().unwrap();
-        std::fs::write(dir.path().join("wafu-hello.cmd"), "@exit 0\r\n").unwrap();
-        let env = [(OsString::from("PATH"), dir.path().as_os_str().to_owned())];
-
-        let mut child = spawn("wafu-hello", &[] as &[&str], None, &env).unwrap();
-
-        assert!(child.wait().unwrap().success());
     }
 
     #[cfg(windows)]

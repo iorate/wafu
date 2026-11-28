@@ -9,6 +9,11 @@ use crate::time::timestamp;
 
 const CANCEL_CHECK_INTERVAL: usize = 256;
 
+// What CreateProcessW starts when named directly; it hands bat and cmd to
+// cmd.exe. The rest of PATHEXT (vbs, js, msc, ...) does not start that way.
+#[cfg(not(unix))]
+pub(crate) const EXECUTABLE_EXTENSIONS: [&str; 4] = ["exe", "com", "bat", "cmd"];
+
 // An entry whose metadata cannot be read is kept as a plain file with no size
 // or time, so that it still shows up in the listing.
 pub(crate) fn read_dir_with(path: &Path, cancelled: impl Fn() -> bool) -> io::Result<Directory> {
@@ -35,11 +40,6 @@ pub(crate) fn own_entry(path: &Path) -> Option<Entry> {
         .map_or_else(OsString::new, ToOwned::to_owned);
     Some(entry(path, name, Some(&metadata)))
 }
-
-// What CreateProcessW starts when named directly; it hands bat and cmd to
-// cmd.exe. The rest of PATHEXT (vbs, js, msc, ...) does not start that way.
-#[cfg(not(unix))]
-pub(crate) const EXECUTABLE_EXTENSIONS: [&str; 4] = ["exe", "com", "bat", "cmd"];
 
 #[cfg(not(unix))]
 pub(crate) fn is_executable_name(name: &OsStr) -> bool {
