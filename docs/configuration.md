@@ -2,7 +2,7 @@
 
 # Configuration
 
-wafu reads its settings from a TOML file:
+wafu reads its settings from a TOML file and applies a change as soon as the file is saved.
 
 | OS | Path |
 |---|---|
@@ -10,18 +10,13 @@ wafu reads its settings from a TOML file:
 | macOS | `~/Library/Application Support/wafu/config.toml` |
 | Linux | `$XDG_CONFIG_HOME/wafu/config.toml`, or `~/.config/wafu/config.toml` |
 
-Pass `--config PATH` to use another file; it is created the same way if missing.
+`--config PATH` uses another file. The `edit_config` command (`Z` in the file list) opens the file in the [editor](#programs).
 
-wafu creates the file on first launch with a link to this page and nothing else. The `edit_config` command (`Z` in the file list) opens it in the [editor](#programs).
-
-- Changes apply as soon as the file, or any file it [extends](#sharing-settings-between-machines), is saved, except `use_login_shell_env`, which is read only when wafu starts.
-- An item you leave out takes its default.
-- An unknown item or an unusable value is reported in the log and ignored; the rest of the configuration still applies.
-- A TOML syntax error is reported in the log with the file and line number, and the whole configuration is ignored: wafu keeps the configuration it had (the defaults, at startup).
+An item you leave out takes its default. A mistake in the file is reported in the log.
 
 ## Sharing settings between machines
 
-To keep shared settings in one file, such as one in your dotfiles, and only what differs on each machine in the configuration file, name the shared file in `extends` at the top of the configuration file:
+`extends` names a file, such as one in your dotfiles, that the configuration file builds on:
 
 ```toml
 extends = "~/dotfiles/wafu/common.toml"      # or an array: extends = ["a.toml", "b.toml"]
@@ -30,23 +25,9 @@ extends = "~/dotfiles/wafu/common.toml"      # or an array: extends = ["a.toml",
 editor = "code {path}"
 ```
 
-- The configuration file applies over what it extends, and each file in an array applies over the ones before it.
-- Tables merge item by item, and the key tables (`[keys.filelist]` and the like) key by key. An array, such as `bookmarks`, replaces the one below it as a whole.
-- For an item written as a string, such as a color or a command line, and for a value in an extension or key table, an empty string takes back what a file below set, as if no file had written the item: `pdf = ""` under `[open_alternative.extensions]` leaves `pdf` without a rule, and `editor = ""` brings back the default editor. An item that is `true` or `false` or a number is not taken back this way; write the value you want instead.
-- A path that is `~` or starts with `~/` (on Windows also `~\`) is taken from your home directory; any other relative path is taken from the directory of the file that names it. If that file is a symbolic link, this is the directory the link is in, not the one it points to.
-- A file you extend may have an `extends` of its own. A file that ends up extending itself is an error.
-- If a file you extend is missing, cannot be read, or has a syntax error, the error is reported in the log with that file's path, and the whole configuration is ignored, as for a syntax error in the configuration file. Only the configuration file itself is ever created.
-- wafu watches every file involved, so saving any of them applies the change.
+The configuration file applies over what it extends, and each file in an array over the ones before it. Tables merge item by item; an array, such as `bookmarks`, is replaced as a whole. An empty string takes back what an extended file set: `editor = ""` brings back the default editor.
 
-For example, to use other bookmarks on one machine, write them all in its configuration file; they replace the shared bookmarks rather than adding to them:
-
-```toml
-extends = "~/dotfiles/wafu/common.toml"
-
-[[bookmarks]]
-name = "Work"
-path = "~/work"
-```
+A relative path is taken from the directory of the file that names it.
 
 ## Defaults
 
@@ -125,7 +106,7 @@ socket = "#e58ae0"
 
 <!-- /generated -->
 
-There are no default bookmarks, external commands, [`open_alternative` programs](#alternative-open), or [extension colors](#colors). Without a `[keys]` table, the keys shown in the [command palette](#keys) are the defaults.
+Bookmarks, external commands, [alternative open](#alternative-open), and [extension colors](#colors) are empty by default. [commands.md](commands.md) lists the default keys.
 
 ## File list
 
@@ -152,7 +133,7 @@ There are no default bookmarks, external commands, [`open_alternative` programs]
 
 ## Preview
 
-`[preview.text]` is for the text preview, its binary mode included, which always takes the place of both panes:
+`[preview.text]` is for the text preview, its binary mode included:
 
 <!-- generated:preview.text -->
 
@@ -197,7 +178,7 @@ There are no default bookmarks, external commands, [`open_alternative` programs]
 
 <!-- /generated -->
 
-With `use_login_shell_env`, wafu runs your shell once at startup as an interactive login shell and takes its environment, so programs started from a desktop launcher still see what your shell startup files set up. While it does this, `WAFU_RESOLVING_ENVIRONMENT` is set to `1`, so startup files can skip things that should not run there:
+With `use_login_shell_env`, wafu runs your shell once at startup as an interactive login shell and takes its environment, so a change to this item applies at the next start. While the shell runs, `WAFU_RESOLVING_ENVIRONMENT` is set to `1`, so startup files can skip what should not run there:
 
 ```sh
 [ -z "$WAFU_RESOLVING_ENVIRONMENT" ] && exec tmux
@@ -216,7 +197,7 @@ With `use_login_shell_env`, wafu runs your shell once at startup as an interacti
 
 <!-- /generated -->
 
-Each area can have its own font in a table with the same items: `[font.path]`, `[font.filelist]`, `[font.info]`, `[font.log]`, `[font.status]`, `[font.preview]`, and `[font.popup]`. An item an area leaves out (or an empty `family`) follows `[font]`.
+Each area can have its own font in a table with the same items: `[font.path]`, `[font.filelist]`, `[font.info]`, `[font.log]`, `[font.status]`, `[font.preview]`, and `[font.popup]`. What an area leaves out follows `[font]`.
 
 ```toml
 [font.path]
@@ -256,7 +237,7 @@ size = 16
 
 <!-- /generated -->
 
-`[colors.light.extensions]` and `[colors.dark.extensions]` give regular files a color by extension, in place of `fg`. Each key is an extension without the dot, such as `zip` for `a.zip`, and matches in either case, so `zip` also colors `B.ZIP`. Only the part after the last dot is matched: `gz` colors `a.tar.gz`, and a key with a dot, such as `"tar.gz"`, is reported as invalid. The other kinds above keep their own color, so an executable `run.sh` takes `exec` whatever `sh` is set to. On Windows, `exe`, `com`, `bat`, and `cmd` files are executable, so they take `exec` too. Each theme has its own table: an extension set in only one of them takes `fg` in the other. Both tables are empty by default.
+`[colors.light.extensions]` and `[colors.dark.extensions]` give regular files a color by extension, in place of `fg`. A key is the part of the name after the last dot, in either case.
 
 ```toml
 [colors.light.extensions]
@@ -270,8 +251,6 @@ zip = "#ff8080"
 
 ## Bookmarks
 
-Each `[[bookmarks]]` entry adds one bookmark, in order. `name` is what the bookmarks popup shows; a `path` that is `~` or starts with `~/` (on Windows also `~\`) is taken from your home directory, and any other relative path from the directory of the file it is written in.
-
 ```toml
 [[bookmarks]]
 name = "Downloads"
@@ -283,30 +262,21 @@ name = "Projects"
 path = "~/projects"
 ```
 
-`key` is optional: a digit or a letter that picks the bookmark at once in the popup.
+`key` is optional: a digit or a letter that picks the bookmark at once in the bookmarks popup.
 
 ## Commands
 
-`NAME = "..."` under `[commands]` defines an external command with its command line. Bind it to a key in `[keys.filelist]` as `"$NAME"`.
+`[commands]` gives a name to an external command line. Bind it to a key in `[keys.filelist]` as `"$NAME"`.
 
 ```toml
 [commands]
-open_terminal = "wt -d {dir}"
+open_terminal = "wt -d {dir}"      # Windows Terminal
 
 [keys.filelist]
 "F2" = "$open_terminal"
 ```
 
-`wt` in the example is Windows Terminal.
-
-A command can also be written as a table with the line in `command_line`: `open_terminal = { command_line = "wt -d {dir}" }`, or `[commands.open_terminal]` with `command_line = "..."` under it. An empty string in either form leaves the command undefined, which is how a file takes back a command that a file it [extends](#sharing-settings-between-machines) defined.
-
-The command runs without a shell, in the directory of the active pane. The line is split into arguments by the OS's own quoting rules:
-
-- macOS and Linux: those of `sh`, with `'...'`, `"..."`, and `\`. Nothing is expanded: `$VAR`, `~`, and wildcards are passed as written, and a word starting with `#` begins a comment.
-- Windows: those of the C runtime, with `"..."`. In the arguments, `\"` is a literal quote; single quotes are ordinary characters.
-
-These placeholders are replaced when the command runs:
+The command runs without a shell, in the directory of the active pane. The line is split into arguments as `sh` does on macOS and Linux (`'...'`, `"..."`, and `\`) and as the C runtime does on Windows (`"..."`, with `\"` for a quote). Nothing is expanded: `$VAR`, `~`, and wildcards are passed as written.
 
 | Placeholder | Becomes |
 |---|---|
@@ -315,24 +285,17 @@ These placeholders are replaced when the command runs:
 | `{paths}` | The marked items, or the item under the cursor when nothing is marked |
 | `{dir}` | The directory of the active pane |
 | `{other_dir}` | The directory of the other pane |
+| `{{`, `}}` | A literal brace |
 
-A placeholder is replaced wherever it stands in an argument: `-o{other_dir}` and `--dir={dir}` work. Quoting does not turn it into text. `{marked_paths}` and `{paths}` are lists: an argument that holds one is repeated for each path, so `{paths}` becomes one argument per item and `--add={marked_paths}` becomes `--add=/a --add=/b`. A list written more than once in an argument is filled with the same path each time: `{paths}={paths}.bak` becomes `/a=/a.bak /b=/b.bak`. The program, the first word of the line, cannot hold a placeholder.
+Paths are full paths, and a placeholder can stand anywhere in an argument, as in `--dir={dir}`. An argument that holds `{marked_paths}` or `{paths}` is repeated for each path: `--add={paths}` becomes `--add=/a --add=/b`.
 
-A line can use only one of `{cursor_path}`, `{marked_paths}`, and `{paths}`, as many times as it needs.
+Inside an archive, the items that `{cursor_path}`, `{marked_paths}`, or `{paths}` name are first extracted to a temporary directory.
 
-To write a brace as text, double it: `{{` and `}}`. Any other brace is an error, as is a name in braces that is not in the table.
-
-When a placeholder in the line has no value, such as `{marked_paths}` with nothing marked, the command is not started and the log says which placeholder was empty.
-
-Paths are full paths. Inside an archive, a line that uses `{cursor_path}`, `{marked_paths}`, or `{paths}` first extracts the items to a temporary directory, and those placeholders name the extracted files. `{dir}` is then the directory that holds the archive file, the outermost one for an archive inside an archive.
-
-The same rules apply to the lines typed into the dialogs of `run` and `run_command_line`. `run` doubles the braces in the path it starts out with.
-
-`editor` and the lines of [alternative open](#alternative-open) follow these rules too, but run on one file rather than on the pane, so their only placeholder is `{path}`, that file. The placeholders in the table are errors there.
+The lines typed into the dialogs of `run` and `run_command_line` follow the same rules.
 
 ## Alternative open
 
-`open_alternative` (`Shift+Enter` in the file list) opens the item under the cursor in a program you choose for its kind, in place of what `open` (`Enter`) does:
+`open_alternative` (`Shift+Enter` in the file list) opens the item under the cursor in a program you choose for its kind:
 
 ```toml
 [open_alternative]
@@ -342,37 +305,27 @@ dir = "code {path}"
 pdf = "sumatrapdf {path}"
 ```
 
-- `dir` is the command line for directories, and links to them.
-- `[open_alternative.extensions]` gives regular files, and links to them, a command line by extension. Its keys follow the rules of [extension colors](#colors): an extension without the dot, matched in either case and against the part after the last dot only. A rule for an extension wins over opening an archive as a directory or running an executable file, so a `zip` rule opens `a.zip` in its program rather than going into it.
-- On the `..` row the item is the current directory itself, or, at the root of an archive, the archive file.
-- Anything without a rule, broken links, special files, and links inside an archive are opened as `open` does.
-- Both are empty by default.
+`dir` is for directories, and `[open_alternative.extensions]` for regular files by extension, archives and executable files included. Anything without a rule is opened as `open` (`Enter`) does.
 
-The command lines follow the rules of [external commands](#commands), with `{path}`, the item under the cursor, as their only placeholder. Inside an archive, a line that uses `{path}` first extracts the item to a temporary directory, as for external commands.
+The lines follow the rules of [external commands](#commands), with `{path}`, the item under the cursor, as their only placeholder.
 
 ## Keys
 
-`[keys.filelist]`, `[keys.preview.image]`, and `[keys.preview.text]` bind keys in the file list, the image preview, and the text preview (its binary mode included). Each entry maps a key to a command name:
+`[keys.filelist]`, `[keys.preview.image]`, and `[keys.preview.text]` bind keys in the file list, the image preview, and the text preview. Keys you do not bind keep their defaults.
 
 ```toml
 [keys.filelist]
-"Q" = "nop"
-"F4" = "edit"
+"F4" = "edit"                # a built-in command
+"F2" = "$open_terminal"      # an external command from [commands]
+"Q" = "nop"                  # unbind the key
+"Ctrl+Q" = ""                # give the key back its default
 ```
 
-- A key you bind replaces the built-in binding of that key only; all other built-in bindings stay.
-- `"nop"` unbinds the key.
-- `""` gives the key back its built-in binding.
-- `"$NAME"` runs the command `NAME` of `[commands]`.
-- A command that does not work in the context is reported and ignored.
+[commands.md](commands.md) lists every command with its default keys. The command palette (`?`) lists the commands available where you are, with the keys bound to them.
 
-The command palette (`?`) lists the commands available where you are, with the keys bound to them. [commands.md](commands.md) lists every command with its default keys and what it does.
+A key is written as modifiers and a key name joined by `+`, as in `"Ctrl+Shift+Left"`. Case does not matter.
 
-Keys are written as modifiers and a key joined by `+`, as in `"Ctrl+Shift+Left"`:
-
-- Modifiers: `Ctrl`, `Alt`, and `Shift`, in any order. `Ctrl` is the Control key on every OS, including macOS.
-- Letters: `A` to `Z`. A letter means the key without Shift (`"a"` and `"A"` are the same key); write `"Shift+A"` for the capital.
-- Digits and symbols: the character as typed, such as `"1"`, `"@"`, `":"`, or `"+"`. Never add `Shift`: Shift+1 is written as the character it types, such as `"!"`.
+- Modifiers: `Ctrl` (the Control key on macOS too), `Alt`, and `Shift`.
+- Letters: `A` to `Z`. Write `"Shift+A"` for the capital.
+- Digits and symbols: the character as typed, without `Shift`: `"!"`, not `"Shift+1"`.
 - Named keys: `Enter`, `Space`, `Tab`, `Backspace`, `Esc`, `Up`, `Down`, `Left`, `Right`, `PageUp`, `PageDown`, `Home`, `End`, `Insert`, `Delete`, and `F1` to `F12`.
-
-Modifier and key names are not case-sensitive.
