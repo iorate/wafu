@@ -2330,7 +2330,7 @@ fn history_popup_lists_newest_first_and_narrows_to_what_is_typed() {
     assert_eq!(
         harness.popup_labels(),
         [
-            shown_place("/"),
+            format!("{} *", shown_place("/")),
             shown_place("/home"),
             shown_place("/home/user")
         ]
@@ -2369,7 +2369,10 @@ fn history_popup_switches_to_the_other_pane_with_tab_keeping_the_query() {
     harness.load(Side::Right, vec![]);
     harness.press("Tab");
     harness.press("H");
-    assert_eq!(harness.popup_labels(), [shown_place("/home/user")]);
+    assert_eq!(
+        harness.popup_labels(),
+        [format!("{} *", shown_place("/home/user"))]
+    );
 
     harness.press("Tab");
 
@@ -2470,7 +2473,10 @@ fn history_popup_shows_line_breaks_in_the_places_as_symbols() {
 
     assert_eq!(
         harness.popup_labels(),
-        [shown("/home/user", "a\u{21B5}b"), shown_place("/home/user")]
+        [
+            format!("{} *", shown("/home/user", "a\u{21B5}b")),
+            shown_place("/home/user")
+        ]
     );
 }
 
@@ -4615,7 +4621,7 @@ fn back_to_b_with_the_history_open() -> Harness {
     harness.press("H");
     assert_eq!(
         harness.popup_labels(),
-        [shown_place("/c"), "/b".to_owned(), "/a".to_owned()]
+        [shown_place("/c"), "/b *".to_owned(), "/a".to_owned()]
     );
     assert_eq!(harness.view().popup.unwrap().cursor, Some(1));
     harness.take_effects();

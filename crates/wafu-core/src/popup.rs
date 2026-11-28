@@ -361,8 +361,8 @@ pub enum ListTarget {
     /// An entry to put the cursor on, in its directory.
     Entry(PathBuf),
     Drive(char),
-    /// The encoding to decode the previewed document with; `None` detects it.
-    Encoding(Option<&'static Encoding>),
+    /// The encoding to decode the previewed document with.
+    Encoding(&'static Encoding),
 }
 
 /// Renames entries of one directory at once by one rule, with the list of
@@ -797,24 +797,19 @@ impl ListPopup {
         Self::new(ListKind::Found, items)
     }
 
-    /// Auto-detection first, then every encoding, with the one named `current` marked.
+    /// Every encoding, with the one named `current` marked.
     #[must_use]
     pub fn encodings(current: &str) -> Self {
-        let items = std::iter::once(ListItem {
-            key: None,
-            label: "Auto-detect".to_owned(),
-            current: false,
-            target: ListTarget::Encoding(None),
-            source: None,
-        })
-        .chain(ENCODINGS.iter().map(|&encoding| ListItem {
-            key: None,
-            label: encoding.name().to_owned(),
-            current: encoding.name() == current,
-            target: ListTarget::Encoding(Some(encoding)),
-            source: None,
-        }))
-        .collect();
+        let items = ENCODINGS
+            .iter()
+            .map(|&encoding| ListItem {
+                key: None,
+                label: encoding.name().to_owned(),
+                current: encoding.name() == current,
+                target: ListTarget::Encoding(encoding),
+                source: None,
+            })
+            .collect();
         Self::new(ListKind::Encodings, items)
     }
 
@@ -874,15 +869,19 @@ impl ListPopup {
         }
     }
 
-    /// The rows to show: the place, with its key, if it has one, at the end like
-    /// the sort popup.
+    /// The rows to show: the label, with `*` on the current item, and the key,
+    /// if it has one, at the end like the sort popup.
     #[must_use]
     pub fn items(&self) -> Vec<PopupItem> {
         self.matches
             .iter()
             .map(|&index| &self.items[index])
             .map(|item| PopupItem {
-                label: item.label.clone(),
+                label: if item.current {
+                    format!("{} *", item.label)
+                } else {
+                    item.label.clone()
+                },
                 detail: item
                     .key
                     .map(|key| key.to_ascii_uppercase().to_string())
@@ -2065,7 +2064,7 @@ mod tests {
 
         assert_eq!(popup.items[0].key, Some('c'));
         assert_eq!(popup.items[0].target, ListTarget::Drive('C'));
-        assert_eq!(popup.items()[1].label, "D:\\");
+        assert_eq!(popup.items()[1].label, "D:\\ *");
         assert_eq!(popup.items()[1].detail, "D");
         assert_eq!(popup.cursor, 1);
         assert!(!popup.filters());
@@ -2097,7 +2096,7 @@ mod tests {
         );
 
         popup.set_query("mus".to_owned());
-        assert_eq!(labels(&popup), [shown("/Music")]);
+        assert_eq!(labels(&popup), [format!("{} *", shown("/Music"))]);
         assert_eq!(
             menu_input(&mut popup, MenuInput::DoubleClick { row: 0 }, PAGE),
             Response::Pick(popup.items[0].clone())
@@ -2128,15 +2127,13 @@ mod tests {
     }
 
     #[test]
-    fn list_popup_of_encodings_opens_on_the_current_one_after_auto_detect() {
+    fn list_popup_of_encodings_opens_on_the_current_one() {
         let popup = ListPopup::encodings("Shift_JIS");
 
-        assert_eq!(popup.items.len(), 1 + ENCODINGS.len());
-        assert_eq!(popup.items[0].label, "Auto-detect");
-        assert_eq!(popup.items[0].target, ListTarget::Encoding(None));
+        assert_eq!(popup.items.len(), ENCODINGS.len());
         assert_eq!(
             popup.selected().unwrap().target,
-            ListTarget::Encoding(Some(encoding_rs::SHIFT_JIS))
+            ListTarget::Encoding(encoding_rs::SHIFT_JIS)
         );
         assert_eq!(popup.title(), "Encodings");
     }
