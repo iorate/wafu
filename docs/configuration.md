@@ -316,7 +316,7 @@ These placeholders are replaced when the command runs:
 | `{dir}` | The directory of the active pane |
 | `{other_dir}` | The directory of the other pane |
 
-A placeholder is replaced wherever it stands in an argument: `-o{other_dir}` and `--dir={dir}` work. Quoting does not turn it into text. `{marked_paths}` and `{paths}` are lists: an argument that holds one is repeated for each path, so `{paths}` becomes one argument per item and `--add={marked_paths}` becomes `--add=/a --add=/b`. An argument can hold only one list. The program, the first word of the line, cannot hold a placeholder.
+A placeholder is replaced wherever it stands in an argument: `-o{other_dir}` and `--dir={dir}` work. Quoting does not turn it into text. `{marked_paths}` and `{paths}` are lists: an argument that holds one is repeated for each path, so `{paths}` becomes one argument per item and `--add={marked_paths}` becomes `--add=/a --add=/b`. A list written more than once in an argument is filled with the same path each time: `{paths}={paths}.bak` becomes `/a=/a.bak /b=/b.bak`. The program, the first word of the line, cannot hold a placeholder.
 
 A line can use only one of `{cursor_path}`, `{marked_paths}`, and `{paths}`, as many times as it needs.
 

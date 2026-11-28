@@ -6,7 +6,7 @@ use super::{App, Change, Effect, MenuAnchor, Os, PreviewSource, Side, SpawnName}
 use crate::command::{Command, Context};
 use crate::entry::{Entry, EntryKind};
 use crate::error::{AppError, IoError};
-use crate::external::{CommandLine, Expansion, Placeholder};
+use crate::external::{CommandLine, Expansion, ListPlaceholder, Placeholder, SinglePlaceholder};
 use crate::filter::Filter;
 use crate::key::{Key, KeyBase, NamedKey};
 use crate::location::{ArchiveFormat, Location, Passwords};
@@ -794,13 +794,16 @@ impl App {
     ) {
         let pane = self.active_pane();
         let targets = match line.paths_placeholder() {
-            None | Some(Placeholder::Dir | Placeholder::OtherDir) => None,
-            Some(Placeholder::MarkedPaths) => Some(Targets {
+            None
+            | Some(Placeholder::Single(SinglePlaceholder::Dir | SinglePlaceholder::OtherDir)) => {
+                None
+            }
+            Some(Placeholder::List(ListPlaceholder::MarkedPaths)) => Some(Targets {
                 location: pane.location().clone(),
                 entries: pane.marked_entries().cloned().collect(),
             }),
-            Some(Placeholder::Paths) => pane.targets(),
-            Some(Placeholder::CursorPath | Placeholder::Path) => {
+            Some(Placeholder::List(ListPlaceholder::Paths)) => pane.targets(),
+            Some(Placeholder::Single(SinglePlaceholder::CursorPath | SinglePlaceholder::Path)) => {
                 pane.cursor_target().map(|(location, entry)| Targets {
                     location,
                     entries: vec![entry],
