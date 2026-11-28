@@ -10,14 +10,24 @@ const BEGIN: (&str, &str) = ("<!-- generated:", " -->");
 const END: &str = "<!-- /generated -->";
 
 const REGIONS: &[Region] = &[
-    ("defaults", defaults),
-    ("filelist", || item_table(FILELIST)),
-    ("preview.text", || item_table(TEXT_PREVIEW)),
-    ("preview.image", || item_table(IMAGE_PREVIEW)),
-    ("log", || item_table(LOG)),
-    ("programs", || item_table(PROGRAMS)),
-    ("font", || item_table(FONT)),
-    ("colors", || item_table(COLORS_CONFIG)),
+    ("filelist", || {
+        item_table(FILELIST, |config| &config.filelist)
+    }),
+    ("preview.text", || {
+        item_table(TEXT_PREVIEW, |config| &config.preview.text)
+    }),
+    ("preview.image", || {
+        item_table(IMAGE_PREVIEW, |config| &config.preview.image)
+    }),
+    ("log", || item_table(LOG, |config| &config.log)),
+    ("programs", || {
+        item_table(PROGRAMS, |config| &config.programs)
+    }),
+    // The fonts of the areas have no defaults of their own.
+    ("font", || item_table(FONT, |config| &config.font.default)),
+    ("colors", || {
+        item_table(COLORS_CONFIG, |config| &config.colors)
+    }),
     ("colors.themes", color_table),
 ];
 
@@ -31,7 +41,7 @@ type Region = (&'static str, fn() -> String);
 
 /// `current`, the text of `docs/configuration.md`, with what stands between
 /// each pair of `generated` comments written anew from the settings: the
-/// block of defaults and the tables of items. The same on every OS.
+/// tables of items with their defaults. The same on every OS.
 ///
 /// # Errors
 ///
@@ -80,56 +90,15 @@ pub fn configuration_doc(current: &str) -> Result<String, String> {
     }
 }
 
-fn defaults() -> String {
-    let tables = [
-        default_table("filelist", FILELIST, |config| &config.filelist),
-        default_table("preview.text", TEXT_PREVIEW, |config| &config.preview.text),
-        default_table("preview.image", IMAGE_PREVIEW, |config| {
-            &config.preview.image
-        }),
-        default_table("log", LOG, |config| &config.log),
-        default_table("programs", PROGRAMS, |config| &config.programs),
-        // The fonts of the areas have no defaults of their own.
-        default_table("font", FONT, |config| &config.font.default),
-        default_table("colors", COLORS_CONFIG, |config| &config.colors),
-        default_table("colors.light", COLORS, |config| &config.colors.light),
-        default_table("colors.dark", COLORS, |config| &config.colors.dark),
-    ];
-    format!("```toml\n{}```\n", tables.join("\n"))
-}
-
-// A default that differs by OS is shown in a comment, since no one line
-// would be true everywhere.
-fn default_table<T>(header: &str, settings: &[Setting<T>], part: fn(&Config) -> &T) -> String {
-    let mut out = format!("[{header}]\n");
-    for setting in settings {
-        let key = setting.key;
-        let [windows, macos, linux] = OSES.map(|(os, name)| {
-            let value = (setting.write)(part(&Config::default_for(os)))
-                .unwrap_or_else(|| panic!("{header}.{key} should have a default to show"));
-            (value.to_string(), name)
-        });
-        if windows.0 == macos.0 && macos.0 == linux.0 {
-            let _ = writeln!(out, "{key} = {}", windows.0);
-        } else {
-            let _ = writeln!(
-                out,
-                "# {key} = {} on {}, {} on {}, {} on {}",
-                windows.0, windows.1, macos.0, macos.1, linux.0, linux.1
-            );
-        }
-    }
-    out
-}
-
-fn item_table<T>(settings: &[Setting<T>]) -> String {
-    let mut out = "| Item | Value | Meaning |\n|---|---|---|\n".to_owned();
+fn item_table<T>(settings: &[Setting<T>], part: fn(&Config) -> &T) -> String {
+    let mut out = "| Item | Value | Default | Meaning |\n|---|---|---|---|\n".to_owned();
     for setting in settings {
         let _ = writeln!(
             out,
-            "| `{}` | {} | {} |",
+            "| `{}` | {} | {} | {} |",
             setting.key,
             (setting.expected)(),
+            default(setting, part),
             setting.description
         );
     }
@@ -138,11 +107,34 @@ fn item_table<T>(settings: &[Setting<T>]) -> String {
 
 // Without the column of values, which would say the same in every row.
 fn color_table() -> String {
-    let mut out = "| Item | Used for |\n|---|---|\n".to_owned();
+    let mut out = "| Item | Light | Dark | Used for |\n|---|---|---|---|\n".to_owned();
     for setting in COLORS {
-        let _ = writeln!(out, "| `{}` | {} |", setting.key, setting.description);
+        let _ = writeln!(
+            out,
+            "| `{}` | {} | {} | {} |",
+            setting.key,
+            default(setting, |config| &config.colors.light),
+            default(setting, |config| &config.colors.dark),
+            setting.description
+        );
     }
     out
+}
+
+fn default<T>(setting: &Setting<T>, part: fn(&Config) -> &T) -> String {
+    let [windows, macos, linux] = OSES.map(|(os, name)| {
+        let value = (setting.write)(part(&Config::default_for(os)))
+            .unwrap_or_else(|| panic!("{} should have a default to show", setting.key));
+        (format!("`{value}`"), name)
+    });
+    if windows.0 == macos.0 && macos.0 == linux.0 {
+        windows.0
+    } else {
+        format!(
+            "{} on {}<br>{} on {}<br>{} on {}",
+            windows.0, windows.1, macos.0, macos.1, linux.0, linux.1
+        )
+    }
 }
 
 #[cfg(test)]
@@ -163,7 +155,7 @@ mod tests {
 
         assert!(doc.contains(&format!(
             "before\n<!-- generated:log -->\n\n{}\n{END}\n",
-            item_table(LOG)
+            item_table(LOG, |config| &config.log)
         )));
         assert!(doc.ends_with(&format!("{END}\nafter\n")));
         assert_eq!(configuration_doc(&doc).unwrap(), doc);
@@ -202,19 +194,37 @@ mod tests {
     }
 
     #[test]
-    fn the_block_of_defaults_reads_back_as_the_defaults() {
-        let block = defaults();
-        let text = block
-            .strip_prefix("```toml\n")
-            .and_then(|text| text.strip_suffix("```\n"))
-            .unwrap();
-
+    fn the_defaults_shown_read_back_as_the_defaults() {
         for (os, _) in OSES {
-            let (config, diagnostics) =
-                parse_config([(Path::new("config.toml"), text)], os).unwrap();
+            let config = Config::default_for(os);
+            let text = [
+                table("filelist", FILELIST, &config.filelist),
+                table("preview.text", TEXT_PREVIEW, &config.preview.text),
+                table("preview.image", IMAGE_PREVIEW, &config.preview.image),
+                table("log", LOG, &config.log),
+                table("programs", PROGRAMS, &config.programs),
+                table("font", FONT, &config.font.default),
+                table("colors", COLORS_CONFIG, &config.colors),
+                table("colors.light", COLORS, &config.colors.light),
+                table("colors.dark", COLORS, &config.colors.dark),
+            ]
+            .concat();
+
+            let (read, diagnostics) =
+                parse_config([(Path::new("config.toml"), text.as_str())], os).unwrap();
+
             assert_eq!(diagnostics, [], "{os:?}");
-            assert_eq!(config, Config::default_for(os), "{os:?}");
+            assert_eq!(read, config, "{os:?}");
         }
+    }
+
+    fn table<T>(header: &str, settings: &[Setting<T>], part: &T) -> String {
+        let mut out = format!("[{header}]\n");
+        for setting in settings {
+            let value = (setting.write)(part).unwrap();
+            let _ = writeln!(out, "{} = {value}", setting.key);
+        }
+        out
     }
 
     fn skeleton() -> String {

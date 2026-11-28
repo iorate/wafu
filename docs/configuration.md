@@ -29,105 +29,26 @@ The configuration file applies over what it extends, and each file in an array o
 
 A relative path is taken from the directory of the file that names it.
 
-## Defaults
-
-<!-- generated:defaults -->
-
-```toml
-[filelist]
-new_dir_goes_to_dir = true
-new_text_creates_file = true
-extract_creates_dir = true
-require_marks = true
-search_match = "anywhere"
-size_format = "plain"
-size_digits = 9
-time_shows_full_year = true
-time_shows_seconds = true
-extension_chars = 4
-min_name_chars = 8
-max_history = 100
-max_find_matches = 10000
-mark_compare_tolerance_ms = 2000
-
-[preview.text]
-hide_log = false
-max_bytes = 16777216
-
-[preview.image]
-placement_from_left = "other_pane"
-placement_from_right = "both_panes"
-hide_log = false
-max_bytes = 67108864
-
-[log]
-max_lines = 1000
-
-[programs]
-# editor = "notepad {path}" on Windows, "open -t {path}" on macOS, "xdg-open {path}" on Linux
-use_login_shell_env = true
-
-[font]
-family = ""
-size = 12
-
-[colors]
-theme = "auto"
-hidden_opacity = 0.7
-
-[colors.light]
-fg = "#1e1e1e"
-bg = "#ffffff"
-line_number = "#626262"
-mark = "#dcdcdc"
-cursor = "#1e1e1e"
-cursor_inactive = "#7d7d7d"
-dir = "#1f5fbf"
-link = "#0e7c86"
-link_broken = "#c0392b"
-exec = "#2a8c2a"
-special = "#b8860b"
-socket = "#b03a9a"
-
-[colors.dark]
-fg = "#d4d4d4"
-bg = "#1e1e1e"
-line_number = "#9d9d9d"
-mark = "#3c3c3c"
-cursor = "#d4d4d4"
-cursor_inactive = "#888888"
-dir = "#6fa8ff"
-link = "#4fd1e0"
-link_broken = "#ff6b6b"
-exec = "#5fd75f"
-special = "#f0c050"
-socket = "#e58ae0"
-```
-
-<!-- /generated -->
-
-Bookmarks, external commands, [alternative open](#alternative-open), and [extension colors](#colors) are empty by default. [commands.md](commands.md) lists the default keys.
-
 ## File list
 
 <!-- generated:filelist -->
 
-| Item | Value | Meaning |
-|---|---|---|
-| `new_dir_goes_to_dir` | true or false | Go to the directory that `new_dir` created. |
-| `new_text_creates_file` | true or false | `new_text` creates the file before opening it in the editor. |
-| `extract_creates_dir` | true or false | `extract` and `extract_here` put the contents in a directory named after the archive. |
-| `require_marks` | true or false | `copy`, `move`, `delete`, and `trash` act only on marked items, never on the cursor item alone. |
-| `search_match` | anywhere or start | Where in a name `search` finds the text: `"anywhere"` or `"start"` (only at the start of a name). |
-| `size_format` | plain, comma, or human | How the file list's size column writes sizes: `"plain"` (`1234567`), `"comma"` (`1,234,567`), or `"human"` (`1.2M`). |
-| `size_digits` | an integer from 5 to 20 | How many digits the size column holds with `"plain"` and `"comma"`. A size with more digits is written as with `"human"`. With `"human"`, the column always holds five characters. |
-| `time_shows_full_year` | true or false | The file list's time column writes the year in full (`2026/01/02`). When `false`, only its last two digits (`26/01/02`). |
-| `time_shows_seconds` | true or false | The file list's time column writes the seconds (`03:04:05`). When `false`, only the hours and minutes (`03:04`). |
-| `extension_chars` | an integer from 1 to 255 | How many characters of an extension the extension column holds after the dot. A longer extension ends in an ellipsis. |
-| `min_name_chars` | an integer from 1 to 255 | How many characters of a name a narrow pane still shows before cutting off the other columns. |
-| `max_history` | an integer of 1 or more | How many places each pane's history keeps, for `history`, `go_back`, and `go_forward`. |
-| `max_find_matches` | an integer of 1 or more | How many matches `find` collects before it stops. |
-| `mark_compare_tolerance_ms` | an integer of 0 or more | How many milliseconds apart two modification times may be for `mark_compare` to take them as the same. `0` compares them exactly. |
+| Item | Value | Default | Meaning |
+|---|---|---|---|
+| `new_dir_goes_to_dir` | true or false | `true` | Go to the directory that `new_dir` created. |
+| `new_text_creates_file` | true or false | `true` | `new_text` creates the file before opening it in the editor. |
+| `extract_creates_dir` | true or false | `true` | `extract` and `extract_here` put the contents in a directory named after the archive. |
+| `require_marks` | true or false | `true` | `copy`, `move`, `delete`, and `trash` act only on marked items, never on the cursor item alone. |
+| `search_match` | anywhere or start | `"anywhere"` | Where in a name `search` finds the text: `"anywhere"` or `"start"` (only at the start of a name). |
+| `size_format` | plain, comma, or human | `"plain"` | How the file list's size column writes sizes: `"plain"` (`1234567`), `"comma"` (`1,234,567`), or `"human"` (`1.2M`). |
+| `size_digits` | an integer from 5 to 20 | `9` | How many digits the size column holds with `"plain"` and `"comma"`. A size with more digits is written as with `"human"`. With `"human"`, the column always holds five characters. |
+| `time_shows_full_year` | true or false | `true` | The file list's time column writes the year in full (`2026/01/02`). When `false`, only its last two digits (`26/01/02`). |
+| `time_shows_seconds` | true or false | `true` | The file list's time column writes the seconds (`03:04:05`). When `false`, only the hours and minutes (`03:04`). |
+| `extension_chars` | an integer from 1 to 255 | `4` | How many characters of an extension the extension column holds after the dot. A longer extension ends in an ellipsis. |
+| `min_name_chars` | an integer from 1 to 255 | `8` | How many characters of a name a narrow pane still shows before cutting off the other columns. |
+| `max_history` | an integer of 1 or more | `100` | How many places each pane's history keeps, for `history`, `go_back`, and `go_forward`. |
+| `max_find_matches` | an integer of 1 or more | `10000` | How many matches `find` collects before it stops. |
+| `mark_compare_tolerance_ms` | an integer of 0 or more | `2000` | How many milliseconds apart two modification times may be for `mark_compare` to take them as the same. `0` compares them exactly. |
 
 <!-- /generated -->
 
@@ -137,10 +58,10 @@ Bookmarks, external commands, [alternative open](#alternative-open), and [extens
 
 <!-- generated:preview.text -->
 
-| Item | Value | Meaning |
-|---|---|---|
-| `hide_log` | true or false | Hide the log while a text preview is open. |
-| `max_bytes` | an integer of 1 or more | How many bytes of a file the text preview reads. A longer file is cut there. |
+| Item | Value | Default | Meaning |
+|---|---|---|---|
+| `hide_log` | true or false | `false` | Hide the log while a text preview is open. |
+| `max_bytes` | an integer of 1 or more | `16777216` | How many bytes of a file the text preview reads. A longer file is cut there. |
 
 <!-- /generated -->
 
@@ -148,12 +69,12 @@ Bookmarks, external commands, [alternative open](#alternative-open), and [extens
 
 <!-- generated:preview.image -->
 
-| Item | Value | Meaning |
-|---|---|---|
-| `placement_from_left` | other_pane or both_panes | Where an image opened from the left pane is shown: `"other_pane"` (in place of the right pane, while the left pane stays) or `"both_panes"`. |
-| `placement_from_right` | other_pane or both_panes | Where an image opened from the right pane is shown: `"other_pane"` (in place of the left pane, while the right pane stays) or `"both_panes"`. |
-| `hide_log` | true or false | Hide the log while an image takes the place of both panes. |
-| `max_bytes` | an integer of 1 or more | The largest image file, in bytes, the image preview opens. |
+| Item | Value | Default | Meaning |
+|---|---|---|---|
+| `placement_from_left` | other_pane or both_panes | `"other_pane"` | Where an image opened from the left pane is shown: `"other_pane"` (in place of the right pane, while the left pane stays) or `"both_panes"`. |
+| `placement_from_right` | other_pane or both_panes | `"both_panes"` | Where an image opened from the right pane is shown: `"other_pane"` (in place of the left pane, while the right pane stays) or `"both_panes"`. |
+| `hide_log` | true or false | `false` | Hide the log while an image takes the place of both panes. |
+| `max_bytes` | an integer of 1 or more | `67108864` | The largest image file, in bytes, the image preview opens. |
 
 <!-- /generated -->
 
@@ -161,9 +82,9 @@ Bookmarks, external commands, [alternative open](#alternative-open), and [extens
 
 <!-- generated:log -->
 
-| Item | Value | Meaning |
-|---|---|---|
-| `max_lines` | an integer of 1 or more | How many lines the log keeps. |
+| Item | Value | Default | Meaning |
+|---|---|---|---|
+| `max_lines` | an integer of 1 or more | `1000` | How many lines the log keeps. |
 
 <!-- /generated -->
 
@@ -171,10 +92,10 @@ Bookmarks, external commands, [alternative open](#alternative-open), and [extens
 
 <!-- generated:programs -->
 
-| Item | Value | Meaning |
-|---|---|---|
-| `editor` | a string | The command line that opens a file for editing, used by `edit`, `new_text`, `preview_edit`, and `edit_config`. It follows the rules of [external commands](#commands), with `{path}`, the file, as its only placeholder. |
-| `use_login_shell_env` | true or false | macOS and Linux: give the programs wafu starts the environment of your login shell. |
+| Item | Value | Default | Meaning |
+|---|---|---|---|
+| `editor` | a string | `"notepad {path}"` on Windows<br>`"open -t {path}"` on macOS<br>`"xdg-open {path}"` on Linux | The command line that opens a file for editing, used by `edit`, `new_text`, `preview_edit`, and `edit_config`. It follows the rules of [external commands](#commands), with `{path}`, the file, as its only placeholder. |
+| `use_login_shell_env` | true or false | `true` | macOS and Linux: give the programs wafu starts the environment of your login shell. |
 
 <!-- /generated -->
 
@@ -190,10 +111,10 @@ With `use_login_shell_env`, wafu runs your shell once at startup as an interacti
 
 <!-- generated:font -->
 
-| Item | Value | Meaning |
-|---|---|---|
-| `family` | a string | A font family name. Empty means the monospaced font of the OS (Consolas on Windows, Menlo on macOS, DejaVu Sans Mono on Linux). |
-| `size` | an integer from 6 to 72 | The font size, in pixels. |
+| Item | Value | Default | Meaning |
+|---|---|---|---|
+| `family` | a string | `""` | A font family name. Empty means the monospaced font of the OS (Consolas on Windows, Menlo on macOS, DejaVu Sans Mono on Linux). |
+| `size` | an integer from 6 to 72 | `12` | The font size, in pixels. |
 
 <!-- /generated -->
 
@@ -209,10 +130,10 @@ size = 16
 
 <!-- generated:colors -->
 
-| Item | Value | Meaning |
-|---|---|---|
-| `theme` | auto, light, or dark | Which colors are used: `"auto"` (follow the OS), `"light"`, or `"dark"`. |
-| `hidden_opacity` | a number from 0 to 1 | How opaque the names of hidden items are: `0` is invisible, and `1` is like other items. |
+| Item | Value | Default | Meaning |
+|---|---|---|---|
+| `theme` | auto, light, or dark | `"auto"` | Which colors are used: `"auto"` (follow the OS), `"light"`, or `"dark"`. |
+| `hidden_opacity` | a number from 0 to 1 | `0.7` | How opaque the names of hidden items are: `0` is invisible, and `1` is like other items. |
 
 <!-- /generated -->
 
@@ -220,20 +141,20 @@ size = 16
 
 <!-- generated:colors.themes -->
 
-| Item | Used for |
-|---|---|
-| `fg` | Text: regular files and the rest of the window's text |
-| `bg` | Background |
-| `line_number` | Line numbers in the text preview, and offsets in its binary mode |
-| `mark` | Background of marked rows and of the preview of a marked image |
-| `cursor` | The cursor line |
-| `cursor_inactive` | The cursor line while the window is not focused |
-| `dir` | Directories |
-| `link` | Symbolic links whose target exists |
-| `link_broken` | Symbolic links whose target does not exist |
-| `exec` | Executable files |
-| `special` | Named pipes and devices |
-| `socket` | Sockets |
+| Item | Light | Dark | Used for |
+|---|---|---|---|
+| `fg` | `"#1e1e1e"` | `"#d4d4d4"` | Text: regular files and the rest of the window's text |
+| `bg` | `"#ffffff"` | `"#1e1e1e"` | Background |
+| `line_number` | `"#626262"` | `"#9d9d9d"` | Line numbers in the text preview, and offsets in its binary mode |
+| `mark` | `"#dcdcdc"` | `"#3c3c3c"` | Background of marked rows and of the preview of a marked image |
+| `cursor` | `"#1e1e1e"` | `"#d4d4d4"` | The cursor line |
+| `cursor_inactive` | `"#7d7d7d"` | `"#888888"` | The cursor line while the window is not focused |
+| `dir` | `"#1f5fbf"` | `"#6fa8ff"` | Directories |
+| `link` | `"#0e7c86"` | `"#4fd1e0"` | Symbolic links whose target exists |
+| `link_broken` | `"#c0392b"` | `"#ff6b6b"` | Symbolic links whose target does not exist |
+| `exec` | `"#2a8c2a"` | `"#5fd75f"` | Executable files |
+| `special` | `"#b8860b"` | `"#f0c050"` | Named pipes and devices |
+| `socket` | `"#b03a9a"` | `"#e58ae0"` | Sockets |
 
 <!-- /generated -->
 
