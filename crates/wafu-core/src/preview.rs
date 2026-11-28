@@ -448,9 +448,12 @@ mod tests {
 
     #[test]
     fn carriage_returns_and_tabs_are_normalized() {
-        let document = Document::decode(b"a\r\nb\rc\td\n\tx".to_vec(), false, None);
+        let document = Document::decode(b"a\r\nb\rc\td\te\n\tx".to_vec(), false, None);
 
-        assert_eq!(texts(&document), ["a", "b", "c       d", "        x"]);
+        assert_eq!(
+            texts(&document),
+            ["a", "b", "c       d       e", "        x"]
+        );
     }
 
     #[test]

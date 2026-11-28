@@ -1378,6 +1378,44 @@ fn a_wrong_password_is_asked_again_and_forgotten() {
 }
 
 #[test]
+fn a_wrong_password_for_a_nested_archive_being_extracted_keeps_the_one_the_pane_knows() {
+    let mut harness = nested();
+    harness.press("Down");
+    harness.press("Down");
+    harness.press("Space");
+    harness.press("C");
+    harness.operation(OperationEvent::NeedPassword {
+        archive: "a.zip:/inner.zip".into(),
+        level: 1,
+        retry: false,
+    });
+    harness.edit("pw");
+    harness.press("Enter");
+    harness.operation(OperationEvent::ItemDone { index: 0 });
+    harness.finish(Outcome::Completed { skipped: 0 });
+    harness.press("Home");
+    harness.press("U");
+    harness.operation(OperationEvent::NeedPassword {
+        archive: "a.zip:/inner.zip".into(),
+        level: 1,
+        retry: false,
+    });
+    harness.edit("bad");
+    harness.press("Enter");
+
+    harness.operation(OperationEvent::NeedPassword {
+        archive: "a.zip:/inner.zip".into(),
+        level: 1,
+        retry: true,
+    });
+
+    assert_eq!(
+        harness.archive_passwords(Side::Left),
+        passwords(&[None, Some("pw")])
+    );
+}
+
+#[test]
 fn edit_inside_an_archive_extracts_to_a_temporary_directory_and_then_starts_the_editor() {
     let mut harness = inside();
     harness.press("Down");
