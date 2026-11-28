@@ -32,11 +32,11 @@ pub(crate) fn spawn(
         command
     };
     match build(program).spawn() {
-        // std looks for a bare name only with `.exe` appended, so the other
-        // extensions of `PATHEXT` are tried here, as for `code.cmd`.
+        // std looks for a bare name only with `.exe` appended, so the
+        // extensions that can be started are tried here, as for `code.cmd`.
         #[cfg(windows)]
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            match find_with_pathext(program, env) {
+            match find_with_extension(program, env) {
                 Some(path) => build(path.as_os_str()).spawn(),
                 None => Err(error),
             }
@@ -151,8 +151,13 @@ fn command_line(args: &[OsString]) -> Vec<u16> {
 }
 
 #[cfg(windows)]
-fn find_with_pathext(program: &OsStr, env: &[(OsString, OsString)]) -> Option<std::path::PathBuf> {
-    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+fn find_with_extension(
+    program: &OsStr,
+    env: &[(OsString, OsString)],
+) -> Option<std::path::PathBuf> {
+    use std::os::windows::ffi::OsStrExt;
+
+    use crate::read_dir::EXECUTABLE_EXTENSIONS;
 
     let bare = program
         .encode_wide()
@@ -161,21 +166,18 @@ fn find_with_pathext(program: &OsStr, env: &[(OsString, OsString)]) -> Option<st
         return None;
     }
     let path = child_var(env, "PATH")?;
-    let pathext: Vec<u16> = child_var(env, "PATHEXT")?.encode_wide().collect();
-    // An empty element would stand for the current directory in `PATH` and
-    // for the bare name in `PATHEXT`; std searches neither.
+    // An empty element would stand for the current directory, which std does
+    // not search.
     std::env::split_paths(&path)
         .filter(|dir| !dir.as_os_str().is_empty())
         .find_map(|dir| {
-            pathext
-                .split(|&c| c == u16::from(b';'))
-                .filter(|ext| !ext.is_empty())
-                .find_map(|ext| {
-                    let mut name = program.to_owned();
-                    name.push(OsString::from_wide(ext));
-                    let candidate = dir.join(name);
-                    candidate.is_file().then_some(candidate)
-                })
+            EXECUTABLE_EXTENSIONS.into_iter().find_map(|extension| {
+                let mut name = program.to_owned();
+                name.push(".");
+                name.push(extension);
+                let candidate = dir.join(name);
+                candidate.is_file().then_some(candidate)
+            })
         })
 }
 
@@ -206,10 +208,13 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn a_bare_name_finds_a_batch_file_on_the_path() {
-        let dir = TempDir::new().unwrap();
-        std::fs::write(dir.path().join("wafu-hello.cmd"), "@exit 0\r\n").unwrap();
-        let env = [(OsString::from("PATH"), dir.path().as_os_str().to_owned())];
+    fn a_bare_name_skips_a_file_that_cannot_be_started() {
+        let scripts = TempDir::new().unwrap();
+        let batches = TempDir::new().unwrap();
+        std::fs::write(scripts.path().join("wafu-hello.js"), "").unwrap();
+        std::fs::write(batches.path().join("wafu-hello.cmd"), "@exit 0\r\n").unwrap();
+        let path = std::env::join_paths([scripts.path(), batches.path()]).unwrap();
+        let env = [(OsString::from("PATH"), path)];
 
         let mut child = spawn("wafu-hello", &[] as &[&str], None, &env).unwrap();
 
